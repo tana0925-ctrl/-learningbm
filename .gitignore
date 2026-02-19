@@ -1,0 +1,15 @@
+# Node
+node_modules/
+
+# Wrangler/CF local state
+.wrangler/
+
+# Env
+.dev.vars
+.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
