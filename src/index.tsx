@@ -77,7 +77,7 @@ function randomHex(bytes = 16) {
   return [...a].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-async function pbkdf2Hash(password: string, saltHex: string, iterations = 120_000) {
+async function pbkdf2Hash(password: string, saltHex: string, iterations = 100_000) {
   const enc = new TextEncoder()
   const salt = new Uint8Array(saltHex.match(/.{1,2}/g)!.map((x) => parseInt(x, 16)))
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits'])
