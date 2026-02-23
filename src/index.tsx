@@ -363,6 +363,13 @@ app.get('/api/admin/results', async (c) => {
 
 // -------------------- Pages (simple HTML endpoints) --------------------
 
+// Serve the game HTML (built into dist/index.html as an asset)
+app.get('/', async (c) => {
+  const res = await fetch(new URL('/index.html', c.req.url))
+  return res
+})
+
+
 app.get('/login', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>ログイン</title><script src="https://cdn.tailwindcss.com"></script></head>
