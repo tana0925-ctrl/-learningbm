@@ -15,6 +15,13 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
+// Global error handler (to avoid silent 500)
+app.onError((err, c) => {
+  console.error('Unhandled error:', err)
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  return c.text(`Internal Error\n${msg}`, 500)
+})
+
 app.use('/api/*', cors())
 
 // -------------------- utils --------------------
