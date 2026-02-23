@@ -365,8 +365,12 @@ app.get('/api/admin/results', async (c) => {
 
 // Serve the game HTML (built into dist/index.html as an asset)
 app.get('/', async (c) => {
-  const res = await fetch(new URL('/index.html', c.req.url))
-  return res
+  // Avoid fetch('/') recursion when _routes includes "/*" and excludes "/index.html".
+  // Serve the built HTML from the bundled asset in dist/index.html.
+  // @ts-ignore - Cloudflare Pages provides a static assets binding.
+  const asset = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
+  if (asset) return asset
+  return c.text('index.html not found', 404)
 })
 
 
