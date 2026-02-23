@@ -1,6 +1,17 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webapp",
-  "compatibility_date": "2024-01-01",
-  "pages_build_output_dir": "./public"
+  "name": "learningbm",
+  "compatibility_date": "2026-02-23",
+  "pages_build_output_dir": "./dist",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "learningbm-production",
+      "database_id": "8aa1f65c-47b0-4a6b-a040-e044fe00e17e"
+    }
+  ]
 }
