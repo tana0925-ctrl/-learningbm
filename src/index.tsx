@@ -5,8 +5,8 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 type Bindings = {
   DB: D1Database
   SESSION_SECRET: string
-  ADMIN_LOGIN_ID: string
-  ADMIN_PASSWORD: string
+  ADMIN_LOGIN_ID?: string
+  ADMIN_PASSWORD?: string
 }
 
 type Variables = {
@@ -109,8 +109,8 @@ async function readSession(secret: string, token: string) {
 
 // -------------------- ensure admin exists --------------------
 app.use('*', async (c, next) => {
-  const adminLoginId = c.env.ADMIN_LOGIN_ID
-  const adminPassword = c.env.ADMIN_PASSWORD
+  const adminLoginId = c.env.ADMIN_LOGIN_ID || ''
+  const adminPassword = c.env.ADMIN_PASSWORD || ''
   const secret = c.env.SESSION_SECRET
   if (!adminLoginId || !adminPassword || !secret) {
     // allow app to run but admin won't be auto-provisioned
@@ -132,6 +132,8 @@ app.use('*', async (c, next) => {
     )
       .bind(id, adminLoginId, hash, salt)
       .run()
+  } else {
+    // If admin already exists in DB, do NOT override password using Secrets.
   }
 
   return next()
@@ -201,7 +203,8 @@ app.post('/api/auth/login', async (c) => {
   if (!loginId || !password) return jsonError(c, 400, 'missing_credentials')
 
   const row = await c.env.DB.prepare(
-    `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive
+    `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive,
+            must_change_password as mustChangePassword
      FROM users WHERE login_id = ? LIMIT 1`
   )
     .bind(loginId)
@@ -232,7 +235,7 @@ app.post('/api/auth/login', async (c) => {
     maxAge: 60 * 60 * 24 * 30,
   })
 
-  return c.json({ ok: true, role: row.role })
+  return c.json({ ok: true, role: row.role, mustChangePassword: !!row.mustChangePassword })
 })
 
 app.post('/api/auth/logout', async (c) => {
@@ -324,11 +327,37 @@ app.get('/api/admin/pending', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const res = await c.env.DB.prepare(
-    `SELECT id, login_id as loginId, name, grade, class_name as className, created_at as createdAt
+    `SELECT id, login_id as loginId, name, grade, class_name as className, created_at as createdAt, disabled_reason as disabledReason
      FROM users WHERE role='student' AND is_active=0
      ORDER BY created_at DESC`
   ).all<any>()
 
+  return c.json({ ok: true, users: res.results })
+})
+
+app.get('/api/admin/users', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const grade = c.req.query('grade')
+  const className = c.req.query('class')
+
+  const cond: string[] = [`role='student'`]
+  const binds: any[] = []
+
+  if (grade) {
+    cond.push('grade = ?')
+    binds.push(Number(grade))
+  }
+  if (className) {
+    cond.push('class_name = ?')
+    binds.push(String(className))
+  }
+
+  const sql = `SELECT id, login_id as loginId, name, grade, class_name as className, is_active as isActive, disabled_reason as disabledReason, created_at as createdAt
+               FROM users WHERE ${cond.join(' AND ')} ORDER BY grade ASC, class_name ASC, name ASC`
+
+  const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
   return c.json({ ok: true, users: res.results })
 })
 
@@ -337,7 +366,71 @@ app.post('/api/admin/approve/:id', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const id = c.req.param('id')
-  await c.env.DB.prepare(`UPDATE users SET is_active=1 WHERE id=? AND role='student'`).bind(id).run()
+  await c.env.DB.prepare(`UPDATE users SET is_active=1, disabled_reason=NULL WHERE id=? AND role='student'`).bind(id).run()
+  return c.json({ ok: true })
+})
+
+app.post('/api/admin/disable/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const reason = body?.reason ? String(body.reason).slice(0, 200) : null
+  await c.env.DB
+    .prepare(`UPDATE users SET is_active=0, disabled_reason=? WHERE id=? AND role='student'`)
+    .bind(reason, id)
+    .run()
+  return c.json({ ok: true })
+})
+
+app.post('/api/admin/reset-password/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const id = c.req.param('id')
+  const temp = randomHex(4) // 8 hex chars
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(temp, salt)
+
+  await c.env.DB
+    .prepare(
+      `UPDATE users
+       SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=1
+       WHERE id=? AND role='student'`
+    )
+    .bind(hash, salt, id)
+    .run()
+
+  return c.json({ ok: true, tempPassword: temp })
+})
+
+app.post('/api/admin/change-password', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const oldPassword = String(body.oldPassword || '')
+  const newPassword = String(body.newPassword || '')
+  if (!oldPassword || !newPassword) return jsonError(c, 400, 'missing_fields')
+  if (newPassword.length < 8) return jsonError(c, 400, 'new_password_too_short')
+
+  const row = await c.env.DB.prepare(`SELECT id, password_hash as hash, password_salt as salt FROM users WHERE id=? AND role='admin' LIMIT 1`)
+    .bind(u.id)
+    .first<any>()
+  if (!row) return jsonError(c, 404, 'admin_not_found')
+
+  const calc = await pbkdf2Hash(oldPassword, row.salt)
+  if (calc !== row.hash) return jsonError(c, 401, 'invalid_old_password')
+
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(newPassword, salt)
+  await c.env.DB
+    .prepare(`UPDATE users SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=0 WHERE id=?`)
+    .bind(hash, salt, u.id)
+    .run()
+
   return c.json({ ok: true })
 })
 
@@ -346,19 +439,118 @@ app.get('/api/admin/results', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const limit = Math.min(500, Math.max(1, Number(c.req.query('limit') || 100)))
+  const from = c.req.query('from') // ISO or YYYY-MM-DD
+  const to = c.req.query('to')
+  const grade = c.req.query('grade')
+  const className = c.req.query('class')
+
+  const cond: string[] = []
+  const binds: any[] = []
+
+  if (from) {
+    cond.push('r.answered_at >= ?')
+    binds.push(from)
+  }
+  if (to) {
+    cond.push('r.answered_at <= ?')
+    binds.push(to)
+  }
+  if (grade) {
+    cond.push('u.grade = ?')
+    binds.push(Number(grade))
+  }
+  if (className) {
+    cond.push('u.class_name = ?')
+    binds.push(String(className))
+  }
+
+  const where = cond.length ? `WHERE ${cond.join(' AND ')}` : ''
 
   const res = await c.env.DB.prepare(
     `SELECT r.id, r.answered_at as answeredAt, r.unit, r.question_id as questionId, r.is_correct as isCorrect, r.time_ms as timeMs,
             u.login_id as loginId, u.name, u.grade, u.class_name as className
      FROM learning_results r
      JOIN users u ON u.id = r.user_id
+     ${where}
      ORDER BY r.answered_at DESC
      LIMIT ?`
   )
-    .bind(limit)
+    .bind(...binds, limit)
     .all<any>()
 
   return c.json({ ok: true, results: res.results })
+})
+
+app.get('/api/admin/results.csv', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const grade = c.req.query('grade')
+  const className = c.req.query('class')
+
+  const cond: string[] = []
+  const binds: any[] = []
+
+  if (from) {
+    cond.push('r.answered_at >= ?')
+    binds.push(from)
+  }
+  if (to) {
+    cond.push('r.answered_at <= ?')
+    binds.push(to)
+  }
+  if (grade) {
+    cond.push('u.grade = ?')
+    binds.push(Number(grade))
+  }
+  if (className) {
+    cond.push('u.class_name = ?')
+    binds.push(String(className))
+  }
+
+  const where = cond.length ? `WHERE ${cond.join(' AND ')}` : ''
+
+  const res = await c.env.DB.prepare(
+    `SELECT r.answered_at as answeredAt, u.grade, u.class_name as className, u.name, u.login_id as loginId,
+            r.unit, r.question_id as questionId, r.is_correct as isCorrect, r.time_ms as timeMs
+     FROM learning_results r
+     JOIN users u ON u.id = r.user_id
+     ${where}
+     ORDER BY r.answered_at DESC
+     LIMIT 5000`
+  )
+    .bind(...binds)
+    .all<any>()
+
+  const header = ['answeredAt','grade','class','name','loginId','unit','questionId','isCorrect','timeMs']
+  const escape = (v: any) => {
+    const s = v == null ? '' : String(v)
+    if (/[\n\r",]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+    return s
+  }
+  const lines = [header.join(',')]
+  for (const r of res.results) {
+    lines.push([
+      r.answeredAt,
+      r.grade,
+      r.className,
+      r.name,
+      r.loginId,
+      r.unit,
+      r.questionId,
+      r.isCorrect,
+      r.timeMs,
+    ].map(escape).join(','))
+  }
+
+  return new Response(lines.join('\n'), {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="learning_results.csv"',
+    },
+  })
 })
 
 // -------------------- Pages (simple HTML endpoints) --------------------
@@ -445,15 +637,49 @@ app.get('/admin', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>管理者</title><script src="https://cdn.tailwindcss.com"></script></head>
   <body class="min-h-screen bg-slate-100 p-4">
-    <div class="max-w-3xl mx-auto space-y-4">
+    <div class="max-w-5xl mx-auto space-y-4">
       <div class="bg-white rounded-xl shadow p-6 flex items-center justify-between">
         <h1 class="text-xl font-bold">管理者ページ</h1>
         <button id="logout" class="text-sm underline">ログアウト</button>
       </div>
 
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl shadow p-6">
+          <h2 class="font-bold mb-2">管理者パスワード変更</h2>
+          <div class="space-y-2">
+            <input id="oldAdminPw" type="password" class="w-full border p-2 rounded" placeholder="現在のパスワード" />
+            <input id="newAdminPw" type="password" class="w-full border p-2 rounded" placeholder="新しいパスワード（8文字以上）" />
+            <button id="changeAdminPwBtn" class="bg-indigo-600 text-white rounded px-3 py-2">変更</button>
+            <p id="adminPwMsg" class="text-sm"></p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow p-6">
+          <h2 class="font-bold mb-2">CSVエクスポート</h2>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <input id="csvFrom" class="border p-2 rounded" placeholder="from (YYYY-MM-DD)" />
+            <input id="csvTo" class="border p-2 rounded" placeholder="to (YYYY-MM-DD)" />
+            <input id="csvGrade" class="border p-2 rounded" placeholder="学年(1-6)" />
+            <input id="csvClass" class="border p-2 rounded" placeholder="クラス" />
+          </div>
+          <button id="csvBtn" class="mt-2 bg-emerald-600 text-white rounded px-3 py-2">CSVダウンロード</button>
+        </div>
+      </div>
+
       <div class="bg-white rounded-xl shadow p-6">
-        <h2 class="font-bold mb-2">承認待ち</h2>
+        <h2 class="font-bold mb-2">承認待ち / 停止中</h2>
         <div id="pending" class="space-y-2 text-sm"></div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="font-bold mb-2">児童一覧</h2>
+        <div class="flex flex-wrap gap-2 mb-2 text-sm">
+          <input id="filterGrade" class="border p-2 rounded" placeholder="学年" />
+          <input id="filterClass" class="border p-2 rounded" placeholder="クラス" />
+          <button id="filterBtn" class="bg-slate-700 text-white rounded px-3">絞り込み</button>
+          <button id="reloadBtn" class="bg-slate-200 rounded px-3">更新</button>
+        </div>
+        <div id="users" class="space-y-2 text-sm"></div>
       </div>
 
       <div class="bg-white rounded-xl shadow p-6">
@@ -465,6 +691,8 @@ app.get('/admin', (c) => {
     <script>
       async function api(path, opt){
         const r = await fetch(path, opt);
+        const isCsv = String(path||'').includes('.csv');
+        if(isCsv) return r;
         const j = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(j.error || 'error');
         return j;
@@ -475,32 +703,118 @@ app.get('/admin', (c) => {
         location.href='/login';
       };
 
-      async function load(){
-        // pending
+      document.getElementById('changeAdminPwBtn').onclick = async () => {
+        const msg = document.getElementById('adminPwMsg');
+        msg.textContent='';
+        try{
+          const oldPassword = document.getElementById('oldAdminPw').value;
+          const newPassword = document.getElementById('newAdminPw').value;
+          await api('/api/admin/change-password',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({oldPassword,newPassword})});
+          msg.textContent='変更しました';
+          msg.className='text-sm text-green-700';
+          document.getElementById('oldAdminPw').value='';
+          document.getElementById('newAdminPw').value='';
+        }catch(e){
+          msg.textContent=String(e.message||e);
+          msg.className='text-sm text-red-700';
+        }
+      };
+
+      document.getElementById('csvBtn').onclick = async () => {
+        const from = document.getElementById('csvFrom').value.trim();
+        const to = document.getElementById('csvTo').value.trim();
+        const grade = document.getElementById('csvGrade').value.trim();
+        const cls = document.getElementById('csvClass').value.trim();
+        const qs = new URLSearchParams();
+        if(from) qs.set('from', from);
+        if(to) qs.set('to', to);
+        if(grade) qs.set('grade', grade);
+        if(cls) qs.set('class', cls);
+        location.href = '/api/admin/results.csv?' + qs.toString();
+      };
+
+      async function renderPending(){
         const p = await api('/api/admin/pending');
         const wrap = document.getElementById('pending');
-        wrap.innerHTML = '';
-        if(!p.users.length){ wrap.textContent='承認待ちはありません'; }
+        wrap.innerHTML='';
+        if(!p.users.length){ wrap.textContent='承認待ち/停止中はありません'; return; }
         for(const u of p.users){
           const div = document.createElement('div');
-          div.className='flex items-center justify-between border rounded p-2';
-          div.innerHTML = '<div>' + u.grade + '年 ' + u.className + ' / ' + u.name + '（' + u.loginId + '）</div>';
-          const btn = document.createElement('button');
-          btn.className='bg-blue-600 text-white rounded px-3 py-1';
-          btn.textContent='承認';
-          btn.onclick = async () => {
-            await api('/api/admin/approve/'+u.id,{method:'POST'});
-            await load();
-          };
-          div.appendChild(btn);
+          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
+          const left = document.createElement('div');
+          left.textContent = u.grade + '年 ' + u.className + ' / ' + u.name + '（' + u.loginId + '）' + (u.disabledReason ? (' 停止理由: '+u.disabledReason) : '');
+          div.appendChild(left);
+          const right = document.createElement('div');
+          right.className='flex gap-2';
+
+          const approve = document.createElement('button');
+          approve.className='bg-blue-600 text-white rounded px-3 py-1';
+          approve.textContent='承認/再開';
+          approve.onclick = async ()=>{ await api('/api/admin/approve/'+u.id,{method:'POST'}); await loadAll(); };
+          right.appendChild(approve);
+
+          const disable = document.createElement('button');
+          disable.className='bg-amber-600 text-white rounded px-3 py-1';
+          disable.textContent='停止';
+          disable.onclick = async ()=>{ const reason=prompt('停止理由(任意)'); await api('/api/admin/disable/'+u.id,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason})}); await loadAll(); };
+          right.appendChild(disable);
+
+          const reset = document.createElement('button');
+          reset.className='bg-slate-800 text-white rounded px-3 py-1';
+          reset.textContent='PWリセット';
+          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+u.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\n(次回ログインで変更させてください)'); };
+          right.appendChild(reset);
+
+          div.appendChild(right);
           wrap.appendChild(div);
         }
+      }
 
-        // results
+      async function renderUsers(){
+        const grade = document.getElementById('filterGrade').value.trim();
+        const cls = document.getElementById('filterClass').value.trim();
+        const qs = new URLSearchParams();
+        if(grade) qs.set('grade', grade);
+        if(cls) qs.set('class', cls);
+        const u = await api('/api/admin/users?' + qs.toString());
+        const wrap = document.getElementById('users');
+        wrap.innerHTML='';
+        if(!u.users.length){ wrap.textContent='該当なし'; return; }
+        for(const x of u.users){
+          const div = document.createElement('div');
+          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
+          const left = document.createElement('div');
+          left.textContent = x.grade + '年 ' + x.className + ' / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' [停止/未承認]');
+          div.appendChild(left);
+          const right = document.createElement('div');
+          right.className='flex gap-2';
+
+          const toggle = document.createElement('button');
+          toggle.className = x.isActive ? 'bg-amber-600 text-white rounded px-3 py-1' : 'bg-blue-600 text-white rounded px-3 py-1';
+          toggle.textContent = x.isActive ? '停止' : '再開';
+          toggle.onclick = async ()=>{
+            if(x.isActive){ const reason=prompt('停止理由(任意)'); await api('/api/admin/disable/'+x.id,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason})}); }
+            else { await api('/api/admin/approve/'+x.id,{method:'POST'}); }
+            await loadAll();
+          };
+          right.appendChild(toggle);
+
+          const reset = document.createElement('button');
+          reset.className='bg-slate-800 text-white rounded px-3 py-1';
+          reset.textContent='PWリセット';
+          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword); };
+          right.appendChild(reset);
+
+          div.appendChild(right);
+          wrap.appendChild(div);
+        }
+      }
+
+      async function renderResults(){
         const r = await api('/api/admin/results?limit=50');
         const rw = document.getElementById('results');
         rw.innerHTML='';
-        if(!r.results.length){ rw.textContent='ログはまだありません'; }
+        if(!r.results.length){ rw.textContent='ログはまだありません'; return; }
         for(const x of r.results){
           const div = document.createElement('div');
           div.className='border rounded p-2';
@@ -509,12 +823,21 @@ app.get('/admin', (c) => {
         }
       }
 
+      async function loadAll(){
+        await renderPending();
+        await renderUsers();
+        await renderResults();
+      }
+
+      document.getElementById('filterBtn').onclick = loadAll;
+      document.getElementById('reloadBtn').onclick = loadAll;
+
       // auth check
       (async ()=>{
         const me = await fetch('/api/auth/me');
         const j = await me.json().catch(()=>({}));
         if(!j.user || j.user.role!=='admin'){ location.href='/login'; return; }
-        load();
+        loadAll();
       })();
     </script>
   </body></html>`)
