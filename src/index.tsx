@@ -789,7 +789,7 @@ app.get('/admin', (c) => {
           const reset = document.createElement('button');
           reset.className='bg-slate-800 text-white rounded px-3 py-1';
           reset.textContent='PWリセット';
-          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+u.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\n(次回ログインで変更させてください)'); };
+          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+u.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
           right.appendChild(reset);
 
           div.appendChild(right);
@@ -829,7 +829,7 @@ app.get('/admin', (c) => {
           const reset = document.createElement('button');
           reset.className='bg-slate-800 text-white rounded px-3 py-1';
           reset.textContent='PWリセット';
-          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword); };
+          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
           right.appendChild(reset);
 
           div.appendChild(right);
