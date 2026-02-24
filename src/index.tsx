@@ -220,6 +220,11 @@ app.post('/api/auth/login', async (c) => {
     return jsonError(c, 403, 'pending_approval')
   }
 
+  // Force password change if admin reset password
+  if (row.role === 'student' && row.mustChangePassword) {
+    // allow session but tell client
+  }
+
   const token = await makeSession(c.env.SESSION_SECRET, {
     id: row.id,
     role: row.role,
@@ -239,7 +244,17 @@ app.post('/api/auth/login', async (c) => {
 })
 
 app.post('/api/auth/logout', async (c) => {
-  deleteCookie(c, 'session', { path: '/' })
+  // Cookie deletion must match attributes used when setting the cookie.
+  // Some browsers keep a cookie if Path differs, so we clear a couple of common paths.
+  const base = {
+    secure: true,
+    sameSite: 'Lax' as const,
+    httpOnly: true,
+  }
+
+  deleteCookie(c, 'session', { ...base, path: '/' })
+  deleteCookie(c, 'session', { ...base, path: '/api' })
+
   return c.json({ ok: true })
 })
 
@@ -565,6 +580,18 @@ app.get('/', async (c) => {
   return c.text('index.html not found', 404)
 })
 
+
+app.get('/logout', async (c) => {
+  // GET endpoint for manual logout (admin can use URL directly)
+  const base = {
+    secure: true,
+    sameSite: 'Lax' as const,
+    httpOnly: true,
+  }
+  deleteCookie(c, 'session', { ...base, path: '/' })
+  deleteCookie(c, 'session', { ...base, path: '/api' })
+  return c.redirect('/login')
+})
 
 app.get('/login', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
