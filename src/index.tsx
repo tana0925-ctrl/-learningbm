@@ -595,10 +595,11 @@ app.get('/logout', async (c) => {
 
 app.get('/login', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>ログイン</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <title>教材ログイン（LearningBM）</title><script src="https://cdn.tailwindcss.com"></script></head>
   <body class="min-h-screen bg-slate-100 p-4">
     <div class="max-w-md mx-auto bg-white rounded-xl shadow p-6">
-      <h1 class="text-xl font-bold mb-4">ログイン</h1>
+      <h1 class="text-xl font-bold mb-1">教材ログイン</h1>
+      <p class="text-xs text-slate-600 mb-4">学習記録のためにログインしてください。</p>
       <div class="space-y-3">
         <input id="loginId" class="w-full border p-2 rounded" placeholder="ログインID"/>
         <input id="password" type="password" class="w-full border p-2 rounded" placeholder="パスワード"/>
@@ -662,11 +663,11 @@ app.get('/signup', (c) => {
 
 app.get('/admin', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>管理者</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <title>学習記録 管理（LearningBM）</title><script src="https://cdn.tailwindcss.com"></script></head>
   <body class="min-h-screen bg-slate-100 p-4">
     <div class="max-w-5xl mx-auto space-y-4">
       <div class="bg-white rounded-xl shadow p-6 flex items-center justify-between">
-        <h1 class="text-xl font-bold">管理者ページ</h1>
+        <h1 class="text-xl font-bold">学習記録 管理</h1>
         <button id="logout" class="text-sm underline">ログアウト</button>
       </div>
 
