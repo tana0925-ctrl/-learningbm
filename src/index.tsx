@@ -568,6 +568,514 @@ app.get('/api/admin/results.csv', async (c) => {
   })
 })
 
+// -------------------- API: realtime battle --------------------
+
+function requireAuth(c: any) {
+  const u = c.get('user')
+  if (!u) return null
+  return u
+}
+
+function genRoomId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let id = ''
+  const arr = new Uint8Array(6)
+  crypto.getRandomValues(arr)
+  for (let i = 0; i < 6; i++) id += chars[arr[i] % chars.length]
+  return id
+}
+
+// ルーム作成
+app.post('/api/battle/create', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const partyJson = JSON.stringify(body.party || [])
+  const hostName = String(body.name || 'プレイヤー').slice(0, 20)
+  const area = String(body.area || 'rounding').slice(0, 40)
+  const battleMode = String(body.battleMode || 'normal').slice(0, 10)
+
+  // 既存の waiting ルームがあれば削除
+  await c.env.DB.prepare(`DELETE FROM battle_rooms WHERE host_user_id=? AND status='waiting'`)
+    .bind(u.id).run()
+
+  let roomId = genRoomId()
+  // 重複チェック（稀だが念のため）
+  for (let i = 0; i < 5; i++) {
+    const ex = await c.env.DB.prepare(`SELECT id FROM battle_rooms WHERE id=?`).bind(roomId).first<any>()
+    if (!ex) break
+    roomId = genRoomId()
+  }
+
+  await c.env.DB.prepare(`
+    INSERT INTO battle_rooms (id, host_user_id, host_name, host_party_json, area, battle_mode, status, host_hp, guest_hp, host_score, guest_score, question_index)
+    VALUES (?, ?, ?, ?, ?, ?, 'waiting', 100, 100, 0, 0, 0)
+  `).bind(roomId, u.id, hostName, partyJson, area, battleMode).run()
+
+  return c.json({ ok: true, roomId })
+})
+
+// ルーム参加
+app.post('/api/battle/join/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const guestName = String(body.name || 'プレイヤー').slice(0, 20)
+  const partyJson = JSON.stringify(body.party || [])
+
+  const room = await c.env.DB.prepare(`SELECT * FROM battle_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  if (room.status !== 'waiting') return jsonError(c, 409, 'room_not_available')
+  if (room.host_user_id === u.id) return jsonError(c, 400, 'cannot_join_own_room')
+
+  await c.env.DB.prepare(`
+    UPDATE battle_rooms SET guest_user_id=?, guest_name=?, guest_party_json=?, status='ready', updated_at=datetime('now')
+    WHERE id=? AND status='waiting'
+  `).bind(u.id, guestName, partyJson, roomId).run()
+
+  // ゲストにはホストのパーティ情報を返す
+  return c.json({ ok: true, roomId, hostName: room.host_name, area: room.area, battleMode: room.battle_mode, hostParty: JSON.parse(room.host_party_json || '[]') })
+})
+
+// ルーム状態取得（ポーリング用）
+app.get('/api/battle/room/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const roomId = c.req.param('roomId').toUpperCase()
+  const room = await c.env.DB.prepare(`SELECT * FROM battle_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+
+  // 参加者チェック
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+
+  // 回答状況も取得
+  const answers = await c.env.DB.prepare(`
+    SELECT user_id, question_index, is_correct, answered_at FROM battle_answers
+    WHERE room_id=? AND question_index=?
+  `).bind(roomId, room.question_index).all<any>()
+
+  const myRole = isHost ? 'host' : 'guest'
+  const opponentId = isHost ? room.guest_user_id : room.host_user_id
+
+  const myAnswer = answers.results.find((a: any) => a.user_id === u.id)
+  const oppAnswer = answers.results.find((a: any) => a.user_id === opponentId)
+
+  return c.json({
+    ok: true,
+    room: {
+      id: room.id,
+      status: room.status,
+      area: room.area,
+      hostName: room.host_name,
+      guestName: room.guest_name,
+      questionIndex: room.question_index,
+      questionJson: room.current_question_json,
+      hostScore: room.host_score,
+      guestScore: room.guest_score,
+      hostHp: room.host_hp,
+      guestHp: room.guest_hp,
+      winner: room.winner,
+      myRole,
+      myAnswer: myAnswer ? { isCorrect: !!myAnswer.is_correct } : null,
+      oppAnswered: !!oppAnswer,
+      oppCorrect: oppAnswer ? !!oppAnswer.is_correct : null,
+      battleMode: room.battle_mode,
+      // 自分のパーティは返さない。相手のパーティを返す
+      opponentParty: isHost ? (room.guest_party_json ? JSON.parse(room.guest_party_json) : null) : (room.host_party_json ? JSON.parse(room.host_party_json) : null),
+      opponentName: isHost ? room.guest_name : room.host_name,
+    }
+  })
+})
+
+// 問題をセット（ホストのみ、ready→playing時）
+app.post('/api/battle/set-question/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const room = await c.env.DB.prepare(`SELECT * FROM battle_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  if (room.host_user_id !== u.id) return jsonError(c, 403, 'host_only')
+  if (room.status !== 'ready' && room.status !== 'playing') return jsonError(c, 409, 'invalid_status')
+
+  const questionJson = JSON.stringify(body.question)
+  const questionIndex = Number(body.questionIndex ?? room.question_index)
+
+  await c.env.DB.prepare(`
+    UPDATE battle_rooms
+    SET current_question_json=?, question_index=?, status='playing', updated_at=datetime('now')
+    WHERE id=?
+  `).bind(questionJson, questionIndex, roomId).run()
+
+  return c.json({ ok: true })
+})
+
+// 回答を送信
+app.post('/api/battle/answer/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const room = await c.env.DB.prepare(`SELECT * FROM battle_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  if (room.status !== 'playing') return jsonError(c, 409, 'not_playing')
+
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+
+  const isCorrect = body.isCorrect ? 1 : 0
+  const answer = String(body.answer || '').slice(0, 100)
+  const questionIndex = room.question_index
+
+  // 既に回答済みなら無視
+  const existing = await c.env.DB.prepare(`
+    SELECT id FROM battle_answers WHERE room_id=? AND user_id=? AND question_index=?
+  `).bind(roomId, u.id, questionIndex).first<any>()
+  if (existing) return c.json({ ok: true, alreadyAnswered: true })
+
+  await c.env.DB.prepare(`
+    INSERT INTO battle_answers (room_id, user_id, question_index, answer, is_correct)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(roomId, u.id, questionIndex, answer, isCorrect).run()
+
+  // 両者回答済みかチェック → スコア更新
+  const allAnswers = await c.env.DB.prepare(`
+    SELECT user_id, is_correct FROM battle_answers WHERE room_id=? AND question_index=?
+  `).bind(roomId, questionIndex).all<any>()
+
+  const hostAns = allAnswers.results.find((a: any) => a.user_id === room.host_user_id)
+  const guestAns = allAnswers.results.find((a: any) => a.user_id === room.guest_user_id)
+
+  let newHostScore = room.host_score
+  let newGuestScore = room.guest_score
+  let newHostHp = room.host_hp
+  let newGuestHp = room.guest_hp
+  let bothAnswered = false
+  let newStatus = room.status
+  let winner = room.winner
+
+  if (hostAns && guestAns) {
+    bothAnswered = true
+    const hostCorrect = !!hostAns.is_correct
+    const guestCorrect = !!guestAns.is_correct
+
+    if (hostCorrect && !guestCorrect) {
+      newHostScore++
+      newGuestHp = Math.max(0, newGuestHp - 20)
+    } else if (!hostCorrect && guestCorrect) {
+      newGuestScore++
+      newHostHp = Math.max(0, newHostHp - 20)
+    }
+    // 両方正解/不正解の場合はHPダメージなし
+
+    // 5問ごと or HPが0になったら終了
+    const nextQIndex = questionIndex + 1
+    const maxQuestions = 5
+    if (newHostHp <= 0 || newGuestHp <= 0 || nextQIndex >= maxQuestions) {
+      newStatus = 'finished'
+      if (newHostScore > newGuestScore) winner = 'host'
+      else if (newGuestScore > newHostScore) winner = 'guest'
+      else winner = 'draw'
+    }
+
+    await c.env.DB.prepare(`
+      UPDATE battle_rooms
+      SET host_score=?, guest_score=?, host_hp=?, guest_hp=?, status=?, winner=?, updated_at=datetime('now')
+      WHERE id=?
+    `).bind(newHostScore, newGuestScore, newHostHp, newGuestHp, newStatus, winner, roomId).run()
+  }
+
+  return c.json({
+    ok: true,
+    bothAnswered,
+    hostScore: newHostScore,
+    guestScore: newGuestScore,
+    hostHp: newHostHp,
+    guestHp: newGuestHp,
+    status: newStatus,
+    winner,
+  })
+})
+
+// ルーム終了・退出
+app.post('/api/battle/leave/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const roomId = c.req.param('roomId').toUpperCase()
+  const room = await c.env.DB.prepare(`SELECT * FROM battle_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return c.json({ ok: true })
+
+  const isHost = room.host_user_id === u.id
+  if (isHost) {
+    // ホストが抜けたらルーム消滅
+    await c.env.DB.prepare(`DELETE FROM battle_rooms WHERE id=?`).bind(roomId).run()
+  } else {
+    // ゲストが抜けたらwaiting状態に戻す
+    await c.env.DB.prepare(`
+      UPDATE battle_rooms SET guest_user_id=NULL, guest_name=NULL, guest_party_json=NULL,
+      status='waiting', current_question_json=NULL, question_index=0,
+      host_score=0, guest_score=0, host_hp=100, guest_hp=100, winner=NULL, updated_at=datetime('now')
+      WHERE id=?
+    `).bind(roomId).run()
+  }
+  return c.json({ ok: true })
+})
+
+// 古いルームの定期クリーンアップ（GETのついでに呼ぶ）
+app.delete('/api/battle/cleanup', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  await c.env.DB.prepare(`
+    DELETE FROM battle_rooms WHERE created_at < datetime('now', '-2 hours')
+  `).run()
+  return c.json({ ok: true })
+})
+
+// -------------------- API: rt (realtime friend battle v2) --------------------
+// rt_rooms / rt_events テーブルを使った野生バトル/ジムバトル形式のリアルタイム対戦
+
+// ルーム作成
+app.post('/api/rt/create', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const hostName = String(body.name || 'プレイヤー').slice(0, 20)
+  const partyJson = JSON.stringify(body.party || [])
+  const area = String(body.area || 'rounding').slice(0, 40)
+  const battleType = (body.battleType === 'gym') ? 'gym' : 'normal'
+
+  // 既存 waiting ルームを削除
+  await c.env.DB.prepare(`DELETE FROM rt_rooms WHERE host_user_id=? AND status='waiting'`).bind(u.id).run()
+
+  let roomId = genRoomId()
+  for (let i = 0; i < 5; i++) {
+    const ex = await c.env.DB.prepare(`SELECT id FROM rt_rooms WHERE id=?`).bind(roomId).first<any>()
+    if (!ex) break
+    roomId = genRoomId()
+  }
+
+  await c.env.DB.prepare(`
+    INSERT INTO rt_rooms (id, host_user_id, host_name, host_party_json, host_area, host_hp, host_ready, guest_hp, guest_ready, battle_type, status)
+    VALUES (?, ?, ?, ?, ?, 100, 0, 100, 0, ?, 'waiting')
+  `).bind(roomId, u.id, hostName, partyJson, area, battleType).run()
+
+  return c.json({ ok: true, roomId })
+})
+
+// ルーム参加
+app.post('/api/rt/join/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const guestName = String(body.name || 'プレイヤー').slice(0, 20)
+  const partyJson = JSON.stringify(body.party || [])
+
+  const room = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  if (room.status !== 'waiting') return jsonError(c, 409, 'room_not_available')
+  if (room.host_user_id === u.id) return jsonError(c, 400, 'cannot_join_own_room')
+
+  await c.env.DB.prepare(`
+    UPDATE rt_rooms SET guest_user_id=?, guest_name=?, guest_party_json=?, status='ready', updated_at=datetime('now')
+    WHERE id=? AND status='waiting'
+  `).bind(u.id, guestName, partyJson, roomId).run()
+
+  const hostParty = JSON.parse(room.host_party_json || '[]')
+  return c.json({
+    ok: true,
+    roomId,
+    hostName: room.host_name,
+    area: room.host_area,
+    battleType: room.battle_type,
+    hostParty,
+  })
+})
+
+// ルーム状態取得（ポーリング用）
+app.get('/api/rt/room/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const roomId = c.req.param('roomId').toUpperCase()
+
+  const room = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+
+  // 未読イベント（ポーリング用：相手からのダメージイベント）
+  // クエリパラメータ after=lastEventId で差分取得
+  const afterId = Number(c.req.query('after') || 0)
+  const events = await c.env.DB.prepare(`
+    SELECT id, user_id, event_type, value, monster_id, created_at FROM rt_events
+    WHERE room_id=? AND id > ?
+    ORDER BY id ASC LIMIT 50
+  `).bind(roomId, afterId).all<any>()
+
+  const myRole = isHost ? 'host' : 'guest'
+  const opponentParty = isHost
+    ? (room.guest_party_json ? JSON.parse(room.guest_party_json) : null)
+    : JSON.parse(room.host_party_json || '[]')
+
+  return c.json({
+    ok: true,
+    room: {
+      id: room.id,
+      status: room.status,
+      battleType: room.battle_type,
+      area: room.host_area,
+      hostName: room.host_name,
+      guestName: room.guest_name,
+      hostHp: room.host_hp,
+      guestHp: room.guest_hp,
+      hostReady: !!room.host_ready,
+      guestReady: !!room.guest_ready,
+      winner: room.winner,
+      myRole,
+      opponentParty,
+    },
+    events: events.results,
+  })
+})
+
+// Ready送信（両者がreadyになったらplaying開始）
+app.post('/api/rt/ready/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const roomId = c.req.param('roomId').toUpperCase()
+
+  const room = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+
+  if (isHost) {
+    await c.env.DB.prepare(`UPDATE rt_rooms SET host_ready=1, updated_at=datetime('now') WHERE id=?`).bind(roomId).run()
+  } else {
+    await c.env.DB.prepare(`UPDATE rt_rooms SET guest_ready=1, updated_at=datetime('now') WHERE id=?`).bind(roomId).run()
+  }
+
+  // 両者 ready なら playing へ
+  const updated = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (updated && updated.host_ready && updated.guest_ready && updated.status === 'ready') {
+    await c.env.DB.prepare(`UPDATE rt_rooms SET status='playing', updated_at=datetime('now') WHERE id=?`).bind(roomId).run()
+  }
+
+  return c.json({ ok: true })
+})
+
+// ダメージイベント送信（正解時に相手HPを削る）
+app.post('/api/rt/damage/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const room = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  if (room.status !== 'playing') return jsonError(c, 409, 'not_playing')
+
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+
+  const damage = Math.max(0, Math.min(9999, Number(body.damage || 0)))
+  const monsterId = Number(body.monsterId || 0)
+  const eventType = String(body.eventType || 'damage').slice(0, 20) // 'damage'|'faint'|'win'|'lose'
+
+  // イベント記録
+  const result = await c.env.DB.prepare(`
+    INSERT INTO rt_events (room_id, user_id, event_type, value, monster_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(roomId, u.id, eventType, damage, monsterId).run()
+
+  const newEventId = (result.meta as any).last_row_id
+
+  // HPを更新（送信者が攻撃 → 相手のHPを減らす）
+  let newHostHp = room.host_hp
+  let newGuestHp = room.guest_hp
+
+  if (isHost) {
+    newGuestHp = Math.max(0, newGuestHp - damage)
+  } else {
+    newHostHp = Math.max(0, newHostHp - damage)
+  }
+
+  let newStatus = room.status
+  let winner = room.winner
+
+  if (eventType === 'win') {
+    newStatus = 'finished'
+    winner = isHost ? 'host' : 'guest'
+  } else if (eventType === 'draw') {
+    newStatus = 'finished'
+    winner = 'draw'
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE rt_rooms SET host_hp=?, guest_hp=?, status=?, winner=?, updated_at=datetime('now') WHERE id=?
+  `).bind(newHostHp, newGuestHp, newStatus, winner, roomId).run()
+
+  return c.json({ ok: true, eventId: newEventId, hostHp: newHostHp, guestHp: newGuestHp })
+})
+
+// ルーム退出
+app.post('/api/rt/leave/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const roomId = c.req.param('roomId').toUpperCase()
+
+  const room = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return c.json({ ok: true })
+
+  const isHost = room.host_user_id === u.id
+  if (isHost) {
+    await c.env.DB.prepare(`DELETE FROM rt_rooms WHERE id=?`).bind(roomId).run()
+  } else {
+    // ゲストが抜けた → waiting に戻す
+    await c.env.DB.prepare(`
+      UPDATE rt_rooms SET guest_user_id=NULL, guest_name=NULL, guest_party_json=NULL,
+      status='waiting', host_hp=100, guest_hp=100, host_ready=0, guest_ready=0, winner=NULL,
+      updated_at=datetime('now') WHERE id=?
+    `).bind(roomId).run()
+  }
+  return c.json({ ok: true })
+})
+
+// クリーンアップ
+app.delete('/api/rt/cleanup', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM rt_rooms WHERE created_at < datetime('now', '-2 hours')`).run()
+  await c.env.DB.prepare(`DELETE FROM rt_events WHERE created_at < datetime('now', '-2 hours')`).run()
+  return c.json({ ok: true })
+})
+
 // -------------------- Pages (simple HTML endpoints) --------------------
 
 // Serve the game HTML (built into dist/index.html as an asset)
