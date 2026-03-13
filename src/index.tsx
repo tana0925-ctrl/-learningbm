@@ -183,7 +183,7 @@ app.post('/api/auth/signup', async (c) => {
   try {
     await c.env.DB.prepare(
       `INSERT INTO users (id, role, login_id, password_hash, password_salt, name, grade, class_name, is_active)
-       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 0)`
+       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 1)`
     )
       .bind(id, loginId, hash, salt, name, grade, className)
       .run()
@@ -192,7 +192,7 @@ app.post('/api/auth/signup', async (c) => {
     return jsonError(c, 409, 'loginId_taken')
   }
 
-  return c.json({ ok: true, status: 'pending_approval' })
+  return c.json({ ok: true, status: 'ok' })
 })
 
 app.post('/api/auth/login', async (c) => {
@@ -1162,8 +1162,12 @@ app.get('/signup', (c) => {
         const r = await fetch('/api/auth/signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
         const j = await r.json().catch(()=>({}));
         if(!r.ok){ msg.textContent = (j.error || 'error'); msg.className='text-sm text-red-600'; return; }
-        msg.textContent = '登録しました。管理者の承認後にログインできます。';
+        // 登録成功 → 自動的にログイン
+        const lr = await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({loginId:payload.loginId,password:payload.password})});
+        if(lr.ok){ location.href='/'; return; }
+        msg.textContent = '登録しました。ログイン画面からログインしてください。';
         msg.className='text-sm text-green-700';
+        setTimeout(()=>{ location.href='/login'; }, 2000);
       };
     </script>
   </body></html>`)
