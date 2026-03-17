@@ -1004,9 +1004,9 @@ app.post('/api/rt/ready/:roomId', async (c) => {
     await c.env.DB.prepare(`UPDATE rt_rooms SET guest_ready=1, updated_at=datetime('now') WHERE id=?`).bind(roomId).run()
   }
 
-  // 両者 ready なら playing へ
+  // 両者 ready なら playing へ（status が 'ready' または 'waiting' でも対応）
   const updated = await c.env.DB.prepare(`SELECT * FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
-  if (updated && updated.host_ready && updated.guest_ready && updated.status === 'ready') {
+  if (updated && updated.host_ready && updated.guest_ready && (updated.status === 'ready' || updated.status === 'waiting')) {
     await c.env.DB.prepare(`UPDATE rt_rooms SET status='playing', updated_at=datetime('now') WHERE id=?`).bind(roomId).run()
   }
 
