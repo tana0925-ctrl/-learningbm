@@ -922,7 +922,7 @@ app.post('/api/rt/join/:roomId', async (c) => {
   if (room.host_user_id === u.id) return jsonError(c, 400, 'cannot_join_own_room')
 
   await c.env.DB.prepare(`
-    UPDATE rt_rooms SET guest_user_id=?, guest_name=?, guest_party_json=?, status='ready', updated_at=datetime('now')
+    UPDATE rt_rooms SET guest_user_id=?, guest_name=?, guest_party_json=?, guest_ready=1, status='ready', updated_at=datetime('now')
     WHERE id=? AND status='waiting'
   `).bind(u.id, guestName, partyJson, roomId).run()
 
