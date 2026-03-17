@@ -420,6 +420,29 @@ app.post('/api/admin/reset-password/:id', async (c) => {
   return c.json({ ok: true, tempPassword: temp })
 })
 
+app.delete('/api/admin/delete/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const id = c.req.param('id')
+
+  // 安全確認: admin自身は削除不可
+  if (id === u.id) return jsonError(c, 400, 'cannot_delete_self')
+
+  // student のみ削除可（admin アカウントは削除不可）
+  const target = await c.env.DB.prepare(`SELECT role FROM users WHERE id=? LIMIT 1`).bind(id).first<any>()
+  if (!target) return jsonError(c, 404, 'user_not_found')
+  if (target.role !== 'student') return jsonError(c, 400, 'cannot_delete_admin')
+
+  // 関連データも削除
+  await c.env.DB.prepare(`DELETE FROM progress WHERE user_id=?`).bind(id).run()
+  await c.env.DB.prepare(`DELETE FROM learning_results WHERE user_id=?`).bind(id).run()
+  await c.env.DB.prepare(`DELETE FROM battle_answers WHERE user_id=?`).bind(id).run()
+  await c.env.DB.prepare(`DELETE FROM users WHERE id=? AND role='student'`).bind(id).run()
+
+  return c.json({ ok: true })
+})
+
 app.post('/api/admin/change-password', async (c) => {
   const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -1308,6 +1331,16 @@ app.get('/admin', (c) => {
           reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+u.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
           right.appendChild(reset);
 
+          const del = document.createElement('button');
+          del.className='bg-red-600 text-white rounded px-3 py-1';
+          del.textContent='削除';
+          del.onclick = async ()=>{
+            if(!confirm(u.name+'（'+u.loginId+'）のアカウントを完全に削除しますか？\\n学習記録もすべて削除されます。この操作は取り消せません。')) return;
+            await api('/api/admin/delete/'+u.id,{method:'DELETE'});
+            await loadAll();
+          };
+          right.appendChild(del);
+
           div.appendChild(right);
           wrap.appendChild(div);
         }
@@ -1347,6 +1380,16 @@ app.get('/admin', (c) => {
           reset.textContent='PWリセット';
           reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
           right.appendChild(reset);
+
+          const del = document.createElement('button');
+          del.className='bg-red-600 text-white rounded px-3 py-1';
+          del.textContent='削除';
+          del.onclick = async ()=>{
+            if(!confirm(x.name+'（'+x.loginId+'）のアカウントを完全に削除しますか？\\n学習記録もすべて削除されます。この操作は取り消せません。')) return;
+            await api('/api/admin/delete/'+x.id,{method:'DELETE'});
+            await loadAll();
+          };
+          right.appendChild(del);
 
           div.appendChild(right);
           wrap.appendChild(div);
