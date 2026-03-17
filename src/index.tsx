@@ -1169,34 +1169,81 @@ app.get('/signup', (c) => {
     <div class="max-w-md mx-auto bg-white rounded-xl shadow p-6">
       <h1 class="text-xl font-bold mb-4">児童 新規登録</h1>
       <div class="space-y-3">
-        <input id="name" class="w-full border p-2 rounded" placeholder="名前"/>
-        <input id="grade" class="w-full border p-2 rounded" placeholder="学年（例: 5）"/>
-        <input id="className" class="w-full border p-2 rounded" placeholder="クラス（例: 2組 / A）"/>
-        <input id="loginId" class="w-full border p-2 rounded" placeholder="ログインID（自由）"/>
-        <input id="password" type="password" class="w-full border p-2 rounded" placeholder="パスワード（6文字以上）"/>
-        <button id="btn" class="w-full bg-green-600 text-white rounded p-2">登録</button>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">名前</label>
+          <input id="name" class="w-full border p-2 rounded" placeholder="例：山田 太郎"/>
+        </div>
+        <div class="flex gap-2">
+          <div class="flex-1">
+            <label class="text-sm font-bold text-gray-700 mb-1 block">学年</label>
+            <select id="grade" class="w-full border p-2 rounded bg-white">
+              <option value="">選択してください</option>
+              <option value="1">1年</option>
+              <option value="2">2年</option>
+              <option value="3">3年</option>
+              <option value="4">4年</option>
+              <option value="5">5年</option>
+              <option value="6">6年</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label class="text-sm font-bold text-gray-700 mb-1 block">クラス</label>
+            <input id="className" class="w-full border p-2 rounded" placeholder="例：1組 / A"/>
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">ログインID（自分で決める）</label>
+          <input id="loginId" class="w-full border p-2 rounded" placeholder="半角英数字 3文字以上"/>
+        </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">パスワード</label>
+          <input id="password" type="password" class="w-full border p-2 rounded" placeholder="6文字以上"/>
+        </div>
+        <button id="btn" class="w-full bg-green-600 text-white rounded p-2 font-bold">登録する</button>
         <p id="msg" class="text-sm"></p>
         <a class="text-sm text-blue-700 underline" href="/login">ログインへ</a>
       </div>
     </div>
     <script>
       const msg = document.getElementById('msg');
+      const errMap = {
+        loginId_too_short: 'ログインIDは3文字以上にしてください',
+        loginId_taken: 'このログインIDはすでに使われています',
+        password_too_short: 'パスワードは6文字以上にしてください',
+        name_required: '名前を入力してください',
+        grade_invalid: '学年を選択してください',
+        class_required: 'クラスを入力してください',
+        invalid_json: '入力内容に問題があります',
+      };
       document.getElementById('btn').onclick = async () => {
         msg.textContent='';
+        const gradeVal = document.getElementById('grade').value;
         const payload = {
           name: document.getElementById('name').value.trim(),
-          grade: Number(document.getElementById('grade').value),
+          grade: gradeVal ? Number(gradeVal) : NaN,
           className: document.getElementById('className').value.trim(),
           loginId: document.getElementById('loginId').value.trim(),
           password: document.getElementById('password').value,
         };
+        // クライアント側バリデーション
+        if(!payload.name){ msg.textContent='名前を入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!gradeVal){ msg.textContent='学年を選択してください'; msg.className='text-sm text-red-600'; return; }
+        if(!payload.className){ msg.textContent='クラスを入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!payload.loginId || payload.loginId.length < 3){ msg.textContent='ログインIDは3文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
+        if(!payload.password || payload.password.length < 6){ msg.textContent='パスワードは6文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
+
+        document.getElementById('btn').disabled = true;
         const r = await fetch('/api/auth/signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
         const j = await r.json().catch(()=>({}));
-        if(!r.ok){ msg.textContent = (j.error || 'error'); msg.className='text-sm text-red-600'; return; }
+        if(!r.ok){
+          msg.textContent = errMap[j.error] || (j.error || '登録に失敗しました');
+          msg.className='text-sm text-red-600';
+          document.getElementById('btn').disabled = false;
+          return;
+        }
         // 登録成功 → 承認待ちメッセージを表示してログイン画面へ
         msg.textContent = '登録しました！先生が承認するまでお待ちください。';
         msg.className='text-sm text-green-700';
-        document.getElementById('btn').disabled = true;
         setTimeout(()=>{ location.href='/login'; }, 3000);
       };
     </script>
