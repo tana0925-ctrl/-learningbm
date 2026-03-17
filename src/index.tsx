@@ -1180,7 +1180,10 @@ app.get('/admin', (c) => {
     <div class="max-w-5xl mx-auto space-y-4">
       <div class="bg-white rounded-xl shadow p-6 flex items-center justify-between">
         <h1 class="text-xl font-bold">学習記録 管理</h1>
-        <button id="logout" class="text-sm underline">ログアウト</button>
+        <div class="flex items-center gap-3">
+          <a href="/" class="text-sm px-3 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold transition">🌏 児童用ページへ</a>
+          <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
+        </div>
       </div>
 
       <div class="grid md:grid-cols-2 gap-4">
