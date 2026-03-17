@@ -183,7 +183,7 @@ app.post('/api/auth/signup', async (c) => {
   try {
     await c.env.DB.prepare(
       `INSERT INTO users (id, role, login_id, password_hash, password_salt, name, grade, class_name, is_active)
-       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 1)`
+       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 0)`
     )
       .bind(id, loginId, hash, salt, name, grade, className)
       .run()
@@ -1147,7 +1147,15 @@ app.get('/login', (c) => {
         const password = document.getElementById('password').value;
         const r = await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({loginId,password})});
         const j = await r.json().catch(()=>({}));
-        if(!r.ok){ msg.textContent = j.error || 'error'; return; }
+        if(!r.ok){
+          const errMap = {
+            invalid_credentials: 'IDまたはパスワードが間違っています',
+            pending_approval: '承認待ちです。先生が承認するまでお待ちください',
+            missing_credentials: 'IDとパスワードを入力してください',
+          };
+          msg.textContent = errMap[j.error] || (j.error || 'ログインに失敗しました');
+          return;
+        }
         location.href = '/';
       };
     </script>
@@ -1185,12 +1193,11 @@ app.get('/signup', (c) => {
         const r = await fetch('/api/auth/signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
         const j = await r.json().catch(()=>({}));
         if(!r.ok){ msg.textContent = (j.error || 'error'); msg.className='text-sm text-red-600'; return; }
-        // 登録成功 → 自動的にログイン
-        const lr = await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({loginId:payload.loginId,password:payload.password})});
-        if(lr.ok){ location.href='/'; return; }
-        msg.textContent = '登録しました。ログイン画面からログインしてください。';
+        // 登録成功 → 承認待ちメッセージを表示してログイン画面へ
+        msg.textContent = '登録しました！先生が承認するまでお待ちください。';
         msg.className='text-sm text-green-700';
-        setTimeout(()=>{ location.href='/login'; }, 2000);
+        document.getElementById('btn').disabled = true;
+        setTimeout(()=>{ location.href='/login'; }, 3000);
       };
     </script>
   </body></html>`)
