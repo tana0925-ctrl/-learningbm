@@ -258,9 +258,16 @@ app.post('/api/auth/logout', async (c) => {
   return c.json({ ok: true })
 })
 
-app.get('/api/auth/me', (c) => {
+app.get('/api/auth/me', async (c) => {
   const u = c.get('user')
-  return c.json({ ok: true, user: u ?? null })
+  if (!u) return c.json({ ok: true, user: null })
+  // grade は DB から取得（セッショントークンに含まれていないため）
+  let grade: number | null = null
+  try {
+    const row = await c.env.DB.prepare(`SELECT grade FROM users WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+    if (row) grade = row.grade ?? null
+  } catch(e) {}
+  return c.json({ ok: true, user: { ...u, grade } })
 })
 
 // -------------------- API: student --------------------
