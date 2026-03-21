@@ -1,0 +1,63 @@
+name: Fix Wild Battle Grade Filter
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply grade filter patch
+        run: |
+          python3 - << 'PYEOF'
+          import re
+
+          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
+              src = f.read()
+
+          # === Fix 1: renderPvEAreaSelect に学年フィルターを追加 ===
+          old1 = "const list = PVE_AREAS.filter(a => a.subject === districtId);"
+          new1 = """let list;
+          if (typeof CURRICULUM !== 'undefined' && typeof currentUser !== 'undefined' && currentUser && currentUser.grade) {
+            const subjectKey = {math:'math',jp:'japanese',social:'social',science:'science'}[districtId] || districtId;
+            const subjectData = CURRICULUM[subjectKey];
+            const gradeKey = String(currentUser.grade);
+            if (subjectData && subjectData.grades && subjectData.grades[gradeKey]) {
+              list = (subjectData.grades[gradeKey].units || []).map(u => ({
+                id: u.id, subject: districtId, name: u.name, emoji: u.icon || '\u{1F4DA}', desc: u.desc || '', disabled: false
+              }));
+            } else {
+              list = PVE_AREAS.filter(a => a.subject === districtId);
+            }
+          } else {
+            list = PVE_AREAS.filter(a => a.subject === districtId);
+          }"""
+
+          if old1 in src:
+              src = src.replace(old1, new1, 1)
+              print("Fix 1 applied: renderPvEAreaSelect grade filter added")
+          else:
+              print("WARNING: Fix 1 target not found")
+
+          # === Fix 2: _genPvE_curriculum に学年フィルターを追加 ===
+          old2 = "function _genPvE_curriculum(areaId) {\n  for (const [sk, sd] of Object.entries(CURRICULUM)) {\n    for (const [g, gd] of Object.entries(sd.grades)) {\n      const u = gd.units.find(u => u.id === areaId);\n      if (u && typeof window[u.gen] === 'function') return window[u.gen]();\n    }\n  }\n  return generateDecimalProblem();\n}"
+          new2 = "function _genPvE_curriculum(areaId) {\n  const playerGrade = (typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null;\n  for (const [sk, sd] of Object.entries(CURRICULUM)) {\n    for (const [g, gd] of Object.entries(sd.grades)) {\n      if (playerGrade && g !== playerGrade) continue;\n      const u = gd.units.find(u => u.id === areaId);\n      if (u && typeof window[u.gen] === 'function') return window[u.gen]();\n    }\n  }\n  return generateDecimalProblem();\n}"
+
+          if old2 in src:
+              src = src.replace(old2, new2, 1)
+              print("Fix 2 applied: _genPvE_curriculum grade filter added")
+          else:
+              print("WARNING: Fix 2 target not found - trying alternative")
+
+          with open('learningbm_index.html', 'w', encoding='utf-8') as f:
+              f.write(src)
+          PYEOF
+
+      - name: Commit and push fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add learningbm_index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "fix: 野生バトルを学年別フィルター対応に修正" && git push)
