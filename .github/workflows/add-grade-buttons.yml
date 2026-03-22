@@ -1,0 +1,87 @@
+name: Add Grade Selection Buttons
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply grade button patch
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
+              src = f.read()
+          ok = True
+
+          # Patch 1
+          old1 = 'function renderPvEAreaSelect(districtId) {'
+          new1 = 'function renderPvEAreaSelect(districtId, _gradeOverride) {'
+          if old1 in src:
+              src = src.replace(old1, new1, 1)
+              print("Patch 1 applied")
+          else:
+              print("WARNING: Patch 1 not found")
+              ok = False
+
+          # Patch 2
+          old2 = 'const gradeKey = String(currentUser.grade);'
+          new2 = """const gradeKey = _gradeOverride || String(currentUser.grade);
+                window._pveGradeOverride = gradeKey;
+                let gradeEl = document.getElementById('pveGradeSelect');
+                if (!gradeEl) {
+                  gradeEl = document.createElement('div');
+                  gradeEl.id = 'pveGradeSelect';
+                  gradeEl.className = 'flex flex-wrap gap-2 mb-1';
+                  const areaEl = document.getElementById('pveAreaSelect');
+                  if (areaEl && areaEl.parentNode) areaEl.parentNode.insertBefore(gradeEl, areaEl);
+                }
+                if (gradeEl && subjectData && subjectData.grades) {
+                  const grades2 = Object.keys(subjectData.grades).sort((a,b)=>Number(a)-Number(b));
+                  gradeEl.innerHTML = '';
+                  if (grades2.length > 1) {
+                    const row = document.createElement('div');
+                    row.className = 'flex flex-wrap gap-2 items-center py-1';
+                    const lbl = document.createElement('span');
+                    lbl.className = 'font-bold text-gray-600 text-sm mr-1';
+                    lbl.textContent = '\u5b66\u5e74\uff1a';
+                    row.appendChild(lbl);
+                    grades2.forEach(g => {
+                      const btn = document.createElement('button');
+                      btn.textContent = g + '\u5e74\u5927\u9678';
+                      btn.className = 'px-3 py-1 rounded-full font-bold text-sm transition-colors ' + (g === gradeKey ? 'bg-indigo-500 text-white shadow' : 'bg-gray-200 hover:bg-gray-300 text-gray-700');
+                      btn.onclick = () => renderPvEAreaSelect(districtId, g);
+                      row.appendChild(btn);
+                    });
+                    gradeEl.appendChild(row);
+                  }
+                }"""
+          if old2 in src:
+              src = src.replace(old2, new2, 1)
+              print("Patch 2 applied")
+          else:
+              print("WARNING: Patch 2 not found")
+              ok = False
+
+          # Patch 3
+          old3 = "  const playerGrade = (typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null;"
+          new3 = "  const playerGrade = window._pveGradeOverride || ((typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null);"
+          if old3 in src:
+              src = src.replace(old3, new3, 1)
+              print("Patch 3 applied")
+          else:
+              print("WARNING: Patch 3 not found")
+              ok = False
+
+          with open('learningbm_index.html', 'w', encoding='utf-8') as f:
+              f.write(src)
+          sys.exit(0 if ok else 1)
+          PYEOF
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add learningbm_index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "feat: 野生バトルに学年選択ボタン（○年大陸）を追加" && git push)
