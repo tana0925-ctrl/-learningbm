@@ -15,10 +15,9 @@ jobs:
           with open('learningbm_index.html', 'r', encoding='utf-8') as f:
               src = f.read()
 
-          # Patch: renderPvEDistrictSelectにも学年ボタンを追加（初回表示対応）
-          old = "const areaWrap = document.getElementById('pveAreaSelect');"
-          new = """const areaWrap = document.getElementById('pveAreaSelect');
-            let gradeEl0 = document.getElementById('pveGradeSelect');
+          # renderPvEDistrictSelect内のgradeEl0挿入コードを修正
+          # （CURRICULUMに依存せず1〜6年固定ボタンを表示）
+          old = """let gradeEl0 = document.getElementById('pveGradeSelect');
             if (!gradeEl0) {
               gradeEl0 = document.createElement('div');
               gradeEl0.id = 'pveGradeSelect';
@@ -47,11 +46,37 @@ jobs:
                 gradeEl0.appendChild(row0);
               }
             }"""
+          new = """let gradeEl0 = document.getElementById('pveGradeSelect');
+            if (!gradeEl0) {
+              gradeEl0 = document.createElement('div');
+              gradeEl0.id = 'pveGradeSelect';
+              gradeEl0.className = 'flex flex-wrap gap-2 mb-1';
+              if (areaWrap && areaWrap.parentNode) areaWrap.parentNode.insertBefore(gradeEl0, areaWrap);
+            }
+            {
+              const pg0 = window._pveGradeOverride || ((typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null);
+              const grades0 = ['1','2','3','4','5','6'];
+              gradeEl0.innerHTML = '';
+              const row0 = document.createElement('div');
+              row0.className = 'flex flex-wrap gap-2 items-center py-1';
+              const lbl0 = document.createElement('span');
+              lbl0.className = 'font-bold text-gray-600 text-sm mr-1';
+              lbl0.textContent = '\u5b66\u5e74\uff1a';
+              row0.appendChild(lbl0);
+              grades0.forEach(g => {
+                const btn0 = document.createElement('button');
+                btn0.textContent = g + '\u5e74\u5927\u9678';
+                btn0.className = 'px-3 py-1 rounded-full font-bold text-sm transition-colors ' + (g === pg0 ? 'bg-indigo-500 text-white shadow' : 'bg-gray-200 hover:bg-gray-300 text-gray-700');
+                btn0.onclick = () => { window._pveGradeOverride = g; renderPvEDistrictSelect(); };
+                row0.appendChild(btn0);
+              });
+              gradeEl0.appendChild(row0);
+            }"""
 
           if old in src:
               src = src.replace(old, new, 1)
               print("Patch applied")
-          elif 'pveGradeSelect' in src and 'renderPvEDistrictSelect' in src:
+          elif "grades0 = ['1','2','3','4','5','6']" in src:
               print("Already applied - skipping")
           else:
               print("WARNING: target not found")
@@ -66,4 +91,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add learningbm_index.html
-          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "fix: 野生バトル最初から学年ボタンを表示（地方選択時にも対応）" && git push)
+          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "fix: 学年ボタンを1〜6年固定表示に変更（CURRICULUM依存を解消）" && git push)
