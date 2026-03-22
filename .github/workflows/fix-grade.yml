@@ -1,6 +1,9 @@
 name: Fix Wild Battle Grade Filter
 on:
   workflow_dispatch:
+permissions:
+  contents: write
+
 jobs:
   fix:
     runs-on: ubuntu-latest
