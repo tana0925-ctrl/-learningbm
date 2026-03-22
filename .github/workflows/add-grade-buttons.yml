@@ -16,7 +16,7 @@ jobs:
               src = f.read()
           ok = True
 
-          # Patch 1: gradeKeyにwindow._pveGradeOverride対応 + 学年ボタン動的生成
+          # Patch 1: renderPvEAreaSelect内 - gradeKeyにoverride対応 + 学年ボタン動的生成
           old1 = 'const gradeKey = String(currentUser.grade);'
           new1 = """const gradeKey = (typeof window._pveGradeOverride !== 'undefined' && window._pveGradeOverride) ? window._pveGradeOverride : String(currentUser.grade);
                 window._pveGradeOverride = gradeKey;
@@ -55,14 +55,53 @@ jobs:
               print("WARNING: Patch 1 not found")
               ok = False
 
-          # Patch 2: _genPvE_curriculumもwindow._pveGradeOverrideを参照
-          old2 = "  const playerGrade = (typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null;"
-          new2 = "  const playerGrade = window._pveGradeOverride || ((typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null);"
+          # Patch 2: renderPvEDistrictSelect内にも学年ボタンを追加（初回表示対応）
+          old2 = "const areaWrap = document.getElementById('pveAreaSelect');"
+          new2 = """const areaWrap = document.getElementById('pveAreaSelect');
+            let gradeEl0 = document.getElementById('pveGradeSelect');
+            if (!gradeEl0) {
+              gradeEl0 = document.createElement('div');
+              gradeEl0.id = 'pveGradeSelect';
+              gradeEl0.className = 'flex flex-wrap gap-2 mb-1';
+              if (areaWrap && areaWrap.parentNode) areaWrap.parentNode.insertBefore(gradeEl0, areaWrap);
+            }
+            if (gradeEl0 && typeof CURRICULUM !== 'undefined') {
+              const pg0 = window._pveGradeOverride || ((typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null);
+              const subj0 = Object.keys(CURRICULUM)[0];
+              const grades0 = CURRICULUM[subj0] && CURRICULUM[subj0].grades ? Object.keys(CURRICULUM[subj0].grades).sort((a,b)=>Number(a)-Number(b)) : [];
+              gradeEl0.innerHTML = '';
+              if (grades0.length > 1) {
+                const row0 = document.createElement('div');
+                row0.className = 'flex flex-wrap gap-2 items-center py-1';
+                const lbl0 = document.createElement('span');
+                lbl0.className = 'font-bold text-gray-600 text-sm mr-1';
+                lbl0.textContent = '\u5b66\u5e74\uff1a';
+                row0.appendChild(lbl0);
+                grades0.forEach(g => {
+                  const btn0 = document.createElement('button');
+                  btn0.textContent = g + '\u5e74\u5927\u9678';
+                  btn0.className = 'px-3 py-1 rounded-full font-bold text-sm transition-colors ' + (g === pg0 ? 'bg-indigo-500 text-white shadow' : 'bg-gray-200 hover:bg-gray-300 text-gray-700');
+                  btn0.onclick = () => { window._pveGradeOverride = g; renderPvEDistrictSelect(); };
+                  row0.appendChild(btn0);
+                });
+                gradeEl0.appendChild(row0);
+              }
+            }"""
           if old2 in src:
               src = src.replace(old2, new2, 1)
               print("Patch 2 applied")
           else:
               print("WARNING: Patch 2 not found")
+              ok = False
+
+          # Patch 3: _genPvE_curriculumもwindow._pveGradeOverrideを参照
+          old3 = "  const playerGrade = (typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null;"
+          new3 = "  const playerGrade = window._pveGradeOverride || ((typeof currentUser !== 'undefined' && currentUser && currentUser.grade) ? String(currentUser.grade) : null);"
+          if old3 in src:
+              src = src.replace(old3, new3, 1)
+              print("Patch 3 applied")
+          else:
+              print("WARNING: Patch 3 not found")
               ok = False
 
           with open('learningbm_index.html', 'w', encoding='utf-8') as f:
@@ -74,4 +113,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add learningbm_index.html
-          git diff --staged --quiet && echo "No changes" || (git commit -m "feat: 野生バトルに学年選択ボタン（○年大陸）を追加" && git push)
+          git diff --staged --quiet && echo "No changes" || (git commit -m "fix: 野生バトル最初から学年ボタンを表示（地方選択時にも対応）" && git push)
