@@ -2,7 +2,7 @@
 # learningbm_index.html に RT バトルスクリプトタグを挿入するパッチスクリプト
 import re, sys
 
-HTML_FILE = 'learningbm_index.html'
+HTML_FILE = 'public/index.html'
 SCRIPT_TAG = '<script src="/rt-battle.js"></script>'
 MARKER     = 'rt-battle.js'
 
