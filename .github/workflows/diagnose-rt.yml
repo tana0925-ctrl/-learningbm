@@ -6,33 +6,11 @@ on:
       - main
     paths:
       - diagnose-rt.yml
+      - scripts/diagnose-rt.py
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Find all RT API calls in frontend
-        run: python3 -c "
-import re, sys
-with open('learningbm_index.html','r',encoding='utf-8') as f: src=f.read()
-print('=== /api/rt/ occurrences ===')
-for m in re.finditer(r'/api/rt/', src):
-    print('pos', m.start(), ':')
-    print(repr(src[max(0,m.start()-200):min(len(src),m.end()+400)]))
-    print('---')
-print('total:', sum(1 for _ in re.finditer(r'/api/rt/', src)))
-"
-      - name: Find RT state variables
-        run: python3 -c "
-import re
-with open('learningbm_index.html','r',encoding='utf-8') as f: src=f.read()
-for kw in ['rtRoom','rtState','rtBattle','friendRoom','hostHp','guestHp','lastEventId','rtPoll']:
-    matches=list(re.finditer(re.escape(kw), src))
-    if matches:
-        m=matches[0]
-        print(f'=== {kw} (x{len(matches)}) ===')
-        print(repr(src[max(0,m.start()-150):min(len(src),m.end()+300)]))
-        print('---')
-    else:
-        print(f'NOT FOUND: {kw}')
-"
+      - name: Run RT diagnostic script
+        run: python3 scripts/diagnose-rt.py
