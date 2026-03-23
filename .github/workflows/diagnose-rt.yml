@@ -1,53 +1,51 @@
 name: Diagnose RT Battle Code
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['diagnose-rt.yml']
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Find all API fetch calls in frontend
+      - name: Find all RT API calls in frontend
         run: |
           python3 - << 'PYEOF'
           import re
           with open('learningbm_index.html', 'r', encoding='utf-8') as f:
               src = f.read()
 
-          # Find all /api/rt/ calls
-          print("=== /api/rt/ fetch calls ===")
-          for m in re.finditer(r"fetchs*(['\`][^'\"]+/api/rt/", src):
-              print(src[max(0,m.start()-50):m.end()+300])
-              print("---")
+          # Find all /api/rt/ fetch calls
+          print("=== ALL /api/rt/ fetch calls ===")
+          for m in re.finditer(r'fetch[^(]*(', src):
+              end = min(len(src), m.end() + 400)
+              ctx = src[m.start():end]
+              if '/api/rt/' in ctx or "'/api/rt" in ctx or '"/api/rt' in ctx:
+                  print(f"--- pos {m.start()} ---")
+                  print(src[max(0,m.start()-100):end])
 
-          # Find all /api/battle/ calls
-          print("\n=== /api/battle/ fetch calls ===")
-          for m in re.finditer(r"fetchs*(['\`][^'\"]+/api/battle/", src):
-              print(src[max(0,m.start()-50):m.end()+300])
-              print("---")
-
-          # Find setTimeout near battle/rt
-          print("\n=== setTimeout near battle/rt ===")
-          for m in re.finditer(r'setTimeout', src):
-              context = src[max(0,m.start()-200):m.end()+300]
-              if '/api/rt' in context or '/api/battle' in context:
-                  print(f"pos {m.start()}:")
-                  print(context)
-                  print("---")
+          # Find /api/rt/ in template literals
+          print("\n=== /api/rt/ in template literals ===")
+          for m in re.finditer(r'/api/rt/', src):
+              print(f"--- pos {m.start()} ---")
+              print(src[max(0,m.start()-300):min(len(src),m.end()+400)])
 
           PYEOF
-      - name: Find RT room handler return statement
+      - name: Find RT state variables and HP display
         run: |
           python3 - << 'PYEOF'
-          with open('src/index.tsx', 'r', encoding='utf-8') as f:
+          import re
+          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
               src = f.read()
 
-          # Find the rt/room handler and show full handler
-          idx = src.find("'/api/rt/room/")
-          if idx < 0:
-              idx = src.find('"/api/rt/room/')
-          if idx >= 0:
-              # Find the closing of this handler
-              print("=== Full /api/rt/room handler ===")
-              print(src[max(0,idx-200):idx+1500])
+          keywords = ['rtRoom', 'rtState', 'rtBattle', 'friendRoom', 'rt_room',
+                      'hostHp', 'guestHp', 'host_hp', 'guest_hp',
+                      'lastEventId', 'lastEvent', 'rtPoll', 'pollRt']
+          for kw in keywords:
+              for m in re.finditer(re.escape(kw), src):
+                  print(f"=== '{kw}' at pos {m.start()} ===")
+                  print(src[max(0,m.start()-200):min(len(src),m.end()+300)])
+                  print("---")
 
           PYEOF
