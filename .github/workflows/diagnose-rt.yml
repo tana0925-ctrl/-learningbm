@@ -2,50 +2,37 @@ name: Diagnose RT Battle Code
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths: ['diagnose-rt.yml']
+    branches:
+      - main
+    paths:
+      - diagnose-rt.yml
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Find all RT API calls in frontend
-        run: |
-          python3 - << 'PYEOF'
-          import re
-          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
-              src = f.read()
-
-          # Find all /api/rt/ fetch calls
-          print("=== ALL /api/rt/ fetch calls ===")
-          for m in re.finditer(r'fetch[^(]*(', src):
-              end = min(len(src), m.end() + 400)
-              ctx = src[m.start():end]
-              if '/api/rt/' in ctx or "'/api/rt" in ctx or '"/api/rt' in ctx:
-                  print(f"--- pos {m.start()} ---")
-                  print(src[max(0,m.start()-100):end])
-
-          # Find /api/rt/ in template literals
-          print("\n=== /api/rt/ in template literals ===")
-          for m in re.finditer(r'/api/rt/', src):
-              print(f"--- pos {m.start()} ---")
-              print(src[max(0,m.start()-300):min(len(src),m.end()+400)])
-
-          PYEOF
-      - name: Find RT state variables and HP display
-        run: |
-          python3 - << 'PYEOF'
-          import re
-          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
-              src = f.read()
-
-          keywords = ['rtRoom', 'rtState', 'rtBattle', 'friendRoom', 'rt_room',
-                      'hostHp', 'guestHp', 'host_hp', 'guest_hp',
-                      'lastEventId', 'lastEvent', 'rtPoll', 'pollRt']
-          for kw in keywords:
-              for m in re.finditer(re.escape(kw), src):
-                  print(f"=== '{kw}' at pos {m.start()} ===")
-                  print(src[max(0,m.start()-200):min(len(src),m.end()+300)])
-                  print("---")
-
-          PYEOF
+        run: python3 -c "
+import re, sys
+with open('learningbm_index.html','r',encoding='utf-8') as f: src=f.read()
+print('=== /api/rt/ occurrences ===')
+for m in re.finditer(r'/api/rt/', src):
+    print('pos', m.start(), ':')
+    print(repr(src[max(0,m.start()-200):min(len(src),m.end()+400)]))
+    print('---')
+print('total:', sum(1 for _ in re.finditer(r'/api/rt/', src)))
+"
+      - name: Find RT state variables
+        run: python3 -c "
+import re
+with open('learningbm_index.html','r',encoding='utf-8') as f: src=f.read()
+for kw in ['rtRoom','rtState','rtBattle','friendRoom','hostHp','guestHp','lastEventId','rtPoll']:
+    matches=list(re.finditer(re.escape(kw), src))
+    if matches:
+        m=matches[0]
+        print(f'=== {kw} (x{len(matches)}) ===')
+        print(repr(src[max(0,m.start()-150):min(len(src),m.end()+300)]))
+        print('---')
+    else:
+        print(f'NOT FOUND: {kw}')
+"
