@@ -961,7 +961,7 @@ app.get('/api/rt/room/:roomId', async (c) => {
   // クエリパラメータ after=lastEventId で差分取得
   const afterId = Number(c.req.query('after') || 0)
   const events = await c.env.DB.prepare(`
-    SELECT id, user_id, event_type, value, monster_id, created_at FROM rt_events
+    SELECT id, user_id, event_type, value, monster_id, meta_json, created_at FROM rt_events
     WHERE room_id=? AND id > ?
     ORDER BY id ASC LIMIT 50
   `).bind(roomId, afterId).all<any>()
@@ -1038,13 +1038,14 @@ app.post('/api/rt/damage/:roomId', async (c) => {
 
   const damage = Math.max(0, Math.min(9999, Number(body.damage || 0)))
   const monsterId = Number(body.monsterId || 0)
+  const metaJson = body.meta ? JSON.stringify(body.meta).slice(0, 500) : null
   const eventType = String(body.eventType || 'damage').slice(0, 20) // 'damage'|'faint'|'win'|'lose'
 
   // イベント記録
   const result = await c.env.DB.prepare(`
-    INSERT INTO rt_events (room_id, user_id, event_type, value, monster_id)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(roomId, u.id, eventType, damage, monsterId).run()
+    INSERT INTO rt_events (room_id, user_id, event_type, value, monster_id, meta_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(roomId, u.id, eventType, damage, monsterId, metaJson).run()
 
   const newEventId = (result.meta as any).last_row_id
 
