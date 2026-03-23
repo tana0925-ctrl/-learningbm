@@ -6,40 +6,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Print RT-related code sections
-        run: |
-          python3 - << 'PYEOF'
-          with open('src/index.tsx', 'r', encoding='utf-8') as f:
-              src = f.read()
-          idx = src.find("'/api/rt/room/")
-          if idx < 0:
-              idx = src.find('"/api/rt/room/')
-          if idx >= 0:
-              print("=== src/index.tsx: /api/rt/room handler ===")
-              print(src[max(0,idx-100):idx+800])
-          else:
-              print("WARNING: /api/rt/room not found")
-          idx2 = src.find('/api/rt/damage')
-          if idx2 >= 0:
-              print("\n=== /api/rt/damage handler ===")
-              print(src[max(0,idx2-50):idx2+500])
-          PYEOF
-      - name: Print frontend RT polling code
+      - name: Find all API fetch calls in frontend
         run: |
           python3 - << 'PYEOF'
           import re
           with open('learningbm_index.html', 'r', encoding='utf-8') as f:
               src = f.read()
-          for m in re.finditer(r'api/rt/room', src):
-              start = max(0, m.start() - 400)
-              end = min(len(src), m.end() + 800)
-              print(f"=== api/rt/room at pos {m.start()} ===")
-              print(src[start:end])
-              print("---END---")
-          for m in re.finditer(r'setInterval', src):
-              context = src[max(0,m.start()-300):m.end()+300]
-              if 'rt' in context or '/api/battle' in context:
-                  print(f"\n=== setInterval at {m.start()} ===")
+
+          # Find all /api/rt/ calls
+          print("=== /api/rt/ fetch calls ===")
+          for m in re.finditer(r"fetchs*(['\`][^'\"]+/api/rt/", src):
+              print(src[max(0,m.start()-50):m.end()+300])
+              print("---")
+
+          # Find all /api/battle/ calls
+          print("\n=== /api/battle/ fetch calls ===")
+          for m in re.finditer(r"fetchs*(['\`][^'\"]+/api/battle/", src):
+              print(src[max(0,m.start()-50):m.end()+300])
+              print("---")
+
+          # Find setTimeout near battle/rt
+          print("\n=== setTimeout near battle/rt ===")
+          for m in re.finditer(r'setTimeout', src):
+              context = src[max(0,m.start()-200):m.end()+300]
+              if '/api/rt' in context or '/api/battle' in context:
+                  print(f"pos {m.start()}:")
                   print(context)
-                  print("---END---")
+                  print("---")
+
+          PYEOF
+      - name: Find RT room handler return statement
+        run: |
+          python3 - << 'PYEOF'
+          with open('src/index.tsx', 'r', encoding='utf-8') as f:
+              src = f.read()
+
+          # Find the rt/room handler and show full handler
+          idx = src.find("'/api/rt/room/")
+          if idx < 0:
+              idx = src.find('"/api/rt/room/')
+          if idx >= 0:
+              # Find the closing of this handler
+              print("=== Full /api/rt/room handler ===")
+              print(src[max(0,idx-200):idx+1500])
+
           PYEOF
