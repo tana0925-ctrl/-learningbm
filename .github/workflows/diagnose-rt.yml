@@ -1,0 +1,45 @@
+name: Diagnose RT Battle Code
+on:
+  workflow_dispatch:
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print RT-related code sections
+        run: |
+          python3 - << 'PYEOF'
+          with open('src/index.tsx', 'r', encoding='utf-8') as f:
+              src = f.read()
+          idx = src.find("'/api/rt/room/")
+          if idx < 0:
+              idx = src.find('"/api/rt/room/')
+          if idx >= 0:
+              print("=== src/index.tsx: /api/rt/room handler ===")
+              print(src[max(0,idx-100):idx+800])
+          else:
+              print("WARNING: /api/rt/room not found")
+          idx2 = src.find('/api/rt/damage')
+          if idx2 >= 0:
+              print("\n=== /api/rt/damage handler ===")
+              print(src[max(0,idx2-50):idx2+500])
+          PYEOF
+      - name: Print frontend RT polling code
+        run: |
+          python3 - << 'PYEOF'
+          import re
+          with open('learningbm_index.html', 'r', encoding='utf-8') as f:
+              src = f.read()
+          for m in re.finditer(r'api/rt/room', src):
+              start = max(0, m.start() - 400)
+              end = min(len(src), m.end() + 800)
+              print(f"=== api/rt/room at pos {m.start()} ===")
+              print(src[start:end])
+              print("---END---")
+          for m in re.finditer(r'setInterval', src):
+              context = src[max(0,m.start()-300):m.end()+300]
+              if 'rt' in context or '/api/battle' in context:
+                  print(f"\n=== setInterval at {m.start()} ===")
+                  print(context)
+                  print("---END---")
+          PYEOF
