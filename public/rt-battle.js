@@ -212,6 +212,7 @@
           setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
           addLog('\u30d0\u30c8\u30eb\u30b9\u30bf\u30fc\u30c8\uff01 [' + modeStr + ']');
+        if (_rt.mode === 'egg' && !(window.EggBattle && window.EggBattle.active)) { setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },400); }
         }
       } else if (room.status === 'finished' && room.winner) {
         rtStopPoll(); gymStopPoll();
@@ -258,6 +259,8 @@
       if (!d.ok) throw new Error(d.error || 'create failed');
       _rt.roomId = d.roomId; _rt.role = 'host'; _rt.status = 'waiting';
       _rt.lastEventId = 0; _rt.myHp = 100; _rt.oppHp = 100;
+      // ルーム情報を早期取得してモードを設定
+      fetch('/api/rt/room/' + _rt.roomId).then(function(rr){return rr.json();}).then(function(rd){ if(rd.room&&rd.room.battleType&&!_rt._modeSet){ _rt.mode=rd.room.battleType==='egg'?'egg':rd.room.battleType==='gym'?'gym':'wild'; _rt._modeSet=true; } }).catch(function(){});
       if (el('_rtRoomRow')) el('_rtRoomRow').style.display = 'block';
       if (el('_rtRoomId'))  el('_rtRoomId').textContent = d.roomId;
       if (el('_rtLeaveBtn')) el('_rtLeaveBtn').style.display = 'inline-block';
