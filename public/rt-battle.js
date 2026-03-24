@@ -395,15 +395,12 @@
     return true;
   }
 
-  // ===== RTコントロール注入 (友達対戦セクション内) =====
+  // ===== RTコントロール注入 (リアルタイムタブ内) =====
   function injectRtControls() {
     if (el('_rtControls')) return;
-    const radio = document.querySelector('[name="friendBattleType"]');
-    if (!radio) return;
-    const anchor = radio.closest('div');
+    // ゲーム既存のリアルタイムタブ内(rtStartBtn の上)に注入
+    const anchor = el('rtStartBtn') || el('rtLobby') || el('friendTabRT');
     if (!anchor) return;
-    const wrap = anchor.closest('div[class]') || anchor.parentElement;
-    if (!wrap) return;
     const div = document.createElement('div');
     div.id = '_rtControls';
     div.innerHTML =
@@ -419,7 +416,13 @@
         '</div>' +
         '<div id="_rtControlMsg" style="margin-top:8px;font-size:12px;color:#64748b"></div>' +
       '</div>';
-    wrap.parentElement ? wrap.parentElement.insertBefore(div, wrap.nextSibling) : wrap.appendChild(div);
+    // rtStartBtnの前に挿入、それ以外はrtLobby/friendTabRTの先頭に挿入
+    const startBtn = el('rtStartBtn');
+    if (startBtn) {
+      startBtn.parentElement.insertBefore(div, startBtn);
+    } else {
+      anchor.insertBefore(div, anchor.firstChild);
+    }
   }
 
   window._rtHostClick = async function () {
