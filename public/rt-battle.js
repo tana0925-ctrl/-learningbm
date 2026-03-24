@@ -1,4 +1,4 @@
-/* RT Battle System v3 - Wild + Gym Battle */
+/* RT Battle System v3 - 友達対戦＋ジムバトル対応 */
 (function () {
   'use strict';
 
@@ -83,12 +83,7 @@
     if (el('_rtOppVal')) el('_rtOppVal').textContent = _rt.oppHp + '/100';
   }
 
-  function flashBar(id) {
-    const f = el(id);
-    if (!f) return;
-    f.style.opacity = '0.75';
-    setTimeout(() => { if (f) f.style.opacity = '0'; }, 150);
-  }
+  function flashBar(id) { const f = el(id); if (!f) return; f.style.opacity = '0.75'; setTimeout(() => { if (f) f.style.opacity = '0'; }, 150); }
   function flashOppBar() { flashBar('_rtOppFlash'); }
   function flashMyBar()  { flashBar('_rtMyFlash'); }
 
@@ -120,7 +115,6 @@
     try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) { return {}; }
   }
 
-  // ===== Get attacker info from battle DOM =====
   function getMyMonsterInfo() {
     try {
       const name  = el('playerNameDisplay')?.textContent?.trim() || '';
@@ -158,31 +152,19 @@
       }
 
       if (_rt.mode === 'gym') {
-        // ===== GYM MODE: castle HP tracking =====
-        // My castle took damage (AI attacked me)
+        // ジムバトルモード: 城HPの追跡
         if (myHpDiff > 0) {
           flashMyBar();
-          const latest = (d.events || []).filter(e => e.event_type === 'self_damage').pop();
-          const meta = parseMeta(latest?.meta_json);
-          showAttackNotif(
-            '\u2694\ufe0f \u81ea\u5206\u306e\u57ce\u304c\u653b\u6483\u3055\u308c\u305f\uff01',
-            '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01',
-            '#f87171'
-          );
+          showAttackNotif('\u2694\ufe0f \u81ea\u5206\u306e\u57ce\u304c\u653b\u6483\u3055\u308c\u305f\uff01', '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#f87171');
           addLog('\u81ea\u5206\u306e\u57ce: -' + myHpDiff + 'HP');
         }
-        // Opponent's castle took damage (AI attacked them)
         if (oppHpDiff > 0) {
           flashOppBar();
-          showAttackNotif(
-            '\u2694\ufe0f \u76f8\u624b\u306e\u57ce\u3082\u653b\u6483\u3055\u308c\u305f\uff01',
-            '\u2212' + oppHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01',
-            '#fbbf24'
-          );
+          showAttackNotif('\u2694\ufe0f \u76f8\u624b\u306e\u57ce\u3082\u653b\u6483\u3055\u308c\u305f\uff01', '\u2212' + oppHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#fbbf24');
           addLog('\u76f8\u624b\u306e\u57ce: -' + oppHpDiff + 'HP');
         }
       } else {
-        // ===== WILD MODE: opponent attacked me =====
+        // 野生/友達対戦モード: モンスターHP追跡
         if (myHpDiff > 0) {
           flashOppBar();
           const dmgEvs = (d.events || []).filter(e => e.event_type === 'damage');
@@ -191,11 +173,7 @@
           const name  = meta.attackerName  || '\u76f8\u624b';
           const emoji = meta.attackerEmoji || '\u2694\ufe0f';
           const move  = meta.moveName      || '\u3053\u3046\u3052\u304d';
-          showAttackNotif(
-            emoji + ' ' + name + ' \u306e ' + move + '\uff01',
-            '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01',
-            '#f87171'
-          );
+          showAttackNotif(emoji + ' ' + name + ' \u306e ' + move + '\uff01', '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#f87171');
           addLog('\u76f8\u624b: ' + (emoji||'') + name + ' \u2192 -' + myHpDiff + 'HP');
         }
         for (const ev of (d.events || [])) {
@@ -217,15 +195,14 @@
       } else if (room.status === 'playing') {
         if (_rt.status !== 'playing') {
           _rt.status = 'playing';
-          const modeStr = _rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb' : '\u30ef\u30a4\u30eb\u30c9\u30d0\u30c8\u30eb';
+          const modeStr = _rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb' : '\u53cb\u9054\u5bfe\u6226';
           setMsg('\u2694\ufe0f \u30d0\u30c8\u30eb\u4e2d\uff01 [' + modeStr + ']');
-          setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u30ef\u30a4\u30eb\u30c9\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83e\udd0e');
+          setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
           addLog('\u30d0\u30c8\u30eb\u30b9\u30bf\u30fc\u30c8\uff01 [' + modeStr + ']');
         }
       } else if (room.status === 'finished' && room.winner) {
-        rtStopPoll();
-        gymStopPoll();
+        rtStopPoll(); gymStopPoll();
         _rt.status = 'finished';
         const win = room.winner === _rt.role;
         const we = el('_rtWin');
@@ -240,7 +217,7 @@
   function rtStopPoll()  { if (_rt.pollTimer)    { clearInterval(_rt.pollTimer);    _rt.pollTimer = null; } }
   function gymStopPoll() { if (_rt.gymPollTimer) { clearInterval(_rt.gymPollTimer); _rt.gymPollTimer = null; } }
 
-  // ===== Gym castle HP polling =====
+  // ===== ジムバトル: 城HPポーリング =====
   function gymPollCastle() {
     if (!_rt.roomId || _rt.status !== 'playing') return;
     try {
@@ -251,11 +228,7 @@
       if (_rt.lastCastleHp !== null && curHp < _rt.lastCastleHp) {
         const delta = _rt.lastCastleHp - curHp;
         const dmgPct = Math.max(1, Math.round(delta / maxHp * 100));
-        window.rtSendSelfDamage(dmgPct, {
-          attackerName: '\u6575\u30e6\u30cb\u30c3\u30c8',
-          attackerEmoji: '\u2694\ufe0f',
-          moveName: '\u57ce\u653b\u6483'
-        });
+        window.rtSendSelfDamage(dmgPct, { attackerName: '\u6575\u30e6\u30cb\u30c3\u30c8', attackerEmoji: '\u2694\ufe0f', moveName: '\u57ce\u653b\u6483' });
       }
       _rt.lastCastleHp = curHp;
     } catch(e) {}
@@ -307,7 +280,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ damage: Math.round(damage), monsterId: monsterId || 0, eventType: 'damage', meta: meta || null })
       });
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   };
 
   window.rtSendSelfDamage = async function (damage, meta) {
@@ -317,12 +290,12 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ damage: Math.round(damage), monsterId: 0, eventType: 'self_damage', meta: meta || null })
       });
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   };
 
   window.rtSendReady = async function () {
     if (!_rt.roomId) return;
-    try { await fetch('/api/rt/ready/' + _rt.roomId, { method: 'POST' }); _rt.status = 'playing'; rtStartPoll(); } catch (e) { /* ignore */ }
+    try { await fetch('/api/rt/ready/' + _rt.roomId, { method: 'POST' }); _rt.status = 'playing'; rtStartPoll(); } catch (e) {}
   };
 
   window.rtLeave = function () {
@@ -334,7 +307,7 @@
 
   window._rtGetState = function () { return _rt; };
 
-  // ===== calculateDamage hook (wild battle) =====
+  // ===== 友達対戦: calculateDamage フック =====
   function hookCalcDamage() {
     if (typeof window.calculateDamage !== 'function') return false;
     if (window.calculateDamage._rtHooked) return true;
@@ -346,8 +319,7 @@
         const info = getMyMonsterInfo();
         showAttackNotif(
           (info.emoji || '\u2694\ufe0f') + ' ' + (info.name || '\u81ea\u5206') + ' \u306e ' + (info.moveName || '\u3053\u3046\u3052\u304d') + '\uff01',
-          '\u2212' + dmg + ' \u30c0\u30e1\u30fc\u30b8\uff01',
-          '#4ade80'
+          '\u2212' + dmg + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#4ade80'
         );
         addLog('\u81ea\u5206: ' + (info.emoji||'') + (info.name||'?') + ' \u2192 -' + dmg + 'HP');
         window.rtSendDamage(dmg, 0, { attackerName: info.name, attackerEmoji: info.emoji, moveName: info.moveName });
@@ -356,11 +328,10 @@
       return dmg;
     };
     window.calculateDamage._rtHooked = true;
-    console.log('[RT] calculateDamage hooked v3');
     return true;
   }
 
-  // ===== startBattleSequence hook (wild battle start) =====
+  // ===== 友達対戦: バトル開始フック =====
   function hookStartBattle() {
     if (typeof window.startBattleSequence !== 'function') return false;
     if (window.startBattleSequence._rtHooked) return true;
@@ -373,11 +344,10 @@
       return orig.apply(this, arguments);
     };
     window.startBattleSequence._rtHooked = true;
-    console.log('[RT] startBattleSequence hooked v3');
     return true;
   }
 
-  // ===== startWarMode hook (gym battle start) =====
+  // ===== ジムバトル: startWarMode フック =====
   function hookWarBattle() {
     if (typeof window.startWarMode !== 'function') return false;
     if (window.startWarMode._rtHooked) return true;
@@ -387,21 +357,17 @@
         _rt.mode = 'gym';
         _rt.lastCastleHp = null;
         if (_rt.status === 'waiting') await window.rtSendReady();
-        // Start castle HP polling
         gymStopPoll();
         _rt.gymPollTimer = setInterval(gymPollCastle, 800);
-        setModeLabel('\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0');
         addLog('\u30b8\u30e0\u30d0\u30c8\u30eb\u958b\u59cb\uff01');
-        console.log('[RT] gym battle started');
       }
       return origStart.apply(this, arguments);
     };
     window.startWarMode._rtHooked = true;
-    console.log('[RT] startWarMode hooked v3');
     return true;
   }
 
-  // ===== stopWarMode hook (gym battle end) =====
+  // ===== ジムバトル: stopWarMode フック =====
   function hookStopWar() {
     if (typeof window.stopWarMode !== 'function') return false;
     if (window.stopWarMode._rtHooked) return true;
@@ -409,14 +375,13 @@
     window.stopWarMode = function () {
       gymStopPoll();
       if (_rt.mode === 'gym' && _rt.roomId && _rt.status === 'playing') {
-        // Final HP sync before stopping
         try {
           const ws = window.warState;
           if (ws && _rt.lastCastleHp !== null) {
             const curHp = Number(ws.playerCastleHp || 0);
             if (curHp < _rt.lastCastleHp) {
               const delta = _rt.lastCastleHp - curHp;
-              const dmgPct = Math.max(1, Math.round(delta / (Number(ws.playerCastleHpMax || 600)) * 100));
+              const dmgPct = Math.max(1, Math.round(delta / Number(ws.playerCastleHpMax || 600) * 100));
               window.rtSendSelfDamage(dmgPct, { attackerName: '\u6575\u30e6\u30cb\u30c3\u30c8', attackerEmoji: '\u2694\ufe0f', moveName: '\u6700\u7d42\u653b\u6483' });
             }
           }
@@ -427,11 +392,10 @@
       return origStop.apply(this, arguments);
     };
     window.stopWarMode._rtHooked = true;
-    console.log('[RT] stopWarMode hooked v3');
     return true;
   }
 
-  // ===== Inject RT controls (friend battle section) =====
+  // ===== RTコントロール注入 (友達対戦セクション内) =====
   function injectRtControls() {
     if (el('_rtControls')) return;
     const radio = document.querySelector('[name="friendBattleType"]');
@@ -442,68 +406,39 @@
     if (!wrap) return;
     const div = document.createElement('div');
     div.id = '_rtControls';
-    div.innerHTML = _rtControlsHTML();
-    wrap.parentElement ? wrap.parentElement.insertBefore(div, wrap.nextSibling) : wrap.appendChild(div);
-    console.log('[RT] controls injected v3 (friend battle)');
-  }
-
-  // ===== Inject RT controls (gym battle section) =====
-  function injectGymRtControls() {
-    if (el('_rtGymControls')) return;
-    // Try to find the gym battle button or section
-    const gymBtn = [...document.querySelectorAll('button')].find(b =>
-      b.textContent.includes('\u30b8\u30e0') || b.onclick?.toString().includes('gymBattle') || b.onclick?.toString().includes('commenceGym') || b.onclick?.toString().includes('startGym')
-    );
-    const anchor = gymBtn?.closest('div') || document.getElementById('gymBattleSection') || document.getElementById('warSection');
-    if (!anchor) return;
-    const div = document.createElement('div');
-    div.id = '_rtGymControls';
-    div.innerHTML = _rtControlsHTML('_rtGymJoinId', '_rtGymControlMsg', true);
-    anchor.parentElement ? anchor.parentElement.insertBefore(div, anchor) : anchor.appendChild(div);
-    console.log('[RT] controls injected v3 (gym battle)');
-  }
-
-  function _rtControlsHTML(joinId, msgId, isGym) {
-    joinId = joinId || '_rtJoinId';
-    msgId  = msgId  || '_rtControlMsg';
-    const label = isGym ? '\u30b8\u30e0\u30d0\u30c8\u30eb RT' : '\u30ea\u30a2\u30eb\u30bf\u30a4\u30e0\u5bfe\u6226 (RT)';
-    const hostFn = isGym ? 'window._rtGymHostClick()' : 'window._rtHostClick()';
-    const guestFn = isGym ? 'window._rtGymGuestClick(\'' + joinId + '\',\'' + msgId + '\')' : 'window._rtGuestClick()';
-    return '<div style="margin-top:14px;padding:12px;background:#f0f9ff;border:2px solid #0ea5e9;border-radius:12px">' +
-      '<div style="font-weight:700;font-size:13px;color:#0369a1;margin-bottom:10px">\u26a1 ' + label + '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
-        '<button onclick="' + hostFn + '" style="background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer">\ud83c\udfe0 \u30db\u30b9\u30c8\u4f5c\u6210</button>' +
-        '<div style="display:flex;gap:6px;align-items:center">' +
-          '<input id="' + joinId + '" placeholder="\u30eb\u30fc\u30e0ID (4\u6587\u5b57)" maxlength="4" style="border:2px solid #0ea5e9;border-radius:8px;padding:7px 10px;font-size:14px;font-weight:700;width:130px;text-transform:uppercase"/>' +
-          '<button onclick="' + guestFn + '" style="background:#10b981;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">\u53c2\u52a0</button>' +
+    div.innerHTML =
+      '<div style="margin-top:14px;padding:12px;background:#f0f9ff;border:2px solid #0ea5e9;border-radius:12px">' +
+        '<div style="font-weight:700;font-size:13px;color:#0369a1;margin-bottom:10px">\u26a1 \u30ea\u30a2\u30eb\u30bf\u30a4\u30e0\u5bfe\u6226 (RT)</div>' +
+        '<div style="font-size:11px;color:#64748b;margin-bottom:8px">\u53cb\u9054\u5bfe\u6226\u30fb\u30b8\u30e0\u30d0\u30c8\u30eb\u5171\u901a</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
+          '<button id="_rtHostBtn" onclick="window._rtHostClick()" style="background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer">\ud83c\udfe0 \u30db\u30b9\u30c8\u4f5c\u6210</button>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<input id="_rtJoinId" placeholder="\u30eb\u30fc\u30e0ID (4\u6587\u5b57)" maxlength="4" style="border:2px solid #0ea5e9;border-radius:8px;padding:7px 10px;font-size:14px;font-weight:700;width:130px;text-transform:uppercase"/>' +
+            '<button onclick="window._rtGuestClick()" style="background:#10b981;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">\u53c2\u52a0</button>' +
+          '</div>' +
         '</div>' +
-      '</div>' +
-      '<div id="' + msgId + '" style="margin-top:8px;font-size:12px;color:#64748b"></div>' +
-    '</div>';
+        '<div id="_rtControlMsg" style="margin-top:8px;font-size:12px;color:#64748b"></div>' +
+      '</div>';
+    wrap.parentElement ? wrap.parentElement.insertBefore(div, wrap.nextSibling) : wrap.appendChild(div);
   }
 
-  async function _rtDoHost(msgId) {
+  window._rtHostClick = async function () {
     const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')?.textContent || '\u30db\u30b9\u30c8').trim();
     const area = el('friendWildAreaSelect')?.value || 'rounding';
     const bt   = document.querySelector('[name="friendBattleType"]:checked')?.value || 'normal';
-    if (el(msgId)) el(msgId).textContent = '\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...';
+    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = '\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...';
     const id = await window.rtCreateRoom(name, [], area, bt);
-    if (el(msgId)) el(msgId).textContent = id ? ('\u30eb\u30fc\u30e0ID: ' + id + ' \u3092\u76f8\u624b\u306b\u4f1d\u3048\u3066START\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044') : '\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
-  }
+    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = id ? ('\u30eb\u30fc\u30e0ID: ' + id + ' \u3092\u76f8\u624b\u306b\u4f1d\u3048\u3066START\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044') : '\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
+  };
 
-  async function _rtDoGuest(joinId, msgId) {
-    const rid = (el(joinId)?.value || '').toUpperCase().trim();
+  window._rtGuestClick = async function () {
+    const rid = (el('_rtJoinId')?.value || '').toUpperCase().trim();
     if (rid.length < 3) { alert('\u30eb\u30fc\u30e0ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044'); return; }
     const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')?.textContent || '\u30b2\u30b9\u30c8').trim();
-    if (el(msgId)) el(msgId).textContent = '\u53c2\u52a0\u4e2d...';
+    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = '\u53c2\u52a0\u4e2d...';
     const ok = await window.rtJoinRoom(rid, name, []);
-    if (el(msgId)) el(msgId).textContent = ok ? '\u30d0\u30c8\u30eb\u958b\u59cb\u3092\u5f85\u3063\u3066\u3044\u307e\u3059\uff01' : '\u53c2\u52a0\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
-  }
-
-  window._rtHostClick     = () => _rtDoHost('_rtControlMsg');
-  window._rtGuestClick    = () => _rtDoGuest('_rtJoinId', '_rtControlMsg');
-  window._rtGymHostClick  = () => _rtDoHost('_rtGymControlMsg');
-  window._rtGymGuestClick = (joinId, msgId) => _rtDoGuest(joinId || '_rtGymJoinId', msgId || '_rtGymControlMsg');
+    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = ok ? '\u30d0\u30c8\u30eb\u958b\u59cb\u3092\u5f85\u3063\u3066\u3044\u307e\u3059\uff01' : '\u53c2\u52a0\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
+  };
 
   // ===== Init =====
   function init() {
@@ -513,11 +448,10 @@
     hookWarBattle();
     hookStopWar();
     injectRtControls();
-    injectGymRtControls();
   }
 
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); } else { init(); }
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); injectGymRtControls(); }, 1500);
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); injectGymRtControls(); }, 4000);
-  console.log('[RT Battle System v3] loaded - wild + gym battle support');
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); }, 1500);
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); }, 4000);
+  console.log('[RT Battle System v3] loaded');
 })();
