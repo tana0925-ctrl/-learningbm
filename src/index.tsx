@@ -1053,10 +1053,14 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   let newHostHp = room.host_hp
   let newGuestHp = room.guest_hp
 
-  if (isHost) {
-    newGuestHp = Math.max(0, newGuestHp - damage)
+  if (eventType === 'self_damage') {
+    // ジムバトル: AIが自分の城を攻撃 → 送信者自身のHPを減らす
+    if (isHost) { newHostHp = Math.max(0, newHostHp - damage) }
+    else { newGuestHp = Math.max(0, newGuestHp - damage) }
   } else {
-    newHostHp = Math.max(0, newHostHp - damage)
+    // 通常バトル: 自分が相手を攻撃 → 相手のHPを減らす
+    if (isHost) { newGuestHp = Math.max(0, newGuestHp - damage) }
+    else { newHostHp = Math.max(0, newHostHp - damage) }
   }
 
   let newStatus = room.status
