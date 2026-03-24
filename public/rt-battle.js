@@ -8,7 +8,7 @@
     status: 'idle', hostHp: 100, guestHp: 100,
     myHp: 100, oppHp: 100,
     myName: '', oppName: '', area: '', dmgPending: false,
-    mode: 'wild',        // 'wild' | 'gym'
+    mode: 'wild',        // 'wild' | 'gym' | 'egg'
     gymPollTimer: null,
     lastCastleHp: null
   };
@@ -136,6 +136,7 @@
       const room = d.room;
       _rt.role = room.myRole;
       _rt.area = room.area || '';
+      if (room.battleType && !_rt._modeSet) { _rt.mode = room.battleType === 'egg' ? 'egg' : room.battleType === 'gym' ? 'gym' : 'wild'; _rt._modeSet = true; }
 
       const newMyHp  = _rt.role === 'host' ? room.hostHp  : room.guestHp;
       const newOppHp = _rt.role === 'host' ? room.guestHp : room.hostHp;
@@ -188,6 +189,17 @@
       _rt.oppHp = newOppHp;
       _rt.hostHp  = room.hostHp;
       _rt.guestHp = room.guestHp;
+      // タマゴバトル VS mode
+      if (_rt.mode === 'egg') {
+        if (!window._ebVsHooked && window.EggBattle && window.EggBattle.active) {
+          window._ebVsHooked = true;
+          hookEggBattle(_rt.role || 'host');
+        }
+        const ebEvs = (d.events || []).filter(function(e){ return e.event_type === 'egg_battle'; });
+        for (var _i = 0; _i < ebEvs.length; _i++) {
+          try { handleEggBattleEvent(ebEvs[_i].meta_json); } catch(_e) {}
+        }
+      }
       updateHpBars();
 
       if (room.status === 'waiting') {
@@ -410,7 +422,9 @@
           const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')
             ?.textContent || 'ホスト').trim();
           const area = el('rtAreaSelect')?.value || 'rounding';
-          const bt = document.querySelector('[name="rtBattleType"]:checked')?.value === 'gym' ? 'gym' : 'normal';
+          const _btv = document.querySelector('[name="rtBattleType"]:checked')?.value || 'normal';
+            const bt = _btv === 'egg' ? 'egg' : _btv === 'gym' ? 'gym' : 'normal';
+            _rt.mode = bt === 'egg' ? 'egg' : bt === 'gym' ? 'gym' : 'wild';
           rtCreateRoom(name, [], area, bt, gameCode);
         }
       });
@@ -433,6 +447,122 @@
       });
     }
   }
+  // ===== タマゴバトル VS Mode =====
+
+  function hookEggBattle(role) {
+    var eb = window.EggBattle;
+    if (!eb || !eb.active || !eb.state) {
+      setTimeout(function(){ hookEggBattle(role); }, 300);
+      return;
+    }
+    if (eb._vsHooked) return;
+    eb._vsHooked = true;
+    var s = eb.state;
+    var W = eb.canvas.width;
+    var H = eb.canvas.height;
+    s._vsMode = true;
+
+    // ゲストは右上スタート
+    if (role === 'guest' && s.player) {
+      s.player.x = W - 80;
+      s.player.y = 80;
+      s.player.dirX = -1;
+      s.player.dirY = 0;
+      if (s.enemyBase) { s.enemyBase.x = 90; s.enemyBase.y = H - 70; }
+    }
+
+    // AI無効化
+    var origAEL = eb.autoEnemyLay;
+    if (origAEL) {
+      eb.autoEnemyLay = function(dt) {
+        if (this.state && this.state._vsMode) return;
+        return origAEL.call(this, dt);
+      };
+    }
+
+    // placeEgg をフック
+    var origPE = eb.placeEgg;
+    if (origPE) {
+      eb.placeEgg = function() {
+        var s2 = eb.state; var bl = s2 && s2.eggs ? s2.eggs.length : -1;
+        var r = origPE.call(this);
+        if (s2 && s2.eggs && s2.eggs.length > bl) {
+          var egg = s2.eggs[s2.eggs.length - 1];
+          rtSendEggBattleEvent({type:'eb_egg', x:egg.x, y:egg.y, r:egg.r||5, id:egg.id, hatchSec:egg.hatchSec||5});
+        }
+        return r;
+      };
+    }
+
+    // placeWall をフック
+    var origPW = eb.placeWall;
+    if (origPW) {
+      eb.placeWall = function() {
+        var s2 = eb.state; var bl = s2 && s2.placedWalls ? s2.placedWalls.length : -1;
+        var r = origPW.call(this);
+        if (s2 && s2.placedWalls && s2.placedWalls.length > bl) {
+          var wall = s2.placedWalls[s2.placedWalls.length - 1];
+          rtSendEggBattleEvent({type:'eb_wall', x:wall.x, y:wall.y, w:wall.w, h:wall.h});
+        }
+        return r;
+      };
+    }
+
+    // fireMissile をフック
+    var origFM = eb.fireMissile;
+    if (origFM) {
+      eb.fireMissile = function() {
+        var s2 = eb.state; var bl = s2 && s2.missiles ? s2.missiles.length : -1;
+        var r = origFM.call(this);
+        if (s2 && s2.missiles && s2.missiles.length > bl) {
+          var m = s2.missiles[s2.missiles.length - 1];
+          rtSendEggBattleEvent({type:'eb_missile', x:m.x, y:m.y, vx:m.vx, vy:m.vy, r:m.r||3});
+        }
+        return r;
+      };
+    }
+
+    // killMyBase をフック (負けを通知)
+    var origKMB = eb.killMyBase;
+    if (origKMB) {
+      eb.killMyBase = function() {
+        rtSendEggBattleEvent({type:'eb_game_over'});
+        return origKMB.call(this);
+      };
+    }
+    console.log('[RT] EggBattle VS hooked, role:', role);
+  }
+
+  function handleEggBattleEvent(metaJson) {
+    var eb = window.EggBattle;
+    if (!eb || !eb.state || !eb.canvas) return;
+    var s = eb.state; var W = eb.canvas.width; var H = eb.canvas.height;
+    var data;
+    try { data = typeof metaJson === 'string' ? JSON.parse(metaJson) : (metaJson || {}); } catch(e){ return; }
+    var mx = W - (data.x || 0); var my = H - (data.y || 0);
+    if (data.type === 'eb_egg') {
+      s.enemyEggs = s.enemyEggs || [];
+      var hs = data.hatchSec || 5;
+      s.enemyEggs.push({x:mx, y:my, r:data.r||5, id:data.id||('re'+Date.now()), hatchAt:Date.now()+hs*1000, hatchSec:hs});
+    } else if (data.type === 'eb_wall') {
+      s.placedWalls = s.placedWalls || [];
+      s.placedWalls.push({x:W-(data.x||0)-(data.w||40), y:H-(data.y||0)-(data.h||20), w:data.w||40, h:data.h||20, hp:2, maxHp:2, team:2, breakable:true});
+    } else if (data.type === 'eb_missile') {
+      s.enemyShots = s.enemyShots || [];
+      s.enemyShots.push({x:mx, y:my, r:data.r||3, vx:-(data.vx||0), vy:-(data.vy||0)});
+    } else if (data.type === 'eb_game_over') {
+      if (eb.killEnemyBase) eb.killEnemyBase();
+    }
+  }
+
+  function rtSendEggBattleEvent(data) {
+    if (!_rt.roomId) return;
+    fetch('/api/rt/damage/' + _rt.roomId, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({damage:0, monsterId:0, eventType:'egg_battle', meta:data})
+    }).catch(function(){});
+  }
+
 
 
   // ===== Init =====
