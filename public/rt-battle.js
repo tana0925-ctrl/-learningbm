@@ -212,7 +212,7 @@
           setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
           addLog('\u30d0\u30c8\u30eb\u30b9\u30bf\u30fc\u30c8\uff01 [' + modeStr + ']');
-        if (_rt.mode === 'egg' && !(window.EggBattle && window.EggBattle.active)) { setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },400); }
+        if (_rt.mode === 'egg' && !(window.EggBattle && window.EggBattle.active)) { setTimeout(function(){ if(window.EggBattle&&typeof window.EggBattle.start==='function'){window.EggBattle.start();setTimeout(function(){hookEggBattle(_rt.role||'host');},200);} },300); }
         }
       } else if (room.status === 'finished' && room.winner) {
         rtStopPoll(); gymStopPoll();
@@ -356,10 +356,10 @@
                 var _isEgg = _rt.mode === 'egg';
         if (!_isEgg) _rt.mode = 'wild';
         await window.rtSendReady();
-        if (_isEgg) { setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },500); return; }
+        if (_isEgg) { setTimeout(function(){ if(window.EggBattle&&typeof window.EggBattle.start==='function'){window.EggBattle.start();setTimeout(function(){hookEggBattle(_rt.role||'host');},200);} },300); return; }
       } else {
         var _sv=document.querySelector('[name="rtBattleType"]:checked');
-        if(_sv&&_sv.value==='egg'){ setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },500); return; }
+        if(_sv&&_sv.value==='egg'){ setTimeout(function(){ if(window.EggBattle&&typeof window.EggBattle.start==='function'){window.EggBattle.start();setTimeout(function(){hookEggBattle(_rt.role||'host');},200);} },300); return; }
       }
       return orig.apply(this, arguments);
     };
