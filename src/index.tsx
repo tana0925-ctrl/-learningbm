@@ -897,11 +897,14 @@ app.post('/api/rt/create', async (c) => {
   // 既存 waiting ルームを削除
   await c.env.DB.prepare(`DELETE FROM rt_rooms WHERE host_user_id=? AND status='waiting'`).bind(u.id).run()
 
-  let roomId = genRoomId()
-  for (let i = 0; i < 5; i++) {
-    const ex = await c.env.DB.prepare(`SELECT id FROM rt_rooms WHERE id=?`).bind(roomId).first<any>()
-    if (!ex) break
-    roomId = genRoomId()
+  const customCode = body.code ? String(body.code).toUpperCase().replace(/[^A-Z0-9]/g, '') : ''
+  let roomId = customCode.length >= 4 ? customCode : genRoomId()
+  if (!customCode.length) {
+    for (let i = 0; i < 5; i++) {
+      const ex = await c.env.DB.prepare(`SELECT id FROM rt_rooms WHERE id=?`).bind(roomId).first<any>()
+      if (!ex) break
+      roomId = genRoomId()
+    }
   }
 
   await c.env.DB.prepare(`
