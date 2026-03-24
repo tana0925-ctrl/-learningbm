@@ -235,12 +235,12 @@
   }
 
   // ===== Public API =====
-  window.rtCreateRoom = async function (name, party, area, battleType) {
+  window.rtCreateRoom = async function (name, party, area, battleType, code) {
     try {
       panelShow(); setMsg('\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...');
       const r = await fetch('/api/rt/create', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name || '\u30d7\u30ec\u30a4\u30e4\u30fc', party: party || [], area: area || 'rounding', battleType: battleType || 'normal' })
+        body: JSON.stringify({ name: name || '\u30d7\u30ec\u30a4\u30e4\u30fc', party: party || [], area: area || 'rounding', battleType: battleType || 'normal', code: code })
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'create failed');
@@ -395,47 +395,45 @@
     return true;
   }
 
-  // ===== RTコントロール注入 (リアルタイムタブ内 #rtLobby末尾) =====
-  function injectRtControls() {
-    if (el('_rtControls')) return;
-    // ゲームの既存リアルタイムタブ内 #rtLobby の末尾に注入
-    const anchor = el('rtLobby') || el('friendAreaRT') || el('friendTabRT');
-    if (!anchor) return;
-    const div = document.createElement('div');
-    div.id = '_rtControls';
-    div.innerHTML =
-      '<div style="margin-top:14px;padding:12px;background:#f0f9ff;border:2px solid #0ea5e9;border-radius:12px">' +
-        '<div style="font-weight:700;font-size:13px;color:#0369a1;margin-bottom:10px">\u26a1 \u30ea\u30a2\u30eb\u30bf\u30a4\u30e0\u5bfe\u6226 (RT)</div>' +
-        '<div style="font-size:11px;color:#64748b;margin-bottom:8px">\u53cb\u9054\u5bfe\u6226\u30fb\u30b8\u30e0\u30d0\u30c8\u30eb\u5171\u901a</div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
-          '<button id="_rtHostBtn" onclick="window._rtHostClick()" style="background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer">\ud83c\udfe0 \u30db\u30b9\u30c8\u4f5c\u6210</button>' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
-            '<input id="_rtJoinId" placeholder="\u30eb\u30fc\u30e0ID (4\u6587\u5b57)" maxlength="4" style="border:2px solid #0ea5e9;border-radius:8px;padding:7px 10px;font-size:14px;font-weight:700;width:130px;text-transform:uppercase"/>' +
-            '<button onclick="window._rtGuestClick()" style="background:#10b981;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">\u53c2\u52a0</button>' +
-          '</div>' +
-        '</div>' +
-        '<div id="_rtControlMsg" style="margin-top:8px;font-size:12px;color:#64748b"></div>' +
-      '</div>';
-    anchor.appendChild(div);
+  // ===== ゲームUIとの統合 (ルーム作成/参加を自動フック) =====
+  function hookGameRoomCreate() {
+    if (hookGameRoomCreate._hooked) return;
+    hookGameRoomCreate._hooked = true;
+
+    // ホスト: rtMyRoomCode が変化したら自動でRTルーム作成
+    const codeEl = el('rtMyRoomCode');
+    if (codeEl) {
+      const obs = new MutationObserver(function() {
+        const gameCode = codeEl.textContent.trim().replace(/\s+/g, '');
+        if (gameCode && gameCode.length >= 4 && !_rt.roomId) {
+          obs.disconnect();
+          const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')
+            ?.textContent || 'ホスト').trim();
+          const area = el('rtAreaSelect')?.value || 'rounding';
+          const bt = document.querySelector('[name="rtBattleType"]:checked')?.value === 'gym' ? 'gym' : 'normal';
+          rtCreateRoom(name, [], area, bt, gameCode);
+        }
+      });
+      obs.observe(codeEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    // ゲスト: 参加するボタンをフック
+    const joinBtn = [...document.querySelectorAll('#rtLobby button')].find(function(b) {
+      return b.textContent.includes('参加');
+    });
+    if (joinBtn && !joinBtn._rtHooked) {
+      joinBtn._rtHooked = true;
+      joinBtn.addEventListener('click', function() {
+        const code = (el('rtRoomCodeInput')?.value || '').trim().toUpperCase();
+        if (code.length >= 4 && !_rt.roomId) {
+          const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')
+            ?.textContent || 'ゲスト').trim();
+          rtJoinRoom(code, name, []);
+        }
+      });
+    }
   }
 
-  window._rtHostClick = async function () {
-    const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')?.textContent || '\u30db\u30b9\u30c8').trim();
-    const area = el('friendWildAreaSelect')?.value || 'rounding';
-    const bt   = document.querySelector('[name="friendBattleType"]:checked')?.value || 'normal';
-    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = '\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...';
-    const id = await window.rtCreateRoom(name, [], area, bt);
-    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = id ? ('\u30eb\u30fc\u30e0ID: ' + id + ' \u3092\u76f8\u624b\u306b\u4f1d\u3048\u3066START\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044') : '\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
-  };
-
-  window._rtGuestClick = async function () {
-    const rid = (el('_rtJoinId')?.value || '').toUpperCase().trim();
-    if (rid.length < 3) { alert('\u30eb\u30fc\u30e0ID\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044'); return; }
-    const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')?.textContent || '\u30b2\u30b9\u30c8').trim();
-    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = '\u53c2\u52a0\u4e2d...';
-    const ok = await window.rtJoinRoom(rid, name, []);
-    if (el('_rtControlMsg')) el('_rtControlMsg').textContent = ok ? '\u30d0\u30c8\u30eb\u958b\u59cb\u3092\u5f85\u3063\u3066\u3044\u307e\u3059\uff01' : '\u53c2\u52a0\u306b\u5931\u6557\u3057\u307e\u3057\u305f';
-  };
 
   // ===== Init =====
   function init() {
@@ -444,11 +442,10 @@
     hookStartBattle();
     hookWarBattle();
     hookStopWar();
-    injectRtControls();
-  }
+    hookGameRoomCreate();  }
 
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); } else { init(); }
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); }, 1500);
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); injectRtControls(); }, 4000);
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate();}, 1500);
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate();}, 4000);
   console.log('[RT Battle System v3] loaded');
 })();
