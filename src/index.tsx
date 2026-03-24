@@ -892,7 +892,7 @@ app.post('/api/rt/create', async (c) => {
   const hostName = String(body.name || 'プレイヤー').slice(0, 20)
   const partyJson = JSON.stringify(body.party || [])
   const area = String(body.area || 'rounding').slice(0, 40)
-  const battleType = (body.battleType === 'gym') ? 'gym' : 'normal'
+  const battleType = (body.battleType === 'egg') ? 'egg' : (body.battleType === 'gym') ? 'gym' : 'normal'
 
   // 既存 waiting ルームを削除
   await c.env.DB.prepare(`DELETE FROM rt_rooms WHERE host_user_id=? AND status='waiting'`).bind(u.id).run()
