@@ -207,7 +207,7 @@
       } else if (room.status === 'playing') {
         if (_rt.status !== 'playing') {
           _rt.status = 'playing';
-          const modeStr = _rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb' : '\u53cb\u9054\u5bfe\u6226';
+          const modeStr = _rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb'  : _rt.mode === 'egg' ? '\u30bf\u30de\u30b4\u30d0\u30c8\u30eb': '\u53cb\u9054\u5bfe\u6226';
           setMsg('\u2694\ufe0f \u30d0\u30c8\u30eb\u4e2d\uff01 [' + modeStr + ']');
           setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
@@ -350,8 +350,13 @@
     const orig = window.startBattleSequence;
     window.startBattleSequence = async function () {
       if (_rt.roomId && (_rt.status === 'waiting' || _rt.status === 'idle')) {
-        _rt.mode = 'wild';
+                var _isEgg = _rt.mode === 'egg';
+        if (!_isEgg) _rt.mode = 'wild';
         await window.rtSendReady();
+        if (_isEgg) { setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },500); return; }
+      } else {
+        var _sv=document.querySelector('[name="rtBattleType"]:checked');
+        if(_sv&&_sv.value==='egg'){ setTimeout(function(){ var b=Array.from(document.querySelectorAll('button')).find(function(x){return x.textContent.includes('タマゴ');}); if(b)b.click(); },500); return; }
       }
       return orig.apply(this, arguments);
     };
