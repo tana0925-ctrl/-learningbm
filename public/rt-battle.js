@@ -212,7 +212,7 @@
           setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
           addLog('\u30d0\u30c8\u30eb\u30b9\u30bf\u30fc\u30c8\uff01 [' + modeStr + ']');
-        if (_rt.mode === 'egg' && !(window.EggBattle && window.EggBattle.active)) { setTimeout(function(){ if(window.EggBattle&&typeof window.EggBattle.start==='function'){window.EggBattle.start();window.EggBattle.startCountdown&&window.EggBattle.startCountdown();hookEggBattle(_rt.role||'host');} },300); }
+        if (_rt.mode === 'egg') { setTimeout(function(){ hookEggBattle(_rt.role || 'host'); }, 800); }
         }
       } else if (room.status === 'finished' && room.winner) {
         rtStopPoll(); gymStopPoll();
@@ -248,7 +248,18 @@
   }
 
   // ===== Public API =====
+  // index.html が先に window.rtCreateRoom/rtJoinRoom を設定しているので保存してラップ
+  var _indexRtCreateRoom = typeof window.rtCreateRoom === 'function' ? window.rtCreateRoom : null;
+  var _indexRtJoinRoom   = typeof window.rtJoinRoom   === 'function' ? window.rtJoinRoom   : null;
+
   window.rtCreateRoom = async function (name, party, area, battleType, code) {
+    // 引数なし = HTMLボタンから呼ばれた → index.html版に委譲して状態を同期
+    if (name === undefined && _indexRtCreateRoom) {
+      _indexRtCreateRoom();
+      _syncStateFromRoomCode('host');
+      return;
+    }
+    // 引数あり = 明示的な呼び出し（後方互換）
     try {
       panelShow(); setMsg('\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...');
       const r = await fetch('/api/rt/create', {
@@ -259,7 +270,6 @@
       if (!d.ok) throw new Error(d.error || 'create failed');
       _rt.roomId = d.roomId; _rt.role = 'host'; _rt.status = 'waiting';
       _rt.lastEventId = 0; _rt.myHp = 100; _rt.oppHp = 100;
-      // ルーム情報を早期取得してモードを設定
       fetch('/api/rt/room/' + _rt.roomId).then(function(rr){return rr.json();}).then(function(rd){ if(rd.room&&rd.room.battleType&&!_rt._modeSet){ _rt.mode=rd.room.battleType==='egg'?'egg':rd.room.battleType==='gym'?'gym':'wild'; _rt._modeSet=true; } }).catch(function(){});
       if (el('_rtRoomRow')) el('_rtRoomRow').style.display = 'block';
       if (el('_rtRoomId'))  el('_rtRoomId').textContent = d.roomId;
@@ -271,6 +281,12 @@
   };
 
   window.rtJoinRoom = async function (roomId, name, party) {
+    // 引数なし = HTMLボタンから呼ばれた → index.html版に委譲して状態を同期
+    if (roomId === undefined && _indexRtJoinRoom) {
+      _indexRtJoinRoom();
+      _syncStateFromRoomCode('guest');
+      return;
+    }
     try {
       panelShow(); setMsg('\u53c2\u52a0\u4e2d...');
       const r = await fetch('/api/rt/join/' + roomId.toUpperCase(), {
@@ -321,6 +337,31 @@
   };
 
   window._rtGetState = function () { return _rt; };
+
+  // ===== index.html と状態同期 =====
+  // rtMyRoomCode 要素が更新されたら rt-battle.js の _rt 状態を同期する
+  function _syncStateFromRoomCode(role) {
+    var codeEl = el('rtMyRoomCode');
+    if (!codeEl) return;
+    var attempts = 0;
+    var timer = setInterval(function() {
+      var code = (codeEl.textContent || '').trim().replace(/[\s\u3000\-]/g, '');
+      if (code && code.length >= 4 && code !== '------') {
+        clearInterval(timer);
+        if (!_rt.roomId) {
+          _rt.roomId = code;
+          _rt.role = role;
+          _rt.status = 'waiting';
+          _rt.lastEventId = 0; _rt.myHp = 100; _rt.oppHp = 100;
+          _rt._modeSet = false;  // 次の poll でサーバーから battleType を取得
+          panelShow();
+          setMsg('RT\u5bfe\u6226: ' + (role === 'host' ? '\u30eb\u30fc\u30e0\u4f5c\u6210\u6e08' : '\u53c2\u52a0\u6e08'));
+          rtStartPoll();
+        }
+      }
+      if (++attempts > 30) clearInterval(timer);  // 15秒タイムアウト
+    }, 500);
+  }
 
   // ===== 友達対戦: calculateDamage フック =====
   function hookCalcDamage() {
@@ -415,45 +456,12 @@
     return true;
   }
 
-  // ===== ゲームUIとの統合 (ルーム作成/参加を自動フック) =====
+  // ===== ゲームUIとの統合 =====
+  // 状態同期は window.rtCreateRoom/rtJoinRoom のラップ + _syncStateFromRoomCode で処理
   function hookGameRoomCreate() {
     if (hookGameRoomCreate._hooked) return;
     hookGameRoomCreate._hooked = true;
-
-    // ホスト: rtMyRoomCode が変化したら自動でRTルーム作成
-    const codeEl = el('rtMyRoomCode');
-    if (codeEl) {
-      const obs = new MutationObserver(function() {
-        const gameCode = codeEl.textContent.trim().replace(/\s+/g, '');
-        if (gameCode && gameCode.length >= 4 && !_rt.roomId) {
-          obs.disconnect();
-          const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')
-            ?.textContent || 'ホスト').trim();
-          const area = el('rtAreaSelect')?.value || 'rounding';
-          const _btv = document.querySelector('[name="rtBattleType"]:checked')?.value || 'normal';
-            const bt = _btv === 'egg' ? 'egg' : _btv === 'gym' ? 'gym' : 'normal';
-            _rt.mode = bt === 'egg' ? 'egg' : bt === 'gym' ? 'gym' : 'wild';
-          rtCreateRoom(name, [], area, bt, gameCode);
-        }
-      });
-      obs.observe(codeEl, { childList: true, characterData: true, subtree: true });
-    }
-
-    // ゲスト: 参加するボタンをフック
-    const joinBtn = [...document.querySelectorAll('#rtLobby button')].find(function(b) {
-      return b.textContent.includes('参加');
-    });
-    if (joinBtn && !joinBtn._rtHooked) {
-      joinBtn._rtHooked = true;
-      joinBtn.addEventListener('click', function() {
-        const code = (el('rtRoomCodeInput')?.value || '').trim().toUpperCase();
-        if (code.length >= 4 && !_rt.roomId) {
-          const name = (document.querySelector('#playerNameDisplay,#userName,[id*="playerName"],[id*="userName"]')
-            ?.textContent || 'ゲスト').trim();
-          rtJoinRoom(code, name, []);
-        }
-      });
-    }
+    // 旧来の observer/ボタンフックは不要（ラップ方式に移行）
   }
   // ===== タマゴバトル VS Mode =====
 
