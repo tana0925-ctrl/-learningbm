@@ -10,7 +10,7 @@ type Bindings = {
 }
 
 type Variables = {
-  user?: { id: string; role: 'student' | 'admin'; loginId: string; isActive: boolean }
+  user?: { id: string; role: 'student' | 'admin' | 'teacher'; loginId: string; isActive: boolean }
 }
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -202,7 +202,8 @@ app.post('/api/auth/login', async (c) => {
   const password = String(body.password || '')
   if (!loginId || !password) return jsonError(c, 400, 'missing_credentials')
 
-  const row = await c.env.DB.prepare(
+  // まず users テーブルを検索
+  let row = await c.env.DB.prepare(
     `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive,
             must_change_password as mustChangePassword
      FROM users WHERE login_id = ? LIMIT 1`
@@ -210,13 +211,23 @@ app.post('/api/auth/login', async (c) => {
     .bind(loginId)
     .first<any>()
 
+  // 見つからなければ teacher_accounts も検索
+  if (!row) {
+    const tRow = await c.env.DB.prepare(
+      `SELECT id, 'teacher' as role, login_id as loginId, password_hash as hash, password_salt as salt,
+              is_active as isActive, 0 as mustChangePassword
+       FROM teacher_accounts WHERE login_id = ? LIMIT 1`
+    ).bind(loginId).first<any>()
+    if (tRow) row = tRow
+  }
+
   if (!row) return jsonError(c, 401, 'invalid_credentials')
 
   const calc = await pbkdf2Hash(password, row.salt)
   if (calc !== row.hash) return jsonError(c, 401, 'invalid_credentials')
 
-  // students must be approved
-  if (row.role === 'student' && !row.isActive) {
+  // students/teachers must be approved
+  if ((row.role === 'student' || row.role === 'teacher') && !row.isActive) {
     return jsonError(c, 403, 'pending_approval')
   }
 
@@ -261,6 +272,10 @@ app.post('/api/auth/logout', async (c) => {
 app.get('/api/auth/me', async (c) => {
   const u = c.get('user')
   if (!u) return c.json({ ok: true, user: null })
+  if (u.role === 'teacher') {
+    const row = await c.env.DB.prepare(`SELECT name, school FROM teacher_accounts WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+    return c.json({ ok: true, user: { ...u, name: row?.name, school: row?.school, grade: null } })
+  }
   // grade は DB から取得（セッショントークンに含まれていないため）
   let grade: number | null = null
   try {
@@ -306,6 +321,20 @@ app.put('/api/student/progress', async (c) => {
     .bind(u.id, stateJson)
     .run()
 
+  // ランキング統計を非同期で更新
+  try {
+    const userRow = await c.env.DB.prepare(`SELECT name FROM users WHERE id=? LIMIT 1`).bind(u.id).first<any>()
+    const stats = extractRankingStats(stateJson, userRow?.name || '')
+    await c.env.DB.prepare(
+      `INSERT INTO ranking_stats (user_id, display_name, total_level, monster_count, correct_count, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(user_id) DO UPDATE SET
+         display_name=excluded.display_name, total_level=excluded.total_level,
+         monster_count=excluded.monster_count, correct_count=excluded.correct_count,
+         updated_at=datetime('now')`
+    ).bind(u.id, stats.displayName, stats.totalLevel, stats.monsterCount, stats.correctCount).run()
+  } catch { /* ランキング更新エラーは無視 */ }
+
   return c.json({ ok: true })
 })
 
@@ -334,6 +363,25 @@ app.post('/api/student/results', async (c) => {
 
   return c.json({ ok: true })
 })
+
+// -------------------- ranking stats helper --------------------
+
+function extractRankingStats(stateJson: string, fallbackName: string) {
+  try {
+    const obj = JSON.parse(stateJson)
+    const s = obj.state || obj
+    const playerLevel = Number(s.level || 1)
+    const monsters: Record<string, any> = s.monsters || {}
+    const monsterCount = Object.keys(monsters).length
+    const sumMonsterLevels = Object.values(monsters).reduce((sum: number, m: any) => sum + Number(m?.level || 1), 0)
+    const totalLevel = playerLevel + sumMonsterLevels
+    const tp: Record<string, any> = s.trainingProgress || {}
+    const correctCount = Object.values(tp).reduce((sum: number, t: any) => sum + Number(t?.correctCount || 0), 0)
+    return { displayName: String(s.name || fallbackName).slice(0, 30), totalLevel, monsterCount, correctCount }
+  } catch {
+    return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0 }
+  }
+}
 
 // -------------------- API: admin --------------------
 
@@ -596,6 +644,240 @@ app.get('/api/admin/results.csv', async (c) => {
       'Content-Disposition': 'attachment; filename="learning_results.csv"',
     },
   })
+})
+
+// -------------------- API: admin (教師・ランキング設定) --------------------
+
+app.get('/api/admin/pending-teachers', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(
+    `SELECT id, login_id as loginId, name, school, created_at as createdAt FROM teacher_accounts WHERE is_active=0 ORDER BY created_at DESC`
+  ).all<any>()
+  return c.json({ ok: true, teachers: res.results })
+})
+
+app.post('/api/admin/approve-teacher/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  await c.env.DB.prepare(`UPDATE teacher_accounts SET is_active=1 WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
+app.delete('/api/admin/reject-teacher/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  await c.env.DB.prepare(`DELETE FROM teacher_accounts WHERE id=? AND is_active=0`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
+app.get('/api/admin/settings', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const rows = await c.env.DB.prepare(`SELECT key, value FROM admin_settings`).all<any>()
+  const settings: Record<string, string> = {}
+  for (const r of rows.results) settings[r.key] = r.value
+  return c.json({ ok: true, settings })
+})
+
+app.put('/api/admin/settings', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  for (const [key, val] of Object.entries(body)) {
+    if (typeof val !== 'string') continue
+    await c.env.DB.prepare(
+      `INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+    ).bind(key, val).run()
+  }
+  return c.json({ ok: true })
+})
+
+// -------------------- API: teacher --------------------
+
+function requireTeacher(c: any) {
+  const u = c.get('user')
+  if (!u || u.role !== 'teacher') return null
+  return u
+}
+
+function genClassCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  const arr = new Uint8Array(6)
+  crypto.getRandomValues(arr)
+  for (let i = 0; i < 6; i++) code += chars[arr[i] % chars.length]
+  return code
+}
+
+// 教師サインアップ
+app.post('/api/auth/teacher-signup', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const loginId = String(body.loginId || '').trim()
+  const password = String(body.password || '')
+  const name = String(body.name || '').trim()
+  const school = String(body.school || '').trim()
+  if (!loginId || loginId.length < 3) return jsonError(c, 400, 'loginId_too_short')
+  if (!password || password.length < 6) return jsonError(c, 400, 'password_too_short')
+  if (!name) return jsonError(c, 400, 'name_required')
+  const id = crypto.randomUUID()
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(password, salt)
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO teacher_accounts (id, login_id, password_hash, password_salt, name, school) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id, loginId, hash, salt, name, school).run()
+  } catch {
+    return jsonError(c, 409, 'loginId_taken')
+  }
+  return c.json({ ok: true })
+})
+
+// クラス作成
+app.post('/api/teacher/class', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const name = String(body.name || '').trim()
+  if (!name) return jsonError(c, 400, 'name_required')
+  let classCode = genClassCode()
+  for (let i = 0; i < 5; i++) {
+    const ex = await c.env.DB.prepare(`SELECT id FROM classes WHERE class_code=? LIMIT 1`).bind(classCode).first<any>()
+    if (!ex) break
+    classCode = genClassCode()
+  }
+  const id = crypto.randomUUID()
+  await c.env.DB.prepare(`INSERT INTO classes (id, class_code, name, teacher_id) VALUES (?, ?, ?, ?)`).bind(id, classCode, name, u.id).run()
+  return c.json({ ok: true, classId: id, classCode })
+})
+
+// クラス一覧
+app.get('/api/teacher/classes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(
+    `SELECT id, class_code as classCode, name, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+  ).bind(u.id).all<any>()
+  return c.json({ ok: true, classes: res.results })
+})
+
+// クラス削除
+app.delete('/api/teacher/class/:classId', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  await c.env.DB.prepare(`DELETE FROM class_members WHERE class_id=?`).bind(classId).run()
+  await c.env.DB.prepare(`DELETE FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).run()
+  return c.json({ ok: true })
+})
+
+// クラス詳細（メンバー＋ランキング）
+app.get('/api/teacher/class/:classId/ranking', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  // 自分のクラスか確認
+  const cls = await c.env.DB.prepare(`SELECT id, name, class_code as classCode FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const res = await c.env.DB.prepare(`
+    SELECT u.id, u.name, u.grade, u.class_name as className,
+           COALESCE(rs.total_level, 0) as totalLevel,
+           COALESCE(rs.monster_count, 0) as monsterCount,
+           COALESCE(rs.correct_count, 0) as correctCount,
+           COALESCE(rs.updated_at, '') as updatedAt
+    FROM class_members cm
+    JOIN users u ON u.id = cm.user_id
+    LEFT JOIN ranking_stats rs ON rs.user_id = cm.user_id
+    WHERE cm.class_id = ?
+    ORDER BY rs.total_level DESC, rs.correct_count DESC
+  `).bind(classId).all<any>()
+  return c.json({ ok: true, class: cls, members: res.results })
+})
+
+// -------------------- API: student (クラス参加) --------------------
+
+app.post('/api/student/join-class', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const code = String(body.classCode || '').trim().toUpperCase()
+  if (!code) return jsonError(c, 400, 'code_required')
+  const cls = await c.env.DB.prepare(`SELECT id, name FROM classes WHERE class_code=? LIMIT 1`).bind(code).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  // 既存メンバーシップを確認（同じクラスへの重複参加を防ぐ）
+  const existing = await c.env.DB.prepare(`SELECT 1 FROM class_members WHERE user_id=? AND class_id=? LIMIT 1`).bind(u.id, cls.id).first<any>()
+  if (!existing) {
+    // 他クラスから退会してから参加
+    await c.env.DB.prepare(`DELETE FROM class_members WHERE user_id=?`).bind(u.id).run()
+    await c.env.DB.prepare(`INSERT INTO class_members (user_id, class_id) VALUES (?, ?)`).bind(u.id, cls.id).run()
+  }
+  return c.json({ ok: true, className: cls.name })
+})
+
+app.get('/api/student/class-info', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const row = await c.env.DB.prepare(`
+    SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt
+    FROM class_members cm JOIN classes c ON c.id = cm.class_id
+    WHERE cm.user_id = ? LIMIT 1
+  `).bind(u.id).first<any>()
+  return c.json({ ok: true, class: row || null })
+})
+
+app.post('/api/student/leave-class', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  await c.env.DB.prepare(`DELETE FROM class_members WHERE user_id=?`).bind(u.id).run()
+  return c.json({ ok: true })
+})
+
+// -------------------- API: ranking --------------------
+
+app.get('/api/ranking', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const scopeRow = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='ranking_scope' LIMIT 1`).first<any>()
+  const enabledRow = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='ranking_enabled' LIMIT 1`).first<any>()
+  const scope = scopeRow?.value || 'class'
+  const enabled = enabledRow?.value !== '0'
+
+  if (!enabled || scope === 'hidden') return c.json({ ok: true, ranking: [], scope, enabled: false, hidden: true })
+
+  let sql = ''
+  const binds: any[] = []
+
+  if (scope === 'global' || u.role === 'admin') {
+    // 全体ランキング
+    sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
+                  rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
+           FROM ranking_stats rs
+           JOIN users u ON u.id = rs.user_id AND u.is_active=1
+           ORDER BY rs.total_level DESC, rs.correct_count DESC LIMIT 100`
+  } else if (scope === 'class') {
+    // 自分のクラスのみ
+    const classRow = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+    if (!classRow) return c.json({ ok: true, ranking: [], scope, enabled, message: 'no_class' })
+    sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
+                  rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
+           FROM ranking_stats rs
+           JOIN class_members cm ON cm.user_id = rs.user_id AND cm.class_id = ?
+           JOIN users u ON u.id = rs.user_id AND u.is_active=1
+           ORDER BY rs.total_level DESC, rs.correct_count DESC LIMIT 100`
+    binds.push(classRow.class_id)
+  } else {
+    return c.json({ ok: true, ranking: [], scope, enabled: false, hidden: true })
+  }
+
+  const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
+  const ranking = res.results.map((r: any, i: number) => ({ ...r, rank: i + 1, isMe: r.userId === u.id }))
+  return c.json({ ok: true, ranking, scope, enabled })
 })
 
 // -------------------- API: realtime battle --------------------
@@ -1151,7 +1433,9 @@ app.get('/login', (c) => {
         <input id="password" type="password" class="w-full border p-2 rounded" placeholder="パスワード"/>
         <button id="btn" class="w-full bg-blue-600 text-white rounded p-2">ログイン</button>
         <p id="msg" class="text-sm text-red-600"></p>
-        <a class="text-sm text-blue-700 underline" href="/signup">新規登録</a>
+        <a class="text-sm text-blue-700 underline" href="/signup">児童 新規登録</a>
+        <span class="text-sm text-slate-400 mx-1">｜</span>
+        <a class="text-sm text-emerald-700 underline" href="/teacher-signup">教師 アカウント申請</a>
       </div>
     </div>
     <script>
@@ -1165,13 +1449,15 @@ app.get('/login', (c) => {
         if(!r.ok){
           const errMap = {
             invalid_credentials: 'IDまたはパスワードが間違っています',
-            pending_approval: '承認待ちです。先生が承認するまでお待ちください',
+            pending_approval: '承認待ちです。管理者の承認をお待ちください',
             missing_credentials: 'IDとパスワードを入力してください',
           };
           msg.textContent = errMap[j.error] || (j.error || 'ログインに失敗しました');
           return;
         }
-        location.href = '/';
+        const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
+        if(me.user && me.user.role === 'teacher') { location.href = '/teacher'; }
+        else { location.href = '/'; }
       };
     </script>
   </body></html>`)
@@ -1301,8 +1587,34 @@ app.get('/admin', (c) => {
         </div>
       </div>
 
+      <!-- 教師承認 -->
       <div class="bg-white rounded-xl shadow p-6">
-        <h2 class="font-bold mb-2">承認待ち / 停止中</h2>
+        <h2 class="font-bold mb-2">🍎 教師アカウント承認</h2>
+        <div id="pendingTeachers" class="space-y-2 text-sm"></div>
+      </div>
+
+      <!-- ランキング設定 -->
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="font-bold mb-3">🏆 ランキング設定</h2>
+        <div class="space-y-3 text-sm">
+          <div class="flex items-center gap-3">
+            <span class="font-bold">表示範囲：</span>
+            <label class="flex items-center gap-1"><input type="radio" name="rankScope" value="global"/> 全体</label>
+            <label class="flex items-center gap-1"><input type="radio" name="rankScope" value="class"/> クラス内のみ</label>
+            <label class="flex items-center gap-1"><input type="radio" name="rankScope" value="hidden"/> 非表示</label>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="font-bold">ランキング機能：</span>
+            <label class="flex items-center gap-1"><input type="radio" name="rankEnabled" value="1"/> 有効</label>
+            <label class="flex items-center gap-1"><input type="radio" name="rankEnabled" value="0"/> 無効</label>
+          </div>
+          <button id="saveRankingBtn" class="bg-indigo-600 text-white rounded px-3 py-2">設定を保存</button>
+          <p id="rankingMsg" class="text-sm"></p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="font-bold mb-2">承認待ち / 停止中 児童</h2>
         <div id="pending" class="space-y-2 text-sm"></div>
       </div>
 
@@ -1366,6 +1678,60 @@ app.get('/admin', (c) => {
         if(grade) qs.set('grade', grade);
         if(cls) qs.set('class', cls);
         location.href = '/api/admin/results.csv?' + qs.toString();
+      };
+
+      async function renderPendingTeachers(){
+        const wrap = document.getElementById('pendingTeachers');
+        let data;
+        try{ data = await api('/api/admin/pending-teachers'); }
+        catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; return; }
+        wrap.innerHTML='';
+        if(!data.teachers.length){ wrap.textContent='承認待ちの教師はいません'; return; }
+        for(const t of data.teachers){
+          const div = document.createElement('div');
+          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
+          const left = document.createElement('div');
+          left.textContent = t.name + '（' + t.loginId + '）' + (t.school ? ' ' + t.school : '');
+          div.appendChild(left);
+          const right = document.createElement('div');
+          right.className='flex gap-2';
+          const approve = document.createElement('button');
+          approve.className='bg-emerald-600 text-white rounded px-3 py-1';
+          approve.textContent='承認';
+          approve.onclick = async ()=>{ await api('/api/admin/approve-teacher/'+t.id,{method:'POST'}); await renderPendingTeachers(); };
+          right.appendChild(approve);
+          const reject = document.createElement('button');
+          reject.className='bg-red-600 text-white rounded px-3 py-1';
+          reject.textContent='却下';
+          reject.onclick = async ()=>{
+            if(!confirm(t.name + 'の申請を却下・削除しますか？')){ return; }
+            await api('/api/admin/reject-teacher/'+t.id,{method:'DELETE'}); await renderPendingTeachers();
+          };
+          right.appendChild(reject);
+          div.appendChild(right);
+          wrap.appendChild(div);
+        }
+      }
+
+      async function loadRankingSettings(){
+        try{
+          const d = await api('/api/admin/settings');
+          const scope = d.settings.ranking_scope || 'class';
+          const enabled = d.settings.ranking_enabled !== '0';
+          document.querySelectorAll('[name="rankScope"]').forEach(r=>{ r.checked = (r.value === scope); });
+          document.querySelectorAll('[name="rankEnabled"]').forEach(r=>{ r.checked = (r.value === (enabled?'1':'0')); });
+        }catch(e){ console.error('settings load error', e); }
+      }
+
+      document.getElementById('saveRankingBtn').onclick = async () => {
+        const msg = document.getElementById('rankingMsg');
+        msg.textContent=''; msg.className='text-sm';
+        const scope = [...document.querySelectorAll('[name="rankScope"]')].find(r=>r.checked)?.value;
+        const enabled = [...document.querySelectorAll('[name="rankEnabled"]')].find(r=>r.checked)?.value;
+        try{
+          await api('/api/admin/settings',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({ranking_scope:scope,ranking_enabled:enabled})});
+          msg.textContent='保存しました'; msg.className='text-sm text-green-700';
+        }catch(e){ msg.textContent=String(e.message||e); msg.className='text-sm text-red-600'; }
       };
 
       async function renderPending(){
@@ -1479,6 +1845,8 @@ app.get('/admin', (c) => {
       }
 
       async function loadAll(){
+        await renderPendingTeachers();
+        await loadRankingSettings();
         await renderPending();
         await renderUsers();
         await renderResults();
@@ -1493,6 +1861,195 @@ app.get('/admin', (c) => {
         const j = await me.json().catch(()=>({}));
         if(!j.user || j.user.role!=='admin'){ location.href='/login'; return; }
         loadAll();
+      })();
+    </script>
+  </body></html>`)
+})
+
+// -------------------- Page: teacher signup --------------------
+app.get('/teacher-signup', (c) => {
+  return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>教師 アカウント申請</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <body class="min-h-screen bg-emerald-50 p-4">
+    <div class="max-w-md mx-auto bg-white rounded-xl shadow p-6">
+      <h1 class="text-xl font-bold mb-1">教師 アカウント申請</h1>
+      <p class="text-xs text-slate-500 mb-4">申請後、管理者が承認するとログインできるようになります。</p>
+      <div class="space-y-3">
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">お名前</label>
+          <input id="name" class="w-full border p-2 rounded" placeholder="例：田中 健一"/>
+        </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">学校名</label>
+          <input id="school" class="w-full border p-2 rounded" placeholder="例：〇〇市立△△小学校"/>
+        </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">ログインID（自分で決める）</label>
+          <input id="loginId" class="w-full border p-2 rounded" placeholder="半角英数字 3文字以上"/>
+        </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">パスワード</label>
+          <input id="password" type="password" class="w-full border p-2 rounded" placeholder="6文字以上"/>
+        </div>
+        <button id="btn" class="w-full bg-emerald-600 text-white rounded p-2 font-bold">申請する</button>
+        <p id="msg" class="text-sm"></p>
+        <a class="text-sm text-blue-700 underline" href="/login">← ログインへ戻る</a>
+      </div>
+    </div>
+    <script>
+      const msg = document.getElementById('msg');
+      document.getElementById('btn').onclick = async () => {
+        msg.textContent=''; msg.className='text-sm';
+        const name = document.getElementById('name').value.trim();
+        const school = document.getElementById('school').value.trim();
+        const loginId = document.getElementById('loginId').value.trim();
+        const password = document.getElementById('password').value;
+        if(!name){ msg.textContent='お名前を入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!loginId || loginId.length < 3){ msg.textContent='ログインIDは3文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
+        if(!password || password.length < 6){ msg.textContent='パスワードは6文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
+        document.getElementById('btn').disabled = true;
+        const r = await fetch('/api/auth/teacher-signup',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,school,loginId,password})});
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok){
+          const errMap = { loginId_too_short:'IDは3文字以上', loginId_taken:'このIDはすでに使われています', password_too_short:'パスワードは6文字以上', name_required:'名前を入力してください' };
+          msg.textContent = errMap[j.error] || (j.error || '申請に失敗しました');
+          msg.className='text-sm text-red-600';
+          document.getElementById('btn').disabled = false;
+          return;
+        }
+        msg.textContent = '申請しました！管理者の承認をお待ちください。';
+        msg.className='text-sm text-green-700';
+        setTimeout(()=>{ location.href='/login'; }, 3000);
+      };
+    </script>
+  </body></html>`)
+})
+
+// -------------------- Page: teacher dashboard --------------------
+app.get('/teacher', (c) => {
+  return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>教師ダッシュボード</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <body class="min-h-screen bg-emerald-50 p-4">
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
+        <div>
+          <h1 class="text-xl font-bold">教師ダッシュボード</h1>
+          <p id="teacherInfo" class="text-sm text-slate-500"></p>
+        </div>
+        <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
+      </div>
+
+      <!-- クラス作成 -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-bold mb-3">クラス作成</h2>
+        <div class="flex gap-2">
+          <input id="newClassName" class="flex-1 border p-2 rounded" placeholder="クラス名（例：4年1組）"/>
+          <button id="createClassBtn" class="bg-emerald-600 text-white rounded px-4 py-2 font-bold">作成</button>
+        </div>
+        <p id="createMsg" class="text-sm mt-1"></p>
+      </div>
+
+      <!-- クラス一覧 -->
+      <div id="classList" class="space-y-4"></div>
+    </div>
+
+    <script>
+      async function api(path, opt){
+        const r = await fetch(path, opt);
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j.error || 'error');
+        return j;
+      }
+
+      document.getElementById('logout').onclick = async () => {
+        await fetch('/api/auth/logout',{method:'POST'});
+        location.href='/login';
+      };
+
+      document.getElementById('createClassBtn').onclick = async () => {
+        const msg = document.getElementById('createMsg');
+        msg.textContent=''; msg.className='text-sm';
+        const name = document.getElementById('newClassName').value.trim();
+        if(!name){ msg.textContent='クラス名を入力してください'; msg.className='text-sm text-red-600'; return; }
+        try{
+          await api('/api/teacher/class',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name})});
+          document.getElementById('newClassName').value='';
+          msg.textContent='クラスを作成しました';
+          msg.className='text-sm text-green-700';
+          await renderClasses();
+        }catch(e){
+          msg.textContent=String(e.message||e);
+          msg.className='text-sm text-red-600';
+        }
+      };
+
+      async function renderClasses(){
+        const wrap = document.getElementById('classList');
+        wrap.innerHTML='<p class="text-sm text-slate-400">読み込み中...</p>';
+        let data;
+        try{ data = await api('/api/teacher/classes'); }
+        catch(e){ wrap.innerHTML='<p class="text-sm text-red-600">読み込みエラー</p>'; return; }
+        wrap.innerHTML='';
+        if(!data.classes.length){ wrap.innerHTML='<p class="text-sm text-slate-400 bg-white rounded-xl shadow p-4">クラスはまだありません。上から作成してください。</p>'; return; }
+        for(const cls of data.classes){
+          const card = document.createElement('div');
+          card.className='bg-white rounded-xl shadow p-4';
+          const header = document.createElement('div');
+          header.className='flex items-center justify-between mb-3';
+          const title = document.createElement('div');
+          title.innerHTML = '<span class="font-bold text-lg">' + escH(cls.name) + '</span>'
+            + ' <span class="text-sm text-slate-400 ml-2 select-all font-mono bg-slate-100 px-2 py-0.5 rounded">参加コード: ' + escH(cls.classCode) + '</span>'
+            + ' <span class="text-xs text-slate-400 ml-2">生徒数: ' + cls.memberCount + '人</span>';
+          header.appendChild(title);
+          const delBtn = document.createElement('button');
+          delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
+          delBtn.textContent='削除';
+          delBtn.onclick = async ()=>{
+            if(!confirm(cls.name + ' を削除しますか？\\n生徒のクラス参加も解除されます。')){ return; }
+            try{ await api('/api/teacher/class/'+cls.id,{method:'DELETE'}); await renderClasses(); }
+            catch(e){ alert(String(e.message||e)); }
+          };
+          header.appendChild(delBtn);
+          card.appendChild(header);
+
+          // ランキング表示
+          const rankDiv = document.createElement('div');
+          rankDiv.innerHTML='<p class="text-xs text-slate-400">ランキングを読み込み中...</p>';
+          card.appendChild(rankDiv);
+          wrap.appendChild(card);
+
+          // 非同期でランキング取得
+          api('/api/teacher/class/'+cls.id+'/ranking').then(rd=>{
+            if(!rd.members.length){ rankDiv.innerHTML='<p class="text-xs text-slate-400">まだ生徒がいません</p>'; return; }
+            let html = '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse"><thead><tr class="bg-slate-50">'
+              + '<th class="border px-2 py-1 text-left">順位</th>'
+              + '<th class="border px-2 py-1 text-left">名前</th>'
+              + '<th class="border px-2 py-1 text-right">総合Lv</th>'
+              + '<th class="border px-2 py-1 text-right">モンスター数</th>'
+              + '<th class="border px-2 py-1 text-right">正解数</th>'
+              + '</tr></thead><tbody>';
+            rd.members.forEach((m,i)=>{
+              html += '<tr class="' + (i%2===0?'bg-white':'bg-slate-50') + '">'
+                + '<td class="border px-2 py-1 text-center font-bold">' + (i+1) + '</td>'
+                + '<td class="border px-2 py-1">' + escH(m.displayName||m.userId) + '</td>'
+                + '<td class="border px-2 py-1 text-right">' + (m.totalLevel||0) + '</td>'
+                + '<td class="border px-2 py-1 text-right">' + (m.monsterCount||0) + '</td>'
+                + '<td class="border px-2 py-1 text-right">' + (m.correctCount||0) + '</td>'
+                + '</tr>';
+            });
+            html += '</tbody></table></div>';
+            rankDiv.innerHTML = html;
+          }).catch(()=>{ rankDiv.innerHTML='<p class="text-xs text-red-400">ランキング取得エラー</p>'; });
+        }
+      }
+
+      function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+      (async ()=>{
+        const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
+        if(!me.user || me.user.role !== 'teacher'){ location.href='/login'; return; }
+        document.getElementById('teacherInfo').textContent = me.user.name + '（' + (me.user.school||'') + '）';
+        await renderClasses();
       })();
     </script>
   </body></html>`)
