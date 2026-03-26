@@ -880,6 +880,166 @@ app.get('/api/ranking', async (c) => {
   return c.json({ ok: true, ranking, scope, enabled })
 })
 
+// -------------------- API: homework (家庭学習提出) --------------------
+
+function genHwId() {
+  const a = new Uint8Array(16)
+  crypto.getRandomValues(a)
+  return [...a].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// 生徒：シートをDBに提出（報酬はまだ付与しない）
+app.post('/api/homework/submit', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const dayKey = String(body.dayKey || '').slice(0, 10)
+  if (!dayKey) return jsonError(c, 400, 'day_key_required')
+
+  // 同じ日に既に提出済みならエラー
+  const existing = await c.env.DB.prepare(
+    `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+  ).bind(u.id, dayKey).first<any>()
+  if (existing) return c.json({ ok: true, alreadySubmitted: true, id: existing.id })
+
+  // クラスの担任を自動設定
+  const classRow = await c.env.DB.prepare(
+    `SELECT c.teacher_id FROM class_members cm JOIN classes c ON c.id=cm.class_id WHERE cm.user_id=? LIMIT 1`
+  ).bind(u.id).first<any>()
+  const teacherId = classRow?.teacher_id || null
+
+  const id = genHwId()
+  await c.env.DB.prepare(`
+    INSERT INTO homework_submissions
+      (id, user_id, day_key, submitted_at, todo, why, aim, minutes, end_weather,
+       weather_reason, next_improve, rest_day, streak_after,
+       reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(
+    id, u.id, dayKey, Date.now(),
+    String(body.todo || '').slice(0, 500),
+    String(body.why || '').slice(0, 500),
+    String(body.aim || '').slice(0, 500),
+    Number(body.minutes || 0),
+    String(body.endWeather || 'sun'),
+    String(body.weatherReason || '').slice(0, 500),
+    String(body.nextImprove || '').slice(0, 500),
+    body.restDay ? 1 : 0,
+    Number(body.streakAfter || 0),
+    String(body.rewardKind || 'coin'),
+    Number(body.rewardCoins || 0),
+    Number(body.rewardShards || 0),
+    Number(body.bonusCoins || 0),
+    Number(body.bonusShards || 0),
+    teacherId
+  ).run()
+
+  return c.json({ ok: true, id })
+})
+
+// 生徒：自分の提出履歴を取得
+app.get('/api/homework/my', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const res = await c.env.DB.prepare(`
+    SELECT id, day_key as dayKey, submitted_at as submittedAt, rest_day as restDay,
+           teacher_comment as teacherComment, has_physical as hasPhysical,
+           returned_at as returnedAt, reward_claimed as rewardClaimed,
+           reward_kind as rewardKind, reward_coins as rewardCoins, reward_shards as rewardShards,
+           bonus_coins as bonusCoins, bonus_shards as bonusShards
+    FROM homework_submissions WHERE user_id=? ORDER BY submitted_at DESC LIMIT 30
+  `).bind(u.id).all<any>()
+  return c.json({ ok: true, submissions: res.results })
+})
+
+// 生徒：返却済み報酬を受け取る
+app.post('/api/homework/:id/claim', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const hwId = c.req.param('id')
+  const row = await c.env.DB.prepare(`
+    SELECT * FROM homework_submissions WHERE id=? AND user_id=? LIMIT 1
+  `).bind(hwId, u.id).first<any>()
+  if (!row) return jsonError(c, 404, 'not_found')
+  if (!row.returned_at) return jsonError(c, 400, 'not_returned_yet')
+  if (row.reward_claimed) return jsonError(c, 400, 'already_claimed')
+
+  // 報酬計算：成果物なし→50%、あり→100%
+  const rate = row.has_physical ? 1.0 : 0.5
+  const coins = Math.floor((Number(row.reward_coins || 0) + Number(row.bonus_coins || 0)) * rate)
+  const shards = Math.floor((Number(row.reward_shards || 0) + Number(row.bonus_shards || 0)) * rate)
+  const rewardKind = String(row.reward_kind || 'coin')
+
+  // 受け取り済みにマーク
+  await c.env.DB.prepare(`
+    UPDATE homework_submissions SET reward_claimed=1, reward_claimed_at=? WHERE id=?
+  `).bind(Date.now(), hwId).run()
+
+  return c.json({ ok: true, coins, shards, rewardKind, hasPhysical: !!row.has_physical })
+})
+
+// 教師：クラスの提出一覧を取得
+app.get('/api/teacher/homework', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'teacher') return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+
+  let sql = `
+    SELECT hs.id, hs.day_key as dayKey, hs.submitted_at as submittedAt,
+           hs.todo, hs.why, hs.aim, hs.minutes,
+           hs.end_weather as endWeather, hs.weather_reason as weatherReason, hs.next_improve as nextImprove,
+           hs.rest_day as restDay, hs.reward_kind as rewardKind,
+           hs.reward_coins as rewardCoins, hs.reward_shards as rewardShards,
+           hs.bonus_coins as bonusCoins, hs.bonus_shards as bonusShards,
+           hs.teacher_comment as teacherComment, hs.has_physical as hasPhysical,
+           hs.returned_at as returnedAt, hs.reward_claimed as rewardClaimed,
+           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+    FROM homework_submissions hs
+    JOIN users u ON u.id = hs.user_id
+    JOIN class_members cm ON cm.user_id = hs.user_id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+  `
+  const binds: any[] = [u.id]
+  if (classId) { sql += ` AND cl.id = ?`; binds.push(classId) }
+  sql += ` ORDER BY hs.submitted_at DESC LIMIT 100`
+
+  const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
+  return c.json({ ok: true, submissions: res.results })
+})
+
+// 教師：返却（コメント＋成果物フラグ）
+app.post('/api/teacher/homework/:id/return', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'teacher') return jsonError(c, 403, 'forbidden')
+  const hwId = c.req.param('id')
+  const body = await c.req.json<any>().catch(() => ({}))
+
+  // 自分のクラスの生徒の提出のみ操作可
+  const row = await c.env.DB.prepare(`
+    SELECT hs.id FROM homework_submissions hs
+    JOIN class_members cm ON cm.user_id = hs.user_id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE hs.id = ? LIMIT 1
+  `).bind(u.id, hwId).first<any>()
+  if (!row) return jsonError(c, 404, 'not_found')
+
+  await c.env.DB.prepare(`
+    UPDATE homework_submissions
+    SET teacher_id=?, teacher_comment=?, has_physical=?, returned_at=?
+    WHERE id=?
+  `).bind(
+    u.id,
+    String(body.comment || '').slice(0, 500),
+    body.hasPhysical ? 1 : 0,
+    Date.now(),
+    hwId
+  ).run()
+
+  return c.json({ ok: true })
+})
+
 // -------------------- API: realtime battle --------------------
 
 function requireAuth(c: any) {
@@ -1949,8 +2109,33 @@ app.get('/teacher', (c) => {
         <p id="createMsg" class="text-sm mt-1"></p>
       </div>
 
-      <!-- クラス一覧 -->
-      <div id="classList" class="space-y-4"></div>
+      <!-- タブナビ -->
+      <div class="bg-white rounded-xl shadow p-1 flex gap-1">
+        <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
+        <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習 提出一覧</button>
+      </div>
+
+      <!-- クラス一覧タブ -->
+      <div id="tabPaneClasses" class="space-y-4">
+        <div id="classList" class="space-y-4"></div>
+      </div>
+
+      <!-- 家庭学習提出一覧タブ -->
+      <div id="tabPaneHomework" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap">
+            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="">すべて</option>
+              <option value="unreturned">未返却</option>
+              <option value="returned">返却済み</option>
+            </select>
+            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
+            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
+          </div>
+          <div id="hwList" class="space-y-3 text-sm"></div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -1959,6 +2144,20 @@ app.get('/teacher', (c) => {
         const j = await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(j.error || 'error');
         return j;
+      }
+
+      function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+      function switchTab(tab){
+        document.getElementById('tabPaneClasses').classList.toggle('hidden', tab !== 'classes');
+        document.getElementById('tabPaneHomework').classList.toggle('hidden', tab !== 'homework');
+        document.getElementById('tabClasses').className = tab==='classes'
+          ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
+          : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
+        document.getElementById('tabHomework').className = tab==='homework'
+          ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
+          : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
+        if(tab === 'homework') loadHomework();
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -1991,6 +2190,12 @@ app.get('/teacher', (c) => {
         catch(e){ wrap.innerHTML='<p class="text-sm text-red-600">読み込みエラー</p>'; return; }
         wrap.innerHTML='';
         if(!data.classes.length){ wrap.innerHTML='<p class="text-sm text-slate-400 bg-white rounded-xl shadow p-4">クラスはまだありません。上から作成してください。</p>'; return; }
+
+        // クラスフィルター選択肢を更新
+        const sel = document.getElementById('hwClassFilter');
+        sel.innerHTML = '<option value="">全クラス</option>';
+        data.classes.forEach(c => { sel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+
         for(const cls of data.classes){
           const card = document.createElement('div');
           card.className='bg-white rounded-xl shadow p-4';
@@ -2012,30 +2217,24 @@ app.get('/teacher', (c) => {
           header.appendChild(delBtn);
           card.appendChild(header);
 
-          // ランキング表示
           const rankDiv = document.createElement('div');
           rankDiv.innerHTML='<p class="text-xs text-slate-400">ランキングを読み込み中...</p>';
           card.appendChild(rankDiv);
           wrap.appendChild(card);
 
-          // 非同期でランキング取得
           api('/api/teacher/class/'+cls.id+'/ranking').then(rd=>{
             if(!rd.members.length){ rankDiv.innerHTML='<p class="text-xs text-slate-400">まだ生徒がいません</p>'; return; }
             let html = '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse"><thead><tr class="bg-slate-50">'
-              + '<th class="border px-2 py-1 text-left">順位</th>'
-              + '<th class="border px-2 py-1 text-left">名前</th>'
-              + '<th class="border px-2 py-1 text-right">総合Lv</th>'
-              + '<th class="border px-2 py-1 text-right">モンスター数</th>'
-              + '<th class="border px-2 py-1 text-right">正解数</th>'
+              + '<th class="border px-2 py-1 text-left">順位</th><th class="border px-2 py-1 text-left">名前</th>'
+              + '<th class="border px-2 py-1 text-right">総合Lv</th><th class="border px-2 py-1 text-right">モンスター数</th><th class="border px-2 py-1 text-right">正解数</th>'
               + '</tr></thead><tbody>';
             rd.members.forEach((m,i)=>{
-              html += '<tr class="' + (i%2===0?'bg-white':'bg-slate-50') + '">'
-                + '<td class="border px-2 py-1 text-center font-bold">' + (i+1) + '</td>'
-                + '<td class="border px-2 py-1">' + escH(m.displayName||m.userId) + '</td>'
-                + '<td class="border px-2 py-1 text-right">' + (m.totalLevel||0) + '</td>'
-                + '<td class="border px-2 py-1 text-right">' + (m.monsterCount||0) + '</td>'
-                + '<td class="border px-2 py-1 text-right">' + (m.correctCount||0) + '</td>'
-                + '</tr>';
+              html += '<tr class="'+(i%2===0?'bg-white':'bg-slate-50')+'">'
+                +'<td class="border px-2 py-1 text-center font-bold">'+(i+1)+'</td>'
+                +'<td class="border px-2 py-1">'+escH(m.displayName||m.userId)+'</td>'
+                +'<td class="border px-2 py-1 text-right">'+(m.totalLevel||0)+'</td>'
+                +'<td class="border px-2 py-1 text-right">'+(m.monsterCount||0)+'</td>'
+                +'<td class="border px-2 py-1 text-right">'+(m.correctCount||0)+'</td></tr>';
             });
             html += '</tbody></table></div>';
             rankDiv.innerHTML = html;
@@ -2043,7 +2242,77 @@ app.get('/teacher', (c) => {
         }
       }
 
-      function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+      // 家庭学習提出一覧
+      async function loadHomework(){
+        const wrap = document.getElementById('hwList');
+        wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
+        const classId = document.getElementById('hwClassFilter').value;
+        const status = document.getElementById('hwStatusFilter').value;
+        let qs = classId ? '?classId='+encodeURIComponent(classId) : '';
+        let data;
+        try{ data = await api('/api/teacher/homework'+qs); }
+        catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; return; }
+        let list = data.submissions || [];
+        if(status === 'unreturned') list = list.filter(s => !s.returnedAt);
+        if(status === 'returned')   list = list.filter(s => !!s.returnedAt);
+        if(!list.length){ wrap.innerHTML='<p class="text-slate-400">提出がありません</p>'; return; }
+        wrap.innerHTML='';
+        for(const s of list){
+          const card = document.createElement('div');
+          const returned = !!s.returnedAt;
+          card.className='border rounded-xl p-3 space-y-2 ' + (returned ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300');
+          const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
+          const physicalBadge = s.hasPhysical
+            ? '<span class="bg-yellow-200 text-yellow-800 text-xs px-1 rounded">成果物あり⭐</span>'
+            : '';
+          const returnedBadge = returned
+            ? '<span class="bg-green-100 text-green-700 text-xs px-1 rounded">返却済み</span>'
+            : '<span class="bg-red-100 text-red-600 text-xs px-1 rounded font-bold">未返却</span>';
+
+          card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
+            + '<div class="font-bold">' + escH(s.studentName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
+            + '<div class="flex gap-1 items-center text-xs">' + returnedBadge + physicalBadge + '<span class="text-slate-400">'+escH(s.dayKey)+'</span></div>'
+            + '</div>'
+            + '<div class="text-xs space-y-0.5 text-slate-700">'
+            + '<div><b>今日やること：</b>'+escH(s.todo)+'</div>'
+            + '<div><b>なんで：</b>'+escH(s.why)+'</div>'
+            + '<div><b>めあて：</b>'+escH(s.aim)+'</div>'
+            + '<div><b>'+s.minutes+'分</b> 学習 / 学びの天気: '+weatherEmoji+'</div>'
+            + (s.weatherReason ? '<div><b>天気の理由：</b>'+escH(s.weatherReason)+'</div>' : '')
+            + (s.nextImprove  ? '<div><b>次にするには：</b>'+escH(s.nextImprove)+'</div>' : '')
+            + '</div>';
+
+          if(!returned){
+            // 返却フォーム
+            const formDiv = document.createElement('div');
+            formDiv.className='space-y-2 border-t pt-2';
+            formDiv.innerHTML = '<div class="text-xs font-bold text-slate-600">先生コメント（任意）</div>'
+              + '<textarea class="w-full border rounded p-2 text-xs" rows="2" placeholder="よく頑張りました！など" id="hwComment_'+s.id+'"></textarea>'
+              + '<label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="hwPhysical_'+s.id+'"/> <span>成果物（ノートなど）も提出あり ⭐</span></label>'
+              + '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="returnHomework(\''+escH(s.id)+'\', this)">✅ 返却する</button>';
+            card.appendChild(formDiv);
+          } else if(s.teacherComment) {
+            const commentDiv = document.createElement('div');
+            commentDiv.className='text-xs text-emerald-700 bg-emerald-50 rounded p-2 border border-emerald-200';
+            commentDiv.textContent = '💬 ' + s.teacherComment;
+            card.appendChild(commentDiv);
+          }
+          wrap.appendChild(card);
+        }
+      }
+
+      async function returnHomework(id, btn){
+        btn.disabled = true;
+        const comment = (document.getElementById('hwComment_'+id)||{}).value || '';
+        const hasPhysical = (document.getElementById('hwPhysical_'+id)||{}).checked || false;
+        try{
+          await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment,hasPhysical})});
+          await loadHomework();
+        }catch(e){
+          btn.disabled=false;
+          alert('エラー: '+String(e.message||e));
+        }
+      }
 
       (async ()=>{
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));

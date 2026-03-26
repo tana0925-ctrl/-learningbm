@@ -1,0 +1,27 @@
+-- 家庭学習 提出DB
+CREATE TABLE IF NOT EXISTS homework_submissions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  day_key TEXT NOT NULL,
+  submitted_at INTEGER NOT NULL,
+  todo TEXT DEFAULT '',
+  why TEXT DEFAULT '',
+  aim TEXT DEFAULT '',
+  minutes INTEGER DEFAULT 0,
+  end_weather TEXT DEFAULT 'sun',
+  weather_reason TEXT DEFAULT '',
+  next_improve TEXT DEFAULT '',
+  rest_day INTEGER DEFAULT 0,
+  streak_after INTEGER DEFAULT 0,
+  reward_kind TEXT DEFAULT 'coin',
+  reward_coins INTEGER DEFAULT 0,
+  reward_shards INTEGER DEFAULT 0,
+  bonus_coins INTEGER DEFAULT 0,
+  bonus_shards INTEGER DEFAULT 0,
+  teacher_id TEXT,
+  teacher_comment TEXT DEFAULT '',
+  has_physical INTEGER DEFAULT 0,
+  returned_at INTEGER,
+  reward_claimed INTEGER DEFAULT 0,
+  reward_claimed_at INTEGER
+);
