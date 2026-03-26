@@ -2096,7 +2096,10 @@ app.get('/teacher', (c) => {
           <h1 class="text-xl font-bold">教師ダッシュボード</h1>
           <p id="teacherInfo" class="text-sm text-slate-500"></p>
         </div>
-        <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
+        <div class="flex gap-2 items-center">
+          <a href="/" class="text-sm px-3 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold transition">🎮 ゲーム画面へ</a>
+          <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
+        </div>
       </div>
 
       <!-- クラス作成 -->
