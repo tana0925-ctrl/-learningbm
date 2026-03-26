@@ -760,7 +760,7 @@ app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const res = await c.env.DB.prepare(
-    `SELECT id, class_code as classCode, name, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+    `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
   ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
@@ -773,6 +773,20 @@ app.delete('/api/teacher/class/:classId', async (c) => {
   await c.env.DB.prepare(`DELETE FROM class_members WHERE class_id=?`).bind(classId).run()
   await c.env.DB.prepare(`DELETE FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).run()
   return c.json({ ok: true })
+})
+
+// ランキング参加ON/OFFトグル
+app.put('/api/teacher/class/:classId/ranking-toggle', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  const enabled = body?.enabled ? 1 : 0
+  const result = await c.env.DB.prepare(
+    `UPDATE classes SET ranking_enabled=? WHERE id=? AND teacher_id=?`
+  ).bind(enabled, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, rankingEnabled: enabled })
 })
 
 // クラス詳細（メンバー＋ランキング）
@@ -854,16 +868,21 @@ app.get('/api/ranking', async (c) => {
   const binds: any[] = []
 
   if (scope === 'global' || u.role === 'admin') {
-    // 全体ランキング
+    // 全体ランキング: クラスに所属 AND そのクラスのranking_enabled=1 の人のみ
     sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
                   rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
            FROM ranking_stats rs
            JOIN users u ON u.id = rs.user_id AND u.is_active=1
+           JOIN class_members cm ON cm.user_id = rs.user_id
+           JOIN classes cl ON cl.id = cm.class_id AND cl.ranking_enabled = 1
            ORDER BY rs.total_level DESC, rs.correct_count DESC LIMIT 100`
   } else if (scope === 'class') {
-    // 自分のクラスのみ
-    const classRow = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+    // 自分のクラスのみ: クラス所属かつranking_enabled=1のクラスに限る
+    const classRow = await c.env.DB.prepare(
+      `SELECT cm.class_id, cl.ranking_enabled FROM class_members cm JOIN classes cl ON cl.id=cm.class_id WHERE cm.user_id=? LIMIT 1`
+    ).bind(u.id).first<any>()
     if (!classRow) return c.json({ ok: true, ranking: [], scope, enabled, message: 'no_class' })
+    if (!classRow.ranking_enabled) return c.json({ ok: true, ranking: [], scope, enabled, message: 'ranking_not_allowed' })
     sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
                   rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
            FROM ranking_stats rs
@@ -2209,6 +2228,33 @@ app.get('/teacher', (c) => {
             + ' <span class="text-sm text-slate-400 ml-2 select-all font-mono bg-slate-100 px-2 py-0.5 rounded">参加コード: ' + escH(cls.classCode) + '</span>'
             + ' <span class="text-xs text-slate-400 ml-2">生徒数: ' + cls.memberCount + '人</span>';
           header.appendChild(title);
+          const btnGroup = document.createElement('div');
+          btnGroup.className='flex items-center gap-2';
+          // ランキング参加トグルボタン
+          const rankBtn = document.createElement('button');
+          const isEnabled = !!cls.rankingEnabled;
+          rankBtn.className = isEnabled
+            ? 'text-xs px-2 py-1 rounded font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200'
+            : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+          rankBtn.textContent = isEnabled ? '🏆 ランキング参加中' : '🏆 ランキング不参加';
+          rankBtn.title = isEnabled ? 'クリックでランキング参加を停止' : 'クリックでランキング参加を許可';
+          rankBtn.onclick = async ()=>{
+            const newVal = !rankBtn.dataset.enabled;
+            rankBtn.dataset.enabled = newVal ? '1' : '';
+            try{
+              await api('/api/teacher/class/'+cls.id+'/ranking-toggle',{
+                method:'PUT', headers:{'content-type':'application/json'},
+                body: JSON.stringify({enabled: newVal})
+              });
+              rankBtn.className = newVal
+                ? 'text-xs px-2 py-1 rounded font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200'
+                : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+              rankBtn.textContent = newVal ? '🏆 ランキング参加中' : '🏆 ランキング不参加';
+              rankBtn.title = newVal ? 'クリックでランキング参加を停止' : 'クリックでランキング参加を許可';
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          rankBtn.dataset.enabled = isEnabled ? '1' : '';
+          btnGroup.appendChild(rankBtn);
           const delBtn = document.createElement('button');
           delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
           delBtn.textContent='削除';
@@ -2217,7 +2263,8 @@ app.get('/teacher', (c) => {
             try{ await api('/api/teacher/class/'+cls.id,{method:'DELETE'}); await renderClasses(); }
             catch(e){ alert(String(e.message||e)); }
           };
-          header.appendChild(delBtn);
+          btnGroup.appendChild(delBtn);
+          header.appendChild(btnGroup);
           card.appendChild(header);
 
           const rankDiv = document.createElement('div');
