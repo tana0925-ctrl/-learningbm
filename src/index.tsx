@@ -376,7 +376,7 @@ function extractRankingStats(stateJson: string, fallbackName: string) {
     const sumMonsterLevels = Object.values(monsters).reduce((sum: number, m: any) => sum + Number(m?.level || 1), 0)
     const totalLevel = playerLevel + sumMonsterLevels
     const tp: Record<string, any> = s.trainingProgress || {}
-    const correctCount = Object.values(tp).reduce((sum: number, t: any) => sum + Number(t?.correctCount || 0), 0)
+    const correctCount = Object.values(tp).reduce((sum: number, t: any) => sum + Number(t?.correctCount ?? t?.count ?? 0), 0)
     return { displayName: String(s.name || fallbackName).slice(0, 30), totalLevel, monsterCount, correctCount }
   } catch {
     return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0 }
