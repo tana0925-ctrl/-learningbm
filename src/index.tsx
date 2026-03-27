@@ -22,7 +22,34 @@ app.onError((err, c) => {
   return c.text(`Internal Error\n${msg}`, 500)
 })
 
-app.use('/api/*', cors())
+// CORS: same-origin + pages.dev
+app.use('/api/*', cors({
+  origin: (origin) => {
+    if (!origin) return '*'
+    if (origin.endsWith('.pages.dev') || origin === 'http://localhost:8788' || origin === 'http://127.0.0.1:8788') return origin
+    return null as any
+  },
+  credentials: true,
+}))
+
+// --- Simple in-memory rate limiter (per-isolate) ---
+const _rl = new Map<string, { count: number; resetAt: number }>()
+function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
+  const now = Date.now()
+  let entry = _rl.get(key)
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + windowSec * 1000 }
+    _rl.set(key, entry)
+  }
+  entry.count++
+  if (entry.count > maxReqs) return false // blocked
+  return true // allowed
+}
+// cleanup stale entries periodically (avoid memory leak)
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of _rl) { if (now > v.resetAt) _rl.delete(k) }
+}, 60_000)
 
 // -------------------- utils --------------------
 
@@ -148,6 +175,13 @@ app.use('/api/*', async (c, next) => {
   const sess = await readSession(secret, token)
   if (!sess?.id) return next()
 
+  // Session expiration: 30 days
+  const SESSION_MAX_AGE = 30 * 24 * 60 * 60
+  if (sess.iat && (Math.floor(Date.now() / 1000) - sess.iat) > SESSION_MAX_AGE) {
+    deleteCookie(c, 'session', { path: '/' })
+    return next() // expired, treat as unauthenticated
+  }
+
   c.set('user', {
     id: sess.id,
     role: sess.role,
@@ -241,6 +275,7 @@ app.post('/api/auth/login', async (c) => {
     role: row.role,
     loginId: row.loginId,
     isActive: !!row.isActive,
+    iat: Math.floor(Date.now() / 1000),
   })
 
   setCookie(c, 'session', token, {
@@ -341,6 +376,7 @@ app.put('/api/student/progress', async (c) => {
 app.post('/api/student/results', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
+  if (!rateLimit(`results:${u.id}`, 30, 60)) return jsonError(c, 429, 'too_many_requests')
 
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
@@ -1488,6 +1524,7 @@ app.post('/api/rt/ready/:roomId', async (c) => {
 app.post('/api/rt/damage/:roomId', async (c) => {
   const u = requireAuth(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
+  if (!rateLimit(`rtdmg:${u.id}`, 20, 10)) return jsonError(c, 429, 'too_many_requests')
   const roomId = c.req.param('roomId').toUpperCase()
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
@@ -1500,10 +1537,12 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   const isGuest = room.guest_user_id === u.id
   if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
 
-  const damage = Math.max(0, Math.min(9999, Number(body.damage || 0)))
-  const monsterId = Number(body.monsterId || 0)
+  const damage = Math.max(0, Math.min(500, Number(body.damage || 0)))
+  if (!Number.isFinite(damage)) return jsonError(c, 400, 'invalid_damage')
+  const monsterId = Math.max(0, Math.min(9999, Math.floor(Number(body.monsterId || 0))))
   const metaJson = body.meta ? JSON.stringify(body.meta).slice(0, 500) : null
-  const eventType = String(body.eventType || 'damage').slice(0, 20) // 'damage'|'faint'|'win'|'lose'
+  const validEvents = ['damage', 'faint', 'win', 'lose']
+  const eventType = validEvents.includes(String(body.eventType)) ? String(body.eventType) : 'damage'
 
   // イベント記録
   const result = await c.env.DB.prepare(`
