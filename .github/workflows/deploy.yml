@@ -18,6 +18,8 @@ jobs:
         run: npm install
       - name: Inject RT Battle Script
         run: python3 scripts/inject-rt.py
+      - name: Inject Monster System Script
+        run: python3 scripts/inject-monster.py
       - name: Build
         run: npm run build
       - name: Deploy to Cloudflare Pages
