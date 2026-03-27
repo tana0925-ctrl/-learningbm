@@ -325,7 +325,8 @@ app.get('/api/auth/me', async (c) => {
 function requireStudent(c: any) {
   const u = c.get('user')
   if (!u) return null
-  if (u.role !== 'student') return null
+  // admin and teacher can also play the game
+  if (u.role !== 'student' && u.role !== 'admin' && u.role !== 'teacher') return null
   return u
 }
 
