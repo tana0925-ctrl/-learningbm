@@ -1,106 +1,200 @@
 /**
- * monster-system.js (v4 -（性見、手持、捕獲、ショップ）
- * 國卸会フィロー・-ボックーペャンセハビデャアデュ
+ * monster-system.js (v4.1 - UI統合版)
+ * 図鑑・ボックス・捕獲・ショップシステム
  *
- * ���nӚZÖ>���h(�������
-ϒⷎ��rϖ2[�ⷎ���������
-K��ךZc��#�&/�2���
-��[��{�^���c��.��(���������ώ
-�
-���s����VÎ
-K�^���c�
-ώ
-��Ϣ���������������*�(�������s��
-���#���g������nϦFG�s��
-��
-�
-K����*�(��(���Xx~i�Nik�
-��
-��
-����[��[ۈ
+ * 変更点:
+ *  - 右上HUD廃止（既存ゲームUIに統合）
+ *  - モンスターボール数を既存コイン表示 (#coinCount) の横に追記
+ *  - ボックス・捕獲図鑑・ボール購入ボタンを既存左navに追加
+ *  - 手持ちタブ廃止（既存左パネルに表示済み）
+ *  - 捕獲ボタンは野生バトル中ピみ表示
+ *  - MutationObserver廃止・APIデバウンス継続
+ *  - [v4.1] screen-rankingをflexコンテナ内に移動（左メニュー消えるバむ修正）
+ *  - [v4.1] バトルUIに⚾ボールボタンを追加（回復と入れ替えの間）
+ *  - [v4.1] interceptNetwork: isCorrectフィールド名を正しく参照
+ */
+(function () {
+  'use strict';
 
-H	�\�H��X�	����OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB���9b'y�"x�����8��g,9� ���OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB�]T�H�[]��]�QX��[��U\�H�[��[��[ۈ[�]
+  // ============================================================
+  // 状態管理
+  // ============================================================
+  let MS = null;
 
-H�YT�
-N�Z[RJ
-N[�\��\�]�ܚ�
-N�Y��\��\\�P��
-N�][�\��[
-�X�И]K�
-NB���[��[ۈ�YT�
-H�H�ۜ��]�H��[�ܘY�K��]][J	�[ۜ�\��\�[I�NT�H�]����Ӌ�\��J�]�H��[H�]�
-JH�T�H�[�B�Y�
-ST�HT�H�\�N��K����K��Y^��K[ۜ�\��[Έ���[�ΈNY�
-ST˜\�JHT˜\�HH�NY�
-ST˘��
-HT˘��H�NY�
-ST˜��Y^
-HT˜��Y^H�NY�
-T˛[ۜ�\��[�OOH[�Y�[�Y
-HT˛[ۜ�\��[�H�Y�
-T˘��[��OOH[�Y�[�Y
-HT˘��[��HB���[��[ۈ�]�ST�
-H�X\�[Y[�]
-��]�QX��[��U\�N��]�QX��[��U\�H�][Y[�]
+  const DEFAULTS = {
+    coins: 0,
+    monsterBalls: 5,
+    pokedex: [],   // 捕まえたモンスターID一覧
+    party: [],     // [{id, level, name, emoji}] 最大3体
+    box: [],       // [{id, level, name, emoji}]
+  };
 
+  async function apiLoad() {
+    try {
+      const res = await fetch('/api/student/progress');
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.ok || !data.progress) return null;
+      const obj = JSON.parse(data.progress.stateJson);
+      return obj.state || obj;
+    } catch (e) { return null; }
+  }
 
-HO��H��[�ܘY�K��]][J	�[ۜ�\��\�[I���Ӌ���[��Y�JT�JNH�]�
-JH�B��H�ۜ���HH�]N�[ۜ�\��[ΈT˛[ۜ�\��[��[ۜ�\�Έ�K�\�N�T˜\�K����T˘�����Y^�T˜��Y^���[�ΈT˘��[�B�Nˋ��T˜\�H�JK���T˘���JWK��ܑXX�
-HO�Y�
-K�Y
-H��K��]K�[ۜ�\���K�YHH�]�[�K�]�[NJN�]�
-	��\K��Y[����ܙ\����Y]��	�U	�XY\�Έ�	��۝[�U\IΈ	�\X�][ۋڜ�ۉ�K��N���Ӌ���[��Y�J��JHJK��]�
+  // デバウンス付きAPIセーブ（3秒後）
+  let _saveTimer = null;
+  let _saving = false;
+  async function apiSave(s) {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async () => {
+      if (_saving) return;
+      _saving = true;
+      try {
+        await fetch('/api/student/progress', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: s }),
+        });
+      } catch (e) {}
+      _saving = false;
+    }, 3000);
+  }
 
-
-HO��JNH�]�
-JH�B�K�
-NB����OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB���9�ey�l���8�����8��8��8���H9���b�ybcB���OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB��[��[ۈ�X�И]J
-H�Y��\��\\�P��
-NB���[��[ۈ\��[�]J
-H�ۜ�[�X�]ܜ�H	���\�ʏH��[X�]H�I�	���\�ʏH��[�]H�I��	��Y
-�H��[X�]H�I�	��Y
-�H��[�]H�I��	���\�ʏH��]K\��[�H�I�	���\�ʏH��]T��[�H�I��	���\�ʏH�[�[^KX\�XH�I�	���\�ʏH�[�[^P\�XH�I��N�܈
-�ۜ��[و[�X�]ܜ�H�ۜ�[H��[Y[��]Y\�T�[X�܊�[
-NY�
-[
-H�]\���YNB��]\���[�NB���[��[ۈ�Y��\��\\�P��
-H�ۜ���H��[Y[���][[Y[��RY
-	�\�X�\\�KX���NY�
-X��H�]\���ۜ�[��]H\��[�]J
-N����[K�\�^HH[��]�	؛�����	ۛۙI�Y�
-Z[��]
-H�]\���ۜ�\И[�H
-T˛[ۜ�\��[�
-H����\�X�YHZ\И[����^�۝[�H\И[�8���8��8��8���ह��x�d���� J9� 8ࢻ�&��T˛[ۜ�\��[�JX��	����8��8��8����8�k��c9bc�� I�B����OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB���9��x�d���a�y/&����OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOB��[��˛\���И[H�[��[ۈ
-
-HY�
-ST�H�]\��Y�
-
-T˛[ۜ�\��[�
-HH
-H��\�
-	���8��8���c8�`�ࢸ�o��f���� I�	�\��܉�N��]\���B�Y�
-Z\��[�]J
-JH��\�
-	�g��oex��8��8�껺(c8�i��k�/oえません！', 'error'); return; }
-
-    MS.monsterBalls--;
-    const enemyHpPct = (() => {
-      const sels = ['[class*="enemy-hp"]', '[class*="enemyHP"]', '[class*="opp-hp"]'];
-      for (const s of sels) {
-        const el = document.querySelector(s);
-        if (el) {
-          const w = parseFloat(el.style.width);
-          if (!isNaN(w)) return w;
-        }
+  async function init() {
+    const s = await apiLoad();
+    if (!s) {
+      const saved = localStorage.getItem('ms_ext');
+      MS = saved ? JSON.parse(saved) : { ...DEFAULTS };
+    } else {
+      if (!('monsterBalls' in s)) {
+        Object.assign(s, DEFAULTS);
+        const existingMonsters = s.monsters || {};
+        const list = Object.entries(existingMonsters)
+          .map(([id, m]) => ({ id, level: m.level || 1, name: id, emoji: '👾' }));
+        s.party = list.slice(0, 3);
+        s.box   = list.slice(3);
+        s.pokedex = list.map(m => m.id);
+        await apiSave(s);
       }
-      return 50;
-    })();
+      MS = s;
+    }
+    buildUI();
+    startBattleWatcher();
+    interceptNetwork();
+  }
 
-    const rate = Math.min(0.9, (100 - enemyHpPct) / 100 * 0.8 + 0.1);
-    const roll = Math.random();
+  function saveMS() {
+    if (!MS) return;
+    apiSave(MS);
+    try { localStorage.setItem('ms_ext', JSON.stringify(MS)); } catch(e) {}
+  }
+
+  // ============================================================
+  // バトル監視（setIntervalのみ・2秒）
+  // ============================================================
+  let inBattle = false;
+  let captureShown = false;
+  let enemyHpPct = 100;
+
+  function startBattleWatcher() {
+    setInterval(checkBattle, 2000);
+  }
+
+  function checkBattle() {
+    const hpEls = document.querySelectorAll(
+      '[class*="hp-bar"], [class*="hpBar"], [class*="enemy-hp"], ' +
+      '[class*="oppHp"], [id*="enemy-hp"], [id*="opp-hp"]'
+    );
+    const battleEl =
+      document.querySelector('[class*="wild-battle"], [class*="wildBattle"]') ||
+      document.querySelector('[data-scene="battle"], [data-mode="wild"]') ||
+      (hpEls.length > 0 ? hpEls[0] : null);
+
+    const nowInBattle = !!battleEl;
+
+    if (nowInBattle !== inBattle) {
+      inBattle = nowInBattle;
+      if (inBattle) {
+        enemyHpPct = 100;
+        captureShown = false;
+        onBattleStart();
+      } else {
+        onBattleEnd();
+      }
+    }
+
+    if (inBattle) {
+      updateEnemyHp(hpEls);
+      if (!captureShown) {
+        const btn = document.getElementById('ms-capture-btn');
+        if (btn) { btn.style.display = 'block'; captureShown = true; }
+      }
+      refreshCaptureBtn();
+    }
+  }
+
+  function updateEnemyHp(hpEls) {
+    for (const el of hpEls) {
+      const style = el.getAttribute('style') || '';
+      const m = style.match(/width\s*:\s*(\d+(?:\.\d+)?)\s*%/);
+      if (m) { enemyHpPct = parseFloat(m[1]); return; }
+    }
+    const bar = document.querySelector('[role="progressbar"][aria-valuenow]');
+    if (bar) {
+      const v   = parseFloat(bar.getAttribute('aria-valuenow'));
+      const max = parseFloat(bar.getAttribute('aria-valuemax') || '100');
+      if (!isNaN(v)) enemyHpPct = (v / max) * 100;
+    }
+  }
+
+  function captureRate() {
+    return Math.min(0.95, 0.15 + (1 - enemyHpPct / 100) * 0.80);
+  }
+
+  function onBattleStart() {
+    const btn = document.getElementById('ms-capture-btn');
+    if (btn) btn.style.display = 'block';
+    const actionBtn = document.getElementById('ms-ball-action-btn');
+    if (actionBtn) actionBtn.style.display = '';
+  }
+
+  function onBattleEnd() {
+    const btn = document.getElementById('ms-capture-btn');
+    if (btn) btn.style.display = 'none';
+    captureShown = false;
+    const actionBtn = document.getElementById('ms-ball-action-btn');
+    if (actionBtn) actionBtn.style.display = 'none';
+  }
+
+  function refreshCaptureBtn() {
+    const balls = MS ? (MS.monsterBalls || 0) : 0;
+    const rate  = Math.round(captureRate() * 100);
+    const label = balls > 0 ? `⚾ ボール\n残り${balls}個` : '⚾ ボールなし';
+
+    const btn = document.getElementById('ms-capture-btn');
+    if (btn) {
+      btn.disabled = balls <= 0;
+      btn.textContent = balls > 0
+        ? `⚾ ボールを投げる！（成功率 ${rate}% / 残り${balls}個）`
+        : '⚾ ボールなし';
+    }
+    const actionBtn = document.getElementById('ms-ball-action-btn');
+    if (actionBtn) {
+      actionBtn.disabled = balls <= 0;
+      actionBtn.innerHTML = `<div>⚾ ボール<br><span style="font-size:10px">残${balls}個 ${rate}%</span></div>`;
+    }
+  }
+
+  // 捕獲実行
+  window.msThrowBall = function () {
+    if (!MS || !inBattle) return;
+    if ((MS.monsterBalls || 0) <= 0) {
+      toast('モンスターボールがありません！', 'error'); return;
+    }
+    MS.monsterBalls--;
+
+    const roll  = Math.random();
+    const rate  = captureRate();
     const enemy = detectEnemy();
-    const Z = enemy = detectEnemy();
 
     if (roll < rate) {
       if (!MS.pokedex.includes(enemy.id)) MS.pokedex.push(enemy.id);
@@ -141,7 +235,7 @@ JH��\�
     return { id: name.replace(/\s+/g, '_').toLowerCase(), name, emoji };
   }
 
-  // ============================================================
+  // =========================================================
   // ネットワーク傍受（コイン獲得）
   // ============================================================
   function interceptNetwork() {
@@ -154,7 +248,7 @@ JH��\�
       if (urlStr.includes('/api/student/results') && opts.method === 'POST') {
         try {
           const body = JSON.parse(opts.body || '{}');
-          if (body.correct && MS) {
+          if ((body.correct || body.isCorrect) && MS) {
             MS.coins = (MS.coins || 0) + 10;
             saveMS();
             updateHUD();
@@ -194,10 +288,22 @@ JH��\�
     saveMS(); renderBox();
   };
 
-  // ============================================================
+  // ===============================================================
   // UI 構築（既存ゲームUIに統合）
   // ============================================================
+  function fixRankingLayout() {
+    // screen-rankingがbodyの直接flex子要素になっているバグを修正
+    // → flexコンテナ(div.flex.flex-1.gap-2)内に移動して左メニューが消えないようにする
+    const mainFlex = document.querySelector('div.flex.flex-1.gap-2');
+    const screenRanking = document.getElementById('screen-ranking');
+    if (mainFlex && screenRanking && !mainFlex.contains(screenRanking)) {
+      mainFlex.appendChild(screenRanking);
+    }
+  }
+
   function buildUI() {
+    fixRankingLayout();
+
     // 1. モンスターボール数を既存コイン表示の横に追加
     const coinEl = document.getElementById('coinCount');
     if (coinEl && !document.getElementById('ms-b')) {
@@ -235,7 +341,24 @@ JH��\�
       nav.appendChild(ballBtn);
     }
 
-    // 3. モーダル・捕獲ボタン・トーストの作成（HUDなし）
+    // 3. バトルUIにボールボタンを追加（回復ボタンと入れ替えボタンの間）
+    const actionPanel = document.querySelector('.action-panel');
+    if (actionPanel && !document.getElementById('ms-ball-action-btn')) {
+      const swapBtn = actionPanel.querySelector('.action-btn.swap');
+      const ballActionBtn = document.createElement('button');
+      ballActionBtn.id = 'ms-ball-action-btn';
+      ballActionBtn.className = 'action-btn';
+      ballActionBtn.style.cssText = 'background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;display:none;';
+      ballActionBtn.innerHTML = '<div>⚾ ボール<br><span style="font-size:10px">残0個</span></div>';
+      ballActionBtn.onclick = () => window.msThrowBall();
+      if (swapBtn) {
+        actionPanel.insertBefore(ballActionBtn, swapBtn);
+      } else {
+        actionPanel.appendChild(ballActionBtn);
+      }
+    }
+
+    // 4. モーダル・捕獲ボタン・トーストの作成（HUDなし）
     const wrap = document.createElement('div');
     wrap.id = 'ms-root';
     wrap.innerHTML = `
@@ -326,7 +449,7 @@ JH��\�
   background:rgba(15,15,35,0.95);color:#fff;
   padding:9px 20px;border-radius:20px;font-size:13px;
   z-index:10010;opacity:0;transition:opacity .3s;
-  pointer-events:none;white-space:nowraw;max-width:90vw;
+  pointer-events:none;white-space:nowrap;max-width:90vw;
   border-left:3px solid transparent;
 }
 #ms-toast.show{opacity:1;}
@@ -377,8 +500,8 @@ JH��\�
       </div>
       <div class="ms-shop-row">
         <div>
-          <div style="font-size:15px">⚾×5 まとめ買う</div>
-          <div style="font-size:11px;color:#888">1個あたり40コインでお得</div>
+          <div style="font-size:15px">⚾×5 まとめ買い</div>
+          <div style="font-size:11px;color:#848">1個あたり40コインでお得</div>
         </div>
         <div style="text-align:center">
           <div style="font-size:12px;color:#f59e0b;margin-bottom:4px">200コイン</div>
@@ -409,7 +532,7 @@ JH��\�
 
   // ============================================================
   // モーダル操作
-  // ============================================================
+  // =========================================================
   const TITLES = { box: 'ボックス', pokedex: '捕獲図鑑', shop: 'ボール購入' };
 
   window.msOpen = function (pane) {
@@ -437,7 +560,7 @@ JH��\�
 
   // ============================================================
   // ボックスレンダリング
-  // ============================================================
+  // ===============================================================
   function renderBox() {
     const g = document.getElementById('ms-box-grid');
     if (!g || !MS) return;
@@ -473,7 +596,7 @@ JH��\�
     if (n) n.textContent = dex.length;
     g.innerHTML = '';
     if (dex.length === 0) {
-      g.innerHTML = '<p style="color:#666;font-size:12px;grid-column:1/-1;text-align:center">まだ捕まえていません<br>野生バトリ今にボールを投げて捕まえよう！</p>';
+      g.innerHTML = '<p style="color:#666;font-size:12px;grid-column:1/-1;text-align:center">まだ捕まえていません<br>野生バトル中にボールを投げて捕まえよう！</p>';
       return;
     }
     const allMons = [...(MS.party || []), ...(MS.box || [])];
