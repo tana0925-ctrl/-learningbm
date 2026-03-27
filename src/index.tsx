@@ -34,8 +34,14 @@ app.use('/api/*', cors({
 
 // --- Simple in-memory rate limiter (per-isolate) ---
 const _rl = new Map<string, { count: number; resetAt: number }>()
+let _rlLastCleanup = 0
 function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
   const now = Date.now()
+  // Lazy cleanup: purge stale entries every 60s (instead of setInterval which is banned in global scope)
+  if (now - _rlLastCleanup > 60_000) {
+    _rlLastCleanup = now
+    for (const [k, v] of _rl) { if (now > v.resetAt) _rl.delete(k) }
+  }
   let entry = _rl.get(key)
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + windowSec * 1000 }
@@ -45,11 +51,6 @@ function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
   if (entry.count > maxReqs) return false // blocked
   return true // allowed
 }
-// cleanup stale entries periodically (avoid memory leak)
-setInterval(() => {
-  const now = Date.now()
-  for (const [k, v] of _rl) { if (now > v.resetAt) _rl.delete(k) }
-}, 60_000)
 
 // -------------------- utils --------------------
 
