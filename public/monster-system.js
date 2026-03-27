@@ -1,7 +1,11 @@
 /**
- * monster-system.js
+ * monster-system.js (v2 - 軽量版)
  * 図鑑・手持ち・ボックス・捕獲・ショップ・交換システム
- * public/index.html に inject-monster.py で挿入される
+ *
+ * 修正点:
+ *  - MutationObserver を廃止（全DOM変化監視で重大なフリーズを引き起こしていた）
+ *  - setInterval を 2000ms に変更（800ms→2000ms）
+ *  - apiSave をデバウンス化（3秒後にまとめて送信）
  */
 (function () {
   'use strict';
@@ -9,7 +13,7 @@
   // ============================================================
   // 状態管理
   // ============================================================
-  let MS = null; // ゲーム拡張ステート
+  let MS = null;
 
   const DEFAULTS = {
     coins: 100,
@@ -30,14 +34,23 @@
     } catch (e) { return null; }
   }
 
+  // デバウンス付きAPIセーブ（3秒間隔にまとめて送信）
+  let _saveTimer = null;
+  let _saving = false;
   async function apiSave(s) {
-    try {
-      await fetch('/api/student/progress', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: s }),
-      });
-    } catch (e) {}
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async () => {
+      if (_saving) return;
+      _saving = true;
+      try {
+        await fetch('/api/student/progress', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: s }),
+        });
+      } catch (e) {}
+      _saving = false;
+    }, 3000);
   }
 
   async function init() {
@@ -54,7 +67,7 @@
         const list = Object.entries(existingMonsters)
           .map(([id, m]) => ({ id, level: m.level || 1, name: id, emoji: '👾' }));
         s.party = list.slice(0, 3);
-        s.box = list.slice(3);
+        s.box   = list.slice(3);
         s.pokedex = list.map(m => m.id);
         await apiSave(s);
       }
@@ -68,33 +81,31 @@
   function saveMS() {
     if (!MS) return;
     apiSave(MS);
-    localStorage.setItem('ms_ext', JSON.stringify(MS));
+    try { localStorage.setItem('ms_ext', JSON.stringify(MS)); } catch(e) {}
   }
 
   // ============================================================
-  // バトル監視
+  // バトル監視（MutationObserver廃止・setIntervalのみ）
   // ============================================================
   let inBattle = false;
   let captureShown = false;
   let enemyHpPct = 100;
 
   function startBattleWatcher() {
-    const obs = new MutationObserver(checkBattle);
-    obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
-    setInterval(checkBattle, 800);
+    // ▼ MutationObserver は 5MB のゲームでは重大なフリーズを引き起こすため廃止
+    // ▼ 2秒ごとのポーリングのみに変更
+    setInterval(checkBattle, 2000);
   }
 
   function checkBattle() {
-    // 野生バトル判定: HPバーや敵表示要素を探す
+    // 野生バトル判定: HPバーイ敵表示要素を探す
     const hpEls = document.querySelectorAll(
-      '[class*="hp-bar"], [class*="hpBar"], [class*="enemy-hp"], [class*="oppHp"], ' +
-      '[id*="enemy-hp"], [id*="opp-hp"], [class*="monster-hp"]'
+      '[class*="hp-bar"], [class*="hpBar"], [class*="enemy-hp"], ' +
+      '[class*="oppHp"], [id*="enemy-hp"], [id*="opp-hp"]'
     );
 
-    // battle-area や野生バトル画面の特徴要素を探す
     const battleEl =
-      document.querySelector('[class*="wild-battle"], [class*="wildBattle"], [id*="wild-battle"]') ||
-      document.querySelector('[class*="pve-battle"], [class*="pveBattle"]') ||
+      document.querySelector('[class*="wild-battle"], [class*="wildBattle"]') ||
       document.querySelector('[data-scene="battle"], [data-mode="wild"]') ||
       (hpEls.length > 0 ? hpEls[0] : null);
 
@@ -122,23 +133,20 @@
   }
 
   function updateEnemyHp(hpEls) {
-    // スタイルの width: XX% からHP推定
     for (const el of hpEls) {
       const style = el.getAttribute('style') || '';
       const m = style.match(/width\s*:\s*(\d+(?:\.\d+)?)\s*%/);
       if (m) { enemyHpPct = parseFloat(m[1]); return; }
     }
-    // aria-valuenow でも探す
     const bar = document.querySelector('[role="progressbar"][aria-valuenow]');
     if (bar) {
-      const v = parseFloat(bar.getAttribute('aria-valuenow'));
+      const v   = parseFloat(bar.getAttribute('aria-valuenow'));
       const max = parseFloat(bar.getAttribute('aria-valuemax') || '100');
       if (!isNaN(v)) enemyHpPct = (v / max) * 100;
     }
   }
 
   function captureRate() {
-    // HP低いほど成功率UP: 100%HP→15%, 50%→42%, 10%HP→78%
     return Math.min(0.95, 0.15 + (1 - enemyHpPct / 100) * 0.80);
   }
 
@@ -157,7 +165,7 @@
     const btn = document.getElementById('ms-capture-btn');
     if (!btn || !MS) return;
     const balls = MS.monsterBalls || 0;
-    const rate = Math.round(captureRate() * 100);
+    const rate  = Math.round(captureRate() * 100);
     btn.disabled = balls <= 0;
     btn.textContent = balls > 0
       ? `⚾ ボールを投げる！（成功率 ${rate}% / 残り ${balls}個）`
@@ -172,14 +180,11 @@
     }
     MS.monsterBalls--;
 
-    const roll = Math.random();
-    const rate = captureRate();
-
-    // 敵情報を取得
+    const roll  = Math.random();
+    const rate  = captureRate();
     const enemy = detectEnemy();
 
     if (roll < rate) {
-      // 捕獲成功
       if (!MS.pokedex.includes(enemy.id)) MS.pokedex.push(enemy.id);
       const mon = { id: enemy.id, level: 1, name: enemy.name, emoji: enemy.emoji };
       if (MS.party.length < 3) {
@@ -191,7 +196,7 @@
       }
     } else {
       toast(`${enemy.emoji} ${enemy.name} は逃げてしまった…`, 'fail');
-      if (enemyHpPct > 50) toast('もっと弱らせると捕まえやすくなるよ！', 'hint');
+      if (enemyHpPct > 50) toast('もっよ弱らせると捕まえやすくなるよ！', 'hint');
     }
 
     saveMS();
@@ -200,23 +205,17 @@
   };
 
   function detectEnemy() {
-    // 敵名をDOMから探す（複数パターン試行）
     const selectors = [
       '[class*="enemy-name"]', '[class*="enemyName"]',
-      '[class*="wild-name"]', '[id*="enemy-name"]',
-      '[class*="opp-name"]', '[class*="oppName"]',
-      '[class*="monster-name"]:not([class*="my"])',
+      '[class*="wild-name"]',  '[id*="enemy-name"]',
+      '[class*="opp-name"]',   '[class*="oppName"]',
     ];
     let name = '???', emoji = '👾';
     for (const sel of selectors) {
       const el = document.querySelector(sel);
       if (el && el.textContent.trim()) { name = el.textContent.trim(); break; }
     }
-    // emoji 取得
-    const emojiSels = [
-      '[class*="enemy-emoji"]', '[class*="enemyEmoji"]',
-      '[class*="monster-icon"]:not([class*="my"])',
-    ];
+    const emojiSels = ['[class*="enemy-emoji"]', '[class*="enemyEmoji"]'];
     for (const sel of emojiSels) {
       const el = document.querySelector(sel);
       if (el && el.textContent.trim()) { emoji = el.textContent.trim().slice(0, 2); break; }
@@ -225,21 +224,26 @@
   }
 
   // ============================================================
-  // ネットワーク傍受（コイン獲得 & 状態同期）
+  // ネットワーク傍受（コイン獲得）
   // ============================================================
   function interceptNetwork() {
-    const origFetch = window.fetch;
-    window.fetch = async function (url, opts = {}) {
-      const res = await origFetch.call(this, url, opts);
-      const urlStr = typeof url === 'string' ? url : (url.url || '');
+    const origFetch = window.fetch.bind(window);
+    window.fetch = async function (url, opts) {
+      opts = opts || {};
+      const res = await origFetch(url, opts);
+      const urlStr = (typeof url === 'string') ? url : (url && url.url) || '';
 
-      // 問題正解 → コイン付与
-      if (urlStr.includes('/api/student/results') && opts.method === 'POST') {
+      // 問題正解 → コイン付与（/api/student/progress へのPUTは除外）
+      if (
+        urlStr.includes('/api/student/results') &&
+        opts.method === 'POST'
+      ) {
         try {
           const body = JSON.parse(opts.body || '{}');
           if (body.correct && MS) {
             MS.coins = (MS.coins || 0) + 10;
-            saveMS(); updateHUD();
+            saveMS();
+            updateHUD();
             toast('+10コイン！', 'coin');
           }
         } catch (e) {}
@@ -264,7 +268,7 @@
   // ============================================================
   // 手持ち↔ボックス 交換
   // ============================================================
-  let swapSrc = null; // {type:'party'|'box', idx:number}
+  let swapSrc = null;
 
   window.msSelectForSwap = function (type, idx) {
     if (!swapSrc) {
@@ -273,17 +277,15 @@
       renderParty(); renderBox();
     } else {
       if (swapSrc.type === type) {
-        // 同じ側でタップ → キャンセル
-        swapSrc = null; toast('交換をキャンセルしました', ''); renderParty(); renderBox(); return;
+        swapSrc = null; toast('交換をキ�Σ9¸しました', ''); renderParty(); renderBox(); return;
       }
-      // 交換実行
       const partyIdx = swapSrc.type === 'party' ? swapSrc.idx : idx;
       const boxIdx   = swapSrc.type === 'box'   ? swapSrc.idx : idx;
       const tmp = MS.party[partyIdx];
       MS.party[partyIdx] = MS.box[boxIdx];
       MS.box[boxIdx] = tmp;
       swapSrc = null;
-      toast(`交換しました！`, 'success');
+      toast('交換しました！', 'success');
       saveMS(); renderParty(); renderBox();
     }
   };
@@ -344,8 +346,6 @@
 .ms-pane{display:none;}
 .ms-pane.on{display:block;}
 .ms-sub{font-size:11px;color:#888;margin-bottom:10px;}
-
-/* モンスターグリッド */
 .ms-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
 .ms-card{
   background:rgba(255,255,255,0.07);border-radius:10px;
@@ -365,14 +365,10 @@
   border-radius:10px;padding:18px 6px;text-align:center;
   color:rgba(255,255,255,0.2);font-size:22px;
 }
-
-/* 図鑑 */
 .ms-dex{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
 .ms-dex-card{background:rgba(255,255,255,0.06);border-radius:8px;padding:8px;text-align:center;}
 .ms-dex-card .ms-em{font-size:22px;}
 .ms-dex-card .ms-nm{font-size:10px;color:#ccc;}
-
-/* ショップ */
 .ms-shop-row{
   display:flex;justify-content:space-between;align-items:center;
   background:rgba(255,255,255,0.06);border-radius:10px;padding:12px;margin-bottom:8px;
@@ -382,8 +378,6 @@
   border-radius:8px;padding:6px 14px;cursor:pointer;font-weight:bold;font-size:13px;
 }
 .ms-buy:hover{background:#059669;}
-
-/* トースト */
 #ms-toast{
   position:fixed;bottom:70px;left:50%;transform:translateX(-50%);
   background:rgba(15,15,35,0.95);color:#fff;
@@ -425,22 +419,18 @@
       <button class="ms-tab"    data-p="pokedex" onclick="msTab('pokedex')">📖図鑑</button>
       <button class="ms-tab"    data-p="shop"    onclick="msTab('shop')">🏪ショップ</button>
     </div>
-    <!-- 手持ち -->
     <div class="ms-pane on" id="ms-p-party">
       <p class="ms-sub">今一緒にいるキャラ（最大3体）</p>
       <div class="ms-grid" id="ms-party-grid"></div>
     </div>
-    <!-- ボックス -->
     <div class="ms-pane" id="ms-p-box">
       <p class="ms-sub">4体目以降のキャラ。手持ちと入れ替えできます。</p>
       <div class="ms-grid" id="ms-box-grid"></div>
     </div>
-    <!-- 図鑑 -->
     <div class="ms-pane" id="ms-p-pokedex">
       <p class="ms-sub">これまでに捕まえたキャラ: <span id="ms-dex-n">0</span>種類</p>
       <div class="ms-dex" id="ms-dex-grid"></div>
     </div>
-    <!-- ショップ -->
     <div class="ms-pane" id="ms-p-shop">
       <p class="ms-sub">コインを使ってアイテムを購入しよう（問題正解で+10コイン）</p>
       <div class="ms-shop-row">
@@ -611,11 +601,11 @@
   }
 
   // ============================================================
-  // 起動
+  // 起動（1秒後に初期化）
   // ============================================================
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 800));
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 1000));
   } else {
-    setTimeout(init, 800);
+    setTimeout(init, 1000);
   }
 })();
