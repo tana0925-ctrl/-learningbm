@@ -312,11 +312,33 @@ app.get('/api/auth/me', async (c) => {
     const row = await c.env.DB.prepare(`SELECT name, school FROM teacher_accounts WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
     return c.json({ ok: true, user: { ...u, name: row?.name, school: row?.school, grade: null } })
   }
-  // grade は DB から取得（セッショントークンに含まれていないため）
+  // grade は DB から取得 + 4月1日自動進級チェック
   let grade: number | null = null
   try {
-    const row = await c.env.DB.prepare(`SELECT grade FROM users WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
-    if (row) grade = row.grade ?? null
+    const row = await c.env.DB.prepare(`SELECT grade, created_at FROM users WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+    if (row) {
+      grade = row.grade ?? null
+      // 自動進級: 4月1日を過ぎていたら学年を上げる（最大6年）
+      if (grade !== null && grade < 6 && u.role === 'student') {
+        const now = new Date()
+        const currentYear = now.getUTCFullYear()
+        const currentMonth = now.getUTCMonth() + 1 // 1-12
+        // 登録年度を推定: 4月以降なら今年度、3月以前なら前年度
+        const createdAt = new Date(row.created_at)
+        const createdYear = createdAt.getUTCFullYear()
+        const createdMonth = createdAt.getUTCMonth() + 1
+        const createdFiscalYear = createdMonth >= 4 ? createdYear : createdYear - 1
+        const currentFiscalYear = currentMonth >= 4 ? currentYear : currentYear - 1
+        const yearsPassed = currentFiscalYear - createdFiscalYear
+        if (yearsPassed > 0) {
+          const newGrade = Math.min(6, (row.grade as number) + yearsPassed)
+          if (newGrade !== row.grade) {
+            await c.env.DB.prepare(`UPDATE users SET grade=? WHERE id=?`).bind(newGrade, u.id).run()
+            grade = newGrade
+          }
+        }
+      }
+    }
   } catch(e) {}
   return c.json({ ok: true, user: { ...u, grade } })
 })
@@ -360,16 +382,72 @@ app.put('/api/student/progress', async (c) => {
 
   // ランキング統計を非同期で更新
   try {
-    const userRow = await c.env.DB.prepare(`SELECT name FROM users WHERE id=? LIMIT 1`).bind(u.id).first<any>()
+    const userRow = await c.env.DB.prepare(`SELECT name, grade FROM users WHERE id=? LIMIT 1`).bind(u.id).first<any>()
     const stats = extractRankingStats(stateJson, userRow?.name || '')
-    await c.env.DB.prepare(
-      `INSERT INTO ranking_stats (user_id, display_name, total_level, monster_count, correct_count, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(user_id) DO UPDATE SET
-         display_name=excluded.display_name, total_level=excluded.total_level,
-         monster_count=excluded.monster_count, correct_count=excluded.correct_count,
-         updated_at=datetime('now')`
-    ).bind(u.id, stats.displayName, stats.totalLevel, stats.monsterCount, stats.correctCount).run()
+    const grade = Number(userRow?.grade || 0)
+    const weekStart = getCurrentWeekStart()
+
+    // 既存データを取得：週が変わったらベースラインを現在の累計値でリセット
+    const existing = await c.env.DB.prepare(
+      `SELECT week_start, correct_count, total_level, battle_power, pokedex_count, wild_win_streak, ranking_points FROM ranking_stats WHERE user_id=? LIMIT 1`
+    ).bind(u.id).first<any>()
+
+    let baseCorrect = 0, baseLevel = 0, basePower = 0, baseDex = 0, baseStreak = 0, baseRkPts = 0
+    if (existing && existing.week_start === weekStart) {
+      // 同じ週 → ベースラインは既存のまま（UPDATEで変わらない）
+      // ここでは新規INSERT時のみ使うのでダミー
+    } else if (existing) {
+      // 週が変わった → 前回の累計値を新しいベースラインに
+      baseCorrect = Number(existing.correct_count || 0)
+      baseLevel = Number(existing.total_level || 0)
+      basePower = Number(existing.battle_power || 0)
+      baseDex = Number(existing.pokedex_count || 0)
+      baseStreak = Number(existing.wild_win_streak || 0)
+      baseRkPts = Number(existing.ranking_points || 0)
+    }
+
+    if (!existing) {
+      // 初回挿入：ベースラインは現在の値（週間スコアは0からスタート）
+      await c.env.DB.prepare(
+        `INSERT INTO ranking_stats (user_id, display_name, total_level, monster_count, correct_count, ranking_points,
+           grade, battle_power, pokedex_count, wild_win_streak,
+           week_start, week_base_correct_count, week_base_total_level, week_base_battle_power, week_base_pokedex_count, week_base_wild_win_streak, week_base_ranking_points,
+           updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      ).bind(
+        u.id, stats.displayName, stats.totalLevel, stats.monsterCount, stats.correctCount, stats.rankingPoints,
+        grade, stats.battlePower, stats.pokedexCount, stats.wildWinStreak,
+        weekStart, stats.correctCount, stats.totalLevel, stats.battlePower, stats.pokedexCount, stats.wildWinStreak, stats.rankingPoints
+      ).run()
+    } else if (existing.week_start !== weekStart) {
+      // 週が変わった → ベースラインを更新
+      await c.env.DB.prepare(
+        `UPDATE ranking_stats SET
+           display_name=?, total_level=?, monster_count=?, correct_count=?, ranking_points=?,
+           grade=?, battle_power=?, pokedex_count=?, wild_win_streak=?,
+           week_start=?, week_base_correct_count=?, week_base_total_level=?, week_base_battle_power=?, week_base_pokedex_count=?, week_base_wild_win_streak=?, week_base_ranking_points=?,
+           updated_at=datetime('now')
+         WHERE user_id=?`
+      ).bind(
+        stats.displayName, stats.totalLevel, stats.monsterCount, stats.correctCount, stats.rankingPoints,
+        grade, stats.battlePower, stats.pokedexCount, stats.wildWinStreak,
+        weekStart, baseCorrect, baseLevel, basePower, baseDex, baseStreak, baseRkPts,
+        u.id
+      ).run()
+    } else {
+      // 同じ週 → 累計値のみ更新、ベースラインはそのまま
+      await c.env.DB.prepare(
+        `UPDATE ranking_stats SET
+           display_name=?, total_level=?, monster_count=?, correct_count=?, ranking_points=?,
+           grade=?, battle_power=?, pokedex_count=?, wild_win_streak=?,
+           updated_at=datetime('now')
+         WHERE user_id=?`
+      ).bind(
+        stats.displayName, stats.totalLevel, stats.monsterCount, stats.correctCount, stats.rankingPoints,
+        grade, stats.battlePower, stats.pokedexCount, stats.wildWinStreak,
+        u.id
+      ).run()
+    }
   } catch { /* ランキング更新エラーは無視 */ }
 
   return c.json({ ok: true })
@@ -415,10 +493,46 @@ function extractRankingStats(stateJson: string, fallbackName: string) {
     const totalLevel = playerLevel + sumMonsterLevels
     const tp: Record<string, any> = s.trainingProgress || {}
     const correctCount = Object.values(tp).reduce((sum: number, t: any) => sum + Number(t?.correctCount ?? t?.count ?? 0), 0)
-    return { displayName: String(s.name || fallbackName).slice(0, 30), totalLevel, monsterCount, correctCount }
+    // v2: 学年補正済みランキングポイント（rankingPointsが無い場合はcorrectCountにフォールバック）
+    const rankingPoints = Object.values(tp).reduce((sum: number, t: any) => {
+      if (t?.rankingPoints != null) return sum + Number(t.rankingPoints)
+      return sum + Number(t?.correctCount ?? t?.count ?? 0)
+    }, 0)
+    // v2: battle_power, pokedex_count, wild_win_streak
+    const party: number[] = Array.isArray(s.party) ? s.party : []
+    let battlePower = 0
+    for (const mid of party) {
+      const m = monsters[String(mid)]
+      if (m) {
+        const lv = Number(m.level || 1)
+        const atk = Number(m.atk || 0)
+        const def = Number(m.def || 0)
+        const hp = Number(m.hp || 0)
+        const spd = Number(m.spd || 0)
+        battlePower += atk + def + hp + spd
+      }
+    }
+    const pokedexCount = Array.isArray(s.pokedex) ? s.pokedex.length : 0
+    const maxObj: any = s.max || (s.M && s.M.max) || {}
+    const wildWinStreak = Number(maxObj.winStreak || 0)
+    return {
+      displayName: String(s.name || fallbackName).slice(0, 30),
+      totalLevel, monsterCount, correctCount, rankingPoints,
+      battlePower, pokedexCount, wildWinStreak
+    }
   } catch {
-    return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0 }
+    return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0, rankingPoints: 0, battlePower: 0, pokedexCount: 0, wildWinStreak: 0 }
   }
+}
+
+// 現在の週の開始日（月曜日）をYYYY-MM-DD形式で返す
+function getCurrentWeekStart(): string {
+  const now = new Date()
+  const day = now.getUTCDay() // 0=Sun, 1=Mon, ..., 6=Sat
+  const diff = day === 0 ? 6 : day - 1 // Monday=0
+  const monday = new Date(now)
+  monday.setUTCDate(now.getUTCDate() - diff)
+  return monday.toISOString().slice(0, 10)
 }
 
 // -------------------- API: admin --------------------
@@ -733,6 +847,22 @@ app.put('/api/admin/settings', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: admin - grade management --------------------
+
+app.put('/api/admin/user-grade', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const userId = String(body.userId || '')
+  const newGrade = Number(body.grade)
+  if (!userId || !Number.isFinite(newGrade) || newGrade < 1 || newGrade > 6) {
+    return jsonError(c, 400, 'invalid_grade')
+  }
+  await c.env.DB.prepare(`UPDATE users SET grade=? WHERE id=? AND role='student'`).bind(newGrade, userId).run()
+  return c.json({ ok: true })
+})
+
 // -------------------- API: teacher --------------------
 
 function requireTeacher(c: any) {
@@ -902,31 +1032,71 @@ app.get('/api/ranking', async (c) => {
 
   if (!enabled || scope === 'hidden') return c.json({ ok: true, ranking: [], scope, enabled: false, hidden: true })
 
+  // v2: type=overall|grade|power|correct|pokedex|wild  period=cumulative|weekly  grade=1-6
+  const type = c.req.query('type') || 'overall'
+  const period = c.req.query('period') || 'cumulative'
+  const filterGrade = Number(c.req.query('grade') || 0)
+  const weekStart = getCurrentWeekStart()
+
+  // ソート列とSELECT列を決定
+  let orderCol = 'rs.total_level'
+  let extraSelect = ''
+  switch (type) {
+    case 'overall': orderCol = 'rs.total_level'; break
+    case 'power': orderCol = 'rs.battle_power'; break
+    case 'correct': orderCol = 'rs.ranking_points'; break
+    case 'pokedex': orderCol = 'rs.pokedex_count'; break
+    case 'wild': orderCol = 'rs.wild_win_streak'; break
+    case 'grade': orderCol = 'rs.ranking_points'; break
+  }
+
+  // 週間の場合は差分で並べ替え
+  if (period === 'weekly') {
+    switch (type) {
+      case 'overall': extraSelect = ', (rs.total_level - rs.week_base_total_level) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'power': extraSelect = ', (rs.battle_power - rs.week_base_battle_power) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'correct': case 'grade': extraSelect = ', (rs.ranking_points - rs.week_base_ranking_points) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'pokedex': extraSelect = ', (rs.pokedex_count - rs.week_base_pokedex_count) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'wild': extraSelect = ', (rs.wild_win_streak - rs.week_base_wild_win_streak) as weeklyScore'; orderCol = 'weeklyScore'; break
+    }
+  }
+
+  // 学年フィルタ
+  const gradeFilter = (type === 'grade' && filterGrade >= 1 && filterGrade <= 6)
+    ? ` AND rs.grade = ${filterGrade}` : ''
+
+  // 週間の場合は同じ週のデータのみ
+  const weekFilter = (period === 'weekly') ? ` AND rs.week_start = '${weekStart}'` : ''
+
   let sql = ''
   const binds: any[] = []
 
+  const selectCols = `rs.user_id as userId, rs.display_name as displayName,
+    rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount,
+    rs.ranking_points as rankingPoints,
+    rs.grade, rs.battle_power as battlePower, rs.pokedex_count as pokedexCount, rs.wild_win_streak as wildWinStreak
+    ${extraSelect}`
+
   if (scope === 'global' || u.role === 'admin') {
-    // 全体ランキング: クラスに所属 AND そのクラスのranking_enabled=1 の人のみ
-    sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
-                  rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
+    sql = `SELECT ${selectCols}
            FROM ranking_stats rs
            JOIN users u ON u.id = rs.user_id AND u.is_active=1
            JOIN class_members cm ON cm.user_id = rs.user_id
            JOIN classes cl ON cl.id = cm.class_id AND cl.ranking_enabled = 1
-           ORDER BY rs.total_level DESC, rs.correct_count DESC LIMIT 100`
+           WHERE 1=1 ${gradeFilter} ${weekFilter}
+           ORDER BY ${orderCol} DESC, rs.correct_count DESC LIMIT 100`
   } else if (scope === 'class') {
-    // 自分のクラスのみ: クラス所属かつranking_enabled=1のクラスに限る
     const classRow = await c.env.DB.prepare(
       `SELECT cm.class_id, cl.ranking_enabled FROM class_members cm JOIN classes cl ON cl.id=cm.class_id WHERE cm.user_id=? LIMIT 1`
     ).bind(u.id).first<any>()
     if (!classRow) return c.json({ ok: true, ranking: [], scope, enabled, message: 'no_class' })
     if (!classRow.ranking_enabled) return c.json({ ok: true, ranking: [], scope, enabled, message: 'ranking_not_allowed' })
-    sql = `SELECT rs.user_id as userId, rs.display_name as displayName,
-                  rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount
+    sql = `SELECT ${selectCols}
            FROM ranking_stats rs
            JOIN class_members cm ON cm.user_id = rs.user_id AND cm.class_id = ?
            JOIN users u ON u.id = rs.user_id AND u.is_active=1
-           ORDER BY rs.total_level DESC, rs.correct_count DESC LIMIT 100`
+           WHERE 1=1 ${gradeFilter} ${weekFilter}
+           ORDER BY ${orderCol} DESC, rs.correct_count DESC LIMIT 100`
     binds.push(classRow.class_id)
   } else {
     return c.json({ ok: true, ranking: [], scope, enabled: false, hidden: true })
@@ -934,7 +1104,7 @@ app.get('/api/ranking', async (c) => {
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
   const ranking = res.results.map((r: any, i: number) => ({ ...r, rank: i + 1, isMe: r.userId === u.id }))
-  return c.json({ ok: true, ranking, scope, enabled })
+  return c.json({ ok: true, ranking, scope, enabled, type, period })
 })
 
 // -------------------- API: homework (家庭学習提出) --------------------
