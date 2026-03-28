@@ -1786,6 +1786,109 @@ app.delete('/api/rt/cleanup', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- Reports --------------------
+
+// Submit a report (any logged-in user)
+app.post('/api/report', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const body = await c.req.json().catch(() => null)
+  if (!body?.body || typeof body.body !== 'string' || body.body.trim().length === 0) {
+    return jsonError(c, 400, 'body_required')
+  }
+  const category = ['bug', 'request', 'other'].includes(body.category) ? body.category : 'bug'
+  const text = body.body.trim().slice(0, 1000)
+
+  // Get display name
+  const acct = await c.env.DB.prepare(`SELECT name FROM users WHERE id=?`).bind(u.id).first<any>()
+  const displayName = acct?.name || u.loginId || 'unknown'
+
+  const id = crypto.randomUUID()
+  await c.env.DB.prepare(
+    `INSERT INTO reports (id, account_id, display_name, category, body) VALUES (?, ?, ?, ?, ?)`
+  ).bind(id, u.id, displayName, category, text).run()
+
+  return c.json({ ok: true, id })
+})
+
+// Get my reports (logged-in user)
+app.get('/api/report/my', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const rows = await c.env.DB.prepare(
+    `SELECT id, category, body, status, admin_note as adminNote, created_at as createdAt
+     FROM reports WHERE account_id=? ORDER BY created_at DESC LIMIT 20`
+  ).bind(u.id).all<any>()
+
+  return c.json({ ok: true, reports: rows.results })
+})
+
+// Admin/Teacher: get all reports
+app.get('/api/admin/reports', async (c) => {
+  const u = requireAdmin(c) || requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const status = c.req.query('status') || 'all'
+  let sql = `SELECT id, account_id as accountId, display_name as displayName, category, body, status, admin_note as adminNote, created_at as createdAt, updated_at as updatedAt FROM reports`
+  const params: string[] = []
+  if (status !== 'all') {
+    sql += ` WHERE status=?`
+    params.push(status)
+  }
+  sql += ` ORDER BY created_at DESC LIMIT 100`
+
+  const stmt = params.length > 0
+    ? c.env.DB.prepare(sql).bind(...params)
+    : c.env.DB.prepare(sql)
+  const rows = await stmt.all<any>()
+
+  return c.json({ ok: true, reports: rows.results })
+})
+
+// Admin/Teacher: update report status/note
+app.put('/api/admin/report/:id', async (c) => {
+  const u = requireAdmin(c) || requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  const reportId = c.req.param('id')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_body')
+
+  const validStatuses = ['open', 'in_progress', 'resolved', 'closed']
+  const updates: string[] = []
+  const vals: string[] = []
+
+  if (body.status && validStatuses.includes(body.status)) {
+    updates.push('status=?')
+    vals.push(body.status)
+  }
+  if (typeof body.adminNote === 'string') {
+    updates.push('admin_note=?')
+    vals.push(body.adminNote.slice(0, 500))
+  }
+  if (updates.length === 0) return jsonError(c, 400, 'nothing_to_update')
+
+  updates.push("updated_at=datetime('now')")
+  vals.push(reportId)
+
+  await c.env.DB.prepare(
+    `UPDATE reports SET ${updates.join(', ')} WHERE id=?`
+  ).bind(...vals).run()
+
+  return c.json({ ok: true })
+})
+
+// Admin/Teacher: delete report
+app.delete('/api/admin/report/:id', async (c) => {
+  const u = requireAdmin(c) || requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+
+  await c.env.DB.prepare(`DELETE FROM reports WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
 // -------------------- Pages (simple HTML endpoints) --------------------
 
 // Serve the game HTML (built into dist/index.html as an asset)
@@ -2345,7 +2448,8 @@ app.get('/teacher', (c) => {
       <!-- タブナビ -->
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
-        <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習 提出一覧</button>
+        <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
+        <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
       </div>
 
       <!-- クラス一覧タブ -->
@@ -2369,6 +2473,24 @@ app.get('/teacher', (c) => {
           <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
       </div>
+
+      <!-- 報告一覧タブ -->
+      <div id="tabPaneReports" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <select id="rptStatusFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="all">すべて</option>
+              <option value="open">📬 受付中</option>
+              <option value="in_progress">🔧 対応中</option>
+              <option value="resolved">✅ 解決済み</option>
+              <option value="closed">🗂️ 終了</option>
+            </select>
+            <button onclick="loadAdminReports()" class="bg-gray-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
+            <span id="rptCount" class="text-xs text-gray-500 ml-auto"></span>
+          </div>
+          <div id="adminReportList" class="space-y-3 text-sm"></div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -2382,15 +2504,16 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        document.getElementById('tabPaneClasses').classList.toggle('hidden', tab !== 'classes');
-        document.getElementById('tabPaneHomework').classList.toggle('hidden', tab !== 'homework');
-        document.getElementById('tabClasses').className = tab==='classes'
-          ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
-          : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
-        document.getElementById('tabHomework').className = tab==='homework'
-          ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
-          : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
+        ['classes','homework','reports'].forEach(function(t){
+          var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
+          if(pane) pane.classList.toggle('hidden', tab !== t);
+          var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+          if(btn) btn.className = tab===t
+            ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
+            : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
+        });
         if(tab === 'homework') loadHomework();
+        if(tab === 'reports') loadAdminReports();
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -2573,6 +2696,64 @@ app.get('/teacher', (c) => {
           btn.disabled=false;
           alert('エラー: '+String(e.message||e));
         }
+      }
+
+      // 報告一覧
+      async function loadAdminReports(){
+        const wrap = document.getElementById('adminReportList');
+        const countEl = document.getElementById('rptCount');
+        wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
+        const status = document.getElementById('rptStatusFilter').value;
+        try {
+          const data = await api('/api/admin/reports?status='+encodeURIComponent(status));
+          const list = data.reports || [];
+          if(countEl) countEl.textContent = list.length + '件';
+          if(!list.length){ wrap.innerHTML='<p class="text-slate-400">報告はありません</p>'; return; }
+          var catLabels = {bug:'🐛 バグ', request:'💡 要望', other:'💬 その他'};
+          var statusLabels = {open:'📬 受付中', in_progress:'🔧 対応中', resolved:'✅ 解決済み', closed:'🗂️ 終了'};
+          wrap.innerHTML='';
+          list.forEach(function(r){
+            var card = document.createElement('div');
+            card.className = 'border rounded-xl p-3 space-y-2 ' + (r.status==='open' ? 'bg-yellow-50 border-yellow-300' : 'bg-white');
+            card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
+              + '<div class="font-bold text-sm">' + escH(r.displayName) + ' <span class="text-xs text-slate-400 font-normal">'+(catLabels[r.category]||r.category)+'</span></div>'
+              + '<div class="flex gap-1 items-center text-xs"><span class="px-2 py-0.5 rounded-full bg-gray-100">'+(statusLabels[r.status]||r.status)+'</span><span class="text-slate-400">'+escH(r.createdAt)+'</span></div>'
+              + '</div>'
+              + '<div class="text-sm text-slate-700">'+escH(r.body)+'</div>'
+              + (r.adminNote ? '<div class="text-xs bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">💬 返信: '+escH(r.adminNote)+'</div>' : '')
+              + '<div class="flex gap-2 items-center flex-wrap">'
+              + '<select class="border p-1 rounded text-xs" id="rptSt_'+r.id+'">'
+              + '<option value="open"'+(r.status==='open'?' selected':'')+'>受付中</option>'
+              + '<option value="in_progress"'+(r.status==='in_progress'?' selected':'')+'>対応中</option>'
+              + '<option value="resolved"'+(r.status==='resolved'?' selected':'')+'>解決済み</option>'
+              + '<option value="closed"'+(r.status==='closed'?' selected':'')+'>終了</option>'
+              + '</select>'
+              + '<input class="border p-1 rounded text-xs flex-1" id="rptNote_'+r.id+'" placeholder="返信メモ" value="'+escH(r.adminNote)+'" />'
+              + '<button class="bg-emerald-600 text-white rounded px-2 py-1 text-xs font-bold" onclick="updateReport(&#39;'+r.id+'&#39;)">更新</button>'
+              + '<button class="bg-red-100 text-red-600 rounded px-2 py-1 text-xs" onclick="deleteReport(&#39;'+r.id+'&#39;)">削除</button>'
+              + '</div>';
+            wrap.appendChild(card);
+          });
+        } catch(e) {
+          wrap.innerHTML='<p class="text-red-600">読み込みエラー: '+escH(String(e.message||e))+'</p>';
+        }
+      }
+
+      async function updateReport(id){
+        var st = document.getElementById('rptSt_'+id).value;
+        var note = document.getElementById('rptNote_'+id).value;
+        try{
+          await api('/api/admin/report/'+id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({status:st,adminNote:note})});
+          loadAdminReports();
+        }catch(e){ alert('更新エラー: '+String(e.message||e)); }
+      }
+
+      async function deleteReport(id){
+        if(!confirm('この報告を削除しますか？')) return;
+        try{
+          await api('/api/admin/report/'+id,{method:'DELETE'});
+          loadAdminReports();
+        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
       }
 
       (async ()=>{
