@@ -1919,9 +1919,9 @@ app.delete('/api/admin/report/:id', async (c) => {
 
 // -------------------- API: おしらせ (announcements) --------------------
 
-// 教師・管理者: おしらせ作成
+// 管理者のみ: おしらせ作成
 app.post('/api/teacher/announcement', async (c) => {
-  const u = requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
@@ -1936,37 +1936,25 @@ app.post('/api/teacher/announcement', async (c) => {
   return c.json({ ok: true, id })
 })
 
-// 教師・管理者: おしらせ一覧
+// 管理者のみ: おしらせ一覧
 app.get('/api/teacher/announcements', async (c) => {
-  const u = requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const isAdmin = u.role === 'admin'
-  const res = isAdmin
-    ? await c.env.DB.prepare(
-        `SELECT a.id, a.class_id as classId, a.title, a.body, a.created_at as createdAt, c.name as className
-         FROM announcements a LEFT JOIN classes c ON c.id = a.class_id
-         ORDER BY a.created_at DESC LIMIT 50`
-      ).all<any>()
-    : await c.env.DB.prepare(
-        `SELECT a.id, a.class_id as classId, a.title, a.body, a.created_at as createdAt, c.name as className
-         FROM announcements a LEFT JOIN classes c ON c.id = a.class_id
-         WHERE a.teacher_id = ?
-         ORDER BY a.created_at DESC LIMIT 50`
-      ).bind(u.id).all<any>()
+  const res = await c.env.DB.prepare(
+    `SELECT a.id, a.class_id as classId, a.title, a.body, a.created_at as createdAt, c.name as className
+     FROM announcements a LEFT JOIN classes c ON c.id = a.class_id
+     ORDER BY a.created_at DESC LIMIT 50`
+  ).all<any>()
   return c.json({ ok: true, announcements: res.results })
 })
 
-// 教師・管理者: おしらせ削除
+// 管理者のみ: おしらせ削除
 app.delete('/api/teacher/announcement/:id', async (c) => {
-  const u = requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const annId = c.req.param('id')
   await c.env.DB.prepare(`DELETE FROM announcement_reads WHERE announcement_id=?`).bind(annId).run()
-  if (u.role === 'admin') {
-    await c.env.DB.prepare(`DELETE FROM announcements WHERE id=?`).bind(annId).run()
-  } else {
-    await c.env.DB.prepare(`DELETE FROM announcements WHERE id=? AND teacher_id=?`).bind(annId, u.id).run()
-  }
+  await c.env.DB.prepare(`DELETE FROM announcements WHERE id=?`).bind(annId).run()
   return c.json({ ok: true })
 })
 
@@ -2989,6 +2977,13 @@ app.get('/teacher', (c) => {
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
         if(!me.user || (me.user.role !== 'teacher' && me.user.role !== 'admin')){ location.href='/login'; return; }
         document.getElementById('teacherInfo').textContent = me.user.name + '（' + (me.user.school||'') + '）';
+        // おしらせタブは管理者のみ表示
+        if(me.user.role !== 'admin'){
+          var annTab = document.getElementById('tabAnnouncements');
+          if(annTab) annTab.style.display = 'none';
+          var annPane = document.getElementById('tabPaneAnnouncements');
+          if(annPane) annPane.style.display = 'none';
+        }
         await renderClasses();
       })();
     </script>
