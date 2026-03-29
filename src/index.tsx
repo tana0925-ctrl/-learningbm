@@ -928,7 +928,7 @@ app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const res = await c.env.DB.prepare(
-    `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+    `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
   ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
@@ -941,6 +941,20 @@ app.delete('/api/teacher/class/:classId', async (c) => {
   await c.env.DB.prepare(`DELETE FROM class_members WHERE class_id=?`).bind(classId).run()
   await c.env.DB.prepare(`DELETE FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).run()
   return c.json({ ok: true })
+})
+
+// 家庭学習ON/OFFトグル
+app.put('/api/teacher/class/:classId/homework-toggle', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  const enabled = body?.enabled ? 1 : 0
+  const result = await c.env.DB.prepare(
+    `UPDATE classes SET homework_enabled=? WHERE id=? AND teacher_id=?`
+  ).bind(enabled, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, homeworkEnabled: enabled })
 })
 
 // ランキング参加ON/OFFトグル
@@ -1005,7 +1019,8 @@ app.get('/api/student/class-info', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const row = await c.env.DB.prepare(`
-    SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt
+    SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
+           c.homework_enabled as homeworkEnabled
     FROM class_members cm JOIN classes c ON c.id = cm.class_id
     WHERE cm.user_id = ? LIMIT 1
   `).bind(u.id).first<any>()
@@ -2589,6 +2604,31 @@ app.get('/teacher', (c) => {
           };
           rankBtn.dataset.enabled = isEnabled ? '1' : '';
           btnGroup.appendChild(rankBtn);
+          // 家庭学習ON/OFFトグルボタン
+          const hwBtn = document.createElement('button');
+          const hwEnabled = cls.homeworkEnabled !== 0 && cls.homeworkEnabled !== '0';
+          hwBtn.className = hwEnabled
+            ? 'text-xs px-2 py-1 rounded font-bold bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200'
+            : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+          hwBtn.textContent = hwEnabled ? '📝 家庭学習ON' : '📝 家庭学習OFF';
+          hwBtn.title = hwEnabled ? 'クリックで家庭学習を非表示にする' : 'クリックで家庭学習を表示する';
+          hwBtn.dataset.enabled = hwEnabled ? '1' : '';
+          hwBtn.onclick = async ()=>{
+            const newVal = !hwBtn.dataset.enabled;
+            hwBtn.dataset.enabled = newVal ? '1' : '';
+            try{
+              await api('/api/teacher/class/'+cls.id+'/homework-toggle',{
+                method:'PUT', headers:{'content-type':'application/json'},
+                body: JSON.stringify({enabled: newVal})
+              });
+              hwBtn.className = newVal
+                ? 'text-xs px-2 py-1 rounded font-bold bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200'
+                : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+              hwBtn.textContent = newVal ? '📝 家庭学習ON' : '📝 家庭学習OFF';
+              hwBtn.title = newVal ? 'クリックで家庭学習を非表示にする' : 'クリックで家庭学習を表示する';
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(hwBtn);
           const delBtn = document.createElement('button');
           delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
           delBtn.textContent='削除';
