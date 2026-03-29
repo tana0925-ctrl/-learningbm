@@ -372,13 +372,23 @@ app.put('/api/student/progress', async (c) => {
   if (!body) return jsonError(c, 400, 'invalid_json')
   const stateJson = JSON.stringify(body.state ?? body)
 
-  await c.env.DB.prepare(
-    `INSERT INTO progress (user_id, state_json, updated_at)
-     VALUES (?, ?, datetime('now'))
-     ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=datetime('now')`
-  )
-    .bind(u.id, stateJson)
-    .run()
+  // 教師はteacher_accountsテーブルにいるためprogress(FK→users)には保存不可
+  // 教師・超大サイズは正常終了で返す（ゲームは続けられる）
+  if (u.role === 'teacher') return c.json({ ok: true })
+  if (stateJson.length > 1_000_000) return c.json({ ok: true })
+
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO progress (user_id, state_json, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=datetime('now')`
+    )
+      .bind(u.id, stateJson)
+      .run()
+  } catch (e: any) {
+    console.error('[progress] DB error:', e?.message || e)
+    return jsonError(c, 500, 'db_error')
+  }
 
   // ランキング統計を非同期で更新
   try {
