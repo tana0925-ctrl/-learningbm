@@ -2116,7 +2116,7 @@ app.get('/api/student/contact-notes', async (c) => {
      FROM contact_notes cn
      LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ?
      WHERE cn.class_id = ?
-     ORDER BY cn.created_at DESC LIMIT 10`
+     ORDER BY cn.created_at DESC LIMIT 50`
   ).bind(u.id, classId).all<any>()
   return c.json({ ok: true, notes: res.results })
 })
