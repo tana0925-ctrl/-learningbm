@@ -2094,12 +2094,22 @@ app.get('/api/teacher/contact-note/:id/reads', async (c) => {
   return c.json({ ok: true, reads: res.results })
 })
 
-// 生徒: 自分のクラスの連絡帳を取得
+// 生徒（＋教師/管理者のプレビュー用）: 自分のクラスの連絡帳を取得
 app.get('/api/student/contact-notes', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
-  if (!cm) return c.json({ ok: true, notes: [] })
+  let classId: string | null = null
+  // 教師・管理者はclass_membersではなくclassesテーブルから自分のクラスを取得
+  if (u.role === 'teacher' || u.role === 'admin') {
+    const clsRow = u.role === 'admin'
+      ? await c.env.DB.prepare(`SELECT id FROM classes ORDER BY created_at DESC LIMIT 1`).first<any>()
+      : await c.env.DB.prepare(`SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1`).bind(u.id).first<any>()
+    classId = clsRow?.id || null
+  } else {
+    const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+    classId = cm?.class_id || null
+  }
+  if (!classId) return c.json({ ok: true, notes: [] })
   const res = await c.env.DB.prepare(
     `SELECT cn.id, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt,
             cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed
@@ -2107,7 +2117,7 @@ app.get('/api/student/contact-notes', async (c) => {
      LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ?
      WHERE cn.class_id = ?
      ORDER BY cn.created_at DESC LIMIT 10`
-  ).bind(u.id, cm.class_id).all<any>()
+  ).bind(u.id, classId).all<any>()
   return c.json({ ok: true, notes: res.results })
 })
 
