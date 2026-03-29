@@ -867,7 +867,7 @@ app.put('/api/admin/user-grade', async (c) => {
 
 function requireTeacher(c: any) {
   const u = c.get('user')
-  if (!u || u.role !== 'teacher') return null
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return null
   return u
 }
 
@@ -927,9 +927,16 @@ app.post('/api/teacher/class', async (c) => {
 app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const res = await c.env.DB.prepare(
-    `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
-  ).bind(u.id).all<any>()
+  // 管理者は全クラスを閲覧可能
+  const isAdmin = u.role === 'admin'
+  const res = isAdmin
+    ? await c.env.DB.prepare(
+        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.created_at as createdAt, t.name as teacherName
+         FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
+      ).all<any>()
+    : await c.env.DB.prepare(
+        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+      ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
 
@@ -939,7 +946,11 @@ app.delete('/api/teacher/class/:classId', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const classId = c.req.param('classId')
   await c.env.DB.prepare(`DELETE FROM class_members WHERE class_id=?`).bind(classId).run()
-  await c.env.DB.prepare(`DELETE FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).run()
+  if (u.role === 'admin') {
+    await c.env.DB.prepare(`DELETE FROM classes WHERE id=?`).bind(classId).run()
+  } else {
+    await c.env.DB.prepare(`DELETE FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).run()
+  }
   return c.json({ ok: true })
 })
 
@@ -950,9 +961,9 @@ app.put('/api/teacher/class/:classId/homework-toggle', async (c) => {
   const classId = c.req.param('classId')
   const body = await c.req.json().catch(() => null)
   const enabled = body?.enabled ? 1 : 0
-  const result = await c.env.DB.prepare(
-    `UPDATE classes SET homework_enabled=? WHERE id=? AND teacher_id=?`
-  ).bind(enabled, classId, u.id).run()
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare(`UPDATE classes SET homework_enabled=? WHERE id=?`).bind(enabled, classId).run()
+    : await c.env.DB.prepare(`UPDATE classes SET homework_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
   if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
   return c.json({ ok: true, homeworkEnabled: enabled })
 })
@@ -964,9 +975,9 @@ app.put('/api/teacher/class/:classId/ranking-toggle', async (c) => {
   const classId = c.req.param('classId')
   const body = await c.req.json().catch(() => null)
   const enabled = body?.enabled ? 1 : 0
-  const result = await c.env.DB.prepare(
-    `UPDATE classes SET ranking_enabled=? WHERE id=? AND teacher_id=?`
-  ).bind(enabled, classId, u.id).run()
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare(`UPDATE classes SET ranking_enabled=? WHERE id=?`).bind(enabled, classId).run()
+    : await c.env.DB.prepare(`UPDATE classes SET ranking_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
   if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
   return c.json({ ok: true, rankingEnabled: enabled })
 })
@@ -976,8 +987,10 @@ app.get('/api/teacher/class/:classId/ranking', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const classId = c.req.param('classId')
-  // 自分のクラスか確認
-  const cls = await c.env.DB.prepare(`SELECT id, name, class_code as classCode FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  // 自分のクラスか確認（管理者は全クラスアクセス可能）
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id, name, class_code as classCode FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id, name, class_code as classCode FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
   const res = await c.env.DB.prepare(`
     SELECT u.id, u.name, u.grade, u.class_name as className,
@@ -1225,7 +1238,7 @@ app.post('/api/homework/:id/claim', async (c) => {
 // 教師：クラスの提出一覧を取得
 app.get('/api/teacher/homework', async (c) => {
   const u = c.get('user')
-  if (!u || u.role !== 'teacher') return jsonError(c, 403, 'forbidden')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
   const classId = c.req.query('classId')
 
   let sql = `
@@ -1254,7 +1267,7 @@ app.get('/api/teacher/homework', async (c) => {
 // 教師：返却（コメント＋成果物フラグ）
 app.post('/api/teacher/homework/:id/return', async (c) => {
   const u = c.get('user')
-  if (!u || u.role !== 'teacher') return jsonError(c, 403, 'forbidden')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
   const hwId = c.req.param('id')
   const body = await c.req.json<any>().catch(() => ({}))
 
@@ -2798,7 +2811,7 @@ app.get('/teacher', (c) => {
 
       (async ()=>{
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
-        if(!me.user || me.user.role !== 'teacher'){ location.href='/login'; return; }
+        if(!me.user || (me.user.role !== 'teacher' && me.user.role !== 'admin')){ location.href='/login'; return; }
         document.getElementById('teacherInfo').textContent = me.user.name + '（' + (me.user.school||'') + '）';
         await renderClasses();
       })();
