@@ -2001,6 +2001,133 @@ app.post('/api/student/announcement/:id/read', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: 連絡帳 (contact notes) --------------------
+
+// 教師: 連絡帳を書く
+app.post('/api/teacher/contact-note', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const classId = String(body.classId || '').trim()
+  const text = String(body.body || '').trim()
+  const dayKey = String(body.dayKey || '').trim()
+  const rewardDeadline = body.rewardDeadline || null
+  const rewardCoins = Number(body.rewardCoins) || 5
+  if (!classId || !text || !dayKey) return jsonError(c, 400, 'classId_body_dayKey_required')
+  const id = crypto.randomUUID()
+  await c.env.DB.prepare(
+    `INSERT INTO contact_notes (id, class_id, teacher_id, day_key, body, reward_deadline, reward_coins) VALUES (?,?,?,?,?,?,?)`
+  ).bind(id, classId, u.id, dayKey, text, rewardDeadline, rewardCoins).run()
+  return c.json({ ok: true, id })
+})
+
+// 教師: 連絡帳一覧（自分のクラス）
+app.get('/api/teacher/contact-notes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.query('classId') || ''
+  const isAdmin = u.role === 'admin'
+  let res
+  if (classId) {
+    res = await c.env.DB.prepare(
+      `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+       FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
+       WHERE cn.class_id = ? ${isAdmin ? '' : 'AND cn.teacher_id = ?'}
+       ORDER BY cn.created_at DESC LIMIT 30`
+    ).bind(...(isAdmin ? [classId] : [classId, u.id])).all<any>()
+  } else {
+    res = isAdmin
+      ? await c.env.DB.prepare(
+          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+           FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
+           ORDER BY cn.created_at DESC LIMIT 30`
+        ).all<any>()
+      : await c.env.DB.prepare(
+          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+           FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
+           WHERE cn.teacher_id = ?
+           ORDER BY cn.created_at DESC LIMIT 30`
+        ).bind(u.id).all<any>()
+  }
+  return c.json({ ok: true, notes: res.results })
+})
+
+// 教師: 連絡帳削除
+app.delete('/api/teacher/contact-note/:id', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const noteId = c.req.param('id')
+  await c.env.DB.prepare(`DELETE FROM contact_note_reads WHERE note_id=?`).bind(noteId).run()
+  if (u.role === 'admin') {
+    await c.env.DB.prepare(`DELETE FROM contact_notes WHERE id=?`).bind(noteId).run()
+  } else {
+    await c.env.DB.prepare(`DELETE FROM contact_notes WHERE id=? AND teacher_id=?`).bind(noteId, u.id).run()
+  }
+  return c.json({ ok: true })
+})
+
+// 教師: 連絡帳の既読状況
+app.get('/api/teacher/contact-note/:id/reads', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const noteId = c.req.param('id')
+  const res = await c.env.DB.prepare(
+    `SELECT cnr.user_id as userId, cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed, u.name as studentName
+     FROM contact_note_reads cnr JOIN users u ON u.id = cnr.user_id
+     WHERE cnr.note_id = ? ORDER BY cnr.read_at ASC`
+  ).bind(noteId).all<any>()
+  return c.json({ ok: true, reads: res.results })
+})
+
+// 生徒: 自分のクラスの連絡帳を取得
+app.get('/api/student/contact-notes', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+  if (!cm) return c.json({ ok: true, notes: [] })
+  const res = await c.env.DB.prepare(
+    `SELECT cn.id, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt,
+            cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed
+     FROM contact_notes cn
+     LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ?
+     WHERE cn.class_id = ?
+     ORDER BY cn.created_at DESC LIMIT 10`
+  ).bind(u.id, cm.class_id).all<any>()
+  return c.json({ ok: true, notes: res.results })
+})
+
+// 生徒: 連絡帳を読んだ（既読+報酬）
+app.post('/api/student/contact-note/:id/read', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const noteId = c.req.param('id')
+  // 既に読んでいるか確認
+  const existing = await c.env.DB.prepare(`SELECT reward_claimed FROM contact_note_reads WHERE user_id=? AND note_id=? LIMIT 1`).bind(u.id, noteId).first<any>()
+  if (existing) return c.json({ ok: true, alreadyRead: true, reward: 0 })
+  // 連絡帳情報を取得
+  const note = await c.env.DB.prepare(`SELECT reward_deadline, reward_coins FROM contact_notes WHERE id=? LIMIT 1`).bind(noteId).first<any>()
+  if (!note) return jsonError(c, 404, 'not_found')
+  const now = new Date().toISOString()
+  let reward = 0
+  let rewardClaimed = 0
+  // 締切内なら報酬あり
+  if (note.reward_deadline) {
+    if (now <= note.reward_deadline) {
+      reward = note.reward_coins || 5
+      rewardClaimed = 1
+    }
+  } else {
+    // 締切なしなら常に報酬あり
+    reward = note.reward_coins || 5
+    rewardClaimed = 1
+  }
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO contact_note_reads (user_id, note_id, reward_claimed) VALUES (?,?,?)`
+  ).bind(u.id, noteId, rewardClaimed).run()
+  return c.json({ ok: true, reward, rewardClaimed: !!rewardClaimed })
+})
+
 // -------------------- Pages (simple HTML endpoints) --------------------
 
 // Serve the game HTML (built into dist/index.html as an asset)
@@ -2560,6 +2687,7 @@ app.get('/teacher', (c) => {
       <!-- タブナビ -->
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
+        <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 れんらくちょう</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
@@ -2584,6 +2712,37 @@ app.get('/teacher', (c) => {
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
           </div>
           <div id="hwList" class="space-y-3 text-sm"></div>
+        </div>
+      </div>
+
+      <!-- れんらくちょうタブ -->
+      <div id="tabPaneContact" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">れんらくちょうを書く</h3>
+          <div class="space-y-2">
+            <select id="cnClassFilter" class="border p-2 rounded text-sm bg-white w-full"></select>
+            <div class="flex gap-2">
+              <div class="flex-1">
+                <label class="text-xs font-bold text-gray-600">日付</label>
+                <input id="cnDayKey" type="date" class="w-full border p-2 rounded text-sm"/>
+              </div>
+              <div class="flex-1">
+                <label class="text-xs font-bold text-gray-600">報酬締切（任意）</label>
+                <input id="cnDeadline" type="datetime-local" class="w-full border p-2 rounded text-sm"/>
+              </div>
+              <div class="w-20">
+                <label class="text-xs font-bold text-gray-600">報酬コイン</label>
+                <input id="cnCoins" type="number" value="5" min="0" max="100" class="w-full border p-2 rounded text-sm"/>
+              </div>
+            </div>
+            <textarea id="cnBody" class="w-full border p-2 rounded text-sm" rows="4" placeholder="明日の持ち物や連絡事項を入力..."></textarea>
+            <button onclick="sendContactNote()" class="bg-blue-500 hover:bg-blue-600 text-white rounded px-4 py-2 font-bold text-sm">📓 送信</button>
+            <p id="cnMsg" class="text-sm"></p>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">送信済みれんらくちょう</h3>
+          <div id="cnList" class="space-y-3 text-sm"></div>
         </div>
       </div>
 
@@ -2637,7 +2796,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','announcements','homework','reports'].forEach(function(t){
+        ['classes','contact','announcements','homework','reports'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -2648,6 +2807,7 @@ app.get('/teacher', (c) => {
         if(tab === 'homework') loadHomework();
         if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
+        if(tab === 'contact') loadContactNotes();
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -2913,6 +3073,97 @@ app.get('/teacher', (c) => {
           await api('/api/admin/report/'+id,{method:'DELETE'});
           loadAdminReports();
         }catch(e){ alert('削除エラー: '+String(e.message||e)); }
+      }
+
+      // ===== れんらくちょう機能 =====
+      async function loadContactNotes(){
+        // クラスセレクター更新
+        try{
+          var clsData = await api('/api/teacher/classes');
+          var sel = document.getElementById('cnClassFilter');
+          sel.innerHTML = '';
+          (clsData.classes||[]).forEach(function(c,i){ sel.innerHTML += '<option value="'+escH(c.id)+'"'+(i===0?' selected':'')+'>'+escH(c.name)+'</option>'; });
+        }catch(e){}
+        // 今日の日付をデフォルトに
+        var today = new Date();
+        var tmrw = new Date(today); tmrw.setDate(tmrw.getDate()+1);
+        var dk = document.getElementById('cnDayKey');
+        if(dk && !dk.value) dk.value = tmrw.toISOString().slice(0,10);
+        // 一覧
+        var wrap = document.getElementById('cnList');
+        wrap.innerHTML = '<p class="text-slate-400 text-xs">読み込み中...</p>';
+        try{
+          var classId = document.getElementById('cnClassFilter').value||'';
+          var data = await api('/api/teacher/contact-notes?classId='+encodeURIComponent(classId));
+          wrap.innerHTML = '';
+          if(!data.notes.length){ wrap.innerHTML='<p class="text-xs text-slate-400">まだ連絡がありません</p>'; return; }
+          for(var i=0;i<data.notes.length;i++){
+            var n = data.notes[i];
+            var card = document.createElement('div');
+            card.className = 'border rounded-lg p-3 bg-blue-50 border-blue-200';
+            var deadlineStr = n.rewardDeadline ? '<span class="text-xs text-orange-600">報酬締切: '+escH(n.rewardDeadline).slice(0,16)+'</span>' : '';
+            card.innerHTML = '<div class="flex items-center justify-between mb-1">'
+              + '<div class="font-bold text-sm">'+escH(n.dayKey)+' <span class="text-xs text-slate-400">'+escH(n.className||'')+'</span></div>'
+              + '<div class="flex items-center gap-2">'
+              + '<span class="text-xs bg-blue-100 text-blue-700 px-1 rounded">💰 '+n.rewardCoins+'コイン</span>'
+              + deadlineStr
+              + '<button class="text-xs text-slate-500 underline" onclick="viewContactReads(&#39;'+escH(n.id)+'&#39;)">既読状況</button>'
+              + '<button class="text-xs text-red-400 hover:text-red-600" onclick="deleteContactNote(&#39;'+escH(n.id)+'&#39;)">削除</button>'
+              + '</div></div>'
+              + '<div class="text-xs text-slate-700 whitespace-pre-wrap">'+escH(n.body)+'</div>'
+              + '<div class="hidden text-xs mt-2 border-t pt-2" id="cnReads_'+escH(n.id)+'"></div>';
+            wrap.appendChild(card);
+          }
+        }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
+      }
+
+      async function sendContactNote(){
+        var msg = document.getElementById('cnMsg');
+        msg.textContent=''; msg.className='text-sm';
+        var classId = document.getElementById('cnClassFilter').value;
+        var dayKey = document.getElementById('cnDayKey').value;
+        var body = document.getElementById('cnBody').value.trim();
+        var deadline = document.getElementById('cnDeadline').value || null;
+        var coins = parseInt(document.getElementById('cnCoins').value) || 5;
+        if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
+        if(!dayKey){ msg.textContent='日付を入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!body){ msg.textContent='連絡内容を入力してください'; msg.className='text-sm text-red-600'; return; }
+        var rewardDeadline = deadline ? new Date(deadline).toISOString() : null;
+        try{
+          await api('/api/teacher/contact-note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,dayKey:dayKey,body:body,rewardDeadline:rewardDeadline,rewardCoins:coins})});
+          msg.textContent='送信しました！'; msg.className='text-sm text-green-700';
+          document.getElementById('cnBody').value='';
+          loadContactNotes();
+        }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
+      }
+
+      async function deleteContactNote(id){
+        if(!confirm('この連絡を削除しますか？')) return;
+        try{
+          await api('/api/teacher/contact-note/'+id,{method:'DELETE'});
+          loadContactNotes();
+        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
+      }
+
+      async function viewContactReads(id){
+        var wrap = document.getElementById('cnReads_'+id);
+        if(!wrap) return;
+        if(!wrap.classList.contains('hidden')){ wrap.classList.add('hidden'); return; }
+        wrap.classList.remove('hidden');
+        wrap.innerHTML = '<span class="text-slate-400">読み込み中...</span>';
+        try{
+          var data = await api('/api/teacher/contact-note/'+id+'/reads');
+          if(!data.reads.length){ wrap.innerHTML='<span class="text-slate-400">まだ誰も読んでいません</span>'; return; }
+          var html = '<div class="font-bold mb-1">既読: '+data.reads.length+'人</div>';
+          data.reads.forEach(function(r){
+            var reward = r.rewardClaimed ? '<span class="text-green-600">💰</span>' : '<span class="text-slate-400">-</span>';
+            html += '<div class="flex gap-2 items-center">'
+              + '<span>'+escH(r.studentName)+'</span>'
+              + '<span class="text-xs text-slate-400">'+escH((r.readAt||'').slice(0,16))+'</span>'
+              + reward + '</div>';
+          });
+          wrap.innerHTML = html;
+        }catch(e){ wrap.innerHTML='<span class="text-red-500">エラー</span>'; }
       }
 
       // ===== おしらせ機能 =====
