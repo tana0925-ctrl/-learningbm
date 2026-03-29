@@ -1917,6 +1917,102 @@ app.delete('/api/admin/report/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: おしらせ (announcements) --------------------
+
+// 教師・管理者: おしらせ作成
+app.post('/api/teacher/announcement', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const title = String(body.title || '').trim()
+  const text = String(body.body || '').trim()
+  const classId = body.classId || null  // null = 全体向け
+  if (!title || !text) return jsonError(c, 400, 'title_and_body_required')
+  const id = crypto.randomUUID()
+  await c.env.DB.prepare(
+    `INSERT INTO announcements (id, class_id, teacher_id, title, body) VALUES (?,?,?,?,?)`
+  ).bind(id, classId, u.id, title, text).run()
+  return c.json({ ok: true, id })
+})
+
+// 教師・管理者: おしらせ一覧
+app.get('/api/teacher/announcements', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const isAdmin = u.role === 'admin'
+  const res = isAdmin
+    ? await c.env.DB.prepare(
+        `SELECT a.id, a.class_id as classId, a.title, a.body, a.created_at as createdAt, c.name as className
+         FROM announcements a LEFT JOIN classes c ON c.id = a.class_id
+         ORDER BY a.created_at DESC LIMIT 50`
+      ).all<any>()
+    : await c.env.DB.prepare(
+        `SELECT a.id, a.class_id as classId, a.title, a.body, a.created_at as createdAt, c.name as className
+         FROM announcements a LEFT JOIN classes c ON c.id = a.class_id
+         WHERE a.teacher_id = ?
+         ORDER BY a.created_at DESC LIMIT 50`
+      ).bind(u.id).all<any>()
+  return c.json({ ok: true, announcements: res.results })
+})
+
+// 教師・管理者: おしらせ削除
+app.delete('/api/teacher/announcement/:id', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const annId = c.req.param('id')
+  await c.env.DB.prepare(`DELETE FROM announcement_reads WHERE announcement_id=?`).bind(annId).run()
+  if (u.role === 'admin') {
+    await c.env.DB.prepare(`DELETE FROM announcements WHERE id=?`).bind(annId).run()
+  } else {
+    await c.env.DB.prepare(`DELETE FROM announcements WHERE id=? AND teacher_id=?`).bind(annId, u.id).run()
+  }
+  return c.json({ ok: true })
+})
+
+// 生徒: 自分のクラス向け + 全体向けのおしらせ取得
+app.get('/api/student/announcements', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  // 自分のクラスIDを取得
+  const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+  const classId = cm?.class_id || null
+  // 全体向け(class_id IS NULL) + 自分のクラス向け
+  let res
+  if (classId) {
+    res = await c.env.DB.prepare(
+      `SELECT a.id, a.title, a.body, a.created_at as createdAt, a.class_id as classId,
+              ar.read_at as readAt
+       FROM announcements a
+       LEFT JOIN announcement_reads ar ON ar.announcement_id = a.id AND ar.user_id = ?
+       WHERE a.class_id IS NULL OR a.class_id = ?
+       ORDER BY a.created_at DESC LIMIT 30`
+    ).bind(u.id, classId).all<any>()
+  } else {
+    // クラス未参加 → 全体向けのみ
+    res = await c.env.DB.prepare(
+      `SELECT a.id, a.title, a.body, a.created_at as createdAt, a.class_id as classId,
+              ar.read_at as readAt
+       FROM announcements a
+       LEFT JOIN announcement_reads ar ON ar.announcement_id = a.id AND ar.user_id = ?
+       WHERE a.class_id IS NULL
+       ORDER BY a.created_at DESC LIMIT 30`
+    ).bind(u.id).all<any>()
+  }
+  return c.json({ ok: true, announcements: res.results })
+})
+
+// 生徒: おしらせ既読マーク
+app.post('/api/student/announcement/:id/read', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const annId = c.req.param('id')
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO announcement_reads (user_id, announcement_id) VALUES (?,?)`
+  ).bind(u.id, annId).run()
+  return c.json({ ok: true })
+})
+
 // -------------------- Pages (simple HTML endpoints) --------------------
 
 // Serve the game HTML (built into dist/index.html as an asset)
@@ -2476,6 +2572,7 @@ app.get('/teacher', (c) => {
       <!-- タブナビ -->
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
+        <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
       </div>
@@ -2499,6 +2596,26 @@ app.get('/teacher', (c) => {
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
           </div>
           <div id="hwList" class="space-y-3 text-sm"></div>
+        </div>
+      </div>
+
+      <!-- おしらせタブ -->
+      <div id="tabPaneAnnouncements" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">おしらせ作成</h3>
+          <div class="space-y-2">
+            <select id="annClassFilter" class="border p-2 rounded text-sm bg-white w-full">
+              <option value="">全体（クラス関係なく全員）</option>
+            </select>
+            <input id="annTitle" class="w-full border p-2 rounded text-sm" placeholder="タイトル（例：イベント開催！）"/>
+            <textarea id="annBody" class="w-full border p-2 rounded text-sm" rows="4" placeholder="内容を入力..."></textarea>
+            <button id="annSendBtn" onclick="sendAnnouncement()" class="bg-orange-500 hover:bg-orange-600 text-white rounded px-4 py-2 font-bold text-sm">📢 送信</button>
+            <p id="annMsg" class="text-sm"></p>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">送信済みおしらせ</h3>
+          <div id="annList" class="space-y-3 text-sm"></div>
         </div>
       </div>
 
@@ -2532,7 +2649,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','homework','reports'].forEach(function(t){
+        ['classes','announcements','homework','reports'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -2542,6 +2659,7 @@ app.get('/teacher', (c) => {
         });
         if(tab === 'homework') loadHomework();
         if(tab === 'reports') loadAdminReports();
+        if(tab === 'announcements') loadAnnouncements();
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -2806,6 +2924,64 @@ app.get('/teacher', (c) => {
         try{
           await api('/api/admin/report/'+id,{method:'DELETE'});
           loadAdminReports();
+        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
+      }
+
+      // ===== おしらせ機能 =====
+      async function loadAnnouncements(){
+        // クラスセレクター更新
+        try{
+          var clsData = await api('/api/teacher/classes');
+          var sel = document.getElementById('annClassFilter');
+          sel.innerHTML = '<option value="">全体（クラス関係なく全員）</option>';
+          (clsData.classes||[]).forEach(function(c){ sel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        }catch(e){}
+        // 送信済み一覧
+        var wrap = document.getElementById('annList');
+        wrap.innerHTML = '<p class="text-slate-400 text-xs">読み込み中...</p>';
+        try{
+          var data = await api('/api/teacher/announcements');
+          wrap.innerHTML = '';
+          if(!data.announcements.length){ wrap.innerHTML='<p class="text-xs text-slate-400">まだおしらせがありません</p>'; return; }
+          data.announcements.forEach(function(a){
+            var card = document.createElement('div');
+            card.className = 'border rounded-lg p-3 bg-orange-50 border-orange-200';
+            var target = a.classId ? escH(a.className||'クラス') : '<span class="text-orange-600 font-bold">全体</span>';
+            card.innerHTML = '<div class="flex items-center justify-between mb-1">'
+              + '<div class="font-bold text-sm">'+escH(a.title)+'</div>'
+              + '<div class="flex items-center gap-2">'
+              + '<span class="text-xs text-slate-400">'+escH(a.createdAt||'').slice(0,10)+'</span>'
+              + '<span class="text-xs bg-orange-100 text-orange-700 px-1 rounded">'+target+'</span>'
+              + '</div></div>'
+              + '<div class="text-xs text-slate-700 whitespace-pre-wrap">'+escH(a.body)+'</div>'
+              + '<button class="text-xs text-red-400 hover:text-red-600 mt-1" onclick="deleteAnnouncement(&#39;'+escH(a.id)+'&#39;)">削除</button>';
+            wrap.appendChild(card);
+          });
+        }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
+      }
+
+      async function sendAnnouncement(){
+        var msg = document.getElementById('annMsg');
+        msg.textContent=''; msg.className='text-sm';
+        var title = document.getElementById('annTitle').value.trim();
+        var body = document.getElementById('annBody').value.trim();
+        var classId = document.getElementById('annClassFilter').value || null;
+        if(!title){ msg.textContent='タイトルを入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!body){ msg.textContent='内容を入力してください'; msg.className='text-sm text-red-600'; return; }
+        try{
+          await api('/api/teacher/announcement',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:title,body:body,classId:classId})});
+          msg.textContent='送信しました！'; msg.className='text-sm text-green-700';
+          document.getElementById('annTitle').value='';
+          document.getElementById('annBody').value='';
+          loadAnnouncements();
+        }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
+      }
+
+      async function deleteAnnouncement(id){
+        if(!confirm('このおしらせを削除しますか？')) return;
+        try{
+          await api('/api/teacher/announcement/'+id,{method:'DELETE'});
+          loadAnnouncements();
         }catch(e){ alert('削除エラー: '+String(e.message||e)); }
       }
 
