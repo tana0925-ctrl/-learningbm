@@ -931,11 +931,11 @@ app.get('/api/teacher/classes', async (c) => {
   const isAdmin = u.role === 'admin'
   const res = isAdmin
     ? await c.env.DB.prepare(
-        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.created_at as createdAt, t.name as teacherName
+        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.created_at as createdAt, t.name as teacherName
          FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
       ).all<any>()
     : await c.env.DB.prepare(
-        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
       ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
@@ -966,6 +966,20 @@ app.put('/api/teacher/class/:classId/homework-toggle', async (c) => {
     : await c.env.DB.prepare(`UPDATE classes SET homework_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
   if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
   return c.json({ ok: true, homeworkEnabled: enabled })
+})
+
+// 連絡帳ON/OFFトグル
+app.put('/api/teacher/class/:classId/contact-toggle', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  const enabled = body?.enabled ? 1 : 0
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare(`UPDATE classes SET contact_enabled=? WHERE id=?`).bind(enabled, classId).run()
+    : await c.env.DB.prepare(`UPDATE classes SET contact_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, contactEnabled: enabled })
 })
 
 // ランキング参加ON/OFFトグル
@@ -1033,7 +1047,7 @@ app.get('/api/student/class-info', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const row = await c.env.DB.prepare(`
     SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
-           c.homework_enabled as homeworkEnabled
+           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled
     FROM class_members cm JOIN classes c ON c.id = cm.class_id
     WHERE cm.user_id = ? LIMIT 1
   `).bind(u.id).first<any>()
@@ -2908,6 +2922,31 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(hwBtn);
+          // 連絡帳ON/OFFトグルボタン
+          const ctBtn = document.createElement('button');
+          const ctEnabled = cls.contactEnabled !== 0 && cls.contactEnabled !== '0';
+          ctBtn.className = ctEnabled
+            ? 'text-xs px-2 py-1 rounded font-bold bg-cyan-100 text-cyan-700 border border-cyan-300 hover:bg-cyan-200'
+            : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+          ctBtn.textContent = ctEnabled ? '📓 連絡帳ON' : '📓 連絡帳OFF';
+          ctBtn.title = ctEnabled ? 'クリックで連絡帳を非表示にする' : 'クリックで連絡帳を表示する';
+          ctBtn.dataset.enabled = ctEnabled ? '1' : '';
+          ctBtn.onclick = async ()=>{
+            const newVal = !ctBtn.dataset.enabled;
+            ctBtn.dataset.enabled = newVal ? '1' : '';
+            try{
+              await api('/api/teacher/class/'+cls.id+'/contact-toggle',{
+                method:'PUT', headers:{'content-type':'application/json'},
+                body: JSON.stringify({enabled: newVal})
+              });
+              ctBtn.className = newVal
+                ? 'text-xs px-2 py-1 rounded font-bold bg-cyan-100 text-cyan-700 border border-cyan-300 hover:bg-cyan-200'
+                : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200';
+              ctBtn.textContent = newVal ? '📓 連絡帳ON' : '📓 連絡帳OFF';
+              ctBtn.title = newVal ? 'クリックで連絡帳を非表示にする' : 'クリックで連絡帳を表示する';
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(ctBtn);
           const delBtn = document.createElement('button');
           delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
           delBtn.textContent='削除';
