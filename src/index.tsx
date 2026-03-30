@@ -2039,11 +2039,9 @@ app.post('/api/teacher/contact-note', async (c) => {
   const rewardDeadline = body.rewardDeadline || null
   const rewardCoins = Number(body.rewardCoins) || 5
   if (!classId || !text || !dayKey) return jsonError(c, 400, 'classId_body_dayKey_required')
-  // classIdが自分のクラスか確認（管理者は全クラスOK）
-  if (u.role !== 'admin') {
-    const cls = await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
-    if (!cls) return jsonError(c, 403, 'not_your_class')
-  }
+  // classIdが自分のクラスか確認（管理者も含む全員）
+  const cls = await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 403, 'not_your_class')
   const id = crypto.randomUUID()
   await c.env.DB.prepare(
     `INSERT INTO contact_notes (id, class_id, teacher_id, day_key, body, reward_deadline, reward_coins) VALUES (?,?,?,?,?,?,?)`
