@@ -3365,7 +3365,7 @@ app.get('/teacher', (c) => {
         // 各ユーザーの履歴を日付降順にソートして最新3件に絞る
         Object.keys(history).forEach(function(uid){
           history[uid].sort(function(a,b){ return (b.submittedAt||0)-(a.submittedAt||0); });
-          history[uid]=history[uid].slice(0,3);
+          history[uid]=history[uid].slice(0,5);
         });
 
         // 未返却カードを収集
