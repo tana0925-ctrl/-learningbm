@@ -2860,7 +2860,7 @@ app.get('/teacher', (c) => {
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
         </div>
         <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
             <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
             <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
               <option value="">すべて</option>
@@ -2869,6 +2869,7 @@ app.get('/teacher', (c) => {
             </select>
             <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
+            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
           </div>
           <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
@@ -3366,6 +3367,29 @@ app.get('/teacher', (c) => {
           document.body.removeChild(ta);
           msgEl.textContent='✅ '+items.length+'件コピーしました！';
         });
+      }
+
+      async function bulkReturnNoComment(){
+        const cards = document.querySelectorAll('#hwList [data-hw-id]');
+        const targets = [];
+        for(var i=0;i<cards.length;i++){
+          var id = cards[i].dataset.hwId;
+          var commentEl = document.getElementById('hwComment_'+id);
+          if(!commentEl) continue; // 返却済みはスキップ
+          var comment = commentEl.value||'';
+          targets.push({id:id, comment:comment});
+        }
+        if(!targets.length){ alert('未返却の提出がありません'); return; }
+        if(!confirm(targets.length+'件まとめて返却します。よろしいですか？')) return;
+        var ok=0, ng=0;
+        for(var ti=0;ti<targets.length;ti++){
+          try{
+            await api('/api/teacher/homework/'+targets[ti].id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment:targets[ti].comment,hasPhysical:false})});
+            ok++;
+          }catch(e){ ng++; }
+        }
+        alert((ng===0?'✅ ':('⚠️ '+ng+'件失敗 / '))+ok+'件返却しました！');
+        await loadHomework();
       }
 
       async function pasteAndBulkReturn(){
