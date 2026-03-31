@@ -1828,19 +1828,52 @@ app.post('/api/trade/complete', async (c) => {
   let toState: any
   try { toState = JSON.parse(toProgress.state_json) } catch { return jsonError(c, 500, 'state_parse_error') }
 
-  // fromStateのboxからfromMonsterを削除してtoMonsterを追加
-  if (!Array.isArray(fromState.box)) return jsonError(c, 400, 'from_box_invalid')
-  const fromIdx = fromState.box.findIndex((b: any) => b.uid === fromMonster.uid || b.id === fromMonster.id && b.level === fromMonster.level)
-  if (fromIdx === -1) return jsonError(c, 400, 'from_monster_not_in_box')
-  fromState.box.splice(fromIdx, 1)
-  fromState.box.push({ ...toMonster, tradedAt: Date.now() })
+  // player.boxes は boxes[boxIdx][slotIdx] の2次元配列
+  // fromMonsterをfromStateのboxesから探して削除し、toMonsterを追加
+  if (!Array.isArray(fromState.boxes)) return jsonError(c, 400, 'from_box_invalid')
+  let fromBoxI = -1, fromSlotI = -1
+  outer1: for (let bi = 0; bi < fromState.boxes.length; bi++) {
+    const box = fromState.boxes[bi]
+    if (!Array.isArray(box)) continue
+    for (let si = 0; si < box.length; si++) {
+      const b = box[si]
+      if (b && (b.uid === fromMonster.uid || (b.monsterId === fromMonster.monsterId && b.level === fromMonster.level))) {
+        fromBoxI = bi; fromSlotI = si; break outer1
+      }
+    }
+  }
+  if (fromBoxI === -1) return jsonError(c, 400, 'from_monster_not_in_box')
+  fromState.boxes[fromBoxI][fromSlotI] = null
 
-  // toStateのboxからtoMonsterを削除してfromMonsterを追加
-  if (!Array.isArray(toState.box)) return jsonError(c, 400, 'to_box_invalid')
-  const toIdx = toState.box.findIndex((b: any) => b.uid === toMonster.uid || b.id === toMonster.id && b.level === toMonster.level)
-  if (toIdx === -1) return jsonError(c, 400, 'to_monster_not_in_box')
-  toState.box.splice(toIdx, 1)
-  toState.box.push({ ...fromMonster, tradedAt: Date.now() })
+  // toMonsterをtoStateのboxesから探して削除し、fromMonsterを追加
+  if (!Array.isArray(toState.boxes)) return jsonError(c, 400, 'to_box_invalid')
+  let toBoxI = -1, toSlotI = -1
+  outer2: for (let bi = 0; bi < toState.boxes.length; bi++) {
+    const box = toState.boxes[bi]
+    if (!Array.isArray(box)) continue
+    for (let si = 0; si < box.length; si++) {
+      const b = box[si]
+      if (b && (b.uid === toMonster.uid || (b.monsterId === toMonster.monsterId && b.level === toMonster.level))) {
+        toBoxI = bi; toSlotI = si; break outer2
+      }
+    }
+  }
+  if (toBoxI === -1) return jsonError(c, 400, 'to_monster_not_in_box')
+  toState.boxes[toBoxI][toSlotI] = null
+
+  // 空きスロットに相手のモンスターを入れる
+  const placeInBoxes = (boxes: any[][], monster: any) => {
+    for (let bi = 0; bi < boxes.length; bi++) {
+      if (!Array.isArray(boxes[bi])) boxes[bi] = []
+      for (let si = 0; si < 100; si++) {
+        if (!boxes[bi][si]) { boxes[bi][si] = { ...monster, tradedAt: Date.now() }; return }
+      }
+    }
+    // 全スロット埋まっていたらbox0の末尾に追加
+    boxes[0].push({ ...monster, tradedAt: Date.now() })
+  }
+  placeInBoxes(fromState.boxes, toMonster)
+  placeInBoxes(toState.boxes, fromMonster)
 
   // 両者のstateを保存
   await c.env.DB.prepare(
