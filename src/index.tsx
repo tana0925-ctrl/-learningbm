@@ -1722,6 +1722,158 @@ app.delete('/api/battle/cleanup', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: trade (合言葉交換) --------------------
+
+function genTradeCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
+  return code
+}
+
+// コード発行：自分のモンスターを登録して交換コードを作る
+app.post('/api/trade/offer', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.monster) return jsonError(c, 400, 'monster_required')
+
+  // 既存の有効なオファーがあればキャンセル
+  await c.env.DB.prepare(
+    `UPDATE trade_offers SET status='cancelled' WHERE from_user_id=? AND status='pending'`
+  ).bind(u.id).run()
+
+  const id = crypto.randomUUID()
+  let code = genTradeCode()
+  // コード衝突チェック（3回まで）
+  for (let i = 0; i < 3; i++) {
+    const existing = await c.env.DB.prepare(
+      `SELECT id FROM trade_offers WHERE code=? AND status='pending' AND expires_at > ?`
+    ).bind(code, Date.now()).first()
+    if (!existing) break
+    code = genTradeCode()
+  }
+
+  const now = Date.now()
+  const expires = now + 24 * 60 * 60 * 1000 // 24時間
+
+  await c.env.DB.prepare(`
+    INSERT INTO trade_offers (id, code, from_user_id, from_user_name, from_monster_json, status, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+  `).bind(id, code, u.id, u.name || u.username || 'プレイヤー', JSON.stringify(body.monster), now, expires).run()
+
+  return c.json({ ok: true, code, expiresAt: expires })
+})
+
+// コード照会：相手のコードを入力して内容を確認する
+app.get('/api/trade/offer/:code', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const code = c.req.param('code').toUpperCase()
+
+  const offer = await c.env.DB.prepare(
+    `SELECT * FROM trade_offers WHERE code=? AND status='pending' AND expires_at > ?`
+  ).bind(code, Date.now()).first<any>()
+
+  if (!offer) return jsonError(c, 404, 'offer_not_found')
+  if (offer.from_user_id === u.id) return jsonError(c, 400, 'cannot_trade_with_yourself')
+
+  return c.json({
+    ok: true,
+    offer: {
+      id: offer.id,
+      code: offer.code,
+      fromUserName: offer.from_user_name,
+      fromMonster: JSON.parse(offer.from_monster_json),
+      expiresAt: offer.expires_at,
+    }
+  })
+})
+
+// 交換実行：両者のstateを更新してモンスターを入れ替える
+app.post('/api/trade/complete', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.code || !body?.monster) return jsonError(c, 400, 'code_and_monster_required')
+
+  const code = String(body.code).toUpperCase()
+  const offer = await c.env.DB.prepare(
+    `SELECT * FROM trade_offers WHERE code=? AND status='pending' AND expires_at > ?`
+  ).bind(code, Date.now()).first<any>()
+
+  if (!offer) return jsonError(c, 404, 'offer_not_found')
+  if (offer.from_user_id === u.id) return jsonError(c, 400, 'cannot_trade_with_yourself')
+
+  const fromMonster = JSON.parse(offer.from_monster_json)
+  const toMonster = body.monster
+
+  // 申請者(from)のstateを取得してモンスターを入れ替え
+  const fromProgress = await c.env.DB.prepare(
+    `SELECT state_json FROM progress WHERE user_id=?`
+  ).bind(offer.from_user_id).first<any>()
+
+  if (!fromProgress) return jsonError(c, 404, 'from_user_progress_not_found')
+
+  let fromState: any
+  try { fromState = JSON.parse(fromProgress.state_json) } catch { return jsonError(c, 500, 'state_parse_error') }
+
+  // 受諾者(to)のstateを取得
+  const toProgress = await c.env.DB.prepare(
+    `SELECT state_json FROM progress WHERE user_id=?`
+  ).bind(u.id).first<any>()
+
+  if (!toProgress) return jsonError(c, 404, 'to_user_progress_not_found')
+
+  let toState: any
+  try { toState = JSON.parse(toProgress.state_json) } catch { return jsonError(c, 500, 'state_parse_error') }
+
+  // fromStateのboxからfromMonsterを削除してtoMonsterを追加
+  if (!Array.isArray(fromState.box)) return jsonError(c, 400, 'from_box_invalid')
+  const fromIdx = fromState.box.findIndex((b: any) => b.uid === fromMonster.uid || b.id === fromMonster.id && b.level === fromMonster.level)
+  if (fromIdx === -1) return jsonError(c, 400, 'from_monster_not_in_box')
+  fromState.box.splice(fromIdx, 1)
+  fromState.box.push({ ...toMonster, tradedAt: Date.now() })
+
+  // toStateのboxからtoMonsterを削除してfromMonsterを追加
+  if (!Array.isArray(toState.box)) return jsonError(c, 400, 'to_box_invalid')
+  const toIdx = toState.box.findIndex((b: any) => b.uid === toMonster.uid || b.id === toMonster.id && b.level === toMonster.level)
+  if (toIdx === -1) return jsonError(c, 400, 'to_monster_not_in_box')
+  toState.box.splice(toIdx, 1)
+  toState.box.push({ ...fromMonster, tradedAt: Date.now() })
+
+  // 両者のstateを保存
+  await c.env.DB.prepare(
+    `UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`
+  ).bind(JSON.stringify(fromState), offer.from_user_id).run()
+
+  await c.env.DB.prepare(
+    `UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`
+  ).bind(JSON.stringify(toState), u.id).run()
+
+  // オファーをcompletedに
+  await c.env.DB.prepare(
+    `UPDATE trade_offers SET status='completed', to_user_id=?, to_monster_json=?, completed_at=? WHERE id=?`
+  ).bind(u.id, JSON.stringify(toMonster), Date.now(), offer.id).run()
+
+  return c.json({
+    ok: true,
+    received: fromMonster,
+    sent: toMonster,
+    fromUserName: offer.from_user_name,
+  })
+})
+
+// 自分の発行中オファーをキャンセル
+app.delete('/api/trade/offer', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  await c.env.DB.prepare(
+    `UPDATE trade_offers SET status='cancelled' WHERE from_user_id=? AND status='pending'`
+  ).bind(u.id).run()
+  return c.json({ ok: true })
+})
+
 // -------------------- API: rt (realtime friend battle v2) --------------------
 // rt_rooms / rt_events テーブルを使った野生バトル/ジムバトル形式のリアルタイム対戦
 
