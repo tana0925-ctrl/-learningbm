@@ -3303,11 +3303,10 @@ app.get('/teacher', (c) => {
           items.push((items.length+1)+'. '+escH(card.dataset.hwName||'')+'：'+(card.dataset.hwReflection||'（記録なし）'));
         }
         if(!items.length){ msgEl.textContent='未返却の提出がありません'; return; }
-        const text = '以下の小学生の家庭学習の振り返りを読んで、各児童への温かい先生コメントを30文字以内で考えてください。\n必ずJSON形式だけで返答してください：{"comments":["コメント1","コメント2",...]}\n\n児童の振り返り：\n'+items.join('\n');
+        const text = '以下の小学生の家庭学習の振り返りを読んで、各児童への温かい先生コメントを30文字以内で考えてください。\\n必ずJSON形式だけで返答してください：{"comments":["コメント1","コメント2",...]}\\n\\n児童の振り返り：\\n'+items.join('\\n');
         navigator.clipboard.writeText(text).then(()=>{
           msgEl.textContent='✅ '+items.length+'件の振り返りをコピーしました！GeminiのGemに貼り付けてください。';
         }).catch(()=>{
-          // フォールバック
           const ta = document.createElement('textarea');
           ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
           document.body.appendChild(ta); ta.select(); document.execCommand('copy');
@@ -3322,14 +3321,13 @@ app.get('/teacher', (c) => {
         if(!raw.trim()){ msgEl.textContent='⚠️ テキストエリアにGeminiの返答を貼り付けてください'; return; }
 
         let comments = [];
-        // JSON形式を試みる
         try{
-          const m = raw.match(/\{[\s\S]*\}/);
-          if(m){ const j = JSON.parse(m[0]); comments = j.comments||[]; }
+          const start = raw.indexOf('{'); const end = raw.lastIndexOf('}');
+          if(start>=0 && end>start){ const j = JSON.parse(raw.slice(start, end+1)); comments = j.comments||[]; }
         }catch(_){}
-        // 番号付きリスト形式にフォールバック
         if(!comments.length){
-          comments = raw.split('\n').map(l=>l.replace(/^\s*\d+[\.\)]\s*/,'')).filter(l=>l.trim());
+          var nl = String.fromCharCode(10);
+          comments = raw.split(nl).map(function(l){ return l.replace(/^[0-9]+[.)] */,'').trim(); }).filter(function(l){ return l.length>0; });
         }
         if(!comments.length){ msgEl.textContent='⚠️ コメントを解析できませんでした。JSON形式または番号付きリストで貼り付けてください'; return; }
 
