@@ -2845,19 +2845,19 @@ app.get('/teacher', (c) => {
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
         <!-- Gemini連携パネル -->
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-          <div class="font-bold text-sm text-amber-800">🤖 Gemini連携（コピー&ペースト）</div>
-          <div class="text-xs text-amber-700">① 振り返りをコピー → ② GeminiのGemに貼り付け → ③ 返ってきたコメントをここに貼り付け → ④ まとめて返却</div>
-          <div class="flex gap-2 flex-wrap">
-            <button onclick="copyReflections()" class="bg-amber-500 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">📋 ① 振り返りをコピー</button>
-            <button onclick="bulkReturnAll()" class="bg-emerald-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✅ ④ まとめて返却</button>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+          <div class="font-bold text-sm text-amber-800">🤖 Geminiで一括コメント返却</div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2 text-xs text-amber-700 font-bold">① </div>
+            <button onclick="copyReflections()" class="bg-amber-500 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
+            <div class="text-xs text-amber-600">→ GeminiのGemに貼り付けてコメントを生成 →</div>
           </div>
-          <div>
-            <div class="text-xs font-bold text-amber-800 mb-1">③ GeminiのコメントをここにペーストしてEnter</div>
-            <textarea id="aiPasteArea" rows="3" class="w-full border border-amber-300 rounded p-2 text-xs bg-white" placeholder='Geminiの返答をここに貼り付け&#10;例：{"comments":["よく頑張りました！","毎日続けてえらいね","..."]}&#10;または番号付きリスト（1. コメント）でもOK'></textarea>
-            <button onclick="applyAIComments()" class="mt-1 bg-purple-600 text-white rounded px-3 py-1.5 text-xs font-bold">② コメントを各フィールドに反映</button>
+          <div class="space-y-1">
+            <div class="text-xs font-bold text-amber-700">② Geminiの返答をここに貼り付け</div>
+            <textarea id="aiPasteArea" rows="4" class="w-full border border-amber-300 rounded-lg p-2 text-xs bg-white focus:outline-none focus:border-amber-500" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
           </div>
-          <div id="aiGenMsg" class="text-xs text-amber-700"></div>
+          <button onclick="pasteAndBulkReturn()" class="w-full bg-emerald-600 text-white rounded-lg px-4 py-2.5 text-sm font-bold shadow hover:opacity-90">✅ ③ 貼り付けて一括返却</button>
+          <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
         </div>
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap">
@@ -3315,11 +3315,12 @@ app.get('/teacher', (c) => {
         });
       }
 
-      function applyAIComments(){
+      async function pasteAndBulkReturn(){
         const msgEl = document.getElementById('aiGenMsg');
-        const raw = (document.getElementById('aiPasteArea')||{}).value||'';
-        if(!raw.trim()){ msgEl.textContent='⚠️ テキストエリアにGeminiの返答を貼り付けてください'; return; }
+        const raw = (document.getElementById('aiPasteArea')||{value:''}).value||'';
+        if(!raw.trim()){ msgEl.textContent='⚠️ Geminiのコメントをテキストエリアにペーストしてからボタンを押してください'; return; }
 
+        // コメント解析（JSON形式 or 番号付きリスト）
         let comments = [];
         try{
           const start = raw.indexOf('{'); const end = raw.lastIndexOf('}');
@@ -3331,43 +3332,29 @@ app.get('/teacher', (c) => {
         }
         if(!comments.length){ msgEl.textContent='⚠️ コメントを解析できませんでした。JSON形式または番号付きリストで貼り付けてください'; return; }
 
-        const cards = document.querySelectorAll('#hwList [data-hw-id]');
-        const items = [];
-        for(const card of cards){
-          const id = card.dataset.hwId;
-          if(!document.getElementById('hwComment_'+id)) continue;
-          items.push(id);
-        }
-        let filled = 0;
-        for(let i=0;i<items.length&&i<comments.length;i++){
-          const el = document.getElementById('hwComment_'+items[i]);
-          if(el){ el.value = comments[i].trim(); filled++; }
-        }
-        msgEl.textContent='✅ '+filled+'件のコメントをセットしました！内容を確認して「④ まとめて返却」してください。';
-        document.getElementById('aiPasteArea').value='';
-      }
-
-      async function bulkReturnAll(){
+        // 未返却の提出を収集
         const cards = document.querySelectorAll('#hwList [data-hw-id]');
         const targets = [];
         for(const card of cards){
           const id = card.dataset.hwId;
-          const commentEl = document.getElementById('hwComment_'+id);
-          if(!commentEl) continue;
-          targets.push({ id, comment: commentEl.value||'', hasPhysical: (document.getElementById('hwPhysical_'+id)||{}).checked||false });
+          if(!document.getElementById('hwComment_'+id)) continue; // 返却済みはスキップ
+          targets.push(id);
         }
-        if(!targets.length){ document.getElementById('aiGenMsg').textContent='未返却の提出がありません'; return; }
+        if(!targets.length){ msgEl.textContent='未返却の提出がありません'; return; }
         if(!confirm(targets.length+'件まとめて返却します。よろしいですか？')) return;
-        const msgEl = document.getElementById('aiGenMsg');
+
         msgEl.textContent='⏳ 返却中...';
         let ok=0, ng=0;
-        for(const t of targets){
+        for(let i=0;i<targets.length;i++){
+          const id = targets[i];
+          const comment = (i < comments.length) ? comments[i] : '';
           try{
-            await api('/api/teacher/homework/'+t.id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment:t.comment,hasPhysical:t.hasPhysical})});
+            await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment:comment,hasPhysical:false})});
             ok++;
           }catch(e){ ng++; }
         }
-        msgEl.textContent=(ng===0?'✅ ':('⚠️ '+ng+'件失敗 / '))+ok+'件返却しました';
+        document.getElementById('aiPasteArea').value='';
+        msgEl.textContent=(ng===0?'✅ ':('⚠️ '+ng+'件失敗 / '))+ok+'件返却しました！';
         await loadHomework();
       }
 
