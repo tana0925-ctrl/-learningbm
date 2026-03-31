@@ -2844,6 +2844,17 @@ app.get('/teacher', (c) => {
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
+        <!-- Gemini AI一括コメント -->
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div class="font-bold text-sm text-amber-800 mb-2">🤖 Gemini AI一括コメント生成</div>
+          <div class="flex gap-2 items-center flex-wrap mb-2">
+            <input id="geminiApiKey" type="password" class="flex-1 border p-1.5 rounded text-xs min-w-0" placeholder="Gemini APIキー（AIzaで始まるキー）"/>
+            <button onclick="saveGeminiKey()" class="bg-amber-500 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">💾 保存</button>
+            <button onclick="generateAIComments()" class="bg-purple-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✨ AI一括生成</button>
+            <button onclick="bulkReturnAll()" class="bg-emerald-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✅ まとめて返却</button>
+          </div>
+          <div id="aiGenMsg" class="text-xs text-amber-700"></div>
+        </div>
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap">
             <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
@@ -2948,7 +2959,13 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework') loadHomework();
+        if(tab === 'homework'){
+          loadHomework();
+          // 保存済みGemini APIキーを復元
+          const savedKey = localStorage.getItem('geminiApiKey')||'';
+          const keyInput = document.getElementById('geminiApiKey');
+          if(keyInput && savedKey) keyInput.value = savedKey;
+        }
         if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
@@ -3218,6 +3235,13 @@ app.get('/teacher', (c) => {
           const card = document.createElement('div');
           const returned = !!s.returnedAt;
           card.className='border rounded-xl p-3 space-y-2 ' + (returned ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300');
+          card.dataset.hwId = s.id;
+          card.dataset.hwName = s.studentName||'';
+          card.dataset.hwReflection = [
+            s.todo ? 'やったこと:'+s.todo : '',
+            s.weatherReason ? '振り返り:'+s.weatherReason : '',
+            s.nextImprove ? '次どうする:'+s.nextImprove : '',
+          ].filter(Boolean).join(' / ');
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
             ? '<span class="bg-yellow-200 text-yellow-800 text-xs px-1 rounded">成果物あり⭐</span>'
@@ -3269,6 +3293,78 @@ app.get('/teacher', (c) => {
           btn.disabled=false;
           alert('エラー: '+String(e.message||e));
         }
+      }
+
+      function saveGeminiKey(){
+        const k = (document.getElementById('geminiApiKey')||{}).value||'';
+        if(k.trim()){ localStorage.setItem('geminiApiKey', k.trim()); document.getElementById('aiGenMsg').textContent='✅ APIキーを保存しました'; }
+        else { document.getElementById('aiGenMsg').textContent='⚠️ キーを入力してください'; }
+      }
+
+      async function generateAIComments(){
+        const apiKey = localStorage.getItem('geminiApiKey')||'';
+        const msgEl = document.getElementById('aiGenMsg');
+        if(!apiKey){ msgEl.textContent='⚠️ GeminiのAPIキーを入力・保存してください'; return; }
+
+        // 未返却カードを収集
+        const cards = document.querySelectorAll('#hwList [data-hw-id]');
+        const items = [];
+        for(const card of cards){
+          const id = card.dataset.hwId;
+          if(!document.getElementById('hwComment_'+id)) continue; // 返却済みはスキップ
+          items.push({ id, name: card.dataset.hwName||'', reflection: card.dataset.hwReflection||'' });
+        }
+        if(!items.length){ msgEl.textContent='未返却の提出がありません'; return; }
+
+        msgEl.textContent = '⏳ '+items.length+'件のコメントを生成中...';
+        const listText = items.map((d,i)=>(i+1)+'. '+d.name+'：'+d.reflection).join('\\n');
+        const prompt = 'あなたは小学校の担任の先生です。以下の児童の家庭学習の振り返りを読んで、各児童への温かい短いコメントを考えてください。必ず以下のJSONだけで返答してください（他のテキスト不要）：{"comments":["コメント1","コメント2",...]}\\n\\n児童の振り返り：\\n'+listText;
+
+        try{
+          const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+encodeURIComponent(apiKey),{
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+          });
+          const data = await res.json();
+          if(!res.ok) throw new Error(data.error?.message||'APIエラー('+res.status+')');
+          const text = data.candidates[0].content.parts[0].text;
+          const m = text.match(/\\{[\\s\\S]*\\}/);
+          if(!m) throw new Error('JSON解析失敗: '+text.slice(0,100));
+          const json = JSON.parse(m[0]);
+          const comments = json.comments||[];
+          let filled = 0;
+          for(let i=0;i<items.length&&i<comments.length;i++){
+            const el = document.getElementById('hwComment_'+items[i].id);
+            if(el){ el.value = comments[i]; filled++; }
+          }
+          msgEl.textContent = '✅ '+filled+'件のコメントを生成しました！内容を確認してから返却してください。';
+        }catch(e){
+          msgEl.textContent = '❌ エラー: '+String(e.message||e);
+        }
+      }
+
+      async function bulkReturnAll(){
+        const cards = document.querySelectorAll('#hwList [data-hw-id]');
+        const targets = [];
+        for(const card of cards){
+          const id = card.dataset.hwId;
+          const commentEl = document.getElementById('hwComment_'+id);
+          if(!commentEl) continue;
+          targets.push({ id, comment: commentEl.value||'', hasPhysical: (document.getElementById('hwPhysical_'+id)||{}).checked||false });
+        }
+        if(!targets.length){ document.getElementById('aiGenMsg').textContent='未返却の提出がありません'; return; }
+        if(!confirm(targets.length+'件まとめて返却します。よろしいですか？')) return;
+        const msgEl = document.getElementById('aiGenMsg');
+        msgEl.textContent='⏳ 返却中...';
+        let ok=0, ng=0;
+        for(const t of targets){
+          try{
+            await api('/api/teacher/homework/'+t.id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment:t.comment,hasPhysical:t.hasPhysical})});
+            ok++;
+          }catch(e){ ng++; }
+        }
+        msgEl.textContent=(ng===0?'✅ ':('⚠️ '+ng+'件失敗 / '))+ok+'件返却しました';
+        await loadHomework();
       }
 
       // 報告一覧
