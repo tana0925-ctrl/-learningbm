@@ -1310,6 +1310,36 @@ app.post('/api/homework/submit', async (c) => {
   return c.json({ ok: true, id })
 })
 
+// 生徒：提出済みシートの内容を修正して再提出（報酬変更なし）
+app.put('/api/homework/submit', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const dayKey = String(body.dayKey || '').slice(0, 10)
+  if (!dayKey) return jsonError(c, 400, 'day_key_required')
+
+  const result = await c.env.DB.prepare(`
+    UPDATE homework_submissions
+    SET todo=?, why=?, aim=?, minutes=?, end_weather=?, weather_reason=?, next_improve=?,
+        updated_at=?
+    WHERE user_id=? AND day_key=?
+  `).bind(
+    String(body.todo || '').slice(0, 500),
+    String(body.why || '').slice(0, 500),
+    String(body.aim || '').slice(0, 500),
+    Number(body.minutes || 0),
+    String(body.endWeather || 'sun'),
+    String(body.weatherReason || '').slice(0, 500),
+    String(body.nextImprove || '').slice(0, 500),
+    Date.now(),
+    u.id, dayKey
+  ).run()
+
+  if (!result.meta?.changes) return jsonError(c, 404, 'not_found')
+  return c.json({ ok: true })
+})
+
 // 生徒：自分の提出履歴を取得
 app.get('/api/homework/my', async (c) => {
   const u = c.get('user')
