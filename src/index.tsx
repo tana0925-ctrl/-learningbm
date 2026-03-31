@@ -3394,7 +3394,13 @@ app.get('/teacher', (c) => {
             for(var hi=0;hi<hist.length;hi++){
               var h = hist[hi];
               var hw = {sun:'☀',cloud:'☁',rain:'☂'}[h.endWeather]||'';
-              today += '\\n    '+h.dayKey+' '+hw+' 「'+( h.weatherReason||'―' )+'」→次「'+(h.nextImprove||'―')+'」';
+              today += '\\n    ['+h.dayKey+']';
+              today += '\\n      やること: '+(h.todo||'―');
+              today += '\\n      理由: '+(h.why||'―');
+              today += '\\n      めあて: '+(h.aim||'―');
+              today += '\\n      時間: '+(h.minutes||0)+'分';
+              today += '\\n      天気: '+hw+' 「'+(h.weatherReason||'―')+'」';
+              today += '\\n      次どうする: '+(h.nextImprove||'―');
             }
           }
           items.push(today);
