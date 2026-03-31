@@ -2844,14 +2844,18 @@ app.get('/teacher', (c) => {
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
-        <!-- Gemini AI一括コメント -->
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
-          <div class="font-bold text-sm text-amber-800 mb-2">🤖 Gemini AI一括コメント生成</div>
-          <div class="flex gap-2 items-center flex-wrap mb-2">
-            <input id="geminiApiKey" type="password" class="flex-1 border p-1.5 rounded text-xs min-w-0" placeholder="Gemini APIキー（AIzaで始まるキー）"/>
-            <button onclick="saveGeminiKey()" class="bg-amber-500 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">💾 保存</button>
-            <button onclick="generateAIComments()" class="bg-purple-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✨ AI一括生成</button>
-            <button onclick="bulkReturnAll()" class="bg-emerald-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✅ まとめて返却</button>
+        <!-- Gemini連携パネル -->
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+          <div class="font-bold text-sm text-amber-800">🤖 Gemini連携（コピー&ペースト）</div>
+          <div class="text-xs text-amber-700">① 振り返りをコピー → ② GeminiのGemに貼り付け → ③ 返ってきたコメントをここに貼り付け → ④ まとめて返却</div>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="copyReflections()" class="bg-amber-500 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">📋 ① 振り返りをコピー</button>
+            <button onclick="bulkReturnAll()" class="bg-emerald-600 text-white rounded px-3 py-1.5 text-xs font-bold whitespace-nowrap">✅ ④ まとめて返却</button>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-amber-800 mb-1">③ GeminiのコメントをここにペーストしてEnter</div>
+            <textarea id="aiPasteArea" rows="3" class="w-full border border-amber-300 rounded p-2 text-xs bg-white" placeholder='Geminiの返答をここに貼り付け&#10;例：{"comments":["よく頑張りました！","毎日続けてえらいね","..."]}&#10;または番号付きリスト（1. コメント）でもOK'></textarea>
+            <button onclick="applyAIComments()" class="mt-1 bg-purple-600 text-white rounded px-3 py-1.5 text-xs font-bold">② コメントを各フィールドに反映</button>
           </div>
           <div id="aiGenMsg" class="text-xs text-amber-700"></div>
         </div>
@@ -2959,13 +2963,7 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework'){
-          loadHomework();
-          // 保存済みGemini APIキーを復元
-          const savedKey = localStorage.getItem('geminiApiKey')||'';
-          const keyInput = document.getElementById('geminiApiKey');
-          if(keyInput && savedKey) keyInput.value = savedKey;
-        }
+        if(tab === 'homework') loadHomework();
         if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
@@ -3295,52 +3293,60 @@ app.get('/teacher', (c) => {
         }
       }
 
-      function saveGeminiKey(){
-        const k = (document.getElementById('geminiApiKey')||{}).value||'';
-        if(k.trim()){ localStorage.setItem('geminiApiKey', k.trim()); document.getElementById('aiGenMsg').textContent='✅ APIキーを保存しました'; }
-        else { document.getElementById('aiGenMsg').textContent='⚠️ キーを入力してください'; }
-      }
-
-      async function generateAIComments(){
-        const apiKey = localStorage.getItem('geminiApiKey')||'';
+      function copyReflections(){
         const msgEl = document.getElementById('aiGenMsg');
-        if(!apiKey){ msgEl.textContent='⚠️ GeminiのAPIキーを入力・保存してください'; return; }
-
-        // 未返却カードを収集
         const cards = document.querySelectorAll('#hwList [data-hw-id]');
         const items = [];
         for(const card of cards){
           const id = card.dataset.hwId;
           if(!document.getElementById('hwComment_'+id)) continue; // 返却済みはスキップ
-          items.push({ id, name: card.dataset.hwName||'', reflection: card.dataset.hwReflection||'' });
+          items.push((items.length+1)+'. '+escH(card.dataset.hwName||'')+'：'+(card.dataset.hwReflection||'（記録なし）'));
         }
         if(!items.length){ msgEl.textContent='未返却の提出がありません'; return; }
+        const text = '以下の小学生の家庭学習の振り返りを読んで、各児童への温かい先生コメントを30文字以内で考えてください。\n必ずJSON形式だけで返答してください：{"comments":["コメント1","コメント2",...]}\n\n児童の振り返り：\n'+items.join('\n');
+        navigator.clipboard.writeText(text).then(()=>{
+          msgEl.textContent='✅ '+items.length+'件の振り返りをコピーしました！GeminiのGemに貼り付けてください。';
+        }).catch(()=>{
+          // フォールバック
+          const ta = document.createElement('textarea');
+          ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          msgEl.textContent='✅ '+items.length+'件コピーしました！';
+        });
+      }
 
-        msgEl.textContent = '⏳ '+items.length+'件のコメントを生成中...';
-        const listText = items.map((d,i)=>(i+1)+'. '+d.name+'：'+d.reflection).join('\\n');
-        const prompt = 'あなたは小学校の担任の先生です。以下の児童の家庭学習の振り返りを読んで、各児童への温かい短いコメントを考えてください。必ず以下のJSONだけで返答してください（他のテキスト不要）：{"comments":["コメント1","コメント2",...]}\\n\\n児童の振り返り：\\n'+listText;
+      function applyAIComments(){
+        const msgEl = document.getElementById('aiGenMsg');
+        const raw = (document.getElementById('aiPasteArea')||{}).value||'';
+        if(!raw.trim()){ msgEl.textContent='⚠️ テキストエリアにGeminiの返答を貼り付けてください'; return; }
 
+        let comments = [];
+        // JSON形式を試みる
         try{
-          const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+encodeURIComponent(apiKey),{
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({contents:[{parts:[{text:prompt}]}]})
-          });
-          const data = await res.json();
-          if(!res.ok) throw new Error(data.error?.message||'APIエラー('+res.status+')');
-          const text = data.candidates[0].content.parts[0].text;
-          const m = text.match(/\\{[\\s\\S]*\\}/);
-          if(!m) throw new Error('JSON解析失敗: '+text.slice(0,100));
-          const json = JSON.parse(m[0]);
-          const comments = json.comments||[];
-          let filled = 0;
-          for(let i=0;i<items.length&&i<comments.length;i++){
-            const el = document.getElementById('hwComment_'+items[i].id);
-            if(el){ el.value = comments[i]; filled++; }
-          }
-          msgEl.textContent = '✅ '+filled+'件のコメントを生成しました！内容を確認してから返却してください。';
-        }catch(e){
-          msgEl.textContent = '❌ エラー: '+String(e.message||e);
+          const m = raw.match(/\{[\s\S]*\}/);
+          if(m){ const j = JSON.parse(m[0]); comments = j.comments||[]; }
+        }catch(_){}
+        // 番号付きリスト形式にフォールバック
+        if(!comments.length){
+          comments = raw.split('\n').map(l=>l.replace(/^\s*\d+[\.\)]\s*/,'')).filter(l=>l.trim());
         }
+        if(!comments.length){ msgEl.textContent='⚠️ コメントを解析できませんでした。JSON形式または番号付きリストで貼り付けてください'; return; }
+
+        const cards = document.querySelectorAll('#hwList [data-hw-id]');
+        const items = [];
+        for(const card of cards){
+          const id = card.dataset.hwId;
+          if(!document.getElementById('hwComment_'+id)) continue;
+          items.push(id);
+        }
+        let filled = 0;
+        for(let i=0;i<items.length&&i<comments.length;i++){
+          const el = document.getElementById('hwComment_'+items[i]);
+          if(el){ el.value = comments[i].trim(); filled++; }
+        }
+        msgEl.textContent='✅ '+filled+'件のコメントをセットしました！内容を確認して「④ まとめて返却」してください。';
+        document.getElementById('aiPasteArea').value='';
       }
 
       async function bulkReturnAll(){
