@@ -3234,12 +3234,9 @@ app.get('/teacher', (c) => {
           const returned = !!s.returnedAt;
           card.className='border rounded-xl p-3 space-y-2 ' + (returned ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300');
           card.dataset.hwId = s.id;
+          card.dataset.hwUserId = s.userId||'';
           card.dataset.hwName = s.studentName||'';
-          card.dataset.hwReflection = [
-            s.todo ? 'やったこと:'+s.todo : '',
-            s.weatherReason ? '振り返り:'+s.weatherReason : '',
-            s.nextImprove ? '次どうする:'+s.nextImprove : '',
-          ].filter(Boolean).join(' / ');
+          card.dataset.hwDayKey = s.dayKey||'';
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
             ? '<span class="bg-yellow-200 text-yellow-800 text-xs px-1 rounded">成果物あり⭐</span>'
@@ -3293,22 +3290,78 @@ app.get('/teacher', (c) => {
         }
       }
 
-      function copyReflections(){
+      async function copyReflections(){
         const msgEl = document.getElementById('aiGenMsg');
-        const cards = document.querySelectorAll('#hwList [data-hw-id]');
-        const items = [];
-        for(const card of cards){
-          const id = card.dataset.hwId;
-          if(!document.getElementById('hwComment_'+id)) continue; // 返却済みはスキップ
-          items.push((items.length+1)+'. '+escH(card.dataset.hwName||'')+'：'+(card.dataset.hwReflection||'（記録なし）'));
+        msgEl.textContent='⏳ 履歴を取得中...';
+
+        // 全提出データを取得（返却済み含む）
+        const classId = document.getElementById('hwClassFilter').value;
+        var qs = classId ? '?classId='+encodeURIComponent(classId) : '';
+        var allData;
+        try{ allData = await api('/api/teacher/homework'+qs); }
+        catch(e){ msgEl.textContent='❌ データ取得失敗: '+String(e.message||e); return; }
+        var all = allData.submissions||[];
+
+        // userId → 過去の返却済み提出（最新3件）にグループ化
+        var history = {};
+        for(var i=0;i<all.length;i++){
+          var s = all[i];
+          if(!s.returnedAt) continue; // 返却済みのみ過去履歴に使う
+          if(!history[s.userId]) history[s.userId]=[];
+          history[s.userId].push(s);
+        }
+        // 各ユーザーの履歴を日付降順にソートして最新3件に絞る
+        Object.keys(history).forEach(function(uid){
+          history[uid].sort(function(a,b){ return (b.submittedAt||0)-(a.submittedAt||0); });
+          history[uid]=history[uid].slice(0,3);
+        });
+
+        // 未返却カードを収集
+        var cards = document.querySelectorAll('#hwList [data-hw-id]');
+        var items = [];
+        var idx = 1;
+        for(var ci=0;ci<cards.length;ci++){
+          var card = cards[ci];
+          var id = card.dataset.hwId;
+          if(!document.getElementById('hwComment_'+id)) continue;
+          // 対応する提出データをallから探す
+          var sub = null;
+          for(var si=0;si<all.length;si++){ if(all[si].id===id){ sub=all[si]; break; } }
+          if(!sub) continue;
+          var w = {sun:'☀晴れ',cloud:'☁くもり',rain:'☂あめ'}[sub.endWeather]||'';
+          var today = idx+'. 【'+sub.studentName+'】（'+sub.dayKey+'）';
+          today += '\\n  やったこと: '+(sub.todo||'―');
+          today += '\\n  なんで: '+(sub.why||'―');
+          today += '\\n  めあて: '+(sub.aim||'―');
+          today += '\\n  学習時間: '+(sub.minutes||0)+'分 / 学びの天気: '+w;
+          today += '\\n  振り返り: '+(sub.weatherReason||'―');
+          today += '\\n  次どうする: '+(sub.nextImprove||'―');
+          var hist = history[sub.userId]||[];
+          if(hist.length){
+            today += '\\n  ── 過去の振り返り（参考）──';
+            for(var hi=0;hi<hist.length;hi++){
+              var h = hist[hi];
+              var hw = {sun:'☀',cloud:'☁',rain:'☂'}[h.endWeather]||'';
+              today += '\\n    '+h.dayKey+' '+hw+' 「'+( h.weatherReason||'―' )+'」→次「'+(h.nextImprove||'―')+'」';
+            }
+          }
+          items.push(today);
+          idx++;
         }
         if(!items.length){ msgEl.textContent='未返却の提出がありません'; return; }
-        const text = '以下の小学生の家庭学習の振り返りを読んで、各児童への温かい先生コメントを30文字以内で考えてください。\\n必ずJSON形式だけで返答してください：{"comments":["コメント1","コメント2",...]}\\n\\n児童の振り返り：\\n'+items.join('\\n');
-        navigator.clipboard.writeText(text).then(()=>{
-          msgEl.textContent='✅ '+items.length+'件の振り返りをコピーしました！GeminiのGemに貼り付けてください。';
-        }).catch(()=>{
-          const ta = document.createElement('textarea');
-          ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+
+        var nl = String.fromCharCode(10);
+        var header = '小学校の担任の先生として、以下の児童の家庭学習の振り返りを読み、各児童への個別最適なコメントを30文字以内で考えてください。'+nl
+          +'過去の振り返りも参考にして、その子の成長や課題に合わせてください。'+nl
+          +'必ずJSON形式だけで返答してください（番号は不要）：{"comments":["コメント1","コメント2",...]}'+nl+nl
+          +'=== 児童の振り返り ==='+nl;
+        var text = header + items.join(nl+nl);
+
+        navigator.clipboard.writeText(text).then(function(){
+          msgEl.textContent='✅ '+items.length+'件（過去履歴付き）をコピーしました！GeminiのGemに貼り付けてください。';
+        }).catch(function(){
+          var ta = document.createElement('textarea');
+          ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
           document.body.appendChild(ta); ta.select(); document.execCommand('copy');
           document.body.removeChild(ta);
           msgEl.textContent='✅ '+items.length+'件コピーしました！';
