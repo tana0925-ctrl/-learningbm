@@ -1031,6 +1031,98 @@ app.get('/api/teacher/class/:classId/ranking', async (c) => {
   return c.json({ ok: true, class: cls, members: res.results })
 })
 
+// -------------------- API: teacher (学習分析) --------------------
+app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id, name FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.name, u.grade, p.state_json as stateJson
+    FROM class_members cm
+    JOIN users u ON u.id = cm.user_id
+    LEFT JOIN progress p ON p.user_id = cm.user_id
+    WHERE cm.class_id = ?
+    ORDER BY u.name
+  `).bind(classId).all<any>()
+
+  const studentData: any[] = []
+  const allUnits = new Map<string, { name: string, subject: string }>()
+
+  for (const m of members.results) {
+    let byUnit: any = {}
+    let bySubject: any = {}
+    let learnStreak = 0
+    try {
+      if (m.stateJson) {
+        const state = JSON.parse(m.stateJson)
+        byUnit = state?.metrics?.learn?.byUnit || {}
+        bySubject = state?.metrics?.learn?.bySubject || {}
+        const daily: any = state?.metrics?.daily || {}
+        const activeDays = Object.keys(daily).filter((k: string) => (daily[k]?.training || 0) >= 1).sort()
+        let streak = 0
+        for (let i = activeDays.length - 1; i >= 0; i--) {
+          const dayDate = new Date(activeDays[i] + 'T00:00:00+09:00')
+          const diff = Math.round((Date.now() - dayDate.getTime()) / 86400000)
+          if (diff === activeDays.length - 1 - i) streak++
+          else break
+        }
+        learnStreak = streak
+      }
+    } catch {}
+
+    Object.keys(byUnit).forEach((mode: string) => {
+      const u2 = byUnit[mode]
+      if (!allUnits.has(mode) && u2.unitName) {
+        allUnits.set(mode, { name: u2.unitName, subject: u2.subjectName || '' })
+      }
+    })
+
+    studentData.push({ id: m.id, name: m.name || '', grade: m.grade || '', byUnit, bySubject, learnStreak })
+  }
+
+  const unitKeys: string[] = []
+  allUnits.forEach((_, mode) => {
+    if (studentData.some(s => (s.byUnit[mode]?.total || 0) >= 5)) unitKeys.push(mode)
+  })
+
+  const unitSummary = unitKeys.map(mode => {
+    const info = allUnits.get(mode)!
+    const students = studentData.filter(s => (s.byUnit[mode]?.total || 0) >= 5)
+    const totalAcc = students.reduce((sum: number, s: any) => {
+      const u2 = s.byUnit[mode]
+      return sum + (u2.total ? u2.correct / u2.total : 0)
+    }, 0)
+    const classAvg = students.length > 0 ? Math.round(totalAcc / students.length * 100) : null
+    return { mode, name: info.name, subject: info.subject, classAvg, studentCount: students.length }
+  }).sort((a: any, b: any) => (a.classAvg ?? 101) - (b.classAvg ?? 101))
+
+  return c.json({
+    ok: true, class: cls, unitSummary,
+    unitInfo: Object.fromEntries(allUnits),
+    students: studentData.map((s: any) => ({
+      id: s.id, name: s.name, grade: s.grade, learnStreak: s.learnStreak,
+      bySubject: Object.fromEntries(
+        Object.entries(s.bySubject).map(([k, v]: [string, any]) => [k, {
+          total: v.total || 0, correct: v.correct || 0,
+          acc: v.total ? Math.round(v.correct / v.total * 100) : 0
+        }])
+      ),
+      units: Object.fromEntries(
+        unitKeys.map((mode: string) => {
+          const u2 = s.byUnit[mode]
+          if (!u2 || (u2.total || 0) < 5) return [mode, null]
+          return [mode, { total: u2.total, correct: u2.correct, acc: Math.round(u2.correct / u2.total * 100) }]
+        })
+      )
+    }))
+  })
+})
+
 // -------------------- API: student (クラス参加) --------------------
 
 app.post('/api/student/join-class', async (c) => {
@@ -2728,11 +2820,26 @@ app.get('/teacher', (c) => {
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
+        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
       </div>
 
       <!-- クラス一覧タブ -->
       <div id="tabPaneClasses" class="space-y-4">
         <div id="classList" class="space-y-4"></div>
+      </div>
+
+      <!-- 学習分析タブ -->
+      <div id="tabPaneAnalytics" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="">クラスを選択...</option>
+            </select>
+            <button onclick="loadUnitAnalytics()" class="bg-purple-600 text-white rounded px-3 py-2 text-sm font-bold">📊 分析を表示</button>
+            <span class="text-xs text-slate-400">※5問以上やった単元を表示します</span>
+          </div>
+          <div id="analyticsContent"></div>
+        </div>
       </div>
 
       <!-- 家庭学習提出一覧タブ -->
@@ -2833,7 +2940,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','reports'].forEach(function(t){
+        ['classes','contact','announcements','homework','reports','analytics'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -2845,6 +2952,85 @@ app.get('/teacher', (c) => {
         if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
+      }
+
+      async function loadUnitAnalytics(){
+        const wrap = document.getElementById('analyticsContent');
+        const classId = document.getElementById('analyticsClassFilter').value;
+        if(!classId){ wrap.innerHTML='<p class="text-slate-400 text-sm">クラスを選択してください</p>'; return; }
+        wrap.innerHTML='<p class="text-slate-400 text-sm">読み込み中... ⏳</p>';
+        let data;
+        try{ data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/unit-analytics'); }
+        catch(e){ wrap.innerHTML='<p class="text-red-600 text-sm">読み込みエラー: '+escH(String(e.message||e))+'</p>'; return; }
+
+        const students = data.students || [];
+        const unitSummary = data.unitSummary || [];
+        if(!students.length){ wrap.innerHTML='<p class="text-slate-400 text-sm">まだ生徒がいません</p>'; return; }
+
+        // 教科別色
+        const subjColor = {math:'bg-blue-100 text-blue-800', jp:'bg-pink-100 text-pink-800', soc:'bg-green-100 text-green-800', science:'bg-yellow-100 text-yellow-800'};
+        const subjName = {math:'算数', jp:'国語', soc:'社会', science:'理科'};
+
+        // ① クラス全体の教科別平均
+        let html = '<div class="mb-4"><h3 class="font-bold text-slate-700 mb-2">📊 クラス全体 教科別正解率</h3>';
+        html += '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">';
+        ['math','jp','soc','science'].forEach(subj=>{
+          const rows = students.filter(s=>s.bySubject[subj] && s.bySubject[subj].total >= 10);
+          if(!rows.length){ html += '<div class="rounded-lg border p-3 text-center"><div class="text-xs text-slate-400">'+escH(subjName[subj]||subj)+'</div><div class="font-bold text-slate-400">データなし</div></div>'; return; }
+          const avg = Math.round(rows.reduce((s,r)=>s+(r.bySubject[subj].acc||0),0)/rows.length);
+          const color = avg>=80?'text-green-600':avg>=60?'text-yellow-600':'text-red-600';
+          html += '<div class="rounded-lg border p-3 text-center"><div class="text-xs font-bold text-slate-500">'+escH(subjName[subj]||subj)+'</div>'
+            +'<div class="text-2xl font-black '+color+'">'+avg+'%</div>'
+            +'<div class="text-xs text-slate-400">'+rows.length+'人分</div></div>';
+        });
+        html += '</div></div>';
+
+        // ② 単元別クラス平均（苦手順）
+        if(unitSummary.length > 0){
+          html += '<div class="mb-4"><h3 class="font-bold text-slate-700 mb-2">⚠️ 単元別クラス平均（苦手順）</h3>';
+          html += '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse">';
+          html += '<thead><tr class="bg-slate-50"><th class="border px-2 py-1 text-left">教科</th><th class="border px-2 py-1 text-left">単元名</th><th class="border px-2 py-1 text-right">クラス平均</th><th class="border px-2 py-1 text-right">人数</th></tr></thead><tbody>';
+          unitSummary.slice(0,15).forEach((u,i)=>{
+            const avg = u.classAvg;
+            const bar = avg!=null ? Math.round(avg) : null;
+            const color = avg==null?'text-slate-400':avg>=80?'text-green-600':avg>=60?'text-yellow-600':'text-red-600 font-black';
+            html += '<tr class="'+(i%2===0?'':'bg-slate-50')+'">'
+              +'<td class="border px-2 py-1">'+escH(u.subject||'')+'</td>'
+              +'<td class="border px-2 py-1 font-bold">'+escH(u.name||u.mode)+'</td>'
+              +'<td class="border px-2 py-1 text-right '+color+'">'+(avg!=null?avg+'%':'−')+'</td>'
+              +'<td class="border px-2 py-1 text-right">'+u.studentCount+'</td></tr>';
+          });
+          html += '</tbody></table></div></div>';
+        }
+
+        // ③ 生徒別一覧
+        html += '<div><h3 class="font-bold text-slate-700 mb-2">👤 生徒別 学習状況</h3>';
+        html += '<div class="overflow-x-auto"><table class="w-full text-xs border-collapse">';
+        html += '<thead><tr class="bg-slate-50">'
+          +'<th class="border px-2 py-1 text-left sticky left-0 bg-slate-50">名前</th>'
+          +'<th class="border px-2 py-1 text-center">🔥連続</th>'
+          +'<th class="border px-2 py-1 text-center">算数</th>'
+          +'<th class="border px-2 py-1 text-center">国語</th>'
+          +'<th class="border px-2 py-1 text-center">社会</th>'
+          +'<th class="border px-2 py-1 text-center">理科</th>'
+          +'</tr></thead><tbody>';
+        students.forEach((s,i)=>{
+          const row = '<tr class="'+(i%2===0?'':'bg-slate-50')+'">'
+            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'">'+escH(s.name)+'</td>'
+            +'<td class="border px-2 py-1 text-center">'+(s.learnStreak>0?'🔥'+s.learnStreak:'−')+'</td>'
+            +['math','jp','soc','science'].map(subj=>{
+              const d = s.bySubject[subj];
+              if(!d||d.total<5) return '<td class="border px-2 py-1 text-center text-slate-300">−</td>';
+              const c = d.acc>=80?'text-green-600':d.acc>=60?'text-yellow-600':'text-red-600 font-black';
+              return '<td class="border px-2 py-1 text-center '+c+'">'+d.acc+'%<span class="text-slate-300 ml-0.5 text-[10px]">('+d.total+')</span></td>';
+            }).join('')
+            +'</tr>';
+          html += row;
+        });
+        html += '</tbody></table></div>';
+        html += '<p class="text-xs text-slate-400 mt-1">括弧内は解答数。5問未満は「−」表示。</p></div>';
+
+        wrap.innerHTML = html;
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -2882,6 +3068,12 @@ app.get('/teacher', (c) => {
         const sel = document.getElementById('hwClassFilter');
         sel.innerHTML = '<option value="">全クラス</option>';
         data.classes.forEach(c => { sel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        // 学習分析タブのクラスフィルターも更新
+        const analyticsSel = document.getElementById('analyticsClassFilter');
+        if(analyticsSel){
+          analyticsSel.innerHTML = '<option value="">クラスを選択...</option>';
+          data.classes.forEach(c => { analyticsSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        }
 
         for(const cls of data.classes){
           const card = document.createElement('div');
