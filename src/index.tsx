@@ -2846,11 +2846,32 @@ app.get('/teacher', (c) => {
       <div id="tabPaneHomework" class="hidden space-y-3">
         <!-- Gemini連携パネル -->
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
-          <div class="font-bold text-sm text-amber-800">🤖 Geminiで一括コメント返却</div>
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="font-bold text-sm text-amber-800">🤖 Geminiで一括コメント返却</div>
+            <button onclick="toggleGemPrompt()" class="text-xs text-amber-700 underline hover:no-underline">📝 Gem設定用プロンプトを表示</button>
+          </div>
+          <!-- Gemプロンプト表示エリア（初期非表示） -->
+          <div id="gemPromptArea" class="hidden bg-white border border-amber-300 rounded-lg p-3 space-y-2">
+            <div class="text-xs font-bold text-amber-800">Gemini の「Gem」に以下をシステムプロンプトとして設定してください</div>
+            <pre id="gemPromptText" class="text-xs text-slate-700 whitespace-pre-wrap bg-slate-50 rounded p-2 border select-all">あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
+
+【ルール】
+- 児童の「今日の振り返り」と「過去の振り返り」を読む
+- 各児童への温かく具体的な先生コメントを30文字以内で考える
+- その子の成長・課題・継続している努力を踏まえた個別最適な内容にする
+- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+
+【返答形式】
+{"comments":["コメント1","コメント2","コメント3",...]}
+
+貼り付けられたテキストを読んだら、上記形式で即座に返答してください。</pre>
+            <button onclick="copyGemPrompt()" class="bg-amber-500 text-white rounded px-3 py-1 text-xs font-bold">📋 このプロンプトをコピー</button>
+            <div id="gemPromptCopyMsg" class="text-xs text-emerald-600"></div>
+          </div>
           <div class="flex items-center gap-3 flex-wrap">
-            <div class="flex items-center gap-2 text-xs text-amber-700 font-bold">① </div>
+            <span class="text-xs text-amber-700 font-bold">① </span>
             <button onclick="copyReflections()" class="bg-amber-500 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
-            <div class="text-xs text-amber-600">→ GeminiのGemに貼り付けてコメントを生成 →</div>
+            <span class="text-xs text-amber-600">→ GeminiのGemに貼り付けてコメントを生成 →</span>
           </div>
           <div class="space-y-1">
             <div class="text-xs font-bold text-amber-700">② Geminiの返答をここに貼り付け</div>
@@ -3366,6 +3387,25 @@ app.get('/teacher', (c) => {
           document.body.appendChild(ta); ta.select(); document.execCommand('copy');
           document.body.removeChild(ta);
           msgEl.textContent='✅ '+items.length+'件コピーしました！';
+        });
+      }
+
+      function toggleGemPrompt(){
+        var el = document.getElementById('gemPromptArea');
+        if(el) el.classList.toggle('hidden');
+      }
+      function copyGemPrompt(){
+        var el = document.getElementById('gemPromptText');
+        var msg = document.getElementById('gemPromptCopyMsg');
+        if(!el) return;
+        navigator.clipboard.writeText(el.textContent||'').then(function(){
+          msg.textContent='✅ コピーしました！Geminiの「Gem」→「システムプロンプト」に貼り付けてください';
+        }).catch(function(){
+          var ta=document.createElement('textarea');
+          ta.value=el.textContent||''; ta.style.position='fixed'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          msg.textContent='✅ コピーしました！';
         });
       }
 
