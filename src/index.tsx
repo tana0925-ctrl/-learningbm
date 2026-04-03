@@ -2850,10 +2850,8 @@ app.get('/admin', (c) => {
 
       async function renderUsers(){
         const grade = document.getElementById('filterGrade').value.trim();
-        const cls = document.getElementById('filterClass').value.trim();
         const qs = new URLSearchParams();
         if(grade) qs.set('grade', grade);
-        if(cls) qs.set('class', cls);
         const u = await api('/api/admin/users?' + qs.toString());
         const wrap = document.getElementById('users');
         wrap.innerHTML='';
