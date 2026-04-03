@@ -3031,7 +3031,7 @@ app.get('/teacher', (c) => {
       <!-- タブナビ -->
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
-        <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 れんらくちょう</button>
+        <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
@@ -3111,10 +3111,10 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
-      <!-- れんらくちょうタブ -->
+      <!-- 連絡帳タブ -->
       <div id="tabPaneContact" class="hidden space-y-3">
         <div class="bg-white rounded-xl shadow p-4">
-          <h3 class="font-bold mb-3">れんらくちょうを書く</h3>
+          <h3 class="font-bold mb-3">連絡帳を書く</h3>
           <div class="space-y-2">
             <select id="cnClassFilter" class="border p-2 rounded text-sm bg-white w-full"></select>
             <div class="flex gap-2">
@@ -3137,7 +3137,7 @@ app.get('/teacher', (c) => {
           </div>
         </div>
         <div class="bg-white rounded-xl shadow p-4">
-          <h3 class="font-bold mb-3">送信済みれんらくちょう</h3>
+          <h3 class="font-bold mb-3">送信済み連絡帳</h3>
           <div id="cnList" class="space-y-3 text-sm"></div>
         </div>
       </div>
@@ -3754,7 +3754,7 @@ app.get('/teacher', (c) => {
         }catch(e){ alert('削除エラー: '+String(e.message||e)); }
       }
 
-      // ===== れんらくちょう機能 =====
+      // ===== 連絡帳機能 =====
       async function loadContactNotes(){
         // クラスセレクター更新
         try{
