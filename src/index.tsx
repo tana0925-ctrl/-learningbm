@@ -209,7 +209,6 @@ app.post('/api/auth/signup', async (c) => {
   if (!password || password.length < 6) return jsonError(c, 400, 'password_too_short')
   if (!name) return jsonError(c, 400, 'name_required')
   if (!Number.isFinite(grade) || grade < 1 || grade > 12) return jsonError(c, 400, 'grade_invalid')
-  if (!className) return jsonError(c, 400, 'class_required')
 
   const id = crypto.randomUUID()
   const salt = randomHex(16)
@@ -2563,10 +2562,6 @@ app.get('/signup', (c) => {
               <option value="6">6年</option>
             </select>
           </div>
-          <div class="flex-1">
-            <label class="text-sm font-bold text-gray-700 mb-1 block">クラス</label>
-            <input id="className" class="w-full border p-2 rounded" placeholder="例：1組 / A"/>
-          </div>
         </div>
         <div>
           <label class="text-sm font-bold text-gray-700 mb-1 block">ログインID（自分で決める）</label>
@@ -2589,7 +2584,6 @@ app.get('/signup', (c) => {
         password_too_short: 'パスワードは6文字以上にしてください',
         name_required: '名前を入力してください',
         grade_invalid: '学年を選択してください',
-        class_required: 'クラスを入力してください',
         invalid_json: '入力内容に問題があります',
       };
       document.getElementById('btn').onclick = async () => {
@@ -2598,14 +2592,12 @@ app.get('/signup', (c) => {
         const payload = {
           name: document.getElementById('name').value.trim(),
           grade: gradeVal ? Number(gradeVal) : NaN,
-          className: document.getElementById('className').value.trim(),
           loginId: document.getElementById('loginId').value.trim(),
           password: document.getElementById('password').value,
         };
         // クライアント側バリデーション
         if(!payload.name){ msg.textContent='名前を入力してください'; msg.className='text-sm text-red-600'; return; }
         if(!gradeVal){ msg.textContent='学年を選択してください'; msg.className='text-sm text-red-600'; return; }
-        if(!payload.className){ msg.textContent='クラスを入力してください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.loginId || payload.loginId.length < 3){ msg.textContent='ログインIDは3文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.password || payload.password.length < 6){ msg.textContent='パスワードは6文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
 
@@ -2698,7 +2690,6 @@ app.get('/admin', (c) => {
         <h2 class="font-bold mb-2">児童一覧</h2>
         <div class="flex flex-wrap gap-2 mb-2 text-sm">
           <input id="filterGrade" class="border p-2 rounded" placeholder="学年" />
-          <input id="filterClass" class="border p-2 rounded" placeholder="クラス" />
           <button id="filterBtn" class="bg-slate-700 text-white rounded px-3">絞り込み</button>
           <button id="reloadBtn" class="bg-slate-200 rounded px-3">更新</button>
         </div>
@@ -2871,10 +2862,23 @@ app.get('/admin', (c) => {
           const div = document.createElement('div');
           div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
           const left = document.createElement('div');
-          left.textContent = x.grade + '年 ' + x.className + ' / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' [停止/未承認]');
+          left.textContent = x.grade + '年 / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' [停止/未承認]');
           div.appendChild(left);
           const right = document.createElement('div');
-          right.className='flex gap-2';
+          right.className='flex gap-2 flex-wrap';
+
+          const gradeBtn = document.createElement('button');
+          gradeBtn.className='bg-indigo-600 text-white rounded px-3 py-1';
+          gradeBtn.textContent='学年変更';
+          gradeBtn.onclick = async ()=>{
+            const g = prompt(x.name + ' の学年を入力（1〜6）', x.grade);
+            if(!g) return;
+            const n = Number(g);
+            if(!Number.isInteger(n)||n<1||n>6){ alert('1〜6の数字を入力してください'); return; }
+            await api('/api/admin/user-grade',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({userId:x.id,grade:n})});
+            await loadAll();
+          };
+          right.appendChild(gradeBtn);
 
           const toggle = document.createElement('button');
           toggle.className = x.isActive ? 'bg-amber-600 text-white rounded px-3 py-1' : 'bg-blue-600 text-white rounded px-3 py-1';
