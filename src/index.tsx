@@ -3901,7 +3901,7 @@ app.get('/teacher', (c) => {
           comments = parsed.comments || parsed;
         }catch(_){
           // 番号付きリスト形式をパース
-          comments = raw.split(/\n/).map(function(line){
+          comments = raw.split(/\\n/).map(function(line){
             return line.replace(/^\d+[\.\)：:]\s*/, '').trim();
           }).filter(function(l){ return l.length > 0; });
         }
