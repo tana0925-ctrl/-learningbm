@@ -1483,10 +1483,11 @@ app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
   const classId = c.req.param('classId')
 
-  // 自分のクラスか確認
-  const cls = await c.env.DB.prepare(
-    `SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`
-  ).bind(classId, u.id).first<any>()
+  // 自分のクラスか確認（管理者は全クラスOK）
+  const isAdmin = u.role === 'admin'
+  const cls = isAdmin
+    ? await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   const body = await c.req.json<any>().catch(() => null)
@@ -1514,9 +1515,10 @@ app.get('/api/teacher/class/:classId/weekly-menu', async (c) => {
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
   const classId = c.req.param('classId')
 
-  const cls = await c.env.DB.prepare(
-    `SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`
-  ).bind(classId, u.id).first<any>()
+  const isAdmin = u.role === 'admin'
+  const cls = isAdmin
+    ? await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   const weekKey = c.req.query('weekKey') || getWeekKey()
