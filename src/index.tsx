@@ -1612,13 +1612,13 @@ app.post('/api/teacher/weekly-plan/:id/approve', async (c) => {
   if (!row) return jsonError(c, 404, 'not_found')
   if (row.plan_approved) return jsonError(c, 400, 'already_approved')
 
-  const coins = 5
+  const coins = 300, shards = 5
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE student_weekly_plans SET plan_approved=1, plan_approved_at=?, plan_reward_coins=? WHERE id=?`).bind(Date.now(), coins, planId),
-    c.env.DB.prepare(`UPDATE users SET coins = coins + ? WHERE id = ?`).bind(coins, row.user_id),
+    c.env.DB.prepare(`UPDATE users SET coins = coins + ?, shards = shards + ? WHERE id = ?`).bind(coins, shards, row.user_id),
   ])
 
-  return c.json({ ok: true, coins })
+  return c.json({ ok: true, coins, shards })
 })
 
 // 先生：振り返りにコメント付きで返却 → 生徒にコイン付与
@@ -1639,13 +1639,13 @@ app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
   if (!row) return jsonError(c, 404, 'not_found')
   if (row.reflection_returned_at) return jsonError(c, 400, 'already_returned')
 
-  const coins = 5
+  const coins = 300, shards = 5
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?`).bind(comment, Date.now(), coins, planId),
-    c.env.DB.prepare(`UPDATE users SET coins = coins + ? WHERE id = ?`).bind(coins, row.user_id),
+    c.env.DB.prepare(`UPDATE users SET coins = coins + ?, shards = shards + ? WHERE id = ?`).bind(coins, shards, row.user_id),
   ])
 
-  return c.json({ ok: true, coins })
+  return c.json({ ok: true, coins, shards })
 })
 
 // -------------------- API: realtime battle --------------------
@@ -3790,7 +3790,7 @@ app.get('/teacher', (c) => {
 
             // ヘッダー + 承認バッジ
             const approvedBadge = p.planApproved
-              ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+5coin)</span>'
+              ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+300coin+5かけら)</span>'
               : '';
             let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
               + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+'</div>'
@@ -3815,7 +3815,7 @@ app.get('/teacher', (c) => {
 
             // 計画承認ボタン（未承認の場合のみ）
             if(!p.planApproved){
-              html += '<div class="flex justify-end"><button class="bg-green-600 text-white rounded px-3 py-1 text-xs font-bold hover:opacity-90" onclick="approvePlan('+p.id+',this)">✅ 計画OK (+5coin)</button></div>';
+              html += '<div class="flex justify-end"><button class="bg-green-600 text-white rounded px-3 py-1 text-xs font-bold hover:opacity-90" onclick="approvePlan('+p.id+',this)">✅ 計画OK (+300coin+5かけら)</button></div>';
             }
 
             // 金曜の振り返り
@@ -3826,13 +3826,13 @@ app.get('/teacher', (c) => {
               html += '<div class="text-xs mt-1 p-1.5 bg-orange-50 rounded border border-orange-200 space-y-1">'
                 + '<div><span class="font-bold text-orange-700">🔄 振り返り：</span>'+escH(reflection)+'</div>';
               if(p.reflectionReturnedAt){
-                html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+5coin)</span></div>';
+                html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+300coin+5かけら)</span></div>';
               } else {
                 html += '<div class="space-y-1">'
                   + '<textarea id="refComment_'+p.id+'" class="w-full border rounded p-1.5 text-xs" rows="2" placeholder="振り返りへのコメント（AIで生成も可）"></textarea>'
                   + '<div class="flex gap-1">'
                   + '<button class="bg-purple-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="aiReflectionComment('+p.id+',&#39;'+escH(p.studentName).replace(/'/g,'')+'&#39;,&#39;'+escH(reflection).replace(/'/g,'')+'&#39;)">🤖 AIコメント生成</button>'
-                  + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="returnReflection('+p.id+',this)">🔄 返却 (+5coin)</button>'
+                  + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="returnReflection('+p.id+',this)">🔄 返却 (+300coin+5かけら)</button>'
                   + '</div></div>';
               }
               html += '</div>';
