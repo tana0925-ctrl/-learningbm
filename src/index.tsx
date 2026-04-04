@@ -1551,6 +1551,20 @@ app.get('/api/student/weekly-menu', async (c) => {
   return c.json({ ok: true, menu: row || null, weekKey })
 })
 
+// 生徒：計画・振り返りの承認状況を取得
+app.get('/api/student/weekly-plan-status', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 403, 'forbidden')
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+  const row = await c.env.DB.prepare(`
+    SELECT plan_approved as planApproved, plan_reward_coins as planRewardCoins,
+           reflection_comment as reflectionComment, reflection_returned_at as reflectionReturnedAt,
+           reflection_reward_coins as reflectionRewardCoins
+    FROM student_weekly_plans WHERE user_id=? AND week_key=?
+  `).bind(u.id, weekKey).first<any>()
+  return c.json({ ok: true, status: row || null })
+})
+
 // 生徒：週間計画を提出
 app.post('/api/student/weekly-plan', async (c) => {
   const u = c.get('user')
@@ -1613,10 +1627,9 @@ app.post('/api/teacher/weekly-plan/:id/approve', async (c) => {
   if (row.plan_approved) return jsonError(c, 400, 'already_approved')
 
   const coins = 300, shards = 5
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE student_weekly_plans SET plan_approved=1, plan_approved_at=?, plan_reward_coins=? WHERE id=?`).bind(Date.now(), coins, planId),
-    c.env.DB.prepare(`UPDATE users SET coins = coins + ?, shards = shards + ? WHERE id = ?`).bind(coins, shards, row.user_id),
-  ])
+  await c.env.DB.prepare(
+    `UPDATE student_weekly_plans SET plan_approved=1, plan_approved_at=?, plan_reward_coins=? WHERE id=?`
+  ).bind(Date.now(), coins, planId).run()
 
   return c.json({ ok: true, coins, shards })
 })
@@ -1640,10 +1653,9 @@ app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
   if (row.reflection_returned_at) return jsonError(c, 400, 'already_returned')
 
   const coins = 300, shards = 5
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?`).bind(comment, Date.now(), coins, planId),
-    c.env.DB.prepare(`UPDATE users SET coins = coins + ?, shards = shards + ? WHERE id = ?`).bind(coins, shards, row.user_id),
-  ])
+  await c.env.DB.prepare(
+    `UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?`
+  ).bind(comment, Date.now(), coins, planId).run()
 
   return c.json({ ok: true, coins, shards })
 })
