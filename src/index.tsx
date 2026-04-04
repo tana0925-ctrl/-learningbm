@@ -1302,8 +1302,9 @@ app.post('/api/homework/submit', async (c) => {
     INSERT INTO homework_submissions
       (id, user_id, day_key, submitted_at, todo, why, aim, minutes, end_weather,
        weather_reason, next_improve, rest_day, streak_after,
-       reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id,
+       self_study_plan, weekly_plan, weekly_reflection)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).bind(
     id, u.id, dayKey, Date.now(),
     String(body.todo || '').slice(0, 500),
@@ -1320,7 +1321,10 @@ app.post('/api/homework/submit', async (c) => {
     Number(body.rewardShards || 0),
     Number(body.bonusCoins || 0),
     Number(body.bonusShards || 0),
-    teacherId
+    teacherId,
+    String(body.selfStudyPlan || '').slice(0, 500),
+    String(body.weeklyPlan || '').slice(0, 1000),
+    String(body.weeklyReflection || '').slice(0, 1000)
   ).run()
 
   return c.json({ ok: true, id })
@@ -1338,6 +1342,7 @@ app.put('/api/homework/submit', async (c) => {
   const result = await c.env.DB.prepare(`
     UPDATE homework_submissions
     SET todo=?, why=?, aim=?, minutes=?, end_weather=?, weather_reason=?, next_improve=?,
+        self_study_plan=?, weekly_plan=?, weekly_reflection=?,
         updated_at=?
     WHERE user_id=? AND day_key=?
   `).bind(
@@ -1348,6 +1353,9 @@ app.put('/api/homework/submit', async (c) => {
     String(body.endWeather || 'sun'),
     String(body.weatherReason || '').slice(0, 500),
     String(body.nextImprove || '').slice(0, 500),
+    String(body.selfStudyPlan || '').slice(0, 500),
+    String(body.weeklyPlan || '').slice(0, 1000),
+    String(body.weeklyReflection || '').slice(0, 1000),
     Date.now(),
     u.id, dayKey
   ).run()
@@ -1456,6 +1464,90 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
 
   return c.json({ ok: true })
 })
+
+// -------------------- API: 先生メニュー (class weekly menu) --------------------
+
+// 今週のキーを返す (ISO week: YYYY-Wnn)
+function getWeekKey(date?: Date): string {
+  const d = date || new Date()
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7))
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1))
+  const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  return `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
+}
+
+// 教師：今週の先生メニューを設定
+app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.param('classId')
+
+  // 自分のクラスか確認
+  const cls = await c.env.DB.prepare(
+    `SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`
+  ).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const weekKey = String(body.weekKey || getWeekKey()).slice(0, 8)
+  const kanjiPage = String(body.kanjiPage || '').slice(0, 100)
+  const keisanPage = String(body.keisanPage || '').slice(0, 100)
+  const otherTasks = String(body.otherTasks || '').slice(0, 500)
+
+  await c.env.DB.prepare(`
+    INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(class_id, week_key) DO UPDATE SET
+      kanji_page=excluded.kanji_page, keisan_page=excluded.keisan_page,
+      other_tasks=excluded.other_tasks, updated_at=excluded.updated_at
+  `).bind(classId, weekKey, kanjiPage, keisanPage, otherTasks, Date.now()).run()
+
+  return c.json({ ok: true, weekKey })
+})
+
+// 教師：先生メニュー一覧を取得
+app.get('/api/teacher/class/:classId/weekly-menu', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.param('classId')
+
+  const cls = await c.env.DB.prepare(
+    `SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`
+  ).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+  const row = await c.env.DB.prepare(
+    `SELECT * FROM class_weekly_menu WHERE class_id=? AND week_key=? LIMIT 1`
+  ).bind(classId, weekKey).first<any>()
+
+  return c.json({ ok: true, menu: row || null, weekKey })
+})
+
+// 生徒：自分のクラスの今週の先生メニューを取得
+app.get('/api/student/weekly-menu', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+
+  const row = await c.env.DB.prepare(`
+    SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+           cwm.other_tasks as otherTasks, cwm.week_key as weekKey
+    FROM class_weekly_menu cwm
+    JOIN class_members cm ON cm.class_id = cwm.class_id
+    WHERE cm.user_id = ? AND cwm.week_key = ?
+    LIMIT 1
+  `).bind(u.id, weekKey).first<any>()
+
+  return c.json({ ok: true, menu: row || null, weekKey })
+})
+
+// 生徒：提出データに週間計画・振り返りを含める（既存submitのPUT拡張）
+// → 既存の PUT /api/homework/submit に self_study_plan, weekly_plan, weekly_reflection を追加
 
 // -------------------- API: realtime battle --------------------
 
@@ -3079,6 +3171,34 @@ app.get('/teacher', (c) => {
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
+        <!-- 先生メニュー（週の課題設定） -->
+        <div class="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+          <div class="font-bold text-sm text-green-800">📋 先生メニュー（今週の課題）</div>
+          <div class="text-xs text-green-700 mb-2">クラス全体に出す漢字スキル・計算スキルのページ指示を設定します。生徒の家庭学習シートに表示されます。</div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <select id="menuClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+            <span id="menuWeekLabel" class="text-xs text-slate-500 font-bold"></span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label class="text-xs font-bold text-green-800">漢字スキル</label>
+              <input id="menuKanjiPage" class="w-full border border-green-300 rounded-lg p-2 text-sm" placeholder="例：p.20まで"/>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-green-800">計算スキル</label>
+              <input id="menuKeisanPage" class="w-full border border-green-300 rounded-lg p-2 text-sm" placeholder="例：p.15まで"/>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-green-800">その他</label>
+              <input id="menuOtherTasks" class="w-full border border-green-300 rounded-lg p-2 text-sm" placeholder="例：音読3回"/>
+            </div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">💾 保存</button>
+            <span id="menuSaveMsg" class="text-xs text-green-700"></span>
+          </div>
+        </div>
+
         <!-- Gemini連携パネル -->
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
@@ -3220,7 +3340,7 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework') loadHomework();
+        if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
         if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
@@ -3472,6 +3592,71 @@ app.get('/teacher', (c) => {
       }
 
       // 家庭学習提出一覧
+      // ISO週番号キーを返す
+      function getWeekKeyLocal(date){
+        var d = date || new Date();
+        var tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+        var yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+        var weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        return tmp.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+      }
+
+      async function loadWeeklyMenu(){
+        try{
+          var classFilter = document.getElementById('menuClassFilter');
+          var weekLabel = document.getElementById('menuWeekLabel');
+          var wk = getWeekKeyLocal(new Date());
+          if(weekLabel) weekLabel.textContent = '今週: ' + wk;
+
+          // クラス一覧をメニューフィルターにも反映
+          if(classFilter && classFilter.options.length <= 1){
+            var cdata = await api('/api/teacher/classes');
+            var classes = (cdata && cdata.classes) || [];
+            classFilter.innerHTML = '';
+            classes.forEach(function(cls){
+              var opt = document.createElement('option');
+              opt.value = cls.id;
+              opt.textContent = cls.name;
+              classFilter.appendChild(opt);
+            });
+          }
+
+          var classId = classFilter ? classFilter.value : '';
+          if(!classId) return;
+
+          var data = await api('/api/teacher/class/' + encodeURIComponent(classId) + '/weekly-menu?weekKey=' + encodeURIComponent(wk));
+          var menu = (data && data.menu) || {};
+          document.getElementById('menuKanjiPage').value = menu.kanji_page || menu.kanjiPage || '';
+          document.getElementById('menuKeisanPage').value = menu.keisan_page || menu.keisanPage || '';
+          document.getElementById('menuOtherTasks').value = menu.other_tasks || menu.otherTasks || '';
+        }catch(e){ console.warn('loadWeeklyMenu error:', e); }
+      }
+
+      async function saveWeeklyMenu(){
+        var msg = document.getElementById('menuSaveMsg');
+        try{
+          var classId = document.getElementById('menuClassFilter').value;
+          if(!classId){ if(msg) msg.textContent = 'クラスを選択してください'; return; }
+          var wk = getWeekKeyLocal(new Date());
+          var body = {
+            weekKey: wk,
+            kanjiPage: document.getElementById('menuKanjiPage').value || '',
+            keisanPage: document.getElementById('menuKeisanPage').value || '',
+            otherTasks: document.getElementById('menuOtherTasks').value || '',
+          };
+          await api('/api/teacher/class/' + encodeURIComponent(classId) + '/weekly-menu', {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify(body),
+          });
+          if(msg) msg.textContent = '✅ 保存しました（' + wk + '）';
+          setTimeout(function(){ if(msg) msg.textContent = ''; }, 3000);
+        }catch(e){
+          if(msg) msg.textContent = '⚠️ 保存に失敗しました';
+        }
+      }
+
       async function loadHomework(){
         const wrap = document.getElementById('hwList');
         wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
