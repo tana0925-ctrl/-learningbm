@@ -1420,6 +1420,8 @@ app.get('/api/teacher/homework', async (c) => {
            hs.bonus_coins as bonusCoins, hs.bonus_shards as bonusShards,
            hs.teacher_comment as teacherComment, hs.has_physical as hasPhysical,
            hs.returned_at as returnedAt, hs.reward_claimed as rewardClaimed,
+           hs.weekly_plan as weeklyPlan, hs.weekly_reflection as weeklyReflection,
+           hs.self_study_plan as selfStudyPlan,
            u.id as userId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
@@ -3701,6 +3703,9 @@ app.get('/teacher', (c) => {
             + '<div><b>'+s.minutes+'分</b> 学習 / 学びの天気: '+weatherEmoji+'</div>'
             + (s.weatherReason ? '<div><b>天気の理由：</b>'+escH(s.weatherReason)+'</div>' : '')
             + (s.nextImprove  ? '<div><b>次にするには：</b>'+escH(s.nextImprove)+'</div>' : '')
+            + (s.selfStudyPlan ? '<div class="mt-1 p-1.5 bg-blue-50 rounded border border-blue-200"><b>📖 自主学習：</b>'+escH(s.selfStudyPlan)+'</div>' : '')
+            + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
+            + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
             + '</div>';
 
           if(!returned){
