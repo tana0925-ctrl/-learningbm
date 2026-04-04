@@ -1529,10 +1529,11 @@ app.get('/api/teacher/class/:classId/weekly-menu', async (c) => {
   return c.json({ ok: true, menu: row || null, weekKey })
 })
 
-// 生徒：自分のクラスの今週の先生メニューを取得
+// 生徒（または管理者）：自分のクラスの今週の先生メニューを取得
 app.get('/api/student/weekly-menu', async (c) => {
   const u = c.get('user')
-  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  if (!u) return jsonError(c, 403, 'forbidden')
+  // admin/teacher も閲覧可能（ゲーム画面確認用）
 
   const weekKey = c.req.query('weekKey') || getWeekKey()
 
