@@ -966,6 +966,7 @@ app.get('/api/teacher/classes', async (c) => {
   return c.json({ ok: true, classes: res.results })
 })
 
+// クラスのメンバー一覧app.get('/api/teacher/class/:classId/members', async (c) => {  const u = requireTeacher(c)  if (!u) return jsonError(c, 401, 'unauthorized')  const classId = c.req.param('classId')  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()  if (!cls) return jsonError(c, 404, 'class not found')  const rows = await c.env.DB.prepare(    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'  ).bind(classId).all<any>()  return c.json({ ok: true, members: rows.results })})
 // クラス削除
 app.delete('/api/teacher/class/:classId', async (c) => {
   const u = requireTeacher(c)
@@ -2390,21 +2391,42 @@ app.get('/api/teacher/messages', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const classId = c.req.query('classId') || ''
+  const studentId = c.req.query('studentId') || ''
   if (!classId) return jsonError(c, 400, 'classId required')
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 403, 'not your class')
-  const rows = await c.env.DB.prepare(
-    `SELECT m.id, m.sender_id as senderId, m.sender_role as senderRole, m.recipient_id as recipientId, m.body, m.read_at as readAt, m.created_at as createdAt,
+  let query = `SELECT m.id, m.sender_id as senderId, m.sender_role as senderRole, m.recipient_id as recipientId, m.body, m.read_at as readAt, m.created_at as createdAt,
      CASE WHEN m.sender_role='student' THEN u.name ELSE '(先生)' END as senderName,
      CASE WHEN m.sender_role='teacher' THEN u2.name ELSE NULL END as recipientName
      FROM messages m
      LEFT JOIN users u ON m.sender_id = u.id
      LEFT JOIN users u2 ON m.recipient_id = u2.id
-     WHERE m.class_id=?
-     ORDER BY m.created_at DESC LIMIT 100`
-  ).bind(classId).all()
+     WHERE m.class_id=?`
+  const params: string[] = [classId]
+  if (studentId) {
+    query += ` AND (m.sender_id=? OR m.recipient_id=?)`
+    params.push(studentId, studentId)
+  }
+  query += ` ORDER BY m.created_at DESC LIMIT 100`
+  const stmt = c.env.DB.prepare(query)
+  const rows = await (params.length === 1 ? stmt.bind(params[0]) : stmt.bind(params[0], params[1], params[2])).all()
   return c.json({ ok: true, messages: rows.results })
-})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Teacher: mark message as read
 app.post('/api/teacher/message/:id/read', async (c) => {
@@ -3547,7 +3569,7 @@ app.get('/teacher', (c) => {
 
     </div>
 
-      <!-- メールタブ -->      <div id="tabPaneMail" class="hidden space-y-3">        <div class="bg-white rounded-xl shadow p-4">          <h3 class="font-bold text-sm mb-2">✉️ メッセージ送信</h3>          <div class="flex gap-2 mb-2 flex-wrap">            <select id="mailClassFilter" class="border p-2 rounded text-sm bg-white"></select>            <select id="mailStudentFilter" class="border p-2 rounded text-sm bg-white flex-1"><option value="">生徒を選択...</option></select>          </div>          <textarea id="mailBody" class="w-full border p-2 rounded text-sm" rows="3" placeholder="メッセージを入力..."></textarea>          <div class="flex gap-2 mt-2 items-center">            <button onclick="sendTeacherMail()" class="bg-blue-500 hover:bg-blue-600 text-white rounded px-4 py-2 font-bold text-sm">📨 送信</button>            <p id="mailMsg" class="text-sm"></p>          </div>        </div>        <div class="bg-white rounded-xl shadow p-4">          <div class="flex items-center justify-between mb-2">            <h3 class="font-bold text-sm">📬 メッセージ一覧</h3>            <button onclick="loadTeacherMail()" class="text-xs text-blue-600 underline">更新</button>          </div>          <div id="mailList" class="space-y-2 text-sm"></div>        </div>      </div>
+      <!-- メールタブ -->      <div id="tabPaneMail" class="hidden">        <div id="mailStudentListView">          <div class="flex gap-2 mb-3 items-center">            <select id="mailClassFilter" class="border p-2 rounded text-sm bg-white font-bold"></select>          </div>          <div id="mailStudentCards" class="space-y-1"></div>        </div>        <div id="mailChatView" class="hidden" style="height:70vh;display:none;">          <div class="flex items-center gap-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-3 rounded-t-xl">            <button onclick="closeMailChat()" class="text-white font-bold text-lg">←</button>            <span id="mailChatName" class="font-bold"></span>          </div>          <div id="mailChatMessages" class="overflow-y-auto p-3 space-y-2 bg-[#e2efe9]" style="height:calc(70vh - 110px);"></div>          <div class="flex gap-2 items-end bg-white border-t p-2 rounded-b-xl">            <textarea id="mailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-teal-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>            <button onclick="sendTeacherMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-teal-500 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>          </div>          <p id="mailMsg" class="text-xs text-center py-1"></p>        </div>      </div>
     <script>
       async function api(path, opt){
         const r = await fetch(path, opt);
@@ -4286,6 +4308,9 @@ app.get('/teacher', (c) => {
       // 報告一覧
 
       // ===== メール機能 =====
+      var _mailCurrentStudent = null;
+      var _mailCurrentClass = null;
+
       async function loadTeacherMail(){
         try{
           var clsData = await api('/api/teacher/classes');
@@ -4293,63 +4318,125 @@ app.get('/teacher', (c) => {
           var cur = sel.value;
           sel.innerHTML = '';
           (clsData.classes||[]).forEach(function(c,i){ sel.innerHTML += '<option value="'+escH(c.id)+'"'+(c.id===cur||(!cur&&i===0)?' selected':'')+'>'+escH(c.name)+'</option>'; });
-          sel.onchange = function(){ loadMailStudents(); loadTeacherMailList(); };
-          loadMailStudents();
-          loadTeacherMailList();
+          sel.onchange = function(){ loadMailStudentList(); };
+          _mailCurrentClass = sel.value;
+          loadMailStudentList();
         }catch(e){}
       }
-      async function loadMailStudents(){
+
+      async function loadMailStudentList(){
         var classId = document.getElementById('mailClassFilter').value;
-        var sel = document.getElementById('mailStudentFilter');
-        sel.innerHTML = '<option value="">生徒を選択...</option>';
+        _mailCurrentClass = classId;
+        var wrap = document.getElementById('mailStudentCards');
+        wrap.innerHTML = '<p class="text-slate-400 text-sm">読み込み中...</p>';
         if(!classId) return;
         try{
           var data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/members');
-          (data.members||[]).forEach(function(m){ sel.innerHTML += '<option value="'+escH(m.userId)+'">'+escH(m.name)+'</option>'; });
-        }catch(e){}
-      }
-      async function loadTeacherMailList(){
-        var classId = document.getElementById('mailClassFilter').value;
-        var wrap = document.getElementById('mailList');
-        wrap.innerHTML = '<p class="text-slate-400">読み込み中...</p>';
-        if(!classId){ wrap.innerHTML=''; return; }
-        try{
-          var data = await api('/api/teacher/messages?classId='+encodeURIComponent(classId));
-          var list = data.messages || [];
-          if(!list.length){ wrap.innerHTML='<p class="text-slate-400 text-xs">メッセージはありません</p>'; return; }
+          var members = data.members || [];
+          if(!members.length){ wrap.innerHTML='<p class="text-slate-400 text-sm">生徒がいません</p>'; return; }
+          var unreadData = await api('/api/teacher/messages?classId='+encodeURIComponent(classId));
+          var msgs = unreadData.messages || [];
+          var unreadMap = {};
+          var lastMsgMap = {};
+          msgs.forEach(function(m){
+            var sid = m.senderRole==='student' ? m.senderId : m.recipientId;
+            if(!lastMsgMap[sid]) lastMsgMap[sid] = m;
+            if(m.senderRole==='student' && !m.readAt){ unreadMap[sid] = (unreadMap[sid]||0) + 1; }
+          });
           wrap.innerHTML='';
-          list.forEach(function(m){
-            var isFromMe = m.senderRole === 'teacher';
+          members.forEach(function(m){
             var card = document.createElement('div');
-            card.className = 'border rounded-lg p-2 ' + (isFromMe ? 'bg-blue-50 border-blue-200 ml-8' : 'bg-white border-slate-200 mr-8' + (!m.readAt && !isFromMe ? ' ring-2 ring-orange-300' : ''));
-            var header = isFromMe ? '<span class="text-blue-600 font-bold">→ '+escH(m.recipientName||'')+'さんへ</span>' : '<span class="text-orange-600 font-bold">← '+escH(m.senderName||'')+'さんから</span>';
-            var readBadge = '';
-            if(isFromMe){ readBadge = m.readAt ? '<span class="text-xs text-green-600">✓既読</span>' : '<span class="text-xs text-slate-400">未読</span>'; }
-            card.innerHTML = '<div class="flex justify-between items-center mb-1">'+header+'<div class="flex gap-2 items-center">'+readBadge+'<span class="text-xs text-slate-400">'+escH((m.createdAt||'').slice(0,16))+'</span></div></div><div class="text-sm">'+escH(m.body)+'</div>';
-            if(!isFromMe && !m.readAt){
-              var btn = document.createElement('button');
-              btn.className = 'mt-1 text-xs bg-orange-500 text-white rounded px-2 py-0.5';
-              btn.textContent = '✓ 既読にする';
-              btn.onclick = (function(mid){ return async function(){ await api('/api/teacher/message/'+mid+'/read',{method:'POST'}); loadTeacherMailList(); }; })(m.id);
-              card.appendChild(btn);
-            }
+            var unread = unreadMap[m.userId] || 0;
+            var lastMsg = lastMsgMap[m.userId];
+            var preview = lastMsg ? lastMsg.body.slice(0,30) : 'メッセージなし';
+            var time = lastMsg ? (lastMsg.createdAt||'').slice(11,16) : '';
+            card.className = 'flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm cursor-pointer hover:bg-slate-50 border' + (unread ? ' border-orange-300' : ' border-slate-100');
+            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(m.name.slice(0,1))+'</div>'
+              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(m.name)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
+              + (unread ? '<span class="bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold">'+unread+'</span>' : '');
+            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:m.name});
             wrap.appendChild(card);
           });
-        }catch(e){ wrap.innerHTML='<p class="text-red-600 text-xs">読み込みエラー</p>'; }
+        }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm">読み込みエラー</p>'; }
       }
+
+      function openMailChat(studentId, studentName){
+        _mailCurrentStudent = studentId;
+        document.getElementById('mailChatName').textContent = studentName + 'さん';
+        document.getElementById('mailStudentListView').style.display='none';
+        var cv = document.getElementById('mailChatView');
+        cv.classList.remove('hidden'); cv.style.display='';
+        loadMailChat();
+      }
+
+      function closeMailChat(){
+        _mailCurrentStudent = null;
+        document.getElementById('mailStudentListView').style.display='';
+        document.getElementById('mailChatView').style.display='none';
+        loadMailStudentList();
+      }
+
+      async function loadMailChat(){
+        var wrap = document.getElementById('mailChatMessages');
+        wrap.innerHTML = '<p class="text-sm text-slate-400 text-center">読み込み中...</p>';
+        if(!_mailCurrentClass || !_mailCurrentStudent) return;
+        try{
+          var data = await api('/api/teacher/messages?classId='+encodeURIComponent(_mailCurrentClass)+'&studentId='+encodeURIComponent(_mailCurrentStudent));
+          var list = data.messages || [];
+          if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-4">まだメッセージはありません</p>'; return; }
+          wrap.innerHTML='';
+          var prevDate='';
+          list.slice().reverse().forEach(function(m){
+            var isFromMe = m.senderRole === 'teacher';
+            var dt = (m.createdAt||'').slice(0,10);
+            if(dt !== prevDate){
+              wrap.insertAdjacentHTML('beforeend','<div class="text-center my-2"><span class="bg-black/10 text-slate-600 text-[10px] rounded-full px-3 py-0.5">'+escH(dt)+'</span></div>');
+              prevDate = dt;
+            }
+            var row = document.createElement('div');
+            row.className = 'flex ' + (isFromMe ? 'justify-end' : 'justify-start') + ' mb-1';
+            var bubble = document.createElement('div');
+            bubble.className = 'max-w-[75%]';
+            var nameTag = '';
+            if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">'+escH(m.senderName||'生徒')+'</div>'; }
+            var time = escH((m.createdAt||'').slice(11,16));
+            var readMark = '';
+            if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-teal-600">既読</span> '; }
+            var msgDiv = document.createElement('div');
+            if(isFromMe){
+              msgDiv.className = 'rounded-2xl rounded-br-sm px-3 py-2 text-sm shadow-sm bg-teal-500 text-white';
+            } else {
+              msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
+            }
+            msgDiv.textContent = m.body;
+            bubble.insertAdjacentHTML('beforeend', nameTag);
+            bubble.appendChild(msgDiv);
+            bubble.insertAdjacentHTML('beforeend', '<div class="flex items-end gap-1 mt-0.5 '+(isFromMe?'justify-end mr-1':'ml-1')+'"><span class="text-[10px] text-slate-400">'+readMark+time+'</span></div>');
+            if(!isFromMe && !m.readAt){
+              msgDiv.onclick = (function(mid){ return async function(){
+                await api('/api/teacher/message/'+mid+'/read',{method:'POST'});
+                loadMailChat();
+              }; })(m.id);
+              msgDiv.style.cursor='pointer';
+              msgDiv.title='クリックで既読';
+            }
+            row.appendChild(bubble);
+            wrap.appendChild(row);
+          });
+          wrap.scrollTop = wrap.scrollHeight;
+        }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm text-center">読み込みエラー</p>'; }
+      }
+
       async function sendTeacherMail(){
-        var classId = document.getElementById('mailClassFilter').value;
-        var studentId = document.getElementById('mailStudentFilter').value;
+        if(!_mailCurrentStudent){ return; }
         var body = document.getElementById('mailBody').value.trim();
         var msg = document.getElementById('mailMsg');
-        if(!studentId){ msg.textContent='生徒を選択してください'; msg.className='text-sm text-red-600'; return; }
-        if(!body){ msg.textContent='メッセージを入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!body){ msg.textContent='メッセージを入力してください'; msg.className='text-xs text-center py-1 text-red-600'; return; }
         try{
-          await api('/api/teacher/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,studentId:studentId,body:body})});
-          msg.textContent='送信しました！'; msg.className='text-sm text-green-600';
-          document.getElementById('mailBody').value='';
-          loadTeacherMailList();
-        }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
+          await api('/api/teacher/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:_mailCurrentClass,studentId:_mailCurrentStudent,body:body})});
+          msg.textContent=''; document.getElementById('mailBody').value='';
+          loadMailChat();
+        }catch(e){ msg.textContent='送信エラー'; msg.className='text-xs text-center py-1 text-red-600'; }
       }
 
       // ===== 連絡帳機能 =====
