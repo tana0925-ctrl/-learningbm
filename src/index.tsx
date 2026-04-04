@@ -1551,8 +1551,48 @@ app.get('/api/student/weekly-menu', async (c) => {
   return c.json({ ok: true, menu: row || null, weekKey })
 })
 
-// 生徒：提出データに週間計画・振り返りを含める（既存submitのPUT拡張）
-// → 既存の PUT /api/homework/submit に self_study_plan, weekly_plan, weekly_reflection を追加
+// 生徒：週間計画を提出
+app.post('/api/student/weekly-plan', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !body.weekKey || !body.plans) return jsonError(c, 400, 'invalid')
+
+  const weekKey = String(body.weekKey).slice(0, 10)
+  const plansJson = JSON.stringify(body.plans).slice(0, 5000)
+
+  await c.env.DB.prepare(`
+    INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, week_key) DO UPDATE SET plans_json=excluded.plans_json, updated_at=excluded.updated_at
+  `).bind(u.id, weekKey, plansJson, Date.now()).run()
+
+  return c.json({ ok: true })
+})
+
+// 先生：クラスの生徒の週間計画を取得
+app.get('/api/teacher/weekly-plans', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+
+  let sql = `
+    SELECT swp.plans_json as plansJson, swp.updated_at as updatedAt, swp.week_key as weekKey,
+           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+    FROM student_weekly_plans swp
+    JOIN users u ON u.id = swp.user_id
+    JOIN class_members cm ON cm.user_id = swp.user_id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE swp.week_key = ?
+  `
+  const binds: any[] = [u.id, weekKey]
+  if (classId) { sql += ` AND cl.id = ?`; binds.push(classId) }
+  sql += ` ORDER BY u.grade, u.class_name, u.name`
+
+  const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
+  return c.json({ ok: true, plans: res.results, weekKey })
+})
 
 // -------------------- API: realtime battle --------------------
 
@@ -3204,6 +3244,17 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        <!-- 生徒の今週の計画 -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画</div>
+            <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
+          </div>
+          <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
+            <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
+          </div>
+        </div>
+
         <!-- Gemini連携パネル -->
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
@@ -3659,6 +3710,61 @@ app.get('/teacher', (c) => {
           setTimeout(function(){ if(msg) msg.textContent = ''; }, 3000);
         }catch(e){
           if(msg) msg.textContent = '⚠️ 保存に失敗しました';
+        }
+      }
+
+      async function loadStudentPlans(){
+        const wrap = document.getElementById('studentPlansList');
+        if(!wrap) return;
+        wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
+        const classId = document.getElementById('hwClassFilter')?.value || '';
+        const wk = getWeekKeyLocal();
+        let qs = '?weekKey='+encodeURIComponent(wk);
+        if(classId) qs += '&classId='+encodeURIComponent(classId);
+        try{
+          const data = await api('/api/teacher/weekly-plans'+qs);
+          const plans = data.plans || [];
+          if(!plans.length){ wrap.innerHTML='<p class="text-slate-400">まだ計画が提出されていません</p>'; return; }
+          const dayLabels = ['月','火','水','木','金'];
+          wrap.innerHTML = '';
+          for(const p of plans){
+            let parsed = {};
+            try{ parsed = JSON.parse(p.plansJson || '{}'); }catch(_){}
+            const modified = parsed._modified || {};
+            const card = document.createElement('div');
+            card.className = 'border rounded-lg p-2 bg-white space-y-1';
+            let html = '<div class="flex items-center justify-between">'
+              + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span></div>'
+              + '<div class="text-[10px] text-slate-400">'+new Date(p.updatedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'
+              + '</div>';
+            html += '<div class="grid grid-cols-5 gap-1 text-xs">';
+            const keys = Object.keys(parsed).filter(k => k !== '_modified');
+            for(let i = 0; i < 5; i++){
+              const k = keys[i] || '';
+              const val = k ? parsed[k] : '';
+              const planText = typeof val === 'object' ? (val.free || '') : (val || '');
+              const isMod = k && modified[k];
+              html += '<div class="border rounded p-1 '+(isMod ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200')+'">'
+                + '<div class="font-bold text-center '+(i===0?'text-green-700':i===4?'text-orange-700':'text-slate-600')+'">'+dayLabels[i]+'</div>'
+                + '<div class="text-[11px] text-slate-700 break-words">'+(planText ? escH(planText) : '<span class=\"text-slate-300\">—</span>')+'</div>'
+                + (isMod ? '<div class=\"text-[9px] text-orange-500 text-center\">✎変更</div>' : '')
+                + '</div>';
+            }
+            // 金曜の振り返り
+            const friKey = keys[4] || '';
+            const friVal = friKey ? parsed[friKey] : '';
+            const reflection = typeof friVal === 'object' ? (friVal.reflection || '') : '';
+            if(reflection){
+              html += '</div><div class="text-xs mt-1 p-1 bg-orange-50 rounded border border-orange-200">'
+                + '<span class="font-bold text-orange-700">🔄 振り返り：</span>'+escH(reflection)+'</div>';
+            } else {
+              html += '</div>';
+            }
+            card.innerHTML = html;
+            wrap.appendChild(card);
+          }
+        }catch(e){
+          wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>';
         }
       }
 
