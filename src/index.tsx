@@ -3319,6 +3319,19 @@ app.get('/teacher', (c) => {
           <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
+          <!-- 振り返り一括AI返却 -->
+          <div id="bulkRefPanel" class="hidden border-t border-blue-200 pt-3 space-y-2">
+            <div class="font-bold text-sm text-purple-800">🤖 振り返り一括コメント返却</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs text-slate-500">①</span>
+              <button onclick="copyWeeklyReflections()" class="bg-purple-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
+              <span class="text-xs text-slate-400">→ GeminiのGemに貼り付けてコメントを生成 →</span>
+            </div>
+            <div class="text-xs text-slate-500">② Geminiの返答をここに貼り付け</div>
+            <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
+            <button onclick="bulkReturnReflections()" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">✅ 貼り付けて一括返却</button>
+            <div id="bulkRefMsg" class="text-xs text-purple-700"></div>
+          </div>
         </div>
 
         <!-- Gemini連携パネル -->
@@ -3793,6 +3806,7 @@ app.get('/teacher', (c) => {
           if(!plans.length){ wrap.innerHTML='<p class="text-slate-400">まだ計画が提出されていません</p>'; return; }
           const dayLabels = ['月','火','水','木','金'];
           wrap.innerHTML = '';
+          window._weeklyRefData = []; // 一括用データ
           for(const p of plans){
             let parsed = {};
             try{ parsed = JSON.parse(p.plansJson || '{}'); }catch(_){}
@@ -3840,12 +3854,11 @@ app.get('/teacher', (c) => {
               if(p.reflectionReturnedAt){
                 html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+300coin+5かけら)</span></div>';
               } else {
-                html += '<div class="space-y-1">'
-                  + '<textarea id="refComment_'+p.id+'" class="w-full border rounded p-1.5 text-xs" rows="2" placeholder="振り返りへのコメント（AIで生成も可）"></textarea>'
-                  + '<div class="flex gap-1">'
-                  + '<button class="bg-purple-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="aiReflectionComment('+p.id+',&#39;'+escH(p.studentName).replace(/'/g,'')+'&#39;,&#39;'+escH(reflection).replace(/'/g,'')+'&#39;)">🤖 AIコメント生成</button>'
-                  + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="returnReflection('+p.id+',this)">🔄 返却 (+300coin+5かけら)</button>'
-                  + '</div></div>';
+                window._weeklyRefData.push({ id: p.id, name: p.studentName, reflection: reflection });
+                html += '<div class="flex items-center gap-1">'
+                  + '<textarea id="refComment_'+p.id+'" class="flex-1 border rounded p-1.5 text-xs" rows="1" placeholder="コメント（一括AIも可）"></textarea>'
+                  + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="returnReflection('+p.id+',this)">返却</button>'
+                  + '</div>';
               }
               html += '</div>';
             }
@@ -3853,9 +3866,64 @@ app.get('/teacher', (c) => {
             card.innerHTML = html;
             wrap.appendChild(card);
           }
+          // 一括パネル表示
+          const bulkPanel = document.getElementById('bulkRefPanel');
+          if(bulkPanel) bulkPanel.classList.toggle('hidden', window._weeklyRefData.length === 0);
         }catch(e){
           wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>';
         }
+      }
+
+      function copyWeeklyReflections(){
+        const data = window._weeklyRefData || [];
+        if(!data.length){ alert('未返却の振り返りがありません'); return; }
+        let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\nJSON形式 {"comments":["コメント1","コメント2",...]} で返してください。\n\n';
+        data.forEach(function(d, i){
+          text += (i+1) + '. ' + d.name + '「' + d.reflection + '」\n';
+        });
+        navigator.clipboard.writeText(text).then(function(){
+          alert('📋 '+data.length+'人分の振り返りをコピーしました！\nGemini等に貼り付けてコメントを生成してください。');
+        }).catch(function(){
+          prompt('コピーに失敗しました。手動でコピーしてください:', text);
+        });
+      }
+
+      async function bulkReturnReflections(){
+        const data = window._weeklyRefData || [];
+        if(!data.length){ alert('未返却の振り返りがありません'); return; }
+        const raw = (document.getElementById('bulkRefComments') || {}).value || '';
+        const msg = document.getElementById('bulkRefMsg');
+
+        // パース：JSON or 番号付きリスト
+        let comments = [];
+        try{
+          const parsed = JSON.parse(raw);
+          comments = parsed.comments || parsed;
+        }catch(_){
+          // 番号付きリスト形式をパース
+          comments = raw.split(/\n/).map(function(line){
+            return line.replace(/^\d+[\.\)：:]\s*/, '').trim();
+          }).filter(function(l){ return l.length > 0; });
+        }
+
+        if(comments.length < data.length){
+          if(msg) msg.textContent = '⚠️ コメント数('+comments.length+')が振り返り数('+data.length+')より少ないです';
+          return;
+        }
+
+        if(msg) msg.textContent = '返却中...';
+        let ok = 0, fail = 0;
+        for(let i = 0; i < data.length; i++){
+          try{
+            await api('/api/teacher/weekly-plan/'+data[i].id+'/return-reflection', {
+              method:'POST', headers:{'content-type':'application/json'},
+              body: JSON.stringify({ comment: comments[i] || '' })
+            });
+            ok++;
+          }catch(e){ fail++; }
+        }
+        if(msg) msg.textContent = '✅ '+ok+'人に返却完了' + (fail ? ' ('+fail+'人失敗)' : '');
+        await loadStudentPlans();
       }
 
       async function approvePlan(planId, btn){
@@ -3874,18 +3942,6 @@ app.get('/teacher', (c) => {
           await api('/api/teacher/weekly-plan/'+planId+'/return-reflection', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment})});
           await loadStudentPlans();
         }catch(e){ btn.disabled=false; alert('エラー: '+String(e.message||e)); }
-      }
-
-      function aiReflectionComment(planId, studentName, reflection){
-        const prompt = '以下は小学生「'+studentName+'」の今週の振り返りです。温かく励ましつつ具体的に褒めるコメントを1〜2文で書いてください。\\n\\n振り返り内容：「'+reflection+'」';
-        // クリップボードにコピー → AI(Gemini等)に貼り付け → 結果をテキストエリアに貼り付け
-        navigator.clipboard.writeText(prompt).then(()=>{
-          const ta = document.getElementById('refComment_'+planId);
-          if(ta) ta.placeholder = '📋 プロンプトをコピーしました！AIに貼り付けて生成→結果をここに貼り付けてください';
-        }).catch(()=>{
-          const ta = document.getElementById('refComment_'+planId);
-          if(ta) ta.value = prompt;
-        });
       }
 
       async function loadHomework(){
