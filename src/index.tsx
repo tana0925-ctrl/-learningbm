@@ -193,6 +193,22 @@ app.use('/api/*', async (c, next) => {
   return next()
 })
 
+// -------------------- NGワードフィルター --------------------
+const _NG_NAME_PATTERNS = [
+  /[ちチﾁ][んンﾝ][こコﾞぽポ]/i, /[まマ][んンﾝ][こコ]/i, /[おオ][っッ][ぱパ][いイ]/i,
+  /[ちチ][んンﾝ][ちチ][んンﾝ]/i, /[うウ][んンﾝ][こコ][ちチ]/i, /[うウ][んンﾝ][ちチ]/i,
+  /[きキ][んンﾝ][たタ][まマ]/i, /[おオ][なナ][にニ]/i,
+  /[しシ][ねネ]/, /[こコ][ろロ][すス]/, /死ね/, /殺す/, /殺/, /糞/, /クソ/,
+  /ころす/, /しね[よ！]?$/, /ばか[やァ]?ろう/, /あほ/,
+  /セックス/, /sex/i, /fuck/i, /shit/i, /dick/i, /pussy/i, /bitch/i,
+  /エロ/, /えろ/, /ペニス/, /ヴァギナ/, /レイプ/,
+  /うんこ/, /ウンコ/, /おしり/, /ケツ/
+]
+function isNgName(name: string): boolean {
+  const s = (name || '').trim()
+  return _NG_NAME_PATTERNS.some(r => r.test(s))
+}
+
 // -------------------- API: auth --------------------
 
 app.post('/api/auth/signup', async (c) => {
@@ -208,6 +224,7 @@ app.post('/api/auth/signup', async (c) => {
   if (!loginId || loginId.length < 3) return jsonError(c, 400, 'loginId_too_short')
   if (!password || password.length < 6) return jsonError(c, 400, 'password_too_short')
   if (!name) return jsonError(c, 400, 'name_required')
+  if (isNgName(name)) return jsonError(c, 400, 'name_inappropriate')
   if (!Number.isFinite(grade) || grade < 1 || grade > 12) return jsonError(c, 400, 'grade_invalid')
 
   const id = crypto.randomUUID()
@@ -2583,6 +2600,7 @@ app.get('/signup', (c) => {
         loginId_taken: 'このログインIDはすでに使われています',
         password_too_short: 'パスワードは6文字以上にしてください',
         name_required: '名前を入力してください',
+        name_inappropriate: 'その名前は使えません',
         grade_invalid: '学年を選択してください',
         invalid_json: '入力内容に問題があります',
       };
