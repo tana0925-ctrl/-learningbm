@@ -1578,7 +1578,9 @@ app.get('/api/teacher/weekly-plans', async (c) => {
   const weekKey = c.req.query('weekKey') || getWeekKey()
 
   let sql = `
-    SELECT swp.plans_json as plansJson, swp.updated_at as updatedAt, swp.week_key as weekKey,
+    SELECT swp.id, swp.plans_json as plansJson, swp.updated_at as updatedAt, swp.week_key as weekKey,
+           swp.plan_approved as planApproved, swp.plan_approved_at as planApprovedAt,
+           swp.reflection_comment as reflectionComment, swp.reflection_returned_at as reflectionReturnedAt,
            u.id as userId, u.name as studentName, u.grade, u.class_name as className
     FROM student_weekly_plans swp
     JOIN users u ON u.id = swp.user_id
@@ -1592,6 +1594,58 @@ app.get('/api/teacher/weekly-plans', async (c) => {
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
   return c.json({ ok: true, plans: res.results, weekKey })
+})
+
+// 先生：計画を承認（OKを出す）→ 生徒にコイン付与
+app.post('/api/teacher/weekly-plan/:id/approve', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const planId = c.req.param('id')
+
+  // 承認対象を取得＋権限チェック
+  const row = await c.env.DB.prepare(`
+    SELECT swp.*, cm.class_id FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE swp.id = ?
+  `).bind(u.id, planId).first<any>()
+  if (!row) return jsonError(c, 404, 'not_found')
+  if (row.plan_approved) return jsonError(c, 400, 'already_approved')
+
+  const coins = 5
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE student_weekly_plans SET plan_approved=1, plan_approved_at=?, plan_reward_coins=? WHERE id=?`).bind(Date.now(), coins, planId),
+    c.env.DB.prepare(`UPDATE users SET coins = coins + ? WHERE id = ?`).bind(coins, row.user_id),
+  ])
+
+  return c.json({ ok: true, coins })
+})
+
+// 先生：振り返りにコメント付きで返却 → 生徒にコイン付与
+app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const planId = c.req.param('id')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  const comment = String(body.comment || '').slice(0, 500)
+
+  const row = await c.env.DB.prepare(`
+    SELECT swp.*, cm.class_id FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE swp.id = ?
+  `).bind(u.id, planId).first<any>()
+  if (!row) return jsonError(c, 404, 'not_found')
+  if (row.reflection_returned_at) return jsonError(c, 400, 'already_returned')
+
+  const coins = 5
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?`).bind(comment, Date.now(), coins, planId),
+    c.env.DB.prepare(`UPDATE users SET coins = coins + ? WHERE id = ?`).bind(coins, row.user_id),
+  ])
+
+  return c.json({ ok: true, coins })
 })
 
 // -------------------- API: realtime battle --------------------
@@ -3733,10 +3787,17 @@ app.get('/teacher', (c) => {
             const modified = parsed._modified || {};
             const card = document.createElement('div');
             card.className = 'border rounded-lg p-2 bg-white space-y-1';
-            let html = '<div class="flex items-center justify-between">'
-              + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span></div>'
+
+            // ヘッダー + 承認バッジ
+            const approvedBadge = p.planApproved
+              ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+5coin)</span>'
+              : '';
+            let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
+              + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+'</div>'
               + '<div class="text-[10px] text-slate-400">'+new Date(p.updatedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'
               + '</div>';
+
+            // 5曜日グリッド
             html += '<div class="grid grid-cols-5 gap-1 text-xs">';
             const keys = Object.keys(parsed).filter(k => k !== '_modified');
             for(let i = 0; i < 5; i++){
@@ -3746,26 +3807,73 @@ app.get('/teacher', (c) => {
               const isMod = k && modified[k];
               html += '<div class="border rounded p-1 '+(isMod ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200')+'">'
                 + '<div class="font-bold text-center '+(i===0?'text-green-700':i===4?'text-orange-700':'text-slate-600')+'">'+dayLabels[i]+'</div>'
-                + '<div class="text-[11px] text-slate-700 break-words">'+(planText ? escH(planText) : '<span class=\"text-slate-300\">—</span>')+'</div>'
-                + (isMod ? '<div class=\"text-[9px] text-orange-500 text-center\">✎変更</div>' : '')
+                + '<div class="text-[11px] text-slate-700 break-words">'+(planText ? escH(planText) : '<span class="text-slate-300">—</span>')+'</div>'
+                + (isMod ? '<div class="text-[9px] text-orange-500 text-center">✎変更</div>' : '')
                 + '</div>';
             }
+            html += '</div>';
+
+            // 計画承認ボタン（未承認の場合のみ）
+            if(!p.planApproved){
+              html += '<div class="flex justify-end"><button class="bg-green-600 text-white rounded px-3 py-1 text-xs font-bold hover:opacity-90" onclick="approvePlan('+p.id+',this)">✅ 計画OK (+5coin)</button></div>';
+            }
+
             // 金曜の振り返り
             const friKey = keys[4] || '';
             const friVal = friKey ? parsed[friKey] : '';
             const reflection = typeof friVal === 'object' ? (friVal.reflection || '') : '';
             if(reflection){
-              html += '</div><div class="text-xs mt-1 p-1 bg-orange-50 rounded border border-orange-200">'
-                + '<span class="font-bold text-orange-700">🔄 振り返り：</span>'+escH(reflection)+'</div>';
-            } else {
+              html += '<div class="text-xs mt-1 p-1.5 bg-orange-50 rounded border border-orange-200 space-y-1">'
+                + '<div><span class="font-bold text-orange-700">🔄 振り返り：</span>'+escH(reflection)+'</div>';
+              if(p.reflectionReturnedAt){
+                html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+5coin)</span></div>';
+              } else {
+                html += '<div class="space-y-1">'
+                  + '<textarea id="refComment_'+p.id+'" class="w-full border rounded p-1.5 text-xs" rows="2" placeholder="振り返りへのコメント（AIで生成も可）"></textarea>'
+                  + '<div class="flex gap-1">'
+                  + '<button class="bg-purple-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="aiReflectionComment('+p.id+',&#39;'+escH(p.studentName).replace(/'/g,'')+'&#39;,&#39;'+escH(reflection).replace(/'/g,'')+'&#39;)">🤖 AIコメント生成</button>'
+                  + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90" onclick="returnReflection('+p.id+',this)">🔄 返却 (+5coin)</button>'
+                  + '</div></div>';
+              }
               html += '</div>';
             }
+
             card.innerHTML = html;
             wrap.appendChild(card);
           }
         }catch(e){
           wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>';
         }
+      }
+
+      async function approvePlan(planId, btn){
+        btn.disabled = true;
+        try{
+          await api('/api/teacher/weekly-plan/'+planId+'/approve', {method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+          await loadStudentPlans();
+        }catch(e){ btn.disabled=false; alert('エラー: '+String(e.message||e)); }
+      }
+
+      async function returnReflection(planId, btn){
+        btn.disabled = true;
+        const comment = (document.getElementById('refComment_'+planId)||{}).value || '';
+        if(!comment.trim()){ alert('コメントを入力してください'); btn.disabled=false; return; }
+        try{
+          await api('/api/teacher/weekly-plan/'+planId+'/return-reflection', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment})});
+          await loadStudentPlans();
+        }catch(e){ btn.disabled=false; alert('エラー: '+String(e.message||e)); }
+      }
+
+      function aiReflectionComment(planId, studentName, reflection){
+        const prompt = '以下は小学生「'+studentName+'」の今週の振り返りです。温かく励ましつつ具体的に褒めるコメントを1〜2文で書いてください。\\n\\n振り返り内容：「'+reflection+'」';
+        // クリップボードにコピー → AI(Gemini等)に貼り付け → 結果をテキストエリアに貼り付け
+        navigator.clipboard.writeText(prompt).then(()=>{
+          const ta = document.getElementById('refComment_'+planId);
+          if(ta) ta.placeholder = '📋 プロンプトをコピーしました！AIに貼り付けて生成→結果をここに貼り付けてください';
+        }).catch(()=>{
+          const ta = document.getElementById('refComment_'+planId);
+          if(ta) ta.value = prompt;
+        });
       }
 
       async function loadHomework(){
