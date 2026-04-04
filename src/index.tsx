@@ -2405,7 +2405,7 @@ app.get('/api/report/my', async (c) => {
 
 // Admin/Teacher: get all reports
 app.get('/api/admin/reports', async (c) => {
-  const u = requireAdmin(c) || requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const status = c.req.query('status') || 'all'
@@ -2427,7 +2427,7 @@ app.get('/api/admin/reports', async (c) => {
 
 // Admin/Teacher: update report status/note
 app.put('/api/admin/report/:id', async (c) => {
-  const u = requireAdmin(c) || requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const reportId = c.req.param('id')
@@ -2460,7 +2460,7 @@ app.put('/api/admin/report/:id', async (c) => {
 
 // Admin/Teacher: delete report
 app.delete('/api/admin/report/:id', async (c) => {
-  const u = requireAdmin(c) || requireTeacher(c)
+  const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   await c.env.DB.prepare(`DELETE FROM reports WHERE id=?`).bind(c.req.param('id')).run()
@@ -3257,7 +3257,6 @@ app.get('/teacher', (c) => {
         <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
-        <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
       </div>
 
@@ -3437,23 +3436,6 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
-      <!-- 報告一覧タブ -->
-      <div id="tabPaneReports" class="hidden space-y-3">
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="rptStatusFilter" class="border p-2 rounded text-sm bg-white">
-              <option value="all">すべて</option>
-              <option value="open">📬 受付中</option>
-              <option value="in_progress">🔧 対応中</option>
-              <option value="resolved">✅ 解決済み</option>
-              <option value="closed">🗂️ 終了</option>
-            </select>
-            <button onclick="loadAdminReports()" class="bg-gray-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
-            <span id="rptCount" class="text-xs text-gray-500 ml-auto"></span>
-          </div>
-          <div id="adminReportList" class="space-y-3 text-sm"></div>
-        </div>
-      </div>
     </div>
 
     <script>
@@ -3467,7 +3449,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','reports','analytics'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -3476,7 +3458,6 @@ app.get('/teacher', (c) => {
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
         if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
-        if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
       }
@@ -4192,63 +4173,6 @@ app.get('/teacher', (c) => {
       }
 
       // 報告一覧
-      async function loadAdminReports(){
-        const wrap = document.getElementById('adminReportList');
-        const countEl = document.getElementById('rptCount');
-        wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
-        const status = document.getElementById('rptStatusFilter').value;
-        try {
-          const data = await api('/api/admin/reports?status='+encodeURIComponent(status));
-          const list = data.reports || [];
-          if(countEl) countEl.textContent = list.length + '件';
-          if(!list.length){ wrap.innerHTML='<p class="text-slate-400">報告はありません</p>'; return; }
-          var catLabels = {bug:'🐛 バグ', request:'💡 要望', other:'💬 その他'};
-          var statusLabels = {open:'📬 受付中', in_progress:'🔧 対応中', resolved:'✅ 解決済み', closed:'🗂️ 終了'};
-          wrap.innerHTML='';
-          list.forEach(function(r){
-            var card = document.createElement('div');
-            card.className = 'border rounded-xl p-3 space-y-2 ' + (r.status==='open' ? 'bg-yellow-50 border-yellow-300' : 'bg-white');
-            card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
-              + '<div class="font-bold text-sm">' + escH(r.displayName) + ' <span class="text-xs text-slate-400 font-normal">'+(catLabels[r.category]||r.category)+'</span></div>'
-              + '<div class="flex gap-1 items-center text-xs"><span class="px-2 py-0.5 rounded-full bg-gray-100">'+(statusLabels[r.status]||r.status)+'</span><span class="text-slate-400">'+escH(r.createdAt)+'</span></div>'
-              + '</div>'
-              + '<div class="text-sm text-slate-700">'+escH(r.body)+'</div>'
-              + (r.adminNote ? '<div class="text-xs bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">💬 返信: '+escH(r.adminNote)+'</div>' : '')
-              + '<div class="flex gap-2 items-center flex-wrap">'
-              + '<select class="border p-1 rounded text-xs" id="rptSt_'+r.id+'">'
-              + '<option value="open"'+(r.status==='open'?' selected':'')+'>受付中</option>'
-              + '<option value="in_progress"'+(r.status==='in_progress'?' selected':'')+'>対応中</option>'
-              + '<option value="resolved"'+(r.status==='resolved'?' selected':'')+'>解決済み</option>'
-              + '<option value="closed"'+(r.status==='closed'?' selected':'')+'>終了</option>'
-              + '</select>'
-              + '<input class="border p-1 rounded text-xs flex-1" id="rptNote_'+r.id+'" placeholder="返信メモ" value="'+escH(r.adminNote)+'" />'
-              + '<button class="bg-emerald-600 text-white rounded px-2 py-1 text-xs font-bold" onclick="updateReport(&#39;'+r.id+'&#39;)">更新</button>'
-              + '<button class="bg-red-100 text-red-600 rounded px-2 py-1 text-xs" onclick="deleteReport(&#39;'+r.id+'&#39;)">削除</button>'
-              + '</div>';
-            wrap.appendChild(card);
-          });
-        } catch(e) {
-          wrap.innerHTML='<p class="text-red-600">読み込みエラー: '+escH(String(e.message||e))+'</p>';
-        }
-      }
-
-      async function updateReport(id){
-        var st = document.getElementById('rptSt_'+id).value;
-        var note = document.getElementById('rptNote_'+id).value;
-        try{
-          await api('/api/admin/report/'+id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({status:st,adminNote:note})});
-          loadAdminReports();
-        }catch(e){ alert('更新エラー: '+String(e.message||e)); }
-      }
-
-      async function deleteReport(id){
-        if(!confirm('この報告を削除しますか？')) return;
-        try{
-          await api('/api/admin/report/'+id,{method:'DELETE'});
-          loadAdminReports();
-        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
-      }
-
       // ===== 連絡帳機能 =====
       async function loadContactNotes(){
         // クラスセレクター更新
