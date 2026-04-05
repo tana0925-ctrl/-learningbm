@@ -967,7 +967,17 @@ app.get('/api/teacher/classes', async (c) => {
 })
 
 // クラスのメンバー一覧
-app.get('/api/teacher/class/:classId/members', async (c) => {  const u = requireTeacher(c)  if (!u) return jsonError(c, 401, 'unauthorized')  const classId = c.req.param('classId')  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()  if (!cls) return jsonError(c, 404, 'class not found')  const rows = await c.env.DB.prepare(    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'  ).bind(classId).all<any>()  return c.json({ ok: true, members: rows.results })})
+app.get('/api/teacher/class/:classId/members', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class not found')
+  const rows = await c.env.DB.prepare(
+    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
+  ).bind(classId).all<any>()
+  return c.json({ ok: true, members: rows.results })
+})
 // クラス削除
 app.delete('/api/teacher/class/:classId', async (c) => {
   const u = requireTeacher(c)
