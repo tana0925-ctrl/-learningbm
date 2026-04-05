@@ -40538,6 +40538,15 @@ async function hwRenderWeekView(){
     const wl = document.getElementById('hwWeekLabel');
     if(wl) wl.textContent = weekKey;
 
+    // 返却バッジ
+    const rb = document.getElementById('hsReturnBadgeW');
+    if(rb) rb.classList.toggle('hidden', !(document.getElementById('hsReturnBadge') && !document.getElementById('hsReturnBadge').classList.contains('hidden')));
+
+    // 先生メニュー取得
+    const menu = await hsFetchWeeklyMenu(todayKey);
+    const activeDays = (menu && menu.activeDays) || ['mon','tue','wed','thu','fri'];
+    const menuPublished = !!(menu && menu.published);
+
     // 未配信時は前週の日付・データで表示
     var displayWeekKey = weekKey;
     var displayDays = days;
@@ -40549,15 +40558,6 @@ async function hwRenderWeekView(){
       isReadOnly = true;
       if(wl) wl.textContent = weekKey + '（前週のデータ）';
     }
-
-    // 返却バッジ
-    const rb = document.getElementById('hsReturnBadgeW');
-    if(rb) rb.classList.toggle('hidden', !(document.getElementById('hsReturnBadge') && !document.getElementById('hsReturnBadge').classList.contains('hidden')));
-
-    // 先生メニュー取得
-    const menu = await hsFetchWeeklyMenu(todayKey);
-    const activeDays = (menu && menu.activeDays) || ['mon','tue','wed','thu','fri'];
-    const menuPublished = !!(menu && menu.published);
 
     // メニュー未配信メッセージ
     const noMenuMsg = document.getElementById('hwNoMenuMsg');
@@ -40613,7 +40613,7 @@ async function hwRenderWeekView(){
     }catch(_){}
 
     // 週間計画を取得
-    const plan = hwGetPlanForWeek(weekKey) || {};
+    const plan = hwGetPlanForWeek(displayWeekKey) || {};
 
     // 曜日カード描画
     const cardsEl = document.getElementById('hwDayCards');
