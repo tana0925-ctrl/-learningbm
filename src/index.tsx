@@ -3482,7 +3482,7 @@ app.get('/teacher', (c) => {
             </div>
           </div>
           <div>
-            <label class="text-xs font-bold text-green-800 block mb-1">📅 今週の宿題がある曜日</label>
+            <label class="text-xs font-bold text-green-800 block mb-1">📅 今週の家庭学習がある曜日</label>
             <div class="flex gap-3 flex-wrap">
               <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayMon" value="mon" checked class="accent-green-600"> 月</label>
               <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayTue" value="tue" checked class="accent-green-600"> 火</label>
@@ -3493,7 +3493,7 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-green-600 mt-1">祝日や行事がある日はチェックを外してください</p>
           </div>
           <div class="flex gap-2 items-center">
-            <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">💾 保存</button>
+            <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📤 送信</button>
             <span id="menuSaveMsg" class="text-xs text-green-700"></span>
           </div>
         </div>
@@ -3968,10 +3968,10 @@ app.get('/teacher', (c) => {
             headers: {'content-type':'application/json'},
             body: JSON.stringify(body),
           });
-          if(msg) msg.textContent = '✅ 保存しました（' + wk + '）';
+          if(msg) msg.textContent = '✅ 送信しました（' + wk + '）';
           setTimeout(function(){ if(msg) msg.textContent = ''; }, 3000);
         }catch(e){
-          if(msg) msg.textContent = '⚠️ 保存に失敗しました';
+          if(msg) msg.textContent = '⚠️ 送信に失敗しました';
         }
       }
 
