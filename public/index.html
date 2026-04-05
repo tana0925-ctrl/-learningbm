@@ -3091,7 +3091,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-wrap">
-  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span>友達通信</button>
+  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span>友達通信 <span style="font-size:0.6em;opacity:0.8">（ベータ版）</span><br><span style="font-size:0.55em;opacity:0.7">🔧 頑張って開発中</span></button>
   <div id="friend-menu" class="hidden absolute bottom-0 left-full ml-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:160px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenu()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenu()"><span>🔄</span>友達交換</button>
@@ -3127,7 +3127,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-mobile-wrap">
-  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信</span></button>
+  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信<span style="font-size:0.7em;opacity:0.7">β</span></span></button>
   <div id="friend-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenuMobile()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenuMobile()"><span>🔄</span>友達交換</button>
@@ -3558,7 +3558,8 @@ function formatYMD(d){
 </div>
 </div>
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-friend">
-<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-4">🤝 友達対戦（ともだちたいせん）</h2>
+<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-2">🤝 友達対戦（ともだちたいせん）</h2>
+<div class="bg-purple-50 border-2 border-purple-300 rounded-xl p-3 mb-4 text-center"><span class="text-purple-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-purple-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
 
 <!-- タブ切り替え -->
 <div class="flex gap-2 mb-4">
@@ -4271,6 +4272,7 @@ function formatYMD(d){
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-trade">
 <div class="flex justify-between items-center mb-2 border-b pb-2">
   <h2 class="text-lg font-bold text-teal-800">🔄 友達交換</h2>
+<div class="bg-teal-50 border-2 border-teal-300 rounded-xl p-3 mb-4 text-center"><span class="text-teal-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-teal-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
   <button class="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700" onclick="setMode('status')">← もどる</button>
 </div>
 
