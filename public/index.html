@@ -4499,7 +4499,7 @@ function formatYMD(d){
     <div class="space-y-2" id="hwPlanInputs">
       <!-- JS で月～金の入力欄を生成 -->
     </div>
-    <button onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
+    <button id="hwPlanSubmitBtn" onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
     <div id="hwPlanMsg" class="text-xs text-emerald-700 text-center"></div>
   </div>
 
@@ -40538,6 +40538,18 @@ async function hwRenderWeekView(){
     const wl = document.getElementById('hwWeekLabel');
     if(wl) wl.textContent = weekKey;
 
+    // 未配信時は前週の日付・データで表示
+    var displayWeekKey = weekKey;
+    var displayDays = days;
+    var isReadOnly = false;
+    if(!menuPublished && menu && menu.fallbackWeek){
+      displayWeekKey = menu.fallbackWeek;
+      var fbDayKey = hsGetFirstDayOfWeek830(menu.fallbackWeek);
+      if(fbDayKey) displayDays = hwGetWeekDays(fbDayKey);
+      isReadOnly = true;
+      if(wl) wl.textContent = weekKey + '（前週のデータ）';
+    }
+
     // 返却バッジ
     const rb = document.getElementById('hsReturnBadgeW');
     if(rb) rb.classList.toggle('hidden', !(document.getElementById('hsReturnBadge') && !document.getElementById('hsReturnBadge').classList.contains('hidden')));
@@ -40545,13 +40557,14 @@ async function hwRenderWeekView(){
     // 先生メニュー取得
     const menu = await hsFetchWeeklyMenu(todayKey);
     const activeDays = (menu && menu.activeDays) || ['mon','tue','wed','thu','fri'];
-    const menuPublished = !!(menu && menu.menuExists);
+    const menuPublished = !!(menu && menu.published);
 
     // メニュー未配信メッセージ
     const noMenuMsg = document.getElementById('hwNoMenuMsg');
     if(noMenuMsg){
       if(!menuPublished){
-        noMenuMsg.innerHTML = '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生からの今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">メニューが届くと、計画を書き込めるようになります</div></div>';
+        var fbMsg = (menu && menu.fallbackWeek) ? '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生から今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">前の週（' + menu.fallbackWeek + '）の計画を表示しています</div></div>' : '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生からの今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">メニューが届くと、計画を書き込めるようになります</div></div>';
+        noMenuMsg.innerHTML = fbMsg;
         noMenuMsg.classList.remove('hidden');
       } else {
         noMenuMsg.classList.add('hidden');
@@ -40615,7 +40628,7 @@ async function hwRenderWeekView(){
     for(let ai = 0; ai < 5; ai++){ if(activeDays.indexOf(_hwDayKeys830[ai]) >= 0){ if(firstActiveIdx < 0) firstActiveIdx = ai; lastActiveIdx = ai; } }
 
     for(let i = 0; i < 5; i++){
-      const dk = days[i];
+      const dk = displayDays[i];
       const dayKey830 = _hwDayKeys830[i];
       const isDayActive = activeDays.indexOf(dayKey830) >= 0;
       const dayPlanRaw = plan[_hwDayKeys830[i]] || '';
@@ -40683,7 +40696,7 @@ async function hwRenderWeekView(){
       planInputs.innerHTML = '';
 
       for(let i = 0; i < 5; i++){
-        const dk = days[i];
+        const dk = displayDays[i];
         // 非活動日は計画入力欄をスキップ
         if(activeDays.indexOf(_hwDayKeys830[i]) < 0) continue;
         const entry = hsGetEntryForDay(logs, dk);
@@ -40719,8 +40732,8 @@ async function hwRenderWeekView(){
         input.placeholder = '自主学習（例：計算スキルp.10～12）';
         input.value = dayVal;
         input.dataset.dayIdx = i;
-        input.disabled = isSubmitted;
-        if(!isSubmitted){
+        input.disabled = isSubmitted || isReadOnly;
+        if(!isSubmitted && !isReadOnly){
           input.addEventListener('input', function(){
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 80) + 'px';
@@ -40748,6 +40761,10 @@ async function hwRenderWeekView(){
         planInputs.appendChild(row);
       }
     }
+
+    // 未配信時は提出ボタンを隠す
+    var submitBtn = document.getElementById('hwPlanSubmitBtn');
+    if(submitBtn) submitBtn.style.display = isReadOnly ? 'none' : '';
 
     // 今日ボタン
     const todayDowKey = _hwDayKeys830[todayDow - 1];
@@ -41309,6 +41326,17 @@ function hsIsMonday(dayKey){ return hsGetDayOfWeek(dayKey) === 1; }
 function hsIsFriday(dayKey){ return hsGetDayOfWeek(dayKey) === 5; }
 
 // 先生メニューをAPIから取得してキャッシュ
+function hsGetFirstDayOfWeek830(weekKeyStr){
+  var match = weekKeyStr.match(/^(\d{4})-W(\d{2})$/);
+  if(!match) return null;
+  var y = parseInt(match[1]), w = parseInt(match[2]);
+  var jan4 = new Date(y, 0, 4);
+  var dayOfWeek = jan4.getDay() || 7;
+  var mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - dayOfWeek + 1 + (w - 1) * 7);
+  return hsGetDayKey830(mon);
+}
+
 async function hsFetchWeeklyMenu(dayKey){
   try{
     const wk = hsGetWeekKey(dayKey);
@@ -41316,7 +41344,9 @@ async function hsFetchWeeklyMenu(dayKey){
     const r = await apiJson('/api/student/weekly-menu?weekKey=' + encodeURIComponent(wk));
     if(r && r.ok){
       var ad = null; try{ ad = r.menu && r.menu.activeDays ? JSON.parse(r.menu.activeDays) : null; }catch(e){}
-      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false };
+      var pub = r.published !== undefined ? !!r.published : !!(r.menu);
+      var fbw = r.fallbackWeek || null;
+      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true, published: pub, fallbackWeek: fbw } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false, published: false, fallbackWeek: null };
       return _hsWeeklyMenuCache;
     }
   }catch(e){}
