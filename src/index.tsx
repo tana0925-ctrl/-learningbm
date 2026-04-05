@@ -1494,6 +1494,16 @@ function getWeekKey(date?: Date): string {
   return `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
 }
 
+function getPrevWeekKey(weekKey) {
+  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return weekKey;
+  let y = parseInt(m[1]), w = parseInt(m[2]);
+  w--;
+  if (w < 1) { y--; w = 52; }
+  return y + '-W' + String(w).padStart(2, '0');
+}
+
+
 // 教師：今週の先生メニューを設定
 app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const u = c.get('user')
@@ -1570,7 +1580,22 @@ app.get('/api/student/weekly-menu', async (c) => {
     LIMIT 1
   `).bind(u.id, weekKey).first<any>()
 
-  return c.json({ ok: true, menu: row || null, weekKey })
+  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
+  if (!row) {
+    const prevWk = getPrevWeekKey(weekKey)
+    const prevRow = await c.env.DB.prepare(`
+      SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+             cwm.other_tasks as otherTasks, cwm.week_key as weekKey,
+             cwm.active_days as activeDays
+      FROM class_weekly_menu cwm
+      JOIN class_members cm ON cm.class_id = cwm.class_id
+      WHERE cm.user_id = ? AND cwm.week_key = ?
+      LIMIT 1
+    `).bind(u.id, prevWk).first<any>()
+    return c.json({ ok: true, menu: prevRow || null, weekKey, published: false, fallbackWeek: prevRow ? prevWk : null })
+  }
+
+  return c.json({ ok: true, menu: row, weekKey, published: true })
 })
 
 // 生徒：計画・振り返りの承認状況を取得
