@@ -957,11 +957,14 @@ app.get('/api/teacher/classes', async (c) => {
   const isAdmin = u.role === 'admin'
   const res = isAdmin
     ? await c.env.DB.prepare(
-        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.created_at as createdAt, t.name as teacherName
+        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.created_at as createdAt, t.name as teacherName,
+         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
          FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
       ).all<any>()
     : await c.env.DB.prepare(
-        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, created_at as createdAt,
+         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = classes.id) as memberCount
+         FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
       ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
@@ -3841,7 +3844,7 @@ app.get('/teacher', (c) => {
             rd.members.forEach((m,i)=>{
               html += '<tr class="'+(i%2===0?'bg-white':'bg-slate-50')+'">'
                 +'<td class="border px-2 py-1 text-center font-bold">'+(i+1)+'</td>'
-                +'<td class="border px-2 py-1">'+escH(m.displayName||m.userId)+'</td>'
+                +'<td class="border px-2 py-1">'+escH(m.name||m.id)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.totalLevel||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.monsterCount||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.correctCount||0)+'</td></tr>';
