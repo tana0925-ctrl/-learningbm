@@ -1514,14 +1514,20 @@ app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const kanjiPage = String(body.kanjiPage || '').slice(0, 100)
   const keisanPage = String(body.keisanPage || '').slice(0, 100)
   const otherTasks = String(body.otherTasks || '').slice(0, 500)
+  // 有効な曜日（デフォルト: 月〜金）
+  const validDays = ['mon','tue','wed','thu','fri']
+  const activeDays = Array.isArray(body.activeDays)
+    ? body.activeDays.filter((d: string) => validDays.includes(d))
+    : validDays
+  const activeDaysJson = JSON.stringify(activeDays)
 
   await c.env.DB.prepare(`
-    INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, active_days, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(class_id, week_key) DO UPDATE SET
       kanji_page=excluded.kanji_page, keisan_page=excluded.keisan_page,
-      other_tasks=excluded.other_tasks, updated_at=excluded.updated_at
-  `).bind(classId, weekKey, kanjiPage, keisanPage, otherTasks, Date.now()).run()
+      other_tasks=excluded.other_tasks, active_days=excluded.active_days, updated_at=excluded.updated_at
+  `).bind(classId, weekKey, kanjiPage, keisanPage, otherTasks, activeDaysJson, Date.now()).run()
 
   return c.json({ ok: true, weekKey })
 })
@@ -1556,7 +1562,8 @@ app.get('/api/student/weekly-menu', async (c) => {
 
   const row = await c.env.DB.prepare(`
     SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
-           cwm.other_tasks as otherTasks, cwm.week_key as weekKey
+           cwm.other_tasks as otherTasks, cwm.week_key as weekKey,
+           cwm.active_days as activeDays
     FROM class_weekly_menu cwm
     JOIN class_members cm ON cm.class_id = cwm.class_id
     WHERE cm.user_id = ? AND cwm.week_key = ?
@@ -3449,6 +3456,17 @@ app.get('/teacher', (c) => {
               <input id="menuOtherTasks" class="w-full border border-green-300 rounded-lg p-2 text-sm" placeholder="例：音読3回"/>
             </div>
           </div>
+          <div>
+            <label class="text-xs font-bold text-green-800 block mb-1">📅 今週の宿題がある曜日</label>
+            <div class="flex gap-3 flex-wrap">
+              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayMon" value="mon" checked class="accent-green-600"> 月</label>
+              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayTue" value="tue" checked class="accent-green-600"> 火</label>
+              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayWed" value="wed" checked class="accent-green-600"> 水</label>
+              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayThu" value="thu" checked class="accent-green-600"> 木</label>
+              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayFri" value="fri" checked class="accent-green-600"> 金</label>
+            </div>
+            <p class="text-xs text-green-600 mt-1">祝日や行事がある日はチェックを外してください</p>
+          </div>
           <div class="flex gap-2 items-center">
             <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">💾 保存</button>
             <span id="menuSaveMsg" class="text-xs text-green-700"></span>
@@ -3894,6 +3912,13 @@ app.get('/teacher', (c) => {
           document.getElementById('menuKanjiPage').value = menu.kanji_page || menu.kanjiPage || '';
           document.getElementById('menuKeisanPage').value = menu.keisan_page || menu.keisanPage || '';
           document.getElementById('menuOtherTasks').value = menu.other_tasks || menu.otherTasks || '';
+          // 曜日チェックボックスの復元
+          var activeDays = [];
+          try{ activeDays = JSON.parse(menu.active_days || menu.activeDays || '["mon","tue","wed","thu","fri"]'); }catch(e){ activeDays = ['mon','tue','wed','thu','fri']; }
+          ['mon','tue','wed','thu','fri'].forEach(function(d){
+            var cb = document.getElementById('menuDay' + d.charAt(0).toUpperCase() + d.slice(1));
+            if(cb) cb.checked = activeDays.indexOf(d) >= 0;
+          });
         }catch(e){ console.warn('loadWeeklyMenu error:', e); }
       }
 
@@ -3908,6 +3933,10 @@ app.get('/teacher', (c) => {
             kanjiPage: document.getElementById('menuKanjiPage').value || '',
             keisanPage: document.getElementById('menuKeisanPage').value || '',
             otherTasks: document.getElementById('menuOtherTasks').value || '',
+            activeDays: ['mon','tue','wed','thu','fri'].filter(function(d){
+              var cb = document.getElementById('menuDay' + d.charAt(0).toUpperCase() + d.slice(1));
+              return cb && cb.checked;
+            }),
           };
           await api('/api/teacher/class/' + encodeURIComponent(classId) + '/weekly-menu', {
             method: 'POST',
