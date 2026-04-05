@@ -2313,7 +2313,7 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   if (!Number.isFinite(damage)) return jsonError(c, 400, 'invalid_damage')
   const monsterId = Math.max(0, Math.min(9999, Math.floor(Number(body.monsterId || 0))))
   const metaJson = body.meta ? JSON.stringify(body.meta).slice(0, 500) : null
-  const validEvents = ['damage', 'faint', 'win', 'lose']
+  const validEvents = ['damage', 'faint', 'win', 'lose', 'self_damage', 'gym_ready', 'egg_battle']
   const eventType = validEvents.includes(String(body.eventType)) ? String(body.eventType) : 'damage'
 
   // イベント記録
