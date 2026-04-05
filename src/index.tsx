@@ -2422,6 +2422,7 @@ app.get('/api/teacher/messages', async (c) => {
   const stmt = c.env.DB.prepare(query)
   const rows = await (params.length === 1 ? stmt.bind(params[0]) : stmt.bind(params[0], params[1], params[2])).all()
   return c.json({ ok: true, messages: rows.results })
+})
 
 
 
