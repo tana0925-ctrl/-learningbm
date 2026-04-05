@@ -41405,6 +41405,33 @@ async function _checkHomeworkVisibility(){
     if(b2) b2.style.display = d;
     window.__contactHidden = !on;
   }
+  function _setMenuVisible(key, on){
+    var d = on ? '' : 'none';
+    var map = {
+      status: ['btn-status'],
+      training: ['btn-training'],
+      mail: ['btn-mail','mobile-btn-mail'],
+      battle: ['battle-nav-wrap','battle-nav-mobile-wrap'],
+      friend: ['friend-nav-wrap','friend-nav-mobile-wrap'],
+      shop: ['btn-shop'],
+      lab: ['btn-lab'],
+      pokedex: ['btn-pokedex'],
+      box: ['btn-box'],
+      ranking: ['btn-ranking']
+    };
+    var ids = map[key];
+    if(!ids) return;
+    ids.forEach(function(id){ var el = document.getElementById(id); if(el) el.style.display = d; });
+  }
+  function _applyMenus(menusEnabled){
+    var menus = {};
+    if(menusEnabled){
+      try{ menus = typeof menusEnabled === 'string' ? JSON.parse(menusEnabled) : menusEnabled; }catch(e){}
+    }
+    ['status','training','mail','battle','friend','shop','lab','pokedex','box','ranking'].forEach(function(k){
+      _setMenuVisible(k, menus[k] !== false && menus[k] !== 0);
+    });
+  }
   try{
     const role = window.__loggedInRole;
     // 管理者・教師：自分のクラス設定を反映（OFFにしたら自分のページでもOFF確認できる）
@@ -41416,6 +41443,7 @@ async function _checkHomeworkVisibility(){
         if(cls){
           _setHwVisible(cls.homeworkEnabled !== 0 && cls.homeworkEnabled !== '0');
           _setCtVisible(cls.contactEnabled !== 0 && cls.contactEnabled !== '0');
+          _applyMenus(cls.menusEnabled);
           return;
         }
       }catch(e){}
@@ -41432,6 +41460,7 @@ async function _checkHomeworkVisibility(){
     } else {
       _setHwVisible(!(ci.class.homeworkEnabled === 0 || ci.class.homeworkEnabled === '0'));
       _setCtVisible(!(ci.class.contactEnabled === 0 || ci.class.contactEnabled === '0'));
+      _applyMenus(ci.class.menusEnabled);
     }
   }catch(e){
     // エラー時は何もしない（デフォルト表示のまま）
