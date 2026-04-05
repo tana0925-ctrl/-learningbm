@@ -3924,7 +3924,7 @@ app.get('/teacher', (c) => {
           });
 
           menusDivider.appendChild(menusGrid);
-          btnGroup.parentNode.appendChild(menusDivider);
+          header.appendChild(menusDivider);
 
 
           const delBtn = document.createElement('button');
