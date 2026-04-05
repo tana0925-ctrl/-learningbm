@@ -957,12 +957,12 @@ app.get('/api/teacher/classes', async (c) => {
   const isAdmin = u.role === 'admin'
   const res = isAdmin
     ? await c.env.DB.prepare(
-        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.created_at as createdAt, t.name as teacherName,
+        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled, c.created_at as createdAt, t.name as teacherName,
          (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
          FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
       ).all<any>()
     : await c.env.DB.prepare(
-        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, created_at as createdAt,
+        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, menus_enabled as menusEnabled, created_at as createdAt,
          (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = classes.id) as memberCount
          FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
       ).bind(u.id).all<any>()
@@ -1035,6 +1035,20 @@ app.put('/api/teacher/class/:classId/ranking-toggle', async (c) => {
     : await c.env.DB.prepare(`UPDATE classes SET ranking_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
   if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
   return c.json({ ok: true, rankingEnabled: enabled })
+})
+
+// メニュー表示ON/OFFトグル（一括）
+app.put('/api/teacher/class/:classId/menus-toggle', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  const menusEnabled = body?.menusEnabled ? JSON.stringify(body.menusEnabled) : '{}'
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare(`UPDATE classes SET menus_enabled=? WHERE id=?`).bind(menusEnabled, classId).run()
+    : await c.env.DB.prepare(`UPDATE classes SET menus_enabled=? WHERE id=? AND teacher_id=?`).bind(menusEnabled, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, menusEnabled: JSON.parse(menusEnabled) })
 })
 
 // クラス詳細（メンバー＋ランキング）
@@ -1180,7 +1194,7 @@ app.get('/api/student/class-info', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const row = await c.env.DB.prepare(`
     SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
-           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled
+           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled
     FROM class_members cm JOIN classes c ON c.id = cm.class_id
     WHERE cm.user_id = ? LIMIT 1
   `).bind(u.id).first<any>()
@@ -3861,6 +3875,58 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(ctBtn);
+
+          // ====== 全メニュー表示トグル ======
+          const menusDivider = document.createElement('div');
+          menusDivider.className = 'mt-3 pt-3 border-t border-slate-200';
+          menusDivider.innerHTML = '<div class="text-xs font-bold text-slate-600 mb-2"> メニュー表示設定</div>';
+          const menusGrid = document.createElement('div');
+          menusGrid.className = 'flex flex-wrap gap-1';
+
+          const currentMenus = cls.menusEnabled ? (typeof cls.menusEnabled === 'string' ? JSON.parse(cls.menusEnabled) : cls.menusEnabled) : {};
+
+          const allMenuItems = [
+            {key:'status', label:'ステータス', color:'emerald'},
+            {key:'training', label:'️修行', color:'blue'},
+            {key:'mail', label:'質問', color:'purple'},
+            {key:'battle', label:'⚔️バトル', color:'red'},
+            {key:'friend', label:'欄友達通信', color:'violet'},
+            {key:'shop', label:'ショップ', color:'orange'},
+            {key:'lab', label:'ラボ', color:'teal'},
+            {key:'pokedex', label:'図鑑', color:'slate'},
+            {key:'box', label:'ボックス', color:'cyan'},
+          ];
+
+          allMenuItems.forEach(function(item){
+            const isOn = currentMenus[item.key] !== false && currentMenus[item.key] !== 0;
+            const mbtn = document.createElement('button');
+            mbtn.className = isOn
+              ? 'text-xs px-2 py-1 rounded font-bold bg-'+item.color+'-100 text-'+item.color+'-700 border border-'+item.color+'-300'
+              : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-400 border border-slate-200 line-through';
+            mbtn.textContent = item.label;
+            mbtn.dataset.menuKey = item.key;
+            mbtn.dataset.on = isOn ? '1' : '';
+            mbtn.onclick = async function(){
+              const wasOn = !!mbtn.dataset.on;
+              mbtn.dataset.on = wasOn ? '' : '1';
+              currentMenus[item.key] = !wasOn;
+              mbtn.className = !wasOn
+                ? 'text-xs px-2 py-1 rounded font-bold bg-'+item.color+'-100 text-'+item.color+'-700 border border-'+item.color+'-300'
+                : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-400 border border-slate-200 line-through';
+              try{
+                await api('/api/teacher/class/'+cls.id+'/menus-toggle',{
+                  method:'PUT', headers:{'content-type':'application/json'},
+                  body: JSON.stringify({menusEnabled: currentMenus})
+                });
+              }catch(e){ alert(String(e.message||e)); }
+            };
+            menusGrid.appendChild(mbtn);
+          });
+
+          menusDivider.appendChild(menusGrid);
+          btnGroup.parentNode.appendChild(menusDivider);
+
+
           const delBtn = document.createElement('button');
           delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
           delBtn.textContent='削除';
