@@ -3328,7 +3328,7 @@ app.get('/teacher', (c) => {
               <span class="text-xs text-slate-400">→ GeminiのGemに貼り付けてコメントを生成 →</span>
             </div>
             <div class="text-xs text-slate-500">② Geminiの返答をここに貼り付け</div>
-            <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
+            <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='&#123;"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
             <button onclick="bulkReturnReflections()" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">✅ 貼り付けて一括返却</button>
             <div id="bulkRefMsg" class="text-xs text-purple-700"></div>
           </div>
@@ -3365,7 +3365,7 @@ app.get('/teacher', (c) => {
           </div>
           <div class="space-y-1">
             <div class="text-xs font-bold text-amber-700">② Geminiの返答をここに貼り付け</div>
-            <textarea id="aiPasteArea" rows="4" class="w-full border border-amber-300 rounded-lg p-2 text-xs bg-white focus:outline-none focus:border-amber-500" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
+            <textarea id="aiPasteArea" rows="4" class="w-full border border-amber-300 rounded-lg p-2 text-xs bg-white focus:outline-none focus:border-amber-500" placeholder='&#123;"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
           </div>
           <button onclick="pasteAndBulkReturn()" class="w-full bg-emerald-600 text-white rounded-lg px-4 py-2.5 text-sm font-bold shadow hover:opacity-90">✅ ③ 貼り付けて一括返却</button>
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
@@ -3877,7 +3877,7 @@ app.get('/teacher', (c) => {
       function copyWeeklyReflections(){
         const data = window._weeklyRefData || [];
         if(!data.length){ alert('未返却の振り返りがありません'); return; }
-        let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\nJSON形式 {"comments":["コメント1","コメント2",...]} で返してください。\n\n';
+        let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\nJSON形式 ' + '{"comments":["コメント1","コメント2",...]}' + ' で返してください。\n\n';
         data.forEach(function(d, i){
           text += (i+1) + '. ' + d.name + '「' + d.reflection + '」\n';
         });

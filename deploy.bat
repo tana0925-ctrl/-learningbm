@@ -1,0 +1,19 @@
+@echo off
+cd /d "C:\Users\admin\Pictures\Screenshots\Downloads\-learningbm"
+echo Pulling latest...
+git pull
+echo Applying patch...
+git apply --ignore-whitespace changes.patch.txt
+if %errorlevel% neq 0 (
+    echo Patch apply failed, trying with 3way merge...
+    git apply --ignore-whitespace --3way changes.patch.txt
+)
+echo Adding files...
+git add -A
+echo Committing...
+git commit -m "feat: review rewards, battle fix, weekly tests"
+echo Pushing to GitHub...
+git push
+echo.
+echo Done! Check above for errors.
+pause
