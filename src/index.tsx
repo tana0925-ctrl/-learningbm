@@ -4126,11 +4126,7 @@ app.get('/teacher', (c) => {
       function copyWeeklyReflections(){
         const data = window._weeklyRefData || [];
         if(!data.length){ alert('未返却の振り返りがありません'); return; }
-<<<<<<< HEAD
         let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\nJSON形式 ' + '{"comments":["コメント1","コメント2",...]}' + ' で返してください。\n\n';
-=======
-        let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\\nJSON形式 {"comments":["コメント1","コメント2",...]} で返してください。\\n\\n';
->>>>>>> e490a0cce934e6611f28b9e155e74a64c2cf8f57
         data.forEach(function(d, i){
           text += (i+1) + '. ' + d.name + '「' + d.reflection + '」\\n';
         });
