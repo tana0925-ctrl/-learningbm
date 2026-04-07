@@ -3079,6 +3079,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-training" style="background: linear-gradient(180deg, #60a5fa, #2563eb);" onclick="trySetMode('training')"><span class="nav3d-icon">🏋️</span>修行</button>
 <button id="btn-homestudy" class="nav3d relative" style="background: linear-gradient(180deg, #4ade80, #16a34a);" onclick="openHomeStudy()"><span class="nav3d-icon">🏠</span>家庭学習<span id="hsNavBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-black">!</span></button>
 <button id="btn-contact" class="nav3d relative" style="background: linear-gradient(180deg, #60a5fa, #3b82f6);" onclick="openContactNotes()"><span class="nav3d-icon">📓</span>連絡帳<span id="headerContactBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
+<button id="btn-mail" class="nav3d relative" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
 
 <div class="relative" id="battle-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #f87171, #dc2626);" onclick="toggleBattleMenu(event)"><span class="nav3d-icon">⚔️</span>バトル</button>
@@ -3090,7 +3091,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-wrap">
-  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span>友達通信</button>
+  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span><span style="font-size:0.85em">友達通信</span><span style="font-size:0.5em;opacity:0.7;margin-left:2px">β開発中</span></button>
   <div id="friend-menu" class="hidden absolute bottom-0 left-full ml-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:160px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenu()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenu()"><span>🔄</span>友達交換</button>
@@ -3115,6 +3116,7 @@ function formatYMD(d){
 <button class="mnav-btn" onclick="trySetMode('training')"><span class="mnav-icon">🏋️</span><span class="mnav-label" style="color:#2563eb">修行</span></button>
 <button id="mobile-btn-homestudy" class="mnav-btn" onclick="openHomeStudy()"><span class="mnav-icon">🏠</span><span class="mnav-label" style="color:#16a34a">家庭学習</span></button>
 <button id="mobile-btn-contact" class="mnav-btn" onclick="openContactNotes()"><span class="mnav-icon">📓</span><span class="mnav-label" style="color:#2563eb">連絡帳</span></button>
+<button id="mobile-btn-mail" class="mnav-btn" onclick="openStudentMail()"><span class="mnav-icon">✉️</span><span class="mnav-label" style="color:#7c3aed">質問</span></button>
 <div class="relative" id="battle-nav-mobile-wrap">
   <button class="mnav-btn" onclick="toggleBattleMenuMobile(event)"><span class="mnav-icon">⚔️</span><span class="mnav-label" style="color:#dc2626">バトル</span></button>
   <div id="battle-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
@@ -3125,7 +3127,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-mobile-wrap">
-  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信</span></button>
+  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信<span style="font-size:0.7em;opacity:0.7">β</span></span></button>
   <div id="friend-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenuMobile()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenuMobile()"><span>🔄</span>友達交換</button>
@@ -3556,7 +3558,8 @@ function formatYMD(d){
 </div>
 </div>
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-friend">
-<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-4">🤝 友達対戦（ともだちたいせん）</h2>
+<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-2">🤝 友達対戦（ともだちたいせん）</h2>
+<div class="bg-purple-50 border-2 border-purple-300 rounded-xl p-3 mb-4 text-center"><span class="text-purple-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-purple-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
 
 <!-- タブ切り替え -->
 <div class="flex gap-2 mb-4">
@@ -3575,13 +3578,13 @@ function formatYMD(d){
         <p class="text-xs text-gray-600 mb-2">相手を呼ぶ！</p>
         <div class="text-xs text-gray-600 mb-2">バトル形式</div>
         <label class="text-xs flex items-center gap-1 mb-1">
-          <input name="rtBattleType" type="radio" value="normal" checked/> 野生バトル形式
+          <input name="rtBattleType" type="radio" value="normal" checked onchange="document.getElementById('rtGradeSubjectArea').style.display=''"/> 野生バトル形式
         </label>
         <label class="text-xs flex items-center gap-1 mb-2">
-          <input name="rtBattleType" type="radio" value="gym"/> ジムバトル形式
+          <input name="rtBattleType" type="radio" value="gym" onchange="document.getElementById('rtGradeSubjectArea').style.display='none'"/> ジムバトル形式
         </label>
                 <!-- タマゴバトル形式はRT同期未対応のため非表示 -->
-        <div class="mb-2">
+        <div id="rtGradeSubjectArea"><div class="mb-2">
           <div class="text-[10px] text-gray-500 font-bold mb-1">①学年</div>
           <div class="flex flex-wrap gap-1" id="rtGradeButtons">
             <button class="rt-grade-btn px-2 py-0.5 rounded-full text-[10px] font-bold border-2 bg-white text-gray-600 border-gray-300" data-grade="1" onclick="selectRtGrade(1)">1年</button>
@@ -3600,7 +3603,7 @@ function formatYMD(d){
           <div class="text-[10px] text-gray-500 font-bold mb-1">③単元</div>
           <select id="rtAreaSelect" class="w-full p-1 border border-sky-300 rounded text-xs">
           </select>
-        </div>
+        </div></div>
         <button class="bg-purple-600 text-white px-3 py-2 rounded-lg font-bold shadow w-full text-sm" onclick="rtCreateRoom()">ルーム作成</button>
       </div>
       <div class="bg-green-50 p-4 rounded-xl border border-green-200">
@@ -4269,6 +4272,7 @@ function formatYMD(d){
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-trade">
 <div class="flex justify-between items-center mb-2 border-b pb-2">
   <h2 class="text-lg font-bold text-teal-800">🔄 友達交換</h2>
+<div class="bg-teal-50 border-2 border-teal-300 rounded-xl p-3 mb-4 text-center"><span class="text-teal-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-teal-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
   <button class="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700" onclick="setMode('status')">← もどる</button>
 </div>
 
@@ -4471,6 +4475,9 @@ function formatYMD(d){
     <div class="w-20"></div>
   </div>
 
+  <!-- 今日の状態 -->
+  <div id="hwTodayStatus" class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-sm text-amber-800 font-bold text-center"></div>
+
   <!-- 先生メニュー -->
   <div id="hwMenuPanel" class="bg-green-50 border-2 border-green-300 rounded-xl p-3">
     <div class="font-bold text-sm text-green-800 mb-1">📚 先生メニュー（今週の課題）</div>
@@ -4482,6 +4489,7 @@ function formatYMD(d){
   </div>
 
   <!-- 曜日カード -->
+  <div id="hwNoMenuMsg" class="hidden"></div>
   <div class="grid grid-cols-5 gap-2" id="hwDayCards">
     <!-- JS で生成 -->
   </div>
@@ -4493,7 +4501,7 @@ function formatYMD(d){
     <div class="space-y-2" id="hwPlanInputs">
       <!-- JS で月～金の入力欄を生成 -->
     </div>
-    <button onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
+    <button id="hwPlanSubmitBtn" onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
     <div id="hwPlanMsg" class="text-xs text-emerald-700 text-center"></div>
   </div>
 
@@ -4508,8 +4516,6 @@ function formatYMD(d){
     <div id="hwReflectionMsg" class="text-xs text-orange-700 text-center"></div>
   </div>
 
-  <!-- 今日の状態 -->
-  <div id="hwTodayStatus" class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-700"></div>
 
   <!-- ボタン -->
   <div class="flex gap-2">
@@ -4697,6 +4703,7 @@ function formatYMD(d){
     <p class="text-sm text-slate-400">読み込み中...</p>
   </div>
 </div>
+<div id="screen-mail" class="glass-panel p-0 h-full hidden flex-col overflow-hidden">  <div class="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 text-white flex-shrink-0">    <button class="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-sm" onclick="trySetMode('status')">←</button>    <h2 class="text-base font-black flex items-center gap-2">💬 質問チャット</h2>  </div>  <div id="studentMailList" class="flex-1 overflow-y-auto p-3 space-y-2" style="background:#e8d5f5;">    <p class="text-sm text-slate-400 text-center">読み込み中...</p>  </div>  <div class="flex-shrink-0 bg-white border-t border-slate-200 p-2 flex gap-2 items-end">    <textarea id="studentMailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-purple-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>    <button onclick="sendStudentMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-600 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>  </div>  <p id="studentMailMsg" class="text-xs text-center py-1 bg-white"></p></div>
 
 </div>
 
@@ -10050,6 +10057,18 @@ function calculateNextExp(level) {
                 saveData();
             }
 
+            // 救済処理：旧コインが加算されていたのにnewCoinsに反映されていなかった場合の修正
+            if (player.migratedToNewCoinSystem && !player.coinSyncV2) {
+                // newCoinsがcoinsより少ない場合、coinsの値で上書き（旧報酬がnewCoinsに加算されていなかったバグ対策）
+                const oldC = Number(player.coins || 0);
+                const newC = Number(player.newCoins || 0);
+                if (oldC > newC) {
+                    player.newCoins = oldC;
+                }
+                player.coinSyncV2 = true;
+                saveData();
+            }
+
             // usedSecretQrNoncesが未定義なら初期化
             if (!player.usedSecretQrNonces) {
                 player.usedSecretQrNonces = [];
@@ -13707,6 +13726,7 @@ if (mode === 'battle') {
                 const ctScr = document.getElementById('screen-contact');
                 if(ctScr){ ctScr.classList.remove('hidden'); ctScr.classList.add('flex'); }
                 try{ _loadStudentContactNotes(); }catch(e){}
+            } else if (mode === 'mail') {                var mailScr = document.getElementById('screen-mail');                if(mailScr){ mailScr.classList.remove('hidden'); mailScr.classList.add('flex'); }                try{ _loadStudentMail(); }catch(e){}
             } else {
                 if (mode === 'backup') {
                     document.getElementById('screen-backup').classList.remove('hidden');
@@ -33688,12 +33708,20 @@ function endGymBattle(isWin) {
             var rect = btnEl.getBoundingClientRect();
             m.style.position = 'fixed';
             m.style.left = (rect.right + 4) + 'px';
-            m.style.bottom = (window.innerHeight - rect.bottom) + 'px';
-            m.style.top = 'auto';
             m.style.zIndex = '9999';
             m.classList.remove('hidden');
+            var mRect = m.getBoundingClientRect();
+            var desiredTop = rect.bottom - mRect.height;
+            if (desiredTop < 8) desiredTop = 8;
+            if (desiredTop + mRect.height > window.innerHeight - 8) {
+                desiredTop = window.innerHeight - 8 - mRect.height;
+            }
+            if (desiredTop < 8) desiredTop = 8;
+            m.style.top = desiredTop + 'px';
+            m.style.bottom = 'auto';
             _activeSideMenu = menuId;
         }
+
         function _closeAllSideMenus() {
             ['sys-menu','battle-menu','friend-menu',
              'sys-menu-mobile','battle-menu-mobile','friend-menu-mobile'].forEach(function(id){
@@ -40518,6 +40546,34 @@ async function hwRenderWeekView(){
 
     // 先生メニュー取得
     const menu = await hsFetchWeeklyMenu(todayKey);
+    const activeDays = (menu && menu.activeDays) || ['mon','tue','wed','thu','fri'];
+    const menuPublished = !!(menu && menu.published);
+
+    // 未配信時は前週の日付・データで表示
+    var displayWeekKey = weekKey;
+    var displayDays = days;
+    var isReadOnly = false;
+    if(!menuPublished && menu && menu.fallbackWeek){
+      displayWeekKey = menu.fallbackWeek;
+      var fbDayKey = hsGetFirstDayOfWeek830(menu.fallbackWeek);
+      if(fbDayKey) displayDays = hwGetWeekDays(fbDayKey);
+      isReadOnly = true;
+      if(wl) wl.textContent = weekKey + '（前週のデータ）';
+    }
+
+    // メニュー未配信メッセージ
+    const noMenuMsg = document.getElementById('hwNoMenuMsg');
+    if(noMenuMsg){
+      if(!menuPublished){
+        var fbMsg = (menu && menu.fallbackWeek) ? '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生から今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">前の週（' + menu.fallbackWeek + '）の計画を表示しています</div></div>' : '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生からの今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">メニューが届くと、計画を書き込めるようになります</div></div>';
+        noMenuMsg.innerHTML = fbMsg;
+        noMenuMsg.classList.remove('hidden');
+      } else {
+        noMenuMsg.classList.add('hidden');
+        noMenuMsg.innerHTML = '';
+      }
+    }
+
     const mk = document.getElementById('hwMenuKanji');
     const mks = document.getElementById('hwMenuKeisan');
     const mo = document.getElementById('hwMenuOther');
@@ -40559,7 +40615,7 @@ async function hwRenderWeekView(){
     }catch(_){}
 
     // 週間計画を取得
-    const plan = hwGetPlanForWeek(weekKey) || {};
+    const plan = hwGetPlanForWeek(displayWeekKey) || {};
 
     // 曜日カード描画
     const cardsEl = document.getElementById('hwDayCards');
@@ -40569,8 +40625,14 @@ async function hwRenderWeekView(){
     const todayDow = hsParseDayKey(todayKey).getDay(); // 0-6
     const isWeekend = (todayDow === 0 || todayDow === 6);
 
+    // 最初と最後の活動日を特定（計画・振返ラベル用）
+    let firstActiveIdx = -1, lastActiveIdx = -1;
+    for(let ai = 0; ai < 5; ai++){ if(activeDays.indexOf(_hwDayKeys830[ai]) >= 0){ if(firstActiveIdx < 0) firstActiveIdx = ai; lastActiveIdx = ai; } }
+
     for(let i = 0; i < 5; i++){
-      const dk = days[i];
+      const dk = displayDays[i];
+      const dayKey830 = _hwDayKeys830[i];
+      const isDayActive = activeDays.indexOf(dayKey830) >= 0;
       const dayPlanRaw = plan[_hwDayKeys830[i]] || '';
       const dayPlan = typeof dayPlanRaw === 'object' ? (dayPlanRaw.free || '') : dayPlanRaw;
       const hasPlan = !!dayPlan;
@@ -40584,7 +40646,11 @@ async function hwRenderWeekView(){
       let statusClass = 'bg-slate-50 border-slate-200';
       let weatherIcon = '';
 
-      if(entry){
+      // 非活動日（祝日等）はグレーアウト表示
+      if(!isDayActive && !entry){
+        statusIcon = '\u{1F6AB}';
+        statusClass = 'bg-slate-100 border-slate-200 opacity-40';
+      } else if(entry){
         weatherIcon = hsWeatherIcon(entry.endWeather || entry.weather);
         statusIcon = '✅';
         statusClass = 'bg-emerald-50 border-emerald-300';
@@ -40601,12 +40667,12 @@ async function hwRenderWeekView(){
 
       const isModified = plan._modified && plan._modified[_hwDayKeys830[i]];
       const modBadge = isModified ? '<div class="text-[10px] text-orange-600 font-bold">✎変更</div>' : '';
-      const dayBadge = (isMon ? '<div class="text-[10px] text-green-700 font-bold">📋計画</div>' :
-                       isFri ? '<div class="text-[10px] text-orange-700 font-bold">🌟振返</div>' : '') + modBadge;
+      const dayBadge = ((i === firstActiveIdx) ? '<div class="text-[10px] text-green-700 font-bold">📋計画</div>' :
+                       (i === lastActiveIdx) ? '<div class="text-[10px] text-orange-700 font-bold">🌟振返</div>' : '') + modBadge;
 
       const planPreview = dayPlan ? '<div class="text-[10px] text-slate-600 mt-1 line-clamp-2 break-words">' + escapeHtml(dayPlan) + '</div>' : '';
 
-      const canClick = (isToday && !isWeekend) || entry;
+      const canClick = isDayActive && ((isToday && !isWeekend) || entry);
       const clickAttr = canClick ? `onclick="hwOpenDay('${dk}')"` : '';
       const cursorClass = canClick ? 'cursor-pointer hover:shadow-md' : '';
 
@@ -40618,8 +40684,8 @@ async function hwRenderWeekView(){
         <div class="text-[10px] text-slate-500">${(hsParseDayKey(dk).getMonth()+1)}/${hsParseDayKey(dk).getDate()}</div>
         ${dayBadge}
         <div class="text-xl my-1">${entry ? weatherIcon : statusIcon}</div>
-        ${entry ? '<div class="text-[10px] text-emerald-700 font-bold">提出済</div>' : ''}
-        ${planPreview}
+        ${entry ? '<div class="text-[10px] text-emerald-700 font-bold">提出済</div>' : (!isDayActive ? '<div class="text-[10px] text-slate-400">おやすみ</div>' : '')}
+        ${isDayActive ? planPreview : ''}
       `;
       cardsEl.appendChild(card);
     }
@@ -40632,7 +40698,9 @@ async function hwRenderWeekView(){
       planInputs.innerHTML = '';
 
       for(let i = 0; i < 5; i++){
-        const dk = days[i];
+        const dk = displayDays[i];
+        // 非活動日は計画入力欄をスキップ
+        if(activeDays.indexOf(_hwDayKeys830[i]) < 0) continue;
         const entry = hsGetEntryForDay(logs, dk);
         const dayPlanRaw = plan[_hwDayKeys830[i]];
         const dayVal = typeof dayPlanRaw === 'object' ? (dayPlanRaw.free || '') : (dayPlanRaw || '');
@@ -40644,7 +40712,7 @@ async function hwRenderWeekView(){
         row.className = 'flex items-start gap-2';
 
         const label = document.createElement('div');
-        label.className = 'w-8 text-center font-bold text-sm pt-1.5 shrink-0 ' + (isMon ? 'text-green-700' : isFri ? 'text-orange-700' : 'text-slate-700');
+        label.className = 'w-8 text-center font-bold text-sm pt-1.5 shrink-0 ' + ((i === firstActiveIdx) ? 'text-green-700' : (i === lastActiveIdx) ? 'text-orange-700' : 'text-slate-700');
         label.textContent = _hwDayLabels[i];
 
         const rightCol = document.createElement('div');
@@ -40652,7 +40720,7 @@ async function hwRenderWeekView(){
 
         // 固定ラベル（入力不要な部分）
         const fixedParts = [];
-        if(isMon) fixedParts.push('📝今週の計画');
+        if(i === firstActiveIdx) fixedParts.push('📝今週の計画');
         fixedParts.push('📖今日の復習');
 
         const fixedLabel = document.createElement('div');
@@ -40666,8 +40734,8 @@ async function hwRenderWeekView(){
         input.placeholder = '自主学習（例：計算スキルp.10～12）';
         input.value = dayVal;
         input.dataset.dayIdx = i;
-        input.disabled = isSubmitted;
-        if(!isSubmitted){
+        input.disabled = isSubmitted || isReadOnly;
+        if(!isSubmitted && !isReadOnly){
           input.addEventListener('input', function(){
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 80) + 'px';
@@ -40696,10 +40764,16 @@ async function hwRenderWeekView(){
       }
     }
 
+    // 未配信時は提出ボタンを隠す
+    var submitBtn = document.getElementById('hwPlanSubmitBtn');
+    if(submitBtn) submitBtn.style.display = isReadOnly ? 'none' : '';
+
     // 今日ボタン
+    const todayDowKey = _hwDayKeys830[todayDow - 1];
+    const isTodayActive = todayDowKey && activeDays.indexOf(todayDowKey) >= 0;
     const todayBtn = document.getElementById('hwOpenTodayBtn');
     if(todayBtn){
-      if(isWeekend){
+      if(isWeekend || !isTodayActive){
         todayBtn.classList.add('hidden');
       } else {
         const todayEntry = hsGetEntryForDay(logs, todayKey);
@@ -41133,6 +41207,7 @@ function hsGrantRewards(reward, bonus){
 
     if (coins > 0){
       player.coins = Number(player.coins || 0) + coins;
+      player.newCoins = Number(player.newCoins || 0) + coins;
       try{
         if (typeof player.oldCoinDailyStart !== 'undefined') player.oldCoinDailyStart = player.coins || 0;
         if (typeof getTodayYMD === 'function') player.oldCoinDailyDate = getTodayYMD();
@@ -41253,13 +41328,27 @@ function hsIsMonday(dayKey){ return hsGetDayOfWeek(dayKey) === 1; }
 function hsIsFriday(dayKey){ return hsGetDayOfWeek(dayKey) === 5; }
 
 // 先生メニューをAPIから取得してキャッシュ
+function hsGetFirstDayOfWeek830(weekKeyStr){
+  var match = weekKeyStr.match(/^(\d{4})-W(\d{2})$/);
+  if(!match) return null;
+  var y = parseInt(match[1]), w = parseInt(match[2]);
+  var jan4 = new Date(y, 0, 4);
+  var dayOfWeek = jan4.getDay() || 7;
+  var mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - dayOfWeek + 1 + (w - 1) * 7);
+  return hsGetDayKey830(mon);
+}
+
 async function hsFetchWeeklyMenu(dayKey){
   try{
     const wk = hsGetWeekKey(dayKey);
     if(_hsWeeklyMenuCache && _hsWeeklyMenuCache.weekKey === wk) return _hsWeeklyMenuCache;
     const r = await apiJson('/api/student/weekly-menu?weekKey=' + encodeURIComponent(wk));
     if(r && r.ok){
-      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'' } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '' };
+      var ad = null; try{ ad = r.menu && r.menu.activeDays ? JSON.parse(r.menu.activeDays) : null; }catch(e){}
+      var pub = r.published !== undefined ? !!r.published : !!(r.menu);
+      var fbw = r.fallbackWeek || null;
+      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true, published: pub, fallbackWeek: fbw } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false, published: false, fallbackWeek: null };
       return _hsWeeklyMenuCache;
     }
   }catch(e){}
@@ -41316,6 +41405,33 @@ async function _checkHomeworkVisibility(){
     if(b2) b2.style.display = d;
     window.__contactHidden = !on;
   }
+  function _setMenuVisible(key, on){
+    var d = on ? '' : 'none';
+    var map = {
+      status: ['btn-status'],
+      training: ['btn-training'],
+      mail: ['btn-mail','mobile-btn-mail'],
+      battle: ['battle-nav-wrap','battle-nav-mobile-wrap'],
+      friend: ['friend-nav-wrap','friend-nav-mobile-wrap'],
+      shop: ['btn-shop'],
+      lab: ['btn-lab'],
+      pokedex: ['btn-pokedex'],
+      box: ['btn-box'],
+      ranking: ['btn-ranking']
+    };
+    var ids = map[key];
+    if(!ids) return;
+    ids.forEach(function(id){ var el = document.getElementById(id); if(el) el.style.display = d; });
+  }
+  function _applyMenus(menusEnabled){
+    var menus = {};
+    if(menusEnabled){
+      try{ menus = typeof menusEnabled === 'string' ? JSON.parse(menusEnabled) : menusEnabled; }catch(e){}
+    }
+    ['status','training','mail','battle','friend','shop','lab','pokedex','box','ranking'].forEach(function(k){
+      _setMenuVisible(k, menus[k] !== false && menus[k] !== 0);
+    });
+  }
   try{
     const role = window.__loggedInRole;
     // 管理者・教師：自分のクラス設定を反映（OFFにしたら自分のページでもOFF確認できる）
@@ -41327,6 +41443,7 @@ async function _checkHomeworkVisibility(){
         if(cls){
           _setHwVisible(cls.homeworkEnabled !== 0 && cls.homeworkEnabled !== '0');
           _setCtVisible(cls.contactEnabled !== 0 && cls.contactEnabled !== '0');
+          _applyMenus(cls.menusEnabled);
           return;
         }
       }catch(e){}
@@ -41343,6 +41460,7 @@ async function _checkHomeworkVisibility(){
     } else {
       _setHwVisible(!(ci.class.homeworkEnabled === 0 || ci.class.homeworkEnabled === '0'));
       _setCtVisible(!(ci.class.contactEnabled === 0 || ci.class.contactEnabled === '0'));
+      _applyMenus(ci.class.menusEnabled);
     }
   }catch(e){
     // エラー時は何もしない（デフォルト表示のまま）
@@ -51026,6 +51144,106 @@ async function _checkAnnouncementBadge(){
 <!-- screen-contact は lbm-main 内（line ~4284付近）に移動済み -->
 
 <script>
+// ===== 質問チャット機能（生徒側） =====
+function openStudentMail(){ try{ trySetMode('mail'); }catch(e){} }
+
+async function _loadStudentMail(){
+  var wrap = document.getElementById('studentMailList');
+  if(!wrap) return;
+  wrap.innerHTML = '<p class="text-sm text-slate-400 text-center py-4">読み込み中...</p>';
+  try{
+    var data = await apiJson('/api/student/messages');
+    var list = data.messages || [];
+    if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-8">まだメッセージはありません</p>'; return; }
+    wrap.innerHTML='';
+    var prevDate = '';
+    list.slice().reverse().forEach(function(m){
+      var isFromMe = m.senderRole === 'student';
+      var dt = (m.createdAt||'').slice(0,10);
+      if(dt !== prevDate){
+        var dateDiv = document.createElement('div');
+        dateDiv.className = 'text-center my-2';
+        dateDiv.innerHTML = '<span class="bg-black/10 text-slate-600 text-[10px] rounded-full px-3 py-0.5">' + _escH(dt) + '</span>';
+        wrap.appendChild(dateDiv);
+        prevDate = dt;
+      }
+      var row = document.createElement('div');
+      row.className = 'flex ' + (isFromMe ? 'justify-end' : 'justify-start') + ' mb-1';
+      var bubble = document.createElement('div');
+      bubble.className = 'max-w-[75%] relative';
+      var nameTag = '';
+      if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">先生</div>'; }
+      var time = _escH((m.createdAt||'').slice(11,16));
+      var readMark = '';
+      if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-purple-500">既読</span> '; }
+      var timeHtml = '<div class="flex items-end gap-1 mt-0.5 ' + (isFromMe ? 'justify-end mr-1' : 'ml-1') + '"><span class="text-[10px] text-slate-400">' + readMark + time + '</span></div>';
+      var msgDiv = document.createElement('div');
+      if(isFromMe){
+        msgDiv.className = 'rounded-2xl rounded-br-sm px-3 py-2 text-sm shadow-sm';
+        msgDiv.style.cssText = 'background:#c7a4ff;color:#1a1a2e;';
+      } else {
+        msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
+      }
+      msgDiv.textContent = m.body;
+      bubble.insertAdjacentHTML("beforeend", nameTag);
+      bubble.appendChild(msgDiv);
+      bubble.insertAdjacentHTML("beforeend", timeHtml);
+      if(!isFromMe && !m.readAt){
+        var newBadge = document.createElement('span');
+        newBadge.className = 'absolute -top-1 -left-1 bg-red-500 text-white text-[8px] rounded-full px-1 font-bold';
+        newBadge.textContent = 'NEW';
+        bubble.appendChild(newBadge);
+        msgDiv.onclick = (function(mid){ return async function(){
+          await apiJson('/api/student/message/'+mid+'/read',{method:'POST'});
+          _loadStudentMail();
+          _checkMailBadge();
+        }; })(m.id);
+        msgDiv.style.cursor = 'pointer';
+      }
+      row.appendChild(bubble);
+      wrap.appendChild(row);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }catch(e){ wrap.innerHTML='<p class="text-sm text-red-500 text-center">読み込みエラー</p>'; }
+}
+async function sendStudentMail(){
+  var body = document.getElementById('studentMailBody').value.trim();
+  var msg = document.getElementById('studentMailMsg');
+  if(!body){ msg.textContent='メッセージを入力してね'; msg.className='text-xs text-center text-red-600'; return; }
+  try{
+    await apiJson('/api/student/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:body})});
+    msg.textContent='送信しました！'; msg.className='text-xs text-center text-green-600';
+    document.getElementById('studentMailBody').value='';
+    _loadStudentMail();
+  }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-xs text-center text-red-600'; }
+}
+
+function _escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function _checkMailBadge(){
+  try{
+    var data = await apiJson('/api/student/messages/unread-count');
+    var cnt = data.count || 0;
+    var b1 = document.getElementById('headerMailBadge');
+    var b2 = document.getElementById('mobile-btn-mail');
+    if(b1){ if(cnt>0){ b1.textContent=cnt; b1.classList.remove('hidden'); }else{ b1.classList.add('hidden'); } }
+  }catch(e){}
+}
+
+// screen-mail のモード切替フック
+(function(){
+  var origSetMode = window.trySetMode;
+  if(!origSetMode) return;
+  window.trySetMode = function(mode){
+    origSetMode(mode);
+    if(mode === 'mail'){ _loadStudentMail(); }
+  };
+})();
+
+// 起動時にバッジチェック
+setTimeout(_checkMailBadge, 3000);
+</script>
+<script>
 // ===== 連絡帳機能（生徒側） =====
 function openContactNotes(){ try{ trySetMode('contact'); }catch(e){} }
 function closeContactNotes(){ try{ trySetMode('status'); }catch(e){} }
@@ -51091,7 +51309,10 @@ async function _loadStudentContactNotes(){
                 try{
                   var coinEl = document.getElementById('coinCount');
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
-                  if(window.player) player.coins = (player.coins||0) + res.reward;
+                  if(window.player) {
+                    player.coins = (player.coins||0) + res.reward;
+                    player.newCoins = (player.newCoins||0) + res.reward;
+                  }
                 }catch(e){}
               } else {
                 btn.textContent = '✅ 確認済み';
