@@ -4485,6 +4485,7 @@ function formatYMD(d){
       <div id="hwMenuKanji">漢字スキル：<span class="font-bold">—</span></div>
       <div id="hwMenuKeisan">計算スキル：<span class="font-bold">—</span></div>
       <div id="hwMenuOther" class="hidden">その他：<span class="font-bold"></span></div>
+      <div id="hwMenuTests" class="hidden">📝 今週のテスト：<span class="font-bold"></span></div>
     </div>
   </div>
 
@@ -4572,6 +4573,7 @@ function formatYMD(d){
                   <div id="hsMenuKanji" class="ml-2">漢字スキル：<span class="font-bold">—</span></div>
                   <div id="hsMenuKeisan" class="ml-2">計算スキル：<span class="font-bold">—</span></div>
                   <div id="hsMenuOther" class="ml-2 hidden">その他：<span class="font-bold"></span></div>
+                  <div id="hsMenuTests" class="ml-2 hidden">📝 今週のテスト：<span class="font-bold"></span></div>
                 </div>
                 <div class="mt-2">
                   <div class="text-xs font-bold text-green-800 mb-1">✏️ 今週の自主学習計画（何をどこまでやる？）</div>
@@ -15079,6 +15081,9 @@ const rows = unitRows.filter(r=>r.total>=10).sort((a,b)=>a.acc-b.acc).slice(0,3)
 var _reviewQueue = [];
 var _reviewCurrentIdx = 0;
 var _reviewCurrentItem = null;
+var _reviewCorrectCount = 0;
+var _reviewTotalCoins = 0;
+var _reviewTotalHerbs = 0;
 
 function startReviewChallenge(){
   try{
@@ -15096,6 +15101,9 @@ function startReviewChallenge(){
     }
     _reviewQueue = arr;
     _reviewCurrentIdx = 0;
+    _reviewCorrectCount = 0;
+    _reviewTotalCoins = 0;
+    _reviewTotalHerbs = 0;
     _showReviewQuestion();
     const modal = document.getElementById('reviewChallengeModal');
     if(modal){ modal.style.display='flex'; modal.classList.remove('hidden'); }
@@ -15110,7 +15118,13 @@ function _showReviewQuestion(){
       const q = document.getElementById('reviewModalQ');
       const area = document.getElementById('reviewModalAnswerArea');
       const prog = document.getElementById('reviewModalProgress');
-      if(q) q.textContent = '🎉 全部終わったよ！おつかれさま！';
+      var summary = '\u{1F389} 全部終わったよ！おつかれさま！';
+      if(_reviewTotalCoins > 0 || _reviewTotalHerbs > 0){
+        summary += '\n\n--- 獲得報酬 ---';
+        if(_reviewTotalCoins > 0) summary += '\n\u{1F4B0} ' + _reviewTotalCoins + ' コイン';
+        if(_reviewTotalHerbs > 0) summary += '\n\u{1F33F} やくそう ' + _reviewTotalHerbs + ' 個';
+      }
+      if(q) q.innerText = summary;
       if(area) area.style.display='none';
       if(fb) fb.style.display='none';
       if(prog) prog.textContent = `${_reviewQueue.length}/${_reviewQueue.length} 完了`;
@@ -15151,9 +15165,45 @@ function checkReviewAnswer(){
       fbEl.className = 'mt-3 rounded-xl p-4 text-center ' + (isOk ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300');
     }
     if(iconEl) iconEl.textContent = isOk ? '⭕' : '❌';
-    if(txtEl) txtEl.textContent = isOk ? 'せいかい！' : 'ちがうよ…';
     if(ansEl) ansEl.textContent = correct;
     if(areaEl) areaEl.style.display='none';
+
+    // 報酬（修行モードと同じ確率）
+    var rewardTxt = '';
+    if(isOk){
+      _reviewCorrectCount++;
+      // レアドロップ（連続正解数 × 1%、最大50%）
+      var rareRate = Math.min(0.5, _reviewCorrectCount * 0.01);
+      if(Math.random() < rareRate){
+        var rc = 50; // デフォルト
+        var m = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
+        if(m==='rounding'||m==='long-division'||m==='area') rc = 100;
+        else if(m==='kuku'||m==='conjunction') rc = 10;
+        player.newCoins = (player.newCoins||0) + rc;
+        _reviewTotalCoins += rc;
+        _reviewCorrectCount = 0;
+        rewardTxt = '💰 ' + rc + 'コインゲット！';
+      } else {
+        // 通常ドロップ: やくそう10%、コイン10%
+        if(Math.random() < 0.1){
+          player.herbs = (player.herbs||0) + 1;
+          _reviewTotalHerbs++;
+          rewardTxt += '🌿 やくそうゲット！ ';
+        }
+        if(Math.random() < 0.1){
+          var cc = 8;
+          var m2 = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
+          if(m2==='rounding'||m2==='long-division'||m2==='area') cc = 15;
+          else if(m2==='kuku') cc = 1;
+          player.newCoins = (player.newCoins||0) + cc;
+          _reviewTotalCoins += cc;
+          rewardTxt += '💰 ' + cc + 'コインゲット！';
+        }
+      }
+      try{ document.getElementById('trainingCoinCount').innerText = player.newCoins||0; }catch(e){}
+      try{ saveData(); }catch(e){}
+    }
+    if(txtEl) txtEl.innerHTML = (isOk ? 'せいかい！' : 'ちがうよ…') + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
   }catch(e){}
 }
 
@@ -16692,7 +16742,7 @@ if (type === 'gym') {
 
 function initBattleFriend(friendData) {
             battle.mode = 'friend';
-            try{ document.getElementById('btnThrowBall').style.display = 'none'; } catch(e) {}
+            try{ var _bb = document.getElementById('btnThrowBall'); _bb.style.display = ''; _bb.disabled = true; _bb.style.opacity = '0.35'; _bb.style.pointerEvents = 'none'; _bb.title = '友達対戦ではボールは使えません'; } catch(e) {}
             try{ recordLimitedUseForParty('friend'); }catch(e){}
             battle.friendCodeKey = friendData && friendData._k ? friendData._k : (battle.friendCodeKey || null);
             battle.phase = 'ready';
@@ -17352,7 +17402,7 @@ function startPvE(difficulty) {
 
         function initBattlePvE(continueFlag = false) {
             battle.mode = 'pve';
-            try{ document.getElementById('btnThrowBall').style.display = ''; } catch(e) {}
+            try{ var _bb = document.getElementById('btnThrowBall'); _bb.style.display = ''; _bb.disabled = false; _bb.style.opacity = ''; _bb.style.pointerEvents = ''; _bb.title = ''; } catch(e) {}
             try{ recordLimitedUseForParty('pve'); }catch(e){}
             battle.phase = 'ready';
             battle.consecutiveCorrect = 0;
@@ -40577,12 +40627,18 @@ async function hwRenderWeekView(){
     const mk = document.getElementById('hwMenuKanji');
     const mks = document.getElementById('hwMenuKeisan');
     const mo = document.getElementById('hwMenuOther');
+    const mt = document.getElementById('hwMenuTests');
     if(mk) mk.innerHTML = '漢字スキル：<span class="font-bold">' + escapeHtml((menu && menu.kanjiPage) || '—') + '</span>';
     if(mks) mks.innerHTML = '計算スキル：<span class="font-bold">' + escapeHtml((menu && menu.keisanPage) || '—') + '</span>';
     if(mo){
       const ot = (menu && menu.otherTasks) || '';
       if(ot){ mo.innerHTML = 'その他：<span class="font-bold">' + escapeHtml(ot) + '</span>'; mo.classList.remove('hidden'); }
       else mo.classList.add('hidden');
+    }
+    if(mt){
+      const ts = (menu && menu.tests) || '';
+      if(ts){ mt.innerHTML = '\u{1F4DD} 今週のテスト：<span class="font-bold">' + escapeHtml(ts) + '</span>'; mt.classList.remove('hidden'); }
+      else mt.classList.add('hidden');
     }
 
     // 計画承認・振り返り返却の報酬チェック
@@ -41348,7 +41404,7 @@ async function hsFetchWeeklyMenu(dayKey){
       var ad = null; try{ ad = r.menu && r.menu.activeDays ? JSON.parse(r.menu.activeDays) : null; }catch(e){}
       var pub = r.published !== undefined ? !!r.published : !!(r.menu);
       var fbw = r.fallbackWeek || null;
-      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true, published: pub, fallbackWeek: fbw } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false, published: false, fallbackWeek: null };
+      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', tests: r.menu.tests||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true, published: pub, fallbackWeek: fbw } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', tests: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false, published: false, fallbackWeek: null };
       return _hsWeeklyMenuCache;
     }
   }catch(e){}
@@ -41360,12 +41416,14 @@ function hsUpdateMenuDisplay(menu){
   const kanjiEl = document.getElementById('hsMenuKanji');
   const keisanEl = document.getElementById('hsMenuKeisan');
   const otherEl = document.getElementById('hsMenuOther');
+  const testsEl = document.getElementById('hsMenuTests');
   const dailyEl = document.getElementById('hsDailyMenuDisplay');
   const dailyLine = document.getElementById('hsSelfStudyPlanLine');
 
   const kp = (menu && menu.kanjiPage) ? menu.kanjiPage : '—';
   const ksp = (menu && menu.keisanPage) ? menu.keisanPage : '—';
   const ot = (menu && menu.otherTasks) ? menu.otherTasks : '';
+  const ts = (menu && menu.tests) ? menu.tests : '';
 
   if(kanjiEl) kanjiEl.innerHTML = '漢字スキル：<span class="font-bold">' + escapeHtml(kp) + '</span>';
   if(keisanEl) keisanEl.innerHTML = '計算スキル：<span class="font-bold">' + escapeHtml(ksp) + '</span>';
@@ -41373,15 +41431,20 @@ function hsUpdateMenuDisplay(menu){
     if(ot){ otherEl.innerHTML = 'そ��他：<span class="font-bold">' + escapeHtml(ot) + '</span>'; otherEl.classList.remove('hidden'); }
     else otherEl.classList.add('hidden');
   }
+  if(testsEl){
+    if(ts){ testsEl.innerHTML = '\u{1F4DD} 今週のテスト：<span class="font-bold">' + escapeHtml(ts) + '</span>'; testsEl.classList.remove('hidden'); }
+    else testsEl.classList.add('hidden');
+  }
 
   // 毎日の先生メニュー表示（計画セクション下）
-  const hasMenu = (menu && (menu.kanjiPage || menu.keisanPage || menu.otherTasks));
+  const hasMenu = (menu && (menu.kanjiPage || menu.keisanPage || menu.otherTasks || menu.tests));
   if(dailyLine) dailyLine.classList.toggle('hidden', !hasMenu);
   if(dailyEl && hasMenu){
     let parts = [];
     if(menu.kanjiPage) parts.push('漢字スキル ' + escapeHtml(menu.kanjiPage));
     if(menu.keisanPage) parts.push('計算スキル ' + escapeHtml(menu.keisanPage));
     if(menu.otherTasks) parts.push(escapeHtml(menu.otherTasks));
+    if(menu.tests) parts.push('\u{1F4DD}テスト: ' + escapeHtml(menu.tests));
     dailyEl.textContent = parts.join(' / ');
   }
 }
