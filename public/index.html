@@ -3079,7 +3079,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-training" style="background: linear-gradient(180deg, #60a5fa, #2563eb);" onclick="trySetMode('training')"><span class="nav3d-icon">🏋️</span>修行</button>
 <button id="btn-homestudy" class="nav3d relative" style="background: linear-gradient(180deg, #4ade80, #16a34a);" onclick="openHomeStudy()"><span class="nav3d-icon">🏠</span>家庭学習<span id="hsNavBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-black">!</span></button>
 <button id="btn-contact" class="nav3d relative" style="background: linear-gradient(180deg, #60a5fa, #3b82f6);" onclick="openContactNotes()"><span class="nav3d-icon">📓</span>連絡帳<span id="headerContactBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
-<button id="btn-mail" class="nav3d relative" style="display:none;" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
+<button id="btn-mail" class="nav3d relative" style="display:none; background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
 
 <div class="relative" id="battle-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #f87171, #dc2626);" onclick="toggleBattleMenu(event)"><span class="nav3d-icon">⚔️</span>バトル</button>
@@ -51346,7 +51346,7 @@ async function _checkMailVisibility(){
     if(ci && ci.class){
       var b1 = document.getElementById('btn-mail');
       var b2 = document.getElementById('mobile-btn-mail');
-      if(b1) b1.style.display='';
+      if(b1) b1.style.display='flex';
       if(b2) b2.style.display='';
       _checkMailBadge();
     }
