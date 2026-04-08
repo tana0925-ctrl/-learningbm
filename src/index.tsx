@@ -895,9 +895,9 @@ app.get('/api/admin/classes', async (c) => {
   const u = requireAdmin(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const res = await c.env.DB.prepare(
-    `SELECT c.id, c.class_code as classCode, c.name, c.created_at as createdAt, t.name as teacherName,
+    `SELECT c.id, c.class_code as classCode, c.name, c.created_at as createdAt, COALESCE(t.name, u.name) as teacherName,
      (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
-     FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
+     FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id LEFT JOIN users u ON u.id = c.teacher_id ORDER BY c.created_at DESC`
   ).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
