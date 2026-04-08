@@ -889,6 +889,97 @@ app.put('/api/admin/user-grade', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: admin - class management --------------------
+
+app.get('/api/admin/classes', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(
+    `SELECT c.id, c.class_code as classCode, c.name, c.created_at as createdAt, t.name as teacherName,
+     (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
+     FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
+  ).all<any>()
+  return c.json({ ok: true, classes: res.results })
+})
+
+app.get('/api/admin/class/:classId/members', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const rows = await c.env.DB.prepare(
+    `SELECT u.id as userId, u.login_id as loginId, u.name, u.grade, u.class_name as className, cm.joined_at as joinedAt
+     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.grade ASC, u.name ASC`
+  ).bind(classId).all<any>()
+  return c.json({ ok: true, members: rows.results })
+})
+
+app.post('/api/admin/class/:classId/add-member', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const userId = String(body.userId || '').trim()
+  if (!userId) return jsonError(c, 400, 'userId_required')
+  const cls = await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const student = await c.env.DB.prepare(`SELECT id, name FROM users WHERE id=? AND role='student' LIMIT 1`).bind(userId).first<any>()
+  if (!student) return jsonError(c, 404, 'student_not_found')
+  const existing = await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? AND class_id=? LIMIT 1').bind(userId, classId).first<any>()
+  if (existing) return c.json({ ok: true, already: true, className: cls.name })
+  await c.env.DB.prepare('DELETE FROM class_members WHERE user_id=?').bind(userId).run()
+  await c.env.DB.prepare('INSERT INTO class_members (user_id, class_id) VALUES (?, ?)').bind(userId, classId).run()
+  return c.json({ ok: true, className: cls.name, studentName: student.name })
+})
+
+app.post('/api/admin/class/:classId/add-members-bulk', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  if (!body || !Array.isArray(body.userIds) || body.userIds.length === 0) return jsonError(c, 400, 'userIds_required')
+  const cls = await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  let added = 0
+  let skipped = 0
+  for (const uid of body.userIds) {
+    const userId = String(uid).trim()
+    if (!userId) continue
+    const student = await c.env.DB.prepare(`SELECT id FROM users WHERE id=? AND role='student' LIMIT 1`).bind(userId).first<any>()
+    if (!student) { skipped++; continue }
+    const existing = await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? AND class_id=? LIMIT 1').bind(userId, classId).first<any>()
+    if (existing) { skipped++; continue }
+    await c.env.DB.prepare('DELETE FROM class_members WHERE user_id=?').bind(userId).run()
+    await c.env.DB.prepare('INSERT INTO class_members (user_id, class_id) VALUES (?, ?)').bind(userId, classId).run()
+    added++
+  }
+  return c.json({ ok: true, added, skipped })
+})
+
+app.delete('/api/admin/class/:classId/remove-member/:userId', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const userId = c.req.param('userId')
+  await c.env.DB.prepare('DELETE FROM class_members WHERE user_id=? AND class_id=?').bind(userId, classId).run()
+  return c.json({ ok: true })
+})
+
+app.get('/api/admin/unassigned-students', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(
+    `SELECT u.id, u.login_id as loginId, u.name, u.grade, u.class_name as className
+     FROM users u
+     WHERE u.role='student' AND u.is_active=1
+       AND u.id NOT IN (SELECT cm.user_id FROM class_members cm)
+     ORDER BY u.grade ASC, u.class_name ASC, u.name ASC`
+  ).all<any>()
+  return c.json({ ok: true, students: res.results })
+})
+
 // -------------------- API: teacher --------------------
 
 function requireTeacher(c: any) {
@@ -3108,6 +3199,49 @@ app.get('/admin', (c) => {
         <div id="users" class="space-y-2 text-sm"></div>
       </div>
 
+      <!-- クラス管理 -->
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="font-bold mb-3">📚 クラス管理（児童追加・削除）</h2>
+        <div id="classManagement">
+          <div class="flex gap-2 mb-3">
+            <button id="loadClassesBtn" class="bg-indigo-600 text-white rounded px-3 py-2 text-sm">クラス一覧を読み込む</button>
+          </div>
+          <div id="classList" class="space-y-3 text-sm"></div>
+          <div id="classDetail" class="mt-4 hidden">
+            <div class="border-2 border-indigo-200 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 id="classDetailName" class="font-bold text-lg"></h3>
+                <button id="closeClassDetail" class="text-gray-400 hover:text-gray-700 text-xl">&times;</button>
+              </div>
+              <p id="classDetailInfo" class="text-gray-600 mb-3"></p>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <h4 class="font-bold mb-2">現在のメンバー</h4>
+                  <div id="classMemberList" class="space-y-1 max-h-60 overflow-y-auto"></div>
+                </div>
+                <div>
+                  <h4 class="font-bold mb-2">児童を追加</h4>
+                  <div class="space-y-2">
+                    <div class="flex gap-2">
+                      <select id="addStudentGradeFilter" class="border p-1 rounded text-sm">
+                        <option value="">全学年</option>
+                        <option value="1">1年</option><option value="2">2年</option><option value="3">3年</option>
+                        <option value="4">4年</option><option value="5">5年</option><option value="6">6年</option>
+                      </select>
+                      <button id="loadUnassignedBtn" class="bg-slate-600 text-white rounded px-2 py-1 text-xs">未所属を表示</button>
+                      <button id="loadAllStudentsBtn" class="bg-slate-400 text-white rounded px-2 py-1 text-xs">全児童を表示</button>
+                    </div>
+                    <div id="addStudentList" class="space-y-1 max-h-60 overflow-y-auto"></div>
+                    <button id="bulkAddBtn" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm hidden">チェック済みを一括追加</button>
+                  </div>
+                </div>
+              </div>
+              <p id="classActionMsg" class="text-sm mt-2"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="bg-white rounded-xl shadow p-6">
         <h2 class="font-bold mb-2">直近の学習ログ</h2>
         <div id="results" class="space-y-2 text-sm"></div>
@@ -3321,7 +3455,158 @@ app.get('/admin', (c) => {
         }
       }
 
-      async function renderResults(){
+// ========== クラス管理 ==========
+      let currentClassId = null;
+
+      document.getElementById('loadClassesBtn').onclick = renderClassList;
+
+      async function renderClassList(){
+        const wrap = document.getElementById('classList');
+        wrap.innerHTML='<p class="text-gray-400">読み込み中...</p>';
+        try{
+          const d = await api('/api/admin/classes');
+          wrap.innerHTML='';
+          if(!d.classes.length){ wrap.textContent='クラスがまだありません'; return; }
+          for(const cls of d.classes){
+            const div = document.createElement('div');
+            div.className='flex items-center justify-between border rounded p-2 hover:bg-indigo-50 cursor-pointer';
+            const left = document.createElement('div');
+            left.innerHTML = '<span class="font-bold">' + cls.name + '</span> <span class="text-gray-500">(' + cls.classCode + ')</span>' +
+              ' <span class="text-xs text-gray-400">' + (cls.teacherName || '教師不明') + '</span>' +
+              ' <span class="bg-indigo-100 text-indigo-700 rounded px-2 py-0.5 text-xs ml-1">' + cls.memberCount + '人</span>';
+            div.appendChild(left);
+            const btn = document.createElement('button');
+            btn.className='bg-indigo-600 text-white rounded px-3 py-1 text-xs';
+            btn.textContent='管理';
+            btn.onclick = (e)=>{ e.stopPropagation(); openClassDetail(cls.id, cls.name, cls.classCode, cls.teacherName); };
+            div.appendChild(btn);
+            div.onclick = ()=>{ openClassDetail(cls.id, cls.name, cls.classCode, cls.teacherName); };
+            wrap.appendChild(div);
+          }
+        }catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; }
+      }
+
+      async function openClassDetail(classId, name, code, teacher){
+        currentClassId = classId;
+        document.getElementById('classDetail').classList.remove('hidden');
+        document.getElementById('classDetailName').textContent = name + '（' + code + '）';
+        document.getElementById('classDetailInfo').textContent = '教師: ' + (teacher || '不明');
+        document.getElementById('classActionMsg').textContent = '';
+        document.getElementById('addStudentList').innerHTML = '';
+        document.getElementById('bulkAddBtn').classList.add('hidden');
+        await renderClassMembers(classId);
+      }
+
+      document.getElementById('closeClassDetail').onclick = ()=>{
+        document.getElementById('classDetail').classList.add('hidden');
+        currentClassId = null;
+      };
+
+      async function renderClassMembers(classId){
+        const wrap = document.getElementById('classMemberList');
+        wrap.innerHTML='<p class="text-gray-400">読み込み中...</p>';
+        try{
+          const d = await api('/api/admin/class/' + classId + '/members');
+          wrap.innerHTML='';
+          if(!d.members.length){ wrap.textContent='メンバーなし'; return; }
+          for(const m of d.members){
+            const div = document.createElement('div');
+            div.className='flex items-center justify-between border rounded px-2 py-1';
+            const left = document.createElement('span');
+            left.textContent = m.grade + '年 ' + m.name + '（' + m.loginId + '）';
+            div.appendChild(left);
+            const rm = document.createElement('button');
+            rm.className='bg-red-500 text-white rounded px-2 py-0.5 text-xs hover:bg-red-700';
+            rm.textContent='外す';
+            rm.onclick = async ()=>{
+              if(!confirm(m.name + 'をこのクラスから外しますか？')) return;
+              await api('/api/admin/class/' + classId + '/remove-member/' + m.userId, {method:'DELETE'});
+              await renderClassMembers(classId);
+              showClassMsg('text-green-700', m.name + 'をクラスから外しました');
+            };
+            div.appendChild(rm);
+            wrap.appendChild(div);
+          }
+        }catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; }
+      }
+
+      document.getElementById('loadUnassignedBtn').onclick = async ()=>{
+        if(!currentClassId) return;
+        const wrap = document.getElementById('addStudentList');
+        wrap.innerHTML='<p class="text-gray-400">読み込み中...</p>';
+        try{
+          const d = await api('/api/admin/unassigned-students');
+          renderAddStudentList(d.students);
+        }catch(e){ wrap.innerHTML='<p class="text-red-600">エラー</p>'; }
+      };
+
+      document.getElementById('loadAllStudentsBtn').onclick = async ()=>{
+        if(!currentClassId) return;
+        const wrap = document.getElementById('addStudentList');
+        wrap.innerHTML='<p class="text-gray-400">読み込み中...</p>';
+        try{
+          const d = await api('/api/admin/users');
+          renderAddStudentList(d.users.filter(u => u.isActive));
+        }catch(e){ wrap.innerHTML='<p class="text-red-600">エラー</p>'; }
+      };
+
+      function renderAddStudentList(students){
+        const gradeFilter = document.getElementById('addStudentGradeFilter').value;
+        const filtered = gradeFilter ? students.filter(s => String(s.grade) === gradeFilter) : students;
+        const wrap = document.getElementById('addStudentList');
+        wrap.innerHTML='';
+        if(!filtered.length){ wrap.textContent='該当する児童がいません'; document.getElementById('bulkAddBtn').classList.add('hidden'); return; }
+        const checkboxes = [];
+        for(const s of filtered){
+          const div = document.createElement('div');
+          div.className='flex items-center gap-2 border rounded px-2 py-1';
+          const cb = document.createElement('input');
+          cb.type='checkbox'; cb.value=s.id; cb.className='accent-emerald-600';
+          checkboxes.push(cb);
+          div.appendChild(cb);
+          const label = document.createElement('span');
+          label.textContent = s.grade + '年 ' + (s.className || '') + ' ' + s.name + '（' + s.loginId + '）';
+          label.className='flex-1 cursor-pointer';
+          label.onclick = ()=>{ cb.checked = !cb.checked; };
+          div.appendChild(label);
+          const addOne = document.createElement('button');
+          addOne.className='bg-emerald-500 text-white rounded px-2 py-0.5 text-xs';
+          addOne.textContent='追加';
+          addOne.onclick = async ()=>{
+            await api('/api/admin/class/' + currentClassId + '/add-member', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({userId:s.id})});
+            await renderClassMembers(currentClassId);
+            showClassMsg('text-green-700', s.name + 'を追加しました');
+            div.remove();
+          };
+          div.appendChild(addOne);
+          wrap.appendChild(div);
+        }
+        const bulkBtn = document.getElementById('bulkAddBtn');
+        bulkBtn.classList.remove('hidden');
+        bulkBtn.onclick = async ()=>{
+          const ids = checkboxes.filter(c=>c.checked).map(c=>c.value);
+          if(!ids.length){ alert('追加する児童を選んでください'); return; }
+          if(!confirm(ids.length + '人をこのクラスに追加しますか？')) return;
+          const r = await api('/api/admin/class/' + currentClassId + '/add-members-bulk', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({userIds:ids})});
+          await renderClassMembers(currentClassId);
+          showClassMsg('text-green-700', r.added + '人を追加しました（スキップ: ' + r.skipped + '人）');
+          document.getElementById('loadUnassignedBtn').click();
+        };
+      }
+
+      document.getElementById('addStudentGradeFilter').onchange = ()=>{
+        document.getElementById('addStudentList').innerHTML='';
+        document.getElementById('bulkAddBtn').classList.add('hidden');
+      };
+
+      function showClassMsg(cls, text){
+        const msg = document.getElementById('classActionMsg');
+        msg.textContent = text;
+        msg.className = 'text-sm mt-2 ' + cls;
+        setTimeout(()=>{ msg.textContent=''; }, 3000);
+      }
+
+            async function renderResults(){
         const r = await api('/api/admin/results?limit=50');
         const rw = document.getElementById('results');
         rw.innerHTML='';
