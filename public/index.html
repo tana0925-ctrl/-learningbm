@@ -3079,7 +3079,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-training" style="background: linear-gradient(180deg, #60a5fa, #2563eb);" onclick="trySetMode('training')"><span class="nav3d-icon">🏋️</span>修行</button>
 <button id="btn-homestudy" class="nav3d relative" style="background: linear-gradient(180deg, #4ade80, #16a34a);" onclick="openHomeStudy()"><span class="nav3d-icon">🏠</span>家庭学習<span id="hsNavBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-black">!</span></button>
 <button id="btn-contact" class="nav3d relative" style="background: linear-gradient(180deg, #60a5fa, #3b82f6);" onclick="openContactNotes()"><span class="nav3d-icon">📓</span>連絡帳<span id="headerContactBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
-<button id="btn-mail" class="nav3d relative" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
+<button id="btn-mail" class="nav3d relative" style="display:none;" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
 
 <div class="relative" id="battle-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #f87171, #dc2626);" onclick="toggleBattleMenu(event)"><span class="nav3d-icon">⚔️</span>バトル</button>
@@ -3116,7 +3116,7 @@ function formatYMD(d){
 <button class="mnav-btn" onclick="trySetMode('training')"><span class="mnav-icon">🏋️</span><span class="mnav-label" style="color:#2563eb">修行</span></button>
 <button id="mobile-btn-homestudy" class="mnav-btn" onclick="openHomeStudy()"><span class="mnav-icon">🏠</span><span class="mnav-label" style="color:#16a34a">家庭学習</span></button>
 <button id="mobile-btn-contact" class="mnav-btn" onclick="openContactNotes()"><span class="mnav-icon">📓</span><span class="mnav-label" style="color:#2563eb">連絡帳</span></button>
-<button id="mobile-btn-mail" class="mnav-btn" onclick="openStudentMail()"><span class="mnav-icon">✉️</span><span class="mnav-label" style="color:#7c3aed">質問</span></button>
+<button id="mobile-btn-mail" class="mnav-btn" style="display:none;" onclick="openStudentMail()"><span class="mnav-icon">✉️</span><span class="mnav-label" style="color:#7c3aed">質問</span></button>
 <div class="relative" id="battle-nav-mobile-wrap">
   <button class="mnav-btn" onclick="toggleBattleMenuMobile(event)"><span class="mnav-icon">⚔️</span><span class="mnav-label" style="color:#dc2626">バトル</span></button>
   <div id="battle-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
@@ -51208,7 +51208,11 @@ async function _checkAnnouncementBadge(){
 
 <script>
 // ===== 質問チャット機能（生徒側） =====
-function openStudentMail(){ try{ trySetMode('mail'); }catch(e){} }
+function openStudentMail(){
+  var mailBtn = document.getElementById('btn-mail');
+  if(mailBtn && mailBtn.style.display === 'none') return;
+  try{ trySetMode('mail'); }catch(e){}
+}
 
 async function _loadStudentMail(){
   var wrap = document.getElementById('studentMailList');
@@ -51303,8 +51307,20 @@ async function _checkMailBadge(){
   };
 })();
 
-// 起動時にバッジチェック
-setTimeout(_checkMailBadge, 3000);
+// 起動時にクラス参加チェック→質問チャット表示制御
+async function _checkMailVisibility(){
+  try{
+    var ci = await apiJson('/api/student/class-info');
+    if(ci && ci.class){
+      var b1 = document.getElementById('btn-mail');
+      var b2 = document.getElementById('mobile-btn-mail');
+      if(b1) b1.style.display='';
+      if(b2) b2.style.display='';
+      _checkMailBadge();
+    }
+  }catch(e){}
+}
+setTimeout(_checkMailVisibility, 3000);
 </script>
 <script>
 // ===== 連絡帳機能（生徒側） =====
