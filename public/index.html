@@ -14088,6 +14088,27 @@ function _allTrainingModes(){
     return ['rounding','division','decimal','long-division','area','idiom','conjunction','yoji','social','science-heat','science-seasons','science-airwater','science-moonstars','science-body','science-weather','science-electric','science-rainwater','science-temperature-volume','science-water-change'];
 }
 
+// 指定学年のCURRICULUM単元IDをすべて返す
+function _modesForGrade(grade){
+    const ids = [];
+    try{
+        if(typeof CURRICULUM === 'undefined' || !grade) return ids;
+        const g = Number(grade);
+        if(!g || g < 1 || g > 6) return ids;
+        for(const subjectKey of Object.keys(CURRICULUM)){
+            const sub = CURRICULUM[subjectKey];
+            if(!sub || !sub.grades || !sub.grades[g]) continue;
+            const gd = sub.grades[g];
+            if(gd && gd.units){
+                for(const u of gd.units){
+                    if(u.id) ids.push(u.id);
+                }
+            }
+        }
+    }catch(e){}
+    return ids;
+}
+
 function _getTodayDailyTargets(){
     try{
         const M = ensureMetrics();
@@ -14099,8 +14120,14 @@ function _getTodayDailyTargets(){
             return cur.modes.filter(Boolean);
         }
 
-        // Build candidate list from TRAINING_MODE_INFO (not from DOM)
-        let candidates = _allTrainingModes().slice();
+        // Build candidate list: 学年がある場合はその学年の単元のみ
+        const userGrade = window.__userGrade ? Number(window.__userGrade) : 0;
+        let candidates;
+        if(userGrade >= 1 && userGrade <= 6){
+            candidates = _modesForGrade(userGrade);
+        } else {
+            candidates = _allTrainingModes().slice();
+        }
         
         // Group by subject for balanced selection
         const bySubject = { math: [], jp: [], soc: [], science: [] };
@@ -14157,6 +14184,11 @@ function _getTodayDailyTargets(){
         try{ saveData(); }catch(e){}
         return picked;
     }catch(e){
+        const ug = window.__userGrade ? Number(window.__userGrade) : 0;
+        if(ug >= 1 && ug <= 6){
+            const gm = _modesForGrade(ug);
+            if(gm.length) return gm.slice(0,5);
+        }
         return _allTrainingModes().slice(0,5);
     }
 }
