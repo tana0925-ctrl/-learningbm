@@ -6574,7 +6574,7 @@ MONSTERS.push({
         // ガチャと基本モンスターの橋渡し。野生バトルで低確率出現。
         const MID_TIER = [
             { id: 220, name: 'カゲムシャ', sprite: '🥷', hp: 320, atk: 55, def: 50, spd: 75, buff: 'speed', elementType: 'dark',
-              desc: '影に潜む忍者。正解の速さで真価を発揮する。【入手】野生バトルでまれに出現。' },
+              desc: '影に潜む忍者。正解の速さで真価を発揮する。【入手】野生バトルで5連勝以上するとまれに出現。' },
             { id: 221, name: 'テツジン', sprite: '🦾', hp: 400, atk: 65, def: 80, spd: 40, buff: 'guard', elementType: 'steel',
               desc: '鉄の体を持つ鋼の戦士。防御は一級品。【入手】野生バトルでまれに出現。' },
             { id: 222, name: 'アラシ', sprite: '🌪️', hp: 350, atk: 70, def: 55, spd: 70, buff: 'attack', elementType: 'flying',
@@ -6586,9 +6586,9 @@ MONSTERS.push({
             { id: 225, name: 'ヌシガメ', sprite: '🐢', hp: 500, atk: 50, def: 90, spd: 30, buff: 'guard', elementType: 'water',
               desc: '池の主。千年生きた亀は万年の知恵を持つ。【入手】野生バトルでまれに出現。' },
             { id: 226, name: 'キツネビ', sprite: '🦊', hp: 340, atk: 65, def: 55, spd: 85, buff: 'lucky', elementType: 'psychic',
-              desc: '化けるのが得意な狐。Lucky効果で経験値UP。【入手】野生バトルでまれに出現。' },
+              desc: '化けるのが得意な狐。Lucky効果で経験値UP。【入手】野生バトルで5連勝以上するとまれに出現。' },
             { id: 227, name: 'ライジン', sprite: '⚡', hp: 360, atk: 80, def: 50, spd: 75, buff: 'attack', elementType: 'electric',
-              desc: '雷を操る鬼神。一撃の破壊力は折り紙付き。【入手】野生バトルでまれに出現。' }
+              desc: '雷を操る鬼神。一撃の破壊力は折り紙付き。【入手】野生バトルで7連勝以上するとまれに出現。' }
         ];
         MID_TIER.forEach(m => {
             MONSTERS.push({
@@ -7999,6 +7999,24 @@ MONSTERS.push({
     desc: 'ラボで「かけら」を使って復活できる最強クラスのヒーロー。1日3回だけ超本気、4回目から全能力1で省エネ。ゾンビ襲来では出撃できない。'
 });
 
+// === 連勝ごほうびキャラ：ポポ（3連勝〜出現）===
+const POPO_ID = 1050;
+MONSTERS.push({
+    id: POPO_ID,
+    name: 'ポポ',
+    sprite: '🦜',
+    hp: 220, atk: 65, def: 45, spd: 75,
+    buff: 'speed',
+    elementType: 'flying',
+    stage: 1, gacha: false, rarity: 5,
+    skills: [
+        { name: 'おしゃべりアタック', type: 'normal', pow: 20, acc: 0.96, element: 'flying', desc: 'しゃべりながら体当たり' },
+        { name: 'フェザーストーム', type: 'heavy', pow: 58, acc: 0.72, element: 'flying', desc: '羽を巻き起こして大嵐' },
+        { name: 'ものまね', type: 'unique', pow: 0, acc: 1.0, effect: 'debuff_random', desc: '相手の能力をダウンさせる' }
+    ],
+    desc: 'おしゃべりが大好きなインコ。先生の口グセを完コピして教室を爆笑の渦に包む。足が意外と速い。【入手】野生バトルで3連勝以上するとまれに出現。'
+});
+
 // === 追加キャラ（爬虫類マン）===
 const REPTILEMAN_ID = 930;
 
@@ -8016,7 +8034,7 @@ MONSTERS.push({
         { name: 'ぬめぬめスラップ', type: 'heavy', pow: 68, acc: 0.70, element: 'poison', desc: '' },
         { name: 'ベロの時間止め', type: 'unique', pow: 0, acc: 0.90, effect: 'stun', stunMs: 1800, desc: '相手を少しの間停止させる' }
     ],
-    desc: '自称「爬虫類」のヒーロー。実は両生類であるカエルだが、自分のことを爬虫類だと思い込んでいる。ツッコむと時間を止めてくる。'
+    desc: '自称「爬虫類」のヒーロー。実は両生類であるカエルだが、自分のことを爬虫類だと思い込んでいる。ツッコむと時間を止めてくる。【入手】野生バトルで10連勝以上するとまれに出現。'
 });
 
 // === 期間限定キャラ（サンタ様：図鑑「特殊」に表示）===
@@ -9931,7 +9949,8 @@ function pickWildMonsterId(areaId, depth) {
         }
 
         // 中間層モンスター（ID220-227）: 全エリアで5%の確率で出現
-        const MID_TIER_IDS = [220, 221, 222, 223, 224, 225, 226, 227];
+        const MID_TIER_IDS = [221, 222, 223, 224, 225];
+        // 220(カゲムシャ),226(キツネビ),227(ライジン)は連勝ごほうびに移動
         if (!isFriend && Math.random() < 0.05) {
             return MID_TIER_IDS[Math.floor(Math.random() * MID_TIER_IDS.length)];
         }
@@ -17545,11 +17564,24 @@ try{
                     return;
                 }
             }catch(e){}
-            // 🐸 爬虫類マン（野生バトル限定・登場確率 1000分の1）
-            const isReptileMan = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId) && Math.random() < 0.001;
-            if (isReptileMan) {
-                try{ const M = ensureMetrics(); M.rare.reptileman = M.rare.reptileman || {encounter:0}; M.rare.reptileman.encounter++; }catch(e){}
-                enemyId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
+            // 🏆 連勝ごほうびキャラ（winStreak に応じて出現）
+            let __streakEncounterId = null;
+            const __ws = (battle && typeof battle.winStreak === 'number') ? battle.winStreak : 0;
+            const __noForced = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId);
+            const __notFriend = !(battle && (battle.friendGym || battle.friendCodeKey));
+            if (__noForced && __notFriend) {
+                // 10連勝〜: 爬虫類マン 15%
+                if (__ws >= 10 && Math.random() < 0.15) __streakEncounterId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
+                // 7連勝〜: ライジン 12%
+                else if (__ws >= 7 && Math.random() < 0.12) __streakEncounterId = 227;
+                // 5連勝〜: カゲムシャ or キツネビ 10%
+                else if (__ws >= 5 && Math.random() < 0.10) __streakEncounterId = (Math.random() < 0.5) ? 220 : 226;
+                // 3連勝〜: ポポ 8%
+                else if (__ws >= 3 && Math.random() < 0.08) __streakEncounterId = (typeof POPO_ID !== 'undefined') ? POPO_ID : 1050;
+            }
+            if (__streakEncounterId) {
+                try{ const M = ensureMetrics(); M.rare = M.rare || {}; M.rare.streak = M.rare.streak || {encounter:0}; M.rare.streak.encounter++; }catch(e){}
+                enemyId = __streakEncounterId;
                 m = getMonster(enemyId);
                 // プレイヤー先頭のレベルに少しだけ上乗せ（強すぎ/弱すぎになりにくい）
                 eLvl = Math.max(1, Math.min(100, (playerLevel || 1) + 5));
@@ -17581,7 +17613,7 @@ try{
                     buff: m.buff, elementType: m.elementType
                 });
                 document.getElementById('messageLog').innerHTML =
-                    `<span class="text-green-500 font-bold text-lg">✨ 激レア ✨<br>やせいの ${m.name} があらわれた！</span>`;
+                    `<span class="text-yellow-500 font-bold text-lg">🏆 ${__ws}連勝ボーナス！🏆<br>${m.sprite} ${m.name} があらわれた！</span>`;
                 finishInitPvE(continueFlag);
                 return;
             }
