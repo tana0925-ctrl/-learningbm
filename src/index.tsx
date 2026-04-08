@@ -957,30 +957,15 @@ app.get('/api/teacher/classes', async (c) => {
   const isAdmin = u.role === 'admin'
   const res = isAdmin
     ? await c.env.DB.prepare(
-        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled, c.created_at as createdAt, t.name as teacherName,
-         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
+        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.created_at as createdAt, t.name as teacherName
          FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
       ).all<any>()
     : await c.env.DB.prepare(
-        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, menus_enabled as menusEnabled, created_at as createdAt,
-         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = classes.id) as memberCount
-         FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
+        `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, created_at as createdAt FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
       ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
 
-// クラスのメンバー一覧
-app.get('/api/teacher/class/:classId/members', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const classId = c.req.param('classId')
-  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
-  if (!cls) return jsonError(c, 404, 'class not found')
-  const rows = await c.env.DB.prepare(
-    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
-  ).bind(classId).all<any>()
-  return c.json({ ok: true, members: rows.results })
-})
 // クラス削除
 app.delete('/api/teacher/class/:classId', async (c) => {
   const u = requireTeacher(c)
@@ -1035,20 +1020,6 @@ app.put('/api/teacher/class/:classId/ranking-toggle', async (c) => {
     : await c.env.DB.prepare(`UPDATE classes SET ranking_enabled=? WHERE id=? AND teacher_id=?`).bind(enabled, classId, u.id).run()
   if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
   return c.json({ ok: true, rankingEnabled: enabled })
-})
-
-// メニュー表示ON/OFFトグル（一括）
-app.put('/api/teacher/class/:classId/menus-toggle', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const classId = c.req.param('classId')
-  const body = await c.req.json().catch(() => null)
-  const menusEnabled = body?.menusEnabled ? JSON.stringify(body.menusEnabled) : '{}'
-  const result = u.role === 'admin'
-    ? await c.env.DB.prepare(`UPDATE classes SET menus_enabled=? WHERE id=?`).bind(menusEnabled, classId).run()
-    : await c.env.DB.prepare(`UPDATE classes SET menus_enabled=? WHERE id=? AND teacher_id=?`).bind(menusEnabled, classId, u.id).run()
-  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
-  return c.json({ ok: true, menusEnabled: JSON.parse(menusEnabled) })
 })
 
 // クラス詳細（メンバー＋ランキング）
@@ -1194,7 +1165,7 @@ app.get('/api/student/class-info', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const row = await c.env.DB.prepare(`
     SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
-           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled
+           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled
     FROM class_members cm JOIN classes c ON c.id = cm.class_id
     WHERE cm.user_id = ? LIMIT 1
   `).bind(u.id).first<any>()
@@ -1508,16 +1479,6 @@ function getWeekKey(date?: Date): string {
   return `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
 }
 
-function getPrevWeekKey(weekKey) {
-  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
-  if (!m) return weekKey;
-  let y = parseInt(m[1]), w = parseInt(m[2]);
-  w--;
-  if (w < 1) { y--; w = 52; }
-  return y + '-W' + String(w).padStart(2, '0');
-}
-
-
 // 教師：今週の先生メニューを設定
 app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const u = c.get('user')
@@ -1538,20 +1499,14 @@ app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const kanjiPage = String(body.kanjiPage || '').slice(0, 100)
   const keisanPage = String(body.keisanPage || '').slice(0, 100)
   const otherTasks = String(body.otherTasks || '').slice(0, 500)
-  // 有効な曜日（デフォルト: 月〜金）
-  const validDays = ['mon','tue','wed','thu','fri']
-  const activeDays = Array.isArray(body.activeDays)
-    ? body.activeDays.filter((d: string) => validDays.includes(d))
-    : validDays
-  const activeDaysJson = JSON.stringify(activeDays)
 
   await c.env.DB.prepare(`
-    INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, active_days, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(class_id, week_key) DO UPDATE SET
       kanji_page=excluded.kanji_page, keisan_page=excluded.keisan_page,
-      other_tasks=excluded.other_tasks, active_days=excluded.active_days, updated_at=excluded.updated_at
-  `).bind(classId, weekKey, kanjiPage, keisanPage, otherTasks, activeDaysJson, Date.now()).run()
+      other_tasks=excluded.other_tasks, updated_at=excluded.updated_at
+  `).bind(classId, weekKey, kanjiPage, keisanPage, otherTasks, Date.now()).run()
 
   return c.json({ ok: true, weekKey })
 })
@@ -1586,30 +1541,14 @@ app.get('/api/student/weekly-menu', async (c) => {
 
   const row = await c.env.DB.prepare(`
     SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
-           cwm.other_tasks as otherTasks, cwm.week_key as weekKey,
-           cwm.active_days as activeDays
+           cwm.other_tasks as otherTasks, cwm.week_key as weekKey
     FROM class_weekly_menu cwm
     JOIN class_members cm ON cm.class_id = cwm.class_id
     WHERE cm.user_id = ? AND cwm.week_key = ?
     LIMIT 1
   `).bind(u.id, weekKey).first<any>()
 
-  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
-  if (!row) {
-    const prevWk = getPrevWeekKey(weekKey)
-    const prevRow = await c.env.DB.prepare(`
-      SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
-             cwm.other_tasks as otherTasks, cwm.week_key as weekKey,
-             cwm.active_days as activeDays
-      FROM class_weekly_menu cwm
-      JOIN class_members cm ON cm.class_id = cwm.class_id
-      WHERE cm.user_id = ? AND cwm.week_key = ?
-      LIMIT 1
-    `).bind(u.id, prevWk).first<any>()
-    return c.json({ ok: true, menu: prevRow || null, weekKey, published: false, fallbackWeek: prevRow ? prevWk : null })
-  }
-
-  return c.json({ ok: true, menu: row, weekKey, published: true })
+  return c.json({ ok: true, menu: row || null, weekKey })
 })
 
 // 生徒：計画・振り返りの承認状況を取得
@@ -2352,7 +2291,7 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   if (!Number.isFinite(damage)) return jsonError(c, 400, 'invalid_damage')
   const monsterId = Math.max(0, Math.min(9999, Math.floor(Number(body.monsterId || 0))))
   const metaJson = body.meta ? JSON.stringify(body.meta).slice(0, 500) : null
-  const validEvents = ['damage', 'faint', 'win', 'lose', 'self_damage', 'gym_ready', 'egg_battle']
+  const validEvents = ['damage', 'faint', 'win', 'lose']
   const eventType = validEvents.includes(String(body.eventType)) ? String(body.eventType) : 'damage'
 
   // イベント記録
@@ -2425,136 +2364,6 @@ app.delete('/api/rt/cleanup', async (c) => {
   return c.json({ ok: true })
 })
 
-
-// -------------------- Messages (teacher <-> student) --------------------
-
-// Teacher: send message to a student
-app.post('/api/teacher/message', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const { classId, studentId, body } = await c.req.json<any>()
-  if (!classId || !studentId || !body?.trim()) return jsonError(c, 400, 'classId, studentId, body required')
-  // Verify teacher owns this class and student is a member
-  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
-  if (!cls) return jsonError(c, 403, 'not your class')
-  const member = await c.env.DB.prepare('SELECT user_id FROM class_members WHERE class_id=? AND user_id=?').bind(classId, studentId).first<any>()
-  if (!member) return jsonError(c, 400, 'student not in class')
-  const id = crypto.randomUUID()
-  await c.env.DB.prepare(
-    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)'
-  ).bind(id, classId, u.id, 'teacher', studentId, body.trim()).run()
-  return c.json({ ok: true, id })
-})
-
-// Teacher: get messages for a class (sent & received)
-app.get('/api/teacher/messages', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const classId = c.req.query('classId') || ''
-  const studentId = c.req.query('studentId') || ''
-  if (!classId) return jsonError(c, 400, 'classId required')
-  const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
-  if (!cls) return jsonError(c, 403, 'not your class')
-  let query = `SELECT m.id, m.sender_id as senderId, m.sender_role as senderRole, m.recipient_id as recipientId, m.body, m.read_at as readAt, m.created_at as createdAt,
-     CASE WHEN m.sender_role='student' THEN u.name ELSE '(先生)' END as senderName,
-     CASE WHEN m.sender_role='teacher' THEN u2.name ELSE NULL END as recipientName
-     FROM messages m
-     LEFT JOIN users u ON m.sender_id = u.id
-     LEFT JOIN users u2 ON m.recipient_id = u2.id
-     WHERE m.class_id=?`
-  const params: string[] = [classId]
-  if (studentId) {
-    query += ` AND (m.sender_id=? OR m.recipient_id=?)`
-    params.push(studentId, studentId)
-  }
-  query += ` ORDER BY m.created_at DESC LIMIT 100`
-  const stmt = c.env.DB.prepare(query)
-  const rows = await (params.length === 1 ? stmt.bind(params[0]) : stmt.bind(params[0], params[1], params[2])).all()
-  return c.json({ ok: true, messages: rows.results })
-})
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Teacher: mark message as read
-app.post('/api/teacher/message/:id/read', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  await c.env.DB.prepare(`UPDATE messages SET read_at=datetime('now') WHERE id=? AND recipient_id=? AND read_at IS NULL`).bind(c.req.param('id'), u.id).run()
-  return c.json({ ok: true })
-})
-
-// Teacher: get unread count
-app.get('/api/teacher/messages/unread-count', async (c) => {
-  const u = requireTeacher(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const row = await c.env.DB.prepare(
-    'SELECT COUNT(*) as cnt FROM messages WHERE recipient_id=? AND read_at IS NULL'
-  ).bind(u.id).first<any>()
-  return c.json({ ok: true, count: row?.cnt || 0 })
-})
-
-// Student: send message to class teacher
-app.post('/api/student/message', async (c) => {
-  const u = requireStudent(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const { body } = await c.req.json<any>()
-  if (!body?.trim()) return jsonError(c, 400, 'body required')
-  // Find student's class and teacher
-  const membership = await c.env.DB.prepare(
-    'SELECT cm.class_id, c.teacher_id FROM class_members cm JOIN classes c ON cm.class_id=c.id WHERE cm.user_id=?'
-  ).bind(u.id).first<any>()
-  if (!membership) return jsonError(c, 400, 'no class joined')
-  const id = crypto.randomUUID()
-  await c.env.DB.prepare(
-    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)'
-  ).bind(id, membership.class_id, u.id, 'student', membership.teacher_id, body.trim()).run()
-  return c.json({ ok: true, id })
-})
-
-// Student: get my messages (sent & received)
-app.get('/api/student/messages', async (c) => {
-  const u = requireStudent(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const rows = await c.env.DB.prepare(
-    `SELECT id, sender_id as senderId, sender_role as senderRole, recipient_id as recipientId, body, read_at as readAt, created_at as createdAt
-     FROM messages WHERE sender_id=? OR recipient_id=?
-     ORDER BY created_at DESC LIMIT 50`
-  ).bind(u.id, u.id).all()
-  return c.json({ ok: true, messages: rows.results })
-})
-
-// Student: mark message as read
-app.post('/api/student/message/:id/read', async (c) => {
-  const u = requireStudent(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  await c.env.DB.prepare(`UPDATE messages SET read_at=datetime('now') WHERE id=? AND recipient_id=? AND read_at IS NULL`).bind(c.req.param('id'), u.id).run()
-  return c.json({ ok: true })
-})
-
-// Student: get unread count
-app.get('/api/student/messages/unread-count', async (c) => {
-  const u = requireStudent(c)
-  if (!u) return jsonError(c, 401, 'unauthorized')
-  const row = await c.env.DB.prepare(
-    'SELECT COUNT(*) as cnt FROM messages WHERE recipient_id=? AND read_at IS NULL'
-  ).bind(u.id).first<any>()
-  return c.json({ ok: true, count: row?.cnt || 0 })
-})
-
 // -------------------- Reports --------------------
 
 // Submit a report (any logged-in user)
@@ -2596,7 +2405,7 @@ app.get('/api/report/my', async (c) => {
 
 // Admin/Teacher: get all reports
 app.get('/api/admin/reports', async (c) => {
-  const u = requireAdmin(c)
+  const u = requireAdmin(c) || requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const status = c.req.query('status') || 'all'
@@ -2618,7 +2427,7 @@ app.get('/api/admin/reports', async (c) => {
 
 // Admin/Teacher: update report status/note
 app.put('/api/admin/report/:id', async (c) => {
-  const u = requireAdmin(c)
+  const u = requireAdmin(c) || requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const reportId = c.req.param('id')
@@ -2651,7 +2460,7 @@ app.put('/api/admin/report/:id', async (c) => {
 
 // Admin/Teacher: delete report
 app.delete('/api/admin/report/:id', async (c) => {
-  const u = requireAdmin(c)
+  const u = requireAdmin(c) || requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   await c.env.DB.prepare(`DELETE FROM reports WHERE id=?`).bind(c.req.param('id')).run()
@@ -3448,8 +3257,8 @@ app.get('/teacher', (c) => {
         <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
+        <button id="tabReports" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('reports')">📝 報告</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
-        <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
       </div>
 
       <!-- クラス一覧タブ -->
@@ -3495,19 +3304,8 @@ app.get('/teacher', (c) => {
               <input id="menuOtherTasks" class="w-full border border-green-300 rounded-lg p-2 text-sm" placeholder="例：音読3回"/>
             </div>
           </div>
-          <div>
-            <label class="text-xs font-bold text-green-800 block mb-1">📅 今週の家庭学習がある曜日</label>
-            <div class="flex gap-3 flex-wrap">
-              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayMon" value="mon" checked class="accent-green-600"> 月</label>
-              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayTue" value="tue" checked class="accent-green-600"> 火</label>
-              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayWed" value="wed" checked class="accent-green-600"> 水</label>
-              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayThu" value="thu" checked class="accent-green-600"> 木</label>
-              <label class="inline-flex items-center gap-1 text-sm"><input type="checkbox" id="menuDayFri" value="fri" checked class="accent-green-600"> 金</label>
-            </div>
-            <p class="text-xs text-green-600 mt-1">祝日や行事がある日はチェックを外してください</p>
-          </div>
           <div class="flex gap-2 items-center">
-            <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📤 送信</button>
+            <button onclick="saveWeeklyMenu()" class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">💾 保存</button>
             <span id="menuSaveMsg" class="text-xs text-green-700"></span>
           </div>
         </div>
@@ -3639,9 +3437,25 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
+      <!-- 報告一覧タブ -->
+      <div id="tabPaneReports" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <select id="rptStatusFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="all">すべて</option>
+              <option value="open">📬 受付中</option>
+              <option value="in_progress">🔧 対応中</option>
+              <option value="resolved">✅ 解決済み</option>
+              <option value="closed">🗂️ 終了</option>
+            </select>
+            <button onclick="loadAdminReports()" class="bg-gray-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
+            <span id="rptCount" class="text-xs text-gray-500 ml-auto"></span>
+          </div>
+          <div id="adminReportList" class="space-y-3 text-sm"></div>
+        </div>
+      </div>
     </div>
 
-      <!-- メールタブ -->      <div id="tabPaneMail" class="hidden">        <div id="mailStudentListView">          <div class="flex gap-2 mb-3 items-center">            <select id="mailClassFilter" class="border p-2 rounded text-sm bg-white font-bold"></select>          </div>          <div id="mailStudentCards" class="space-y-1"></div>        </div>        <div id="mailChatView" class="hidden" style="height:70vh;display:none;">          <div class="flex items-center gap-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-3 rounded-t-xl">            <button onclick="closeMailChat()" class="text-white font-bold text-lg">←</button>            <span id="mailChatName" class="font-bold"></span>          </div>          <div id="mailChatMessages" class="overflow-y-auto p-3 space-y-2 bg-[#e2efe9]" style="height:calc(70vh - 110px);"></div>          <div class="flex gap-2 items-end bg-white border-t p-2 rounded-b-xl">            <textarea id="mailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-teal-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>            <button onclick="sendTeacherMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-teal-500 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>          </div>          <p id="mailMsg" class="text-xs text-center py-1"></p>        </div>      </div>
     <script>
       async function api(path, opt){
         const r = await fetch(path, opt);
@@ -3653,7 +3467,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','mail'].forEach(function(t){
+        ['classes','contact','announcements','homework','reports','analytics'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -3662,9 +3476,9 @@ app.get('/teacher', (c) => {
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
         if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
+        if(tab === 'reports') loadAdminReports();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
-        if(tab === 'mail') loadTeacherMail();
       }
 
       async function loadUnitAnalytics(){
@@ -3875,58 +3689,6 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(ctBtn);
-
-          // ====== 全メニュー表示トグル ======
-          const menusDivider = document.createElement('div');
-          menusDivider.className = 'mt-3 pt-3 border-t border-slate-200';
-          menusDivider.innerHTML = '<div class="text-xs font-bold text-slate-600 mb-2"> メニュー表示設定</div>';
-          const menusGrid = document.createElement('div');
-          menusGrid.className = 'flex flex-wrap gap-1';
-
-          const currentMenus = cls.menusEnabled ? (typeof cls.menusEnabled === 'string' ? JSON.parse(cls.menusEnabled) : cls.menusEnabled) : {};
-
-          const allMenuItems = [
-            {key:'status', label:'ステータス', color:'emerald'},
-            {key:'training', label:'️修行', color:'blue'},
-            {key:'mail', label:'質問', color:'purple'},
-            {key:'battle', label:'⚔️バトル', color:'red'},
-            {key:'friend', label:'欄友達通信', color:'violet'},
-            {key:'shop', label:'ショップ', color:'orange'},
-            {key:'lab', label:'ラボ', color:'teal'},
-            {key:'pokedex', label:'図鑑', color:'slate'},
-            {key:'box', label:'ボックス', color:'cyan'},
-          ];
-
-          allMenuItems.forEach(function(item){
-            const isOn = currentMenus[item.key] !== false && currentMenus[item.key] !== 0;
-            const mbtn = document.createElement('button');
-            mbtn.className = isOn
-              ? 'text-xs px-2 py-1 rounded font-bold bg-'+item.color+'-100 text-'+item.color+'-700 border border-'+item.color+'-300'
-              : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-400 border border-slate-200 line-through';
-            mbtn.textContent = item.label;
-            mbtn.dataset.menuKey = item.key;
-            mbtn.dataset.on = isOn ? '1' : '';
-            mbtn.onclick = async function(){
-              const wasOn = !!mbtn.dataset.on;
-              mbtn.dataset.on = wasOn ? '' : '1';
-              currentMenus[item.key] = !wasOn;
-              mbtn.className = !wasOn
-                ? 'text-xs px-2 py-1 rounded font-bold bg-'+item.color+'-100 text-'+item.color+'-700 border border-'+item.color+'-300'
-                : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-400 border border-slate-200 line-through';
-              try{
-                await api('/api/teacher/class/'+cls.id+'/menus-toggle',{
-                  method:'PUT', headers:{'content-type':'application/json'},
-                  body: JSON.stringify({menusEnabled: currentMenus})
-                });
-              }catch(e){ alert(String(e.message||e)); }
-            };
-            menusGrid.appendChild(mbtn);
-          });
-
-          menusDivider.appendChild(menusGrid);
-          header.appendChild(menusDivider);
-
-
           const delBtn = document.createElement('button');
           delBtn.className='text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1';
           delBtn.textContent='削除';
@@ -3953,7 +3715,7 @@ app.get('/teacher', (c) => {
             rd.members.forEach((m,i)=>{
               html += '<tr class="'+(i%2===0?'bg-white':'bg-slate-50')+'">'
                 +'<td class="border px-2 py-1 text-center font-bold">'+(i+1)+'</td>'
-                +'<td class="border px-2 py-1">'+escH(m.name||m.id)+'</td>'
+                +'<td class="border px-2 py-1">'+escH(m.displayName||m.userId)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.totalLevel||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.monsterCount||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.correctCount||0)+'</td></tr>';
@@ -4003,13 +3765,6 @@ app.get('/teacher', (c) => {
           document.getElementById('menuKanjiPage').value = menu.kanji_page || menu.kanjiPage || '';
           document.getElementById('menuKeisanPage').value = menu.keisan_page || menu.keisanPage || '';
           document.getElementById('menuOtherTasks').value = menu.other_tasks || menu.otherTasks || '';
-          // 曜日チェックボックスの復元
-          var activeDays = [];
-          try{ activeDays = JSON.parse(menu.active_days || menu.activeDays || '["mon","tue","wed","thu","fri"]'); }catch(e){ activeDays = ['mon','tue','wed','thu','fri']; }
-          ['mon','tue','wed','thu','fri'].forEach(function(d){
-            var cb = document.getElementById('menuDay' + d.charAt(0).toUpperCase() + d.slice(1));
-            if(cb) cb.checked = activeDays.indexOf(d) >= 0;
-          });
         }catch(e){ console.warn('loadWeeklyMenu error:', e); }
       }
 
@@ -4024,20 +3779,16 @@ app.get('/teacher', (c) => {
             kanjiPage: document.getElementById('menuKanjiPage').value || '',
             keisanPage: document.getElementById('menuKeisanPage').value || '',
             otherTasks: document.getElementById('menuOtherTasks').value || '',
-            activeDays: ['mon','tue','wed','thu','fri'].filter(function(d){
-              var cb = document.getElementById('menuDay' + d.charAt(0).toUpperCase() + d.slice(1));
-              return cb && cb.checked;
-            }),
           };
           await api('/api/teacher/class/' + encodeURIComponent(classId) + '/weekly-menu', {
             method: 'POST',
             headers: {'content-type':'application/json'},
             body: JSON.stringify(body),
           });
-          if(msg) msg.textContent = '✅ 送信しました（' + wk + '）';
+          if(msg) msg.textContent = '✅ 保存しました（' + wk + '）';
           setTimeout(function(){ if(msg) msg.textContent = ''; }, 3000);
         }catch(e){
-          if(msg) msg.textContent = '⚠️ 送信に失敗しました';
+          if(msg) msg.textContent = '⚠️ 保存に失敗しました';
         }
       }
 
@@ -4128,10 +3879,10 @@ app.get('/teacher', (c) => {
         if(!data.length){ alert('未返却の振り返りがありません'); return; }
         let text = '以下は小学生の今週の家庭学習の振り返りです。それぞれに温かく励ましつつ具体的に褒める短いコメント（1〜2文）を書いてください。\nJSON形式 ' + '{"comments":["コメント1","コメント2",...]}' + ' で返してください。\n\n';
         data.forEach(function(d, i){
-          text += (i+1) + '. ' + d.name + '「' + d.reflection + '」\\n';
+          text += (i+1) + '. ' + d.name + '「' + d.reflection + '」\n';
         });
         navigator.clipboard.writeText(text).then(function(){
-          alert('📋 '+data.length+'人分の振り返りをコピーしました！\\nGemini等に貼り付けてコメントを生成してください。');
+          alert('📋 '+data.length+'人分の振り返りをコピーしました！\nGemini等に貼り付けてコメントを生成してください。');
         }).catch(function(){
           prompt('コピーに失敗しました。手動でコピーしてください:', text);
         });
@@ -4150,7 +3901,7 @@ app.get('/teacher', (c) => {
           comments = parsed.comments || parsed;
         }catch(_){
           // 番号付きリスト形式をパース
-          comments = raw.split(/\\n/).map(function(line){
+          comments = raw.split(/\n/).map(function(line){
             return line.replace(/^\d+[\.\)：:]\s*/, '').trim();
           }).filter(function(l){ return l.length > 0; });
         }
@@ -4441,137 +4192,61 @@ app.get('/teacher', (c) => {
       }
 
       // 報告一覧
-
-      // ===== メール機能 =====
-      var _mailCurrentStudent = null;
-      var _mailCurrentClass = null;
-
-      async function loadTeacherMail(){
-        try{
-          var clsData = await api('/api/teacher/classes');
-          var sel = document.getElementById('mailClassFilter');
-          var cur = sel.value;
-          sel.innerHTML = '';
-          (clsData.classes||[]).forEach(function(c,i){ sel.innerHTML += '<option value="'+escH(c.id)+'"'+(c.id===cur||(!cur&&i===0)?' selected':'')+'>'+escH(c.name)+'</option>'; });
-          sel.onchange = function(){ loadMailStudentList(); };
-          _mailCurrentClass = sel.value;
-          loadMailStudentList();
-        }catch(e){}
-      }
-
-      async function loadMailStudentList(){
-        var classId = document.getElementById('mailClassFilter').value;
-        _mailCurrentClass = classId;
-        var wrap = document.getElementById('mailStudentCards');
-        wrap.innerHTML = '<p class="text-slate-400 text-sm">読み込み中...</p>';
-        if(!classId) return;
-        try{
-          var data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/members');
-          var members = data.members || [];
-          if(!members.length){ wrap.innerHTML='<p class="text-slate-400 text-sm">生徒がいません</p>'; return; }
-          var unreadData = await api('/api/teacher/messages?classId='+encodeURIComponent(classId));
-          var msgs = unreadData.messages || [];
-          var unreadMap = {};
-          var lastMsgMap = {};
-          msgs.forEach(function(m){
-            var sid = m.senderRole==='student' ? m.senderId : m.recipientId;
-            if(!lastMsgMap[sid]) lastMsgMap[sid] = m;
-            if(m.senderRole==='student' && !m.readAt){ unreadMap[sid] = (unreadMap[sid]||0) + 1; }
-          });
+      async function loadAdminReports(){
+        const wrap = document.getElementById('adminReportList');
+        const countEl = document.getElementById('rptCount');
+        wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
+        const status = document.getElementById('rptStatusFilter').value;
+        try {
+          const data = await api('/api/admin/reports?status='+encodeURIComponent(status));
+          const list = data.reports || [];
+          if(countEl) countEl.textContent = list.length + '件';
+          if(!list.length){ wrap.innerHTML='<p class="text-slate-400">報告はありません</p>'; return; }
+          var catLabels = {bug:'🐛 バグ', request:'💡 要望', other:'💬 その他'};
+          var statusLabels = {open:'📬 受付中', in_progress:'🔧 対応中', resolved:'✅ 解決済み', closed:'🗂️ 終了'};
           wrap.innerHTML='';
-          members.forEach(function(m){
+          list.forEach(function(r){
             var card = document.createElement('div');
-            var unread = unreadMap[m.userId] || 0;
-            var lastMsg = lastMsgMap[m.userId];
-            var preview = lastMsg ? lastMsg.body.slice(0,30) : 'メッセージなし';
-            var time = lastMsg ? (lastMsg.createdAt||'').slice(11,16) : '';
-            card.className = 'flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm cursor-pointer hover:bg-slate-50 border' + (unread ? ' border-orange-300' : ' border-slate-100');
-            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(m.name.slice(0,1))+'</div>'
-              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(m.name)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
-              + (unread ? '<span class="bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold">'+unread+'</span>' : '');
-            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:m.name});
+            card.className = 'border rounded-xl p-3 space-y-2 ' + (r.status==='open' ? 'bg-yellow-50 border-yellow-300' : 'bg-white');
+            card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
+              + '<div class="font-bold text-sm">' + escH(r.displayName) + ' <span class="text-xs text-slate-400 font-normal">'+(catLabels[r.category]||r.category)+'</span></div>'
+              + '<div class="flex gap-1 items-center text-xs"><span class="px-2 py-0.5 rounded-full bg-gray-100">'+(statusLabels[r.status]||r.status)+'</span><span class="text-slate-400">'+escH(r.createdAt)+'</span></div>'
+              + '</div>'
+              + '<div class="text-sm text-slate-700">'+escH(r.body)+'</div>'
+              + (r.adminNote ? '<div class="text-xs bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">💬 返信: '+escH(r.adminNote)+'</div>' : '')
+              + '<div class="flex gap-2 items-center flex-wrap">'
+              + '<select class="border p-1 rounded text-xs" id="rptSt_'+r.id+'">'
+              + '<option value="open"'+(r.status==='open'?' selected':'')+'>受付中</option>'
+              + '<option value="in_progress"'+(r.status==='in_progress'?' selected':'')+'>対応中</option>'
+              + '<option value="resolved"'+(r.status==='resolved'?' selected':'')+'>解決済み</option>'
+              + '<option value="closed"'+(r.status==='closed'?' selected':'')+'>終了</option>'
+              + '</select>'
+              + '<input class="border p-1 rounded text-xs flex-1" id="rptNote_'+r.id+'" placeholder="返信メモ" value="'+escH(r.adminNote)+'" />'
+              + '<button class="bg-emerald-600 text-white rounded px-2 py-1 text-xs font-bold" onclick="updateReport(&#39;'+r.id+'&#39;)">更新</button>'
+              + '<button class="bg-red-100 text-red-600 rounded px-2 py-1 text-xs" onclick="deleteReport(&#39;'+r.id+'&#39;)">削除</button>'
+              + '</div>';
             wrap.appendChild(card);
           });
-        }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm">読み込みエラー</p>'; }
+        } catch(e) {
+          wrap.innerHTML='<p class="text-red-600">読み込みエラー: '+escH(String(e.message||e))+'</p>';
+        }
       }
 
-      function openMailChat(studentId, studentName){
-        _mailCurrentStudent = studentId;
-        document.getElementById('mailChatName').textContent = studentName + 'さん';
-        document.getElementById('mailStudentListView').style.display='none';
-        var cv = document.getElementById('mailChatView');
-        cv.classList.remove('hidden'); cv.style.display='';
-        loadMailChat();
-      }
-
-      function closeMailChat(){
-        _mailCurrentStudent = null;
-        document.getElementById('mailStudentListView').style.display='';
-        document.getElementById('mailChatView').style.display='none';
-        loadMailStudentList();
-      }
-
-      async function loadMailChat(){
-        var wrap = document.getElementById('mailChatMessages');
-        wrap.innerHTML = '<p class="text-sm text-slate-400 text-center">読み込み中...</p>';
-        if(!_mailCurrentClass || !_mailCurrentStudent) return;
+      async function updateReport(id){
+        var st = document.getElementById('rptSt_'+id).value;
+        var note = document.getElementById('rptNote_'+id).value;
         try{
-          var data = await api('/api/teacher/messages?classId='+encodeURIComponent(_mailCurrentClass)+'&studentId='+encodeURIComponent(_mailCurrentStudent));
-          var list = data.messages || [];
-          if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-4">まだメッセージはありません</p>'; return; }
-          wrap.innerHTML='';
-          var prevDate='';
-          list.slice().reverse().forEach(function(m){
-            var isFromMe = m.senderRole === 'teacher';
-            var dt = (m.createdAt||'').slice(0,10);
-            if(dt !== prevDate){
-              wrap.insertAdjacentHTML('beforeend','<div class="text-center my-2"><span class="bg-black/10 text-slate-600 text-[10px] rounded-full px-3 py-0.5">'+escH(dt)+'</span></div>');
-              prevDate = dt;
-            }
-            var row = document.createElement('div');
-            row.className = 'flex ' + (isFromMe ? 'justify-end' : 'justify-start') + ' mb-1';
-            var bubble = document.createElement('div');
-            bubble.className = 'max-w-[75%]';
-            var nameTag = '';
-            if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">'+escH(m.senderName||'生徒')+'</div>'; }
-            var time = escH((m.createdAt||'').slice(11,16));
-            var readMark = '';
-            if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-teal-600">既読</span> '; }
-            var msgDiv = document.createElement('div');
-            if(isFromMe){
-              msgDiv.className = 'rounded-2xl rounded-br-sm px-3 py-2 text-sm shadow-sm bg-teal-500 text-white';
-            } else {
-              msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
-            }
-            msgDiv.textContent = m.body;
-            bubble.insertAdjacentHTML('beforeend', nameTag);
-            bubble.appendChild(msgDiv);
-            bubble.insertAdjacentHTML('beforeend', '<div class="flex items-end gap-1 mt-0.5 '+(isFromMe?'justify-end mr-1':'ml-1')+'"><span class="text-[10px] text-slate-400">'+readMark+time+'</span></div>');
-            if(!isFromMe && !m.readAt){
-              msgDiv.onclick = (function(mid){ return async function(){
-                await api('/api/teacher/message/'+mid+'/read',{method:'POST'});
-                loadMailChat();
-              }; })(m.id);
-              msgDiv.style.cursor='pointer';
-              msgDiv.title='クリックで既読';
-            }
-            row.appendChild(bubble);
-            wrap.appendChild(row);
-          });
-          wrap.scrollTop = wrap.scrollHeight;
-        }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm text-center">読み込みエラー</p>'; }
+          await api('/api/admin/report/'+id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({status:st,adminNote:note})});
+          loadAdminReports();
+        }catch(e){ alert('更新エラー: '+String(e.message||e)); }
       }
 
-      async function sendTeacherMail(){
-        if(!_mailCurrentStudent){ return; }
-        var body = document.getElementById('mailBody').value.trim();
-        var msg = document.getElementById('mailMsg');
-        if(!body){ msg.textContent='メッセージを入力してください'; msg.className='text-xs text-center py-1 text-red-600'; return; }
+      async function deleteReport(id){
+        if(!confirm('この報告を削除しますか？')) return;
         try{
-          await api('/api/teacher/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:_mailCurrentClass,studentId:_mailCurrentStudent,body:body})});
-          msg.textContent=''; document.getElementById('mailBody').value='';
-          loadMailChat();
-        }catch(e){ msg.textContent='送信エラー'; msg.className='text-xs text-center py-1 text-red-600'; }
+          await api('/api/admin/report/'+id,{method:'DELETE'});
+          loadAdminReports();
+        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
       }
 
       // ===== 連絡帳機能 =====
@@ -4588,12 +4263,6 @@ app.get('/teacher', (c) => {
         var tmrw = new Date(today); tmrw.setDate(tmrw.getDate()+1);
         var dk = document.getElementById('cnDayKey');
         if(dk && !dk.value) dk.value = tmrw.toISOString().slice(0,10);
-        // 締切のデフォルトを今日の20:00に
-        var dlEl = document.getElementById('cnDeadline');
-        if(dlEl && !dlEl.value){
-          var y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
-          dlEl.value = y+'-'+m+'-'+d+'T20:00';
-        }
         // 一覧
         var wrap = document.getElementById('cnList');
         wrap.innerHTML = '<p class="text-slate-400 text-xs">読み込み中...</p>';
