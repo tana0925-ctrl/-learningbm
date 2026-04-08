@@ -2523,7 +2523,7 @@ app.delete('/api/rt/cleanup', async (c) => {
 app.post('/api/teacher/message', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const { classId, studentId, body } = await c.req.json<any>()
+  const { classId, studentId, body, image } = await c.req.json<any>()
   if (!classId || !studentId || !body?.trim()) return jsonError(c, 400, 'classId, studentId, body required')
   // Verify teacher owns this class and student is a member
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
@@ -2532,8 +2532,8 @@ app.post('/api/teacher/message', async (c) => {
   if (!member) return jsonError(c, 400, 'student not in class')
   const id = crypto.randomUUID()
   await c.env.DB.prepare(
-    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)'
-  ).bind(id, classId, u.id, 'teacher', studentId, body.trim()).run()
+    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body, image) VALUES (?,?,?,?,?,?,?)'
+  ).bind(id, classId, u.id, 'teacher', studentId, body.trim(), image || null).run()
   return c.json({ ok: true, id })
 })
 
@@ -2546,7 +2546,9 @@ app.get('/api/teacher/messages', async (c) => {
   if (!classId) return jsonError(c, 400, 'classId required')
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 403, 'not your class')
-  let query = `SELECT m.id, m.sender_id as senderId, m.sender_role as senderRole, m.recipient_id as recipientId, m.body, m.read_at as readAt, m.created_at as createdAt,
+  // Cleanup: null out images older than 14 days
+  await c.env.DB.prepare(`UPDATE messages SET image=NULL WHERE image IS NOT NULL AND created_at < datetime('now','-14 days')`).run()
+  let query = `SELECT m.id, m.sender_id as senderId, m.sender_role as senderRole, m.recipient_id as recipientId, m.body, m.image, m.read_at as readAt, m.created_at as createdAt,
      CASE WHEN m.sender_role='student' THEN u.name ELSE '(先生)' END as senderName,
      CASE WHEN m.sender_role='teacher' THEN u2.name ELSE NULL END as recipientName
      FROM messages m
@@ -2602,8 +2604,8 @@ app.get('/api/teacher/messages/unread-count', async (c) => {
 app.post('/api/student/message', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const { body } = await c.req.json<any>()
-  if (!body?.trim()) return jsonError(c, 400, 'body required')
+  const { body, image } = await c.req.json<any>()
+  if (!body?.trim() && !image) return jsonError(c, 400, 'body or image required')
   // Find student's class and teacher
   const membership = await c.env.DB.prepare(
     'SELECT cm.class_id, c.teacher_id FROM class_members cm JOIN classes c ON cm.class_id=c.id WHERE cm.user_id=?'
@@ -2611,8 +2613,8 @@ app.post('/api/student/message', async (c) => {
   if (!membership) return jsonError(c, 400, 'no class joined')
   const id = crypto.randomUUID()
   await c.env.DB.prepare(
-    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)'
-  ).bind(id, membership.class_id, u.id, 'student', membership.teacher_id, body.trim()).run()
+    'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body, image) VALUES (?,?,?,?,?,?,?)'
+  ).bind(id, membership.class_id, u.id, 'student', membership.teacher_id, (body||'').trim() || '(画像)', image || null).run()
   return c.json({ ok: true, id })
 })
 
@@ -2621,7 +2623,7 @@ app.get('/api/student/messages', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   const rows = await c.env.DB.prepare(
-    `SELECT id, sender_id as senderId, sender_role as senderRole, recipient_id as recipientId, body, read_at as readAt, created_at as createdAt
+    `SELECT id, sender_id as senderId, sender_role as senderRole, recipient_id as recipientId, body, image, read_at as readAt, created_at as createdAt
      FROM messages WHERE sender_id=? OR recipient_id=?
      ORDER BY created_at DESC LIMIT 50`
   ).bind(u.id, u.id).all()
@@ -3930,7 +3932,7 @@ app.get('/teacher', (c) => {
 
     </div>
 
-      <!-- メールタブ -->      <div id="tabPaneMail" class="hidden">        <div id="mailStudentListView">          <div class="flex gap-2 mb-3 items-center">            <select id="mailClassFilter" class="border p-2 rounded text-sm bg-white font-bold"></select>          </div>          <div id="mailStudentCards" class="space-y-1"></div>        </div>        <div id="mailChatView" class="hidden" style="height:70vh;display:none;">          <div class="flex items-center gap-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-3 rounded-t-xl">            <button onclick="closeMailChat()" class="text-white font-bold text-lg">←</button>            <span id="mailChatName" class="font-bold"></span>          </div>          <div id="mailChatMessages" class="overflow-y-auto p-3 space-y-2 bg-[#e2efe9]" style="height:calc(70vh - 110px);"></div>          <div class="flex gap-2 items-end bg-white border-t p-2 rounded-b-xl">            <textarea id="mailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-teal-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>            <button onclick="sendTeacherMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-teal-500 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>          </div>          <p id="mailMsg" class="text-xs text-center py-1"></p>        </div>      </div>
+      <!-- メールタブ -->      <div id="tabPaneMail" class="hidden">        <div id="mailStudentListView">          <div class="flex gap-2 mb-3 items-center">            <select id="mailClassFilter" class="border p-2 rounded text-sm bg-white font-bold"></select>          </div>          <div id="mailStudentCards" class="space-y-1"></div>        </div>        <div id="mailChatView" class="hidden" style="height:70vh;display:none;">          <div class="flex items-center gap-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-3 rounded-t-xl">            <button onclick="closeMailChat()" class="text-white font-bold text-lg">←</button>            <span id="mailChatName" class="font-bold"></span>          </div>          <div id="mailChatMessages" class="overflow-y-auto p-3 space-y-2 bg-[#e2efe9]" style="height:calc(70vh - 110px);"></div>          <div id="mailImagePreview" class="hidden px-2 pt-2 bg-white border-t"><div class="relative inline-block"><img id="mailImageThumb" class="h-16 rounded"/><button onclick="clearMailImage()" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button></div></div>          <div class="flex gap-2 items-end bg-white border-t p-2 rounded-b-xl">            <input type="file" id="mailImageInput" accept="image/*" class="hidden" onchange="handleMailImage(this)"/>            <button onclick="document.getElementById('mailImageInput').click()" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 font-bold shadow hover:bg-slate-300 flex-shrink-0" title="画像を添付">📷</button>            <textarea id="mailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-teal-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>            <button onclick="sendTeacherMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-teal-500 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>          </div>          <p id="mailMsg" class="text-xs text-center py-1"></p>        </div>      </div>
     <script>
       async function api(path, opt){
         const r = await fetch(path, opt);
@@ -4834,7 +4836,8 @@ app.get('/teacher', (c) => {
             } else {
               msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
             }
-            msgDiv.textContent = m.body;
+            if(m.image){ var img=document.createElement('img'); img.src=m.image; img.className='rounded-lg max-w-full max-h-[200px] mb-1 cursor-pointer'; img.onclick=function(){window.open(m.image,'_blank');}; msgDiv.appendChild(img); }
+            if(m.body && m.body!=='(画像)'){ var txt=document.createElement('span'); txt.textContent=m.body; msgDiv.appendChild(txt); } else if(!m.image){ msgDiv.textContent=m.body; }
             bubble.insertAdjacentHTML('beforeend', nameTag);
             bubble.appendChild(msgDiv);
             bubble.insertAdjacentHTML('beforeend', '<div class="flex items-end gap-1 mt-0.5 '+(isFromMe?'justify-end mr-1':'ml-1')+'"><span class="text-[10px] text-slate-400">'+readMark+time+'</span></div>');
@@ -4853,14 +4856,36 @@ app.get('/teacher', (c) => {
         }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm text-center">読み込みエラー</p>'; }
       }
 
+      var _mailImageData = null;
+      function handleMailImage(input){
+        var file = input.files[0]; if(!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e){
+          var img = new Image();
+          img.onload = function(){
+            var canvas = document.createElement('canvas');
+            var maxW = 800, w = img.width, h = img.height;
+            if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            _mailImageData = canvas.toDataURL('image/jpeg', 0.6);
+            document.getElementById('mailImageThumb').src = _mailImageData;
+            document.getElementById('mailImagePreview').classList.remove('hidden');
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        input.value = '';
+      }
+      function clearMailImage(){ _mailImageData = null; document.getElementById('mailImagePreview').classList.add('hidden'); }
       async function sendTeacherMail(){
         if(!_mailCurrentStudent){ return; }
         var body = document.getElementById('mailBody').value.trim();
         var msg = document.getElementById('mailMsg');
-        if(!body){ msg.textContent='メッセージを入力してください'; msg.className='text-xs text-center py-1 text-red-600'; return; }
+        if(!body && !_mailImageData){ msg.textContent='メッセージを入力してください'; msg.className='text-xs text-center py-1 text-red-600'; return; }
         try{
-          await api('/api/teacher/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:_mailCurrentClass,studentId:_mailCurrentStudent,body:body})});
-          msg.textContent=''; document.getElementById('mailBody').value='';
+          await api('/api/teacher/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:_mailCurrentClass,studentId:_mailCurrentStudent,body:body||'(画像)',image:_mailImageData||undefined})});
+          msg.textContent=''; document.getElementById('mailBody').value=''; clearMailImage();
           loadMailChat();
         }catch(e){ msg.textContent='送信エラー'; msg.className='text-xs text-center py-1 text-red-600'; }
       }
