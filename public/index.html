@@ -9941,6 +9941,37 @@ const WILD_AREA_POOLS = {
     'social-nagoyasouth': { 1: [330, 1100, NW(19)], 2: [330, 331, 1100, NW(20)], 3: [331, 1100, 980] },
     'social-seto': { 1: [330, NW(19), NW(22)], 2: [330, NW(20), NW(23), NW(25)], 3: [330, NW(21), NW(26), 980] },
 
+    // === 小1 ===
+    'm1-add-cy':  { 1: [NW(5), NW(6)],         2: [NW(0), NW(28)],          3: [NW(31), NW(30)] },
+    'm1-sub-bo':  { 1: [NW(3), NW(27)],        2: [NW(4), NW(29)],          3: [NW(8), NW(32)] },
+    'j1-kanji':   { 1: [NW(14), NW(16)],       2: [NW(15), NW(17)],         3: [NW(18), NW(36)] },
+
+    // === 小2 ===
+    'm2-add2':    { 1: [NW(0), NW(3)],         2: [NW(1), NW(4)],           3: [NW(2), NW(10)] },
+    'j2-kanji':   { 1: [NW(11), NW(33)],       2: [NW(12), NW(34)],         3: [NW(13), NW(35)] },
+
+    // === 小3 ===
+    'm3-mul1':    { 1: [NW(7), NW(5)],         2: [NW(8), NW(6)],           3: [NW(9), NW(32)] },
+    'm3-div0':    { 1: [NW(3), NW(27)],        2: [NW(4), NW(28)],          3: [NW(10), NW(30)] },
+    'j3-kotowaza':{ 1: [NW(14), NW(11)],       2: [NW(15), NW(12)],         3: [NW(36), NW(13)] },
+    's3-map':     { 1: [NW(19), NW(22)],       2: [NW(20), NW(23)],         3: [NW(21), NW(26)] },
+    'r3-magnet':  { 1: [NW(16), NW(33)],       2: [NW(17), NW(34)],         3: [NW(18), NW(35)] },
+
+    // === 小5 ===
+    'm5-frac-eq': { 1: [NW(27), NW(28), 1120], 2: [NW(29), NW(30), 1121],   3: [NW(2), NW(10), 1122] },
+    'm5-percent': { 1: [NW(0), NW(3)],         2: [NW(1), NW(4), NW(9)],    3: [NW(2), NW(10), NW(32)] },
+    'm5-speed':   { 1: [NW(5), NW(31)],        2: [NW(7), NW(8)],           3: [NW(9), NW(2)] },
+    'j5-keigo':   { 1: [NW(14), NW(16)],       2: [NW(15), NW(33), 1110],   3: [NW(36), NW(13), 1112] },
+    's5-agri':    { 1: [NW(19), NW(22)],       2: [NW(20), NW(23), NW(37)], 3: [NW(21), NW(26), NW(39)] },
+    'r5-weather': { 1: [NW(11), NW(17)],       2: [NW(12), NW(18)],         3: [NW(13), NW(35)] },
+
+    // === 小6 ===
+    'm6-frac-mul':{ 1: [NW(27), NW(7), 1120],  2: [NW(29), NW(8), 1121],    3: [NW(30), NW(10), 1122] },
+    'm6-ratio':   { 1: [NW(0), NW(5)],         2: [NW(1), NW(6), NW(9)],    3: [NW(2), NW(32)] },
+    'j6-bunpo':   { 1: [NW(11), NW(14)],       2: [NW(12), NW(15), 1110],   3: [NW(13), NW(36), 1112] },
+    's6-hist-u6': { 1: [NW(19), NW(24)],       2: [NW(20), NW(25), NW(37)], 3: [NW(21), NW(26), NW(38), 980] },
+    's6-politics':{ 1: [330, NW(22), NW(19)],   2: [330, NW(23), NW(20)],    3: [330, NW(26), NW(39), 980] },
+    'r6-combust': { 1: [NW(16), NW(33)],       2: [NW(17), NW(34)],         3: [NW(18), NW(35), NW(13)] },
 };
 
 function pickWildMonsterId(areaId, depth) {
@@ -16915,32 +16946,60 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
 
                 // ===== PvE エリア選択（野生バトル） =====
         const PVE_AREAS = [
-            { id: 'rounding',  subject:'math', name: 'がいすうの森',   emoji: '🌲', desc: 'がいすう（四捨五入）の問題が出るよ' },
-            { id: 'division',  subject:'math', name: 'わり算谷',       emoji: '🏞️', desc: 'わり算の問題が出るよ' },
-            { id: 'long-division',  subject:'math', name: '筆算の洞くつ',     emoji: '📝', desc: '筆算（わり算）の問題が出るよ' },
-            { id: 'decimal',   subject:'math', name: '小数の海',       emoji: '🌊', desc: '小数の計算の問題が出るよ' },
-            { id: 'area',      subject:'math', name: '面積遺跡',       emoji: '🏛️', desc: '面積の問題が出るよ' },
-            { id: 'brackets',  subject:'math', name: '順序の迷宮',   emoji: '🧭', desc: '計算の順序の問題が出るよ（×÷が先、同じなら左から）' },
+            // === 小1 ===
+            { id: 'm1-add-cy', subject:'math', grade:1, name: 'くり上がりの丘',  emoji: '🌈', desc: 'くり上がりのあるたしざんが出るよ' },
+            { id: 'm1-sub-bo', subject:'math', grade:1, name: 'くり下がりの谷',  emoji: '🌀', desc: 'くり下がりのあるひきざんが出るよ' },
+            { id: 'j1-kanji',  subject:'jp',   grade:1, name: 'かんじの広場',    emoji: '🅰️', desc: '1年生のかんじが出るよ（1〜4を入力）' },
 
-            { id: 'fraction-mixed', subject:'math', name: '分数の村',     emoji: '🏡', desc: '分数のへんしん＆計算（□うめ）の問題が出るよ' },
-            { id: 'idiom',     subject:'jp',   name: '慣用句山',       emoji: '⛰️', desc: '慣用句の意味・使い方の問題が出るよ（1〜4を入力）' },
-            { id: 'conjunction', subject:'jp', name: '接続詞の橋',     emoji: '🌉', desc: '接続詞のクイズが出るよ（1〜4を入力）' },
-            { id: 'yoji',     subject:'jp',   name: '四字熟語の塔',   emoji: '🗼', desc: '四字熟語の意味・選択・文脈の問題が出るよ（1〜4を入力）' },
+            // === 小2 ===
+            { id: 'kuku',      subject:'math', grade:2, name: '九九バトルフィールド', emoji: '🔥', desc: '九九の問題が出るよ' },
+            { id: 'm2-add2',   subject:'math', grade:2, name: 'たし算キャンプ',  emoji: '⛺', desc: '2けたのたし算が出るよ' },
+            { id: 'j2-kanji',  subject:'jp',   grade:2, name: 'かん字の道',      emoji: '✏️', desc: '2年生のかん字が出るよ（1〜4を入力）' },
 
-            { id: 'social',    subject:'soc',  name: '社会のまち',     emoji: '🏙️', desc: '社会のクイズが出るよ（1〜4を入力）' },
+            // === 小3 ===
+            { id: 'm3-mul1',   subject:'math', grade:3, name: 'かけ算のとりで',  emoji: '🏰', desc: '2けた×1けたの問題が出るよ' },
+            { id: 'm3-div0',   subject:'math', grade:3, name: 'わり算の泉',      emoji: '⛲', desc: 'わりきれるわり算が出るよ' },
+            { id: 'j3-kotowaza', subject:'jp', grade:3, name: 'ことわざの里',    emoji: '🏘️', desc: 'ことわざの問題が出るよ（1〜4を入力）' },
+            { id: 's3-map',    subject:'soc',  grade:3, name: '地図記号の島',    emoji: '🗺️', desc: '地図記号のクイズが出るよ（1〜4を入力）' },
+            { id: 'r3-magnet', subject:'sci',  grade:3, name: 'じしゃくの洞くつ', emoji: '🧲', desc: 'じしゃくの問題が出るよ（1〜4を入力）' },
 
-            { id: 'social-nagoyasouth', subject:'soc', name: '名古屋南部の港', emoji: '⚓', desc: '名古屋南部の開発クイズが出るよ（1〜4を入力）' },
+            // === 小4 ===
+            { id: 'rounding',  subject:'math', grade:4, name: 'がいすうの森',   emoji: '🌲', desc: 'がいすう（四捨五入）の問題が出るよ' },
+            { id: 'division',  subject:'math', grade:4, name: 'わり算谷',       emoji: '🏞️', desc: 'わり算の問題が出るよ' },
+            { id: 'long-division',  subject:'math', grade:4, name: '筆算の洞くつ',     emoji: '📝', desc: '筆算（わり算）の問題が出るよ' },
+            { id: 'decimal',   subject:'math', grade:4, name: '小数の海',       emoji: '🌊', desc: '小数の計算の問題が出るよ' },
+            { id: 'area',      subject:'math', grade:4, name: '面積遺跡',       emoji: '🏛️', desc: '面積の問題が出るよ' },
+            { id: 'brackets',  subject:'math', grade:4, name: '順序の迷宮',   emoji: '🧭', desc: '計算の順序の問題が出るよ（×÷が先、同じなら左から）' },
+            { id: 'fraction-mixed', subject:'math', grade:4, name: '分数の村',     emoji: '🏡', desc: '分数のへんしん＆計算（□うめ）の問題が出るよ' },
+            { id: 'idiom',     subject:'jp',   grade:4, name: '慣用句山',       emoji: '⛰️', desc: '慣用句の意味・使い方の問題が出るよ（1〜4を入力）' },
+            { id: 'conjunction', subject:'jp', grade:4, name: '接続詞の橋',     emoji: '🌉', desc: '接続詞のクイズが出るよ（1〜4を入力）' },
+            { id: 'yoji',     subject:'jp',   grade:4, name: '四字熟語の塔',   emoji: '🗼', desc: '四字熟語の意味・選択・文脈の問題が出るよ（1〜4を入力）' },
+            { id: 'social',    subject:'soc',  grade:4, name: '社会のまち',     emoji: '🏙️', desc: '社会のクイズが出るよ（1〜4を入力）' },
+            { id: 'social-nagoyasouth', subject:'soc', grade:4, name: '名古屋南部の港', emoji: '⚓', desc: '名古屋南部の開発クイズが出るよ（1〜4を入力）' },
+            { id: 'social-seto', subject:'soc', grade:4, name: '瀬戸のやきもの', emoji: '🏺', desc: '瀬戸のやきものクイズが出るよ（1〜4を入力）' },
+            { id: 'science-heat',      subject:'sci', grade:4, name: 'あたたまり方ラボ', emoji: '🔥', desc: 'もののあたたまり方（1〜4を入力）' },
+            { id: 'science-seasons',   subject:'sci', grade:4, name: '季節と生き物の森', emoji: '🍁', desc: '季節と生き物（1〜4を入力）' },
+            { id: 'science-airwater',  subject:'sci', grade:4, name: '空気と水の洞くつ', emoji: '💨', desc: '空気と水の性質（1〜4を入力）' },
+            { id: 'science-moonstars', subject:'sci', grade:4, name: '月と星の丘',       emoji: '🌙', desc: '月と星（1〜4を入力）' },
+            { id: 'science-body',      subject:'sci', grade:4, name: 'からだの研究所',   emoji: '🧠', desc: '人の体のつくり（1〜4を入力）' },
+            { id: 'science-weather',   subject:'sci', grade:4, name: '天気のタワー',     emoji: '☁️', desc: '天気と気温（1〜4を入力）' },
+            { id: 'science-electric',  subject:'sci', grade:4, name: '電気の発電所',     emoji: '⚡', desc: '電気のはたらき（1〜4を入力）' },
 
-            { id: 'social-seto', subject:'soc', name: '瀬戸のやきもの', emoji: '🏺', desc: '瀬戸のやきものクイズが出るよ（1〜4を入力）' },
+            // === 小5 ===
+            { id: 'm5-frac-eq',  subject:'math', grade:5, name: '約分の道場',    emoji: '🥋', desc: '約分と通分の問題が出るよ' },
+            { id: 'm5-percent',  subject:'math', grade:5, name: '割合の市場',    emoji: '📈', desc: '割合（百分率）の問題が出るよ' },
+            { id: 'm5-speed',    subject:'math', grade:5, name: '速さの草原',    emoji: '🏃', desc: '速さの問題が出るよ' },
+            { id: 'j5-keigo',    subject:'jp',   grade:5, name: '敬語の御殿',    emoji: '🎩', desc: '敬語の問題が出るよ（1〜4を入力）' },
+            { id: 's5-agri',     subject:'soc',  grade:5, name: '農業の大地',    emoji: '🌾', desc: '農業のクイズが出るよ（1〜4を入力）' },
+            { id: 'r5-weather',  subject:'sci',  grade:5, name: '天気の観測所',  emoji: '⛅', desc: '天気の変化の問題が出るよ（1〜4を入力）' },
 
-            // 理科は後で問題を追加予定（UIは先に作る）
-            { id: 'science-heat',      subject:'sci', name: 'あたたまり方ラボ', emoji: '🔥', desc: 'もののあたたまり方（1〜4を入力）' },
-            { id: 'science-seasons',   subject:'sci', name: '季節と生き物の森', emoji: '🍁', desc: '季節と生き物（1〜4を入力）' },
-            { id: 'science-airwater',  subject:'sci', name: '空気と水の洞くつ', emoji: '💨', desc: '空気と水の性質（1〜4を入力）' },
-            { id: 'science-moonstars', subject:'sci', name: '月と星の丘',       emoji: '🌙', desc: '月と星（1〜4を入力）' },
-            { id: 'science-body',      subject:'sci', name: 'からだの研究所',   emoji: '🧠', desc: '人の体のつくり（1〜4を入力）' },
-            { id: 'science-weather',   subject:'sci', name: '天気のタワー',     emoji: '☁️', desc: '天気と気温（1〜4を入力）' },
-            { id: 'science-electric',  subject:'sci', name: '電気の発電所',     emoji: '⚡', desc: '電気のはたらき（1〜4を入力）' }];
+            // === 小6 ===
+            { id: 'm6-frac-mul', subject:'math', grade:6, name: '分数×分数の砦', emoji: '🏯', desc: '分数×分数の問題が出るよ' },
+            { id: 'm6-ratio',    subject:'math', grade:6, name: '比の天秤',      emoji: '⚖️', desc: '比の問題が出るよ' },
+            { id: 'j6-bunpo',    subject:'jp',   grade:6, name: '文法の書庫',    emoji: '📚', desc: '文法まとめの問題が出るよ（1〜4を入力）' },
+            { id: 's6-hist-u6',  subject:'soc',  grade:6, name: '天下統一の戦場', emoji: '🔥', desc: '戦国時代のクイズが出るよ（1〜4を入力）' },
+            { id: 's6-politics', subject:'soc',  grade:6, name: '政治の国会',    emoji: '🏛️', desc: '政治のクイズが出るよ（1〜4を入力）' },
+            { id: 'r6-combust',  subject:'sci',  grade:6, name: '燃焼の実験室',  emoji: '🧪', desc: 'ものの燃え方の問題が出るよ（1〜4を入力）' }];
 
         function getPveDepths(areaId) {
             const MAP = {
@@ -16960,6 +17019,34 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
 
                 conjunction: { labels: ['橋のたもと', '橋のまんなか', '向こう岸'], emojis: ['🌉','🪵','🌌'] },
                 science_lab: { labels: ['実験室前', '実験台', '危険エリア'], emojis: ['🧫','⚗️','💥'] },
+
+                // 小1
+                'm1-add-cy': { labels: ['ふもと', 'なかば', 'てっぺん'], emojis: ['🌈','☁️','⭐'] },
+                'm1-sub-bo': { labels: ['入口', 'まんなか', 'おくそこ'], emojis: ['🌀','💫','🌟'] },
+                'j1-kanji':  { labels: ['あいうえお', 'かきくけこ', 'むずかしい字'], emojis: ['🅰️','📖','🏆'] },
+                // 小2
+                'm2-add2':   { labels: ['やさしめ', 'ふつう', 'むずかしい'], emojis: ['⛺','🏕️','🗻'] },
+                'j2-kanji':  { labels: ['読みがな', 'まぜまぜ', 'マスター'], emojis: ['✏️','📝','👑'] },
+                // 小3
+                'm3-mul1':   { labels: ['外壁', '中庭', '天守閣'], emojis: ['🏰','⚔️','👑'] },
+                'm3-div0':   { labels: ['水面', '中流', '源泉'], emojis: ['⛲','🌊','💎'] },
+                'j3-kotowaza':{ labels: ['里の入口', '奥の小道', '長老の家'], emojis: ['🏘️','🌿','🧙'] },
+                's3-map':    { labels: ['海岸', '平地', '山頂'], emojis: ['🏖️','🗺️','⛰️'] },
+                'r3-magnet': { labels: ['入口', '実験台', '奥の間'], emojis: ['🧲','🔬','⚡'] },
+                // 小5
+                'm5-frac-eq':{ labels: ['白帯', '茶帯', '黒帯'], emojis: ['🥋','🟤','⬛'] },
+                'm5-percent':{ labels: ['露店', '本店', '卸売'], emojis: ['📈','🏪','🏢'] },
+                'm5-speed':  { labels: ['ジョギング', 'ダッシュ', '超速'], emojis: ['🚶','🏃','⚡'] },
+                'j5-keigo':  { labels: ['庭', '広間', '奥の間'], emojis: ['🌳','🎩','👑'] },
+                's5-agri':   { labels: ['田んぼ', '畑', '工場'], emojis: ['🌾','🥬','🏭'] },
+                'r5-weather':{ labels: ['地上', '雲の中', '成層圏'], emojis: ['⛅','☁️','🌩️'] },
+                // 小6
+                'm6-frac-mul':{ labels: ['門前', '本丸', '天守'], emojis: ['🏯','⚔️','🐉'] },
+                'm6-ratio':  { labels: ['左の皿', '支点', '右の皿'], emojis: ['⚖️','🔵','⚖️'] },
+                'j6-bunpo':  { labels: ['入口', '閲覧室', '禁帯出'], emojis: ['📚','📖','🔒'] },
+                's6-hist-u6':{ labels: ['陣地', '本陣', '天下'], emojis: ['⚔️','🔥','👑'] },
+                's6-politics':{ labels: ['受付', '議場', '本会議'], emojis: ['🏛️','📜','🗳️'] },
+                'r6-combust': { labels: ['準備室', '実験台', '高温炉'], emojis: ['🧪','🔥','💥'] },
             };
             const cfg = MAP[areaId] || { labels: ['手前','中ほど','最奥'], emojis: ['🌱','🌿','🔥'] };
 
@@ -16995,7 +17082,20 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
                 'science-moonstars': 1.0,
                 'science-body': 1.0,
                 'science-weather': 1.0,
-                'science-electric': 1.0
+                'science-electric': 1.0,
+
+                // 小1
+                'm1-add-cy': 0.5, 'm1-sub-bo': 0.5, 'j1-kanji': 0.5,
+                // 小2
+                'm2-add2': 0.55, 'j2-kanji': 0.55,
+                // 小3
+                'm3-mul1': 0.65, 'm3-div0': 0.65, 'j3-kotowaza': 0.7, 's3-map': 0.7, 'r3-magnet': 0.7,
+                // 小5
+                'm5-frac-eq': 1.1, 'm5-percent': 1.1, 'm5-speed': 1.15,
+                'j5-keigo': 1.1, 's5-agri': 1.05, 'r5-weather': 1.05,
+                // 小6
+                'm6-frac-mul': 1.2, 'm6-ratio': 1.2, 'j6-bunpo': 1.15,
+                's6-hist-u6': 1.15, 's6-politics': 1.15, 'r6-combust': 1.15
             };
             return (areaId && M[areaId] != null) ? M[areaId] : 1.0;
         }
@@ -17083,7 +17183,8 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
             backBtn.onclick = () => (window.renderPvEDistrictSelect || renderPvEDistrictSelect)();
             areaWrap.appendChild(backBtn);
 
-            const list = PVE_AREAS.filter(a => a.subject === districtId);
+            const ug = window.__userGrade ? Number(window.__userGrade) : 0;
+            const list = PVE_AREAS.filter(a => a.subject === districtId && (!(ug >= 1 && ug <= 6) || a.grade === ug));
             if (!list.length) {
                 const p = document.createElement('div');
                 p.className = "text-sm text-gray-600 p-4";
