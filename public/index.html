@@ -14201,7 +14201,13 @@ function updateDailyMissionUI(){
           }
         }
       }catch(e){}
-const FALLBACK = {
+// Fallback 3: use TRAINING_MODE_INFO unitName
+      try{
+        if(typeof TRAINING_MODE_INFO !== 'undefined' && TRAINING_MODE_INFO[k]){
+          return TRAINING_MODE_INFO[k].unitName || TRAINING_MODE_INFO[k].subjectName || k;
+        }
+      }catch(e){}
+      const FALLBACK = {
         'rounding':'がい数',
         'kuku':'九九',
         'division':'わり算(暗算)',
@@ -14212,6 +14218,18 @@ const FALLBACK = {
         'idiom':'慣用句',
         'conjunction':'つなぎ言葉',
         'kanji':'漢字',
+        'social':'社会',
+        'science-seasons':'季節と生き物',
+        'science-heat':'もののあたたまり方',
+        'science-airwater':'空気と水',
+        'science-moonstars':'月と星',
+        'science-body':'人の体',
+        'science-weather':'天気と気温',
+        'science-electric':'電池のはたらき',
+        'science-rainwater':'雨水のゆくえ',
+        'science-temperature-volume':'温度と体積',
+        'science-water-change':'すがたを変える水',
+        'yoji':'四字熟語',
       };
       return FALLBACK[k] || k;
     };
