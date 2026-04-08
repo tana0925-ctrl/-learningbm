@@ -1,0 +1,30 @@
+        }catch(e){
+          wrap.innerHTML='<p class="text-red-600">隱ｭ縺ｿ霎ｼ縺ｿ繧ｨ繝ｩ繝ｼ</p>';
+        }
+      }
+
+      function copyWeeklyReflections(){
+        const data = window._weeklyRefData || [];
+        if(!data.length){ alert('譛ｪ霑泌唆縺ｮ謖ｯ繧願ｿ斐ｊ縺後≠繧翫∪縺帙ｓ'); return; }
+<<<<<<< HEAD
+        let text = '莉･荳九・蟆丞ｭｦ逕溘・莉企ｱ縺ｮ螳ｶ蠎ｭ蟄ｦ鄙偵・謖ｯ繧願ｿ斐ｊ縺ｧ縺吶ゅ◎繧後◇繧後↓貂ｩ縺九￥蜉ｱ縺ｾ縺励▽縺､蜈ｷ菴鍋噪縺ｫ隍偵ａ繧狗洒縺・さ繝｡繝ｳ繝茨ｼ・縲・譁・ｼ峨ｒ譖ｸ縺・※縺上□縺輔＞縲・nJSON蠖｢蠑・' + '{"comments":["繧ｳ繝｡繝ｳ繝・","繧ｳ繝｡繝ｳ繝・",...]}' + ' 縺ｧ霑斐＠縺ｦ縺上□縺輔＞縲・n\n';
+=======
+        let text = '莉･荳九・蟆丞ｭｦ逕溘・莉企ｱ縺ｮ螳ｶ蠎ｭ蟄ｦ鄙偵・謖ｯ繧願ｿ斐ｊ縺ｧ縺吶ゅ◎繧後◇繧後↓貂ｩ縺九￥蜉ｱ縺ｾ縺励▽縺､蜈ｷ菴鍋噪縺ｫ隍偵ａ繧狗洒縺・さ繝｡繝ｳ繝茨ｼ・縲・譁・ｼ峨ｒ譖ｸ縺・※縺上□縺輔＞縲・\nJSON蠖｢蠑・{"comments":["繧ｳ繝｡繝ｳ繝・","繧ｳ繝｡繝ｳ繝・",...]} 縺ｧ霑斐＠縺ｦ縺上□縺輔＞縲・\n\\n';
+>>>>>>> e490a0cce934e6611f28b9e155e74a64c2cf8f57
+        data.forEach(function(d, i){
+          text += (i+1) + '. ' + d.name + '縲・ + d.reflection + '縲構\n';
+        });
+        navigator.clipboard.writeText(text).then(function(){
+          alert('搭 '+data.length+'莠ｺ蛻・・謖ｯ繧願ｿ斐ｊ繧偵さ繝斐・縺励∪縺励◆・―\nGemini遲峨↓雋ｼ繧贋ｻ倥￠縺ｦ繧ｳ繝｡繝ｳ繝医ｒ逕滓・縺励※縺上□縺輔＞縲・);
+        }).catch(function(){
+          prompt('繧ｳ繝斐・縺ｫ螟ｱ謨励＠縺ｾ縺励◆縲よ焔蜍輔〒繧ｳ繝斐・縺励※縺上□縺輔＞:', text);
+        });
+      }
+
+      async function bulkReturnReflections(){
+        const data = window._weeklyRefData || [];
+        if(!data.length){ alert('譛ｪ霑泌唆縺ｮ謖ｯ繧願ｿ斐ｊ縺後≠繧翫∪縺帙ｓ'); return; }
+        const raw = (document.getElementById('bulkRefComments') || {}).value || '';
+        const msg = document.getElementById('bulkRefMsg');
+
+        // 繝代・繧ｹ・哽SON or 逡ｪ蜿ｷ莉倥″繝ｪ繧ｹ繝・
