@@ -5417,7 +5417,7 @@ function setupQrScanUi(){
             // 秘伝ボーナス（既存）
             const applied = hidenApplyToStats(bs, mid, et);
 
-            // === 田中先生・なしひろし：1日3回制限（4回目以降は全ステータス1） ===
+            // === タナカティーチャー・なしひろし：1日3回制限（4回目以降は全ステータス1） ===
             try{
                 if ((typeof isLimitedDailyUnit==='function' && isLimitedDailyUnit(mid, monster && monster.name)) && typeof isDailyFatigued === 'function' && isDailyFatigued(mid)) {
                     return {
@@ -6216,13 +6216,21 @@ function setupQrScanUi(){
             MONSTERS.push({ id: idCounter++, name: fam[1], sprite: fam[4], hp: 55 + Math.floor(i * 1.6), atk: 12 + (i / 1.8) | 0, def: Math.floor(baseDef * 1.8), spd: Math.floor(baseSpd * 1.8), buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage: 2, desc: fam[7], skills: skills });
             MONSTERS.push({ id: idCounter++, name: fam[2], sprite: fam[5], hp: 100 + Math.floor(i * 2.5), atk: 22 + (i / 1.2) | 0, def: Math.floor(baseDef * 3), spd: Math.floor(baseSpd * 3), buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage: 3, desc: fam[8], skills: skills });
         }
-        MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】16:00〜18:00だけ野生バトルにこっそり出現（レア）。' , skills: FAMILY_SKILLS[0]});
-        MONSTERS.push({ id: 152, name: 'なしひろし', sprite: '🍐', hp: 5000, atk: 300, def: 300, spd: 300, buff: 'speed', elementType: 'grass', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '田中先生が生み出したキャラ。年齢不詳。1日3回だけ本気、4回目からは全能力1で省エネ。' , skills: [
+        MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】16:00〜18:00だけ野生バトルにこっそり出現（レア）。' , skills: [
+            { name: 'サイコウェーブ', type: 'normal', pow: 15, acc: 0.95, element: 'psychic', desc: '念力の波を放つ' },
+            { name: 'リボンウィップ', type: 'heavy', pow: 35, acc: 0.72, desc: 'リボンで叩きつける' },
+            { name: 'ふしぎなひかり', type: 'unique', pow: 0, acc: 0.90, effect: 'debuff_random', element: 'psychic', desc: '不思議な光で相手の能力をダウン' }
+        ]});
+        MONSTERS.push({ id: 152, name: 'なしひろし', sprite: '🍐', hp: 5000, atk: 300, def: 300, spd: 300, buff: 'speed', elementType: 'grass', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: 'タナカティーチャーが生み出したキャラ。年齢不詳。1日3回だけ本気、4回目からは全能力1で省エネ。' , skills: [
                 { name: 'シャリシャリタックル', type: 'normal', pow: 14, acc: 0.96, desc: 'シャリっと体当たり' },
                 { name: '梨汁スプラッシュ！', type: 'heavy', pow: 28, acc: 0.78, desc: '梨汁を全力噴射！' },
                 { name: 'すべり芸', type: 'unique', pow: 0, acc: 1.0, effect: 'debuff_random', desc: '相手の攻撃/防御/命中をランダムで下げる' }
             ]});
-        MONSTERS.push({ id: 153, name: '田中先生', sprite: '👨‍🏫', hp: 8000, atk: 500, def: 500, spd: 500, buff: 'attack', elementType: 'psychic', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '阪神ファン。でも阪神以上にみんなのファンである。1日3回だけ超本気、4回目から全能力1で小休止。' , skills: FAMILY_SKILLS[0]});
+        MONSTERS.push({ id: 153, name: 'タナカティーチャー', sprite: '👨‍🏫', hp: 8000, atk: 500, def: 500, spd: 500, buff: 'attack', elementType: 'psychic', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '阪神ファン。でも阪神以上にみんなのファンである。1日3回だけ超本気、4回目から全能力1で小休止。' , skills: [
+            { name: '教育的指導', type: 'normal', pow: 45, acc: 0.95, desc: '教師の威厳ある一喝' },
+            { name: '六甲おろし', type: 'heavy', pow: 90, acc: 0.70, element: 'psychic', desc: '阪神愛を込めた大技' },
+            { name: '全力応援', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_atk', desc: '自分の攻撃力を上げる' }
+        ]});
         MONSTERS.push({ id: 154, name: '阪神マン', sprite: '🐯', hp: 999, atk: 99, def: 99, spd: 99, buff: 'lucky', elementType: 'fighting', uncapturable: true, stage: 1, desc: '修行を見守る謎の虎。その実力は計り知れない。' , skills: [
                 { name: '甲子園スマッシュ', type: 'normal', pow: 18, acc: 0.95, desc: '甲子園魂の一撃' },
                 { name: '栄光のバックホーム', type: 'heavy', pow: 32, acc: 0.75, desc: '全力の遠投' },
@@ -10749,9 +10757,9 @@ window.useBeamLevelUpTicket = function(){
             }
         }
 
-        // === 田中先生・なしひろし：1日3回制限（4回目から全ステータス1） ===
-const LIMITED_DAILY_IDS = [152, 153, 999]; // なしひろし, 田中先生, 阪神マン(999)
-const LIMITED_DAILY_NAME_MAP = {152:'なしひろし',153:'田中先生',999:'阪神マン'};
+        // === タナカティーチャー・なしひろし：1日3回制限（4回目から全ステータス1） ===
+const LIMITED_DAILY_IDS = [152, 153, 999]; // なしひろし, タナカティーチャー, 阪神マン(999)
+const LIMITED_DAILY_NAME_MAP = {152:'なしひろし',153:'タナカティーチャー',999:'阪神マン'};
 const LIMITED_DAILY_NAMES = Object.values(LIMITED_DAILY_NAME_MAP);
 const LIMITED_DAILY_MAX = 3;          // 1日3回まで本気（4回目以降は弱体化）
 const LIMITED_DAILY_RESET_HOUR = 8;   // 他のデイリー仕様と合わせて朝8時リセット
@@ -13123,8 +13131,8 @@ function startSantaBattle() {
                         m.freeTraits.personality = 'ひらめき型';
                     }
                 
-                    // 田中先生：趣味を固定（写真好き→ペット好き）
-                    if (m && (m.name === '田中先生' || m.id === 153)){
+                    // タナカティーチャー：趣味を固定（写真好き→ペット好き）
+                    if (m && (m.name === 'タナカティーチャー' || m.id === 153)){
                         m.freeTraits.hobby = 'ペット好き';
                     }
 }
@@ -28581,7 +28589,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             
             
             try{ ensureHidenData(); const eq=(typeof hidenEquipList==='function')?(hidenEquipList(id)||[]):[]; const n=(Array.isArray(eq)?eq.length:0); const btn=document.getElementById('hidenEquipBtn'); if(btn){ btn.innerText = `📜 秘伝の書を装備 (${n}/${HIDEN_MAX_EQUIP})`; } }catch(e){}
-// 田中先生・なしひろし：日替わり制限（ここは『今日の使用回数』を表示）
+// タナカティーチャー・なしひろし：日替わり制限（ここは『今日の使用回数』を表示）
             const __isLimited = (typeof isLimitedDailyUnit === 'function') ? isLimitedDailyUnit(m.id, m.name) : false;
             if (__isLimited) {
                 try{
@@ -37805,7 +37813,7 @@ function partyToButtons(){
       }
       const mon = (typeof getMonster==='function') ? getMonster(id) : null;
       const st = mon ? getWarUnitStatsFromMonster(mon, id) : {cost:60, name:'?', sprite:'❓', hpMax:200, atk:20};
-      const isZombieForbidden = !!(warState && warState.zombieMode) && (id===152 || id===153 || id===999 || (mon && (mon.name==='田中先生' || mon.name==='なしひろし')));
+      const isZombieForbidden = !!(warState && warState.zombieMode) && (id===152 || id===153 || id===999 || (mon && (mon.name==='タナカティーチャー' || mon.name==='なしひろし')));
       const cdMax = calcRechargeSec(st);
       ps.slotCdMax[i] = cdMax;
       if(typeof ps.slotCd[i] !== 'number') ps.slotCd[i] = 0;
@@ -38020,7 +38028,7 @@ function spawnUnit(team, template){
     if(id == null) return;
     const mon = (typeof getMonster==='function') ? getMonster(id) : null;
     if(!mon) return;
-    if(warState && warState.zombieMode && (id===152 || id===153 || id===999 || (mon && (mon.name==='田中先生' || mon.name==='なしひろし')))){
+    if(warState && warState.zombieMode && (id===152 || id===153 || id===999 || (mon && (mon.name==='タナカティーチャー' || mon.name==='なしひろし')))){
       const fb = document.getElementById('warFeedback');
       if(fb){ fb.textContent = 'こわい'; fb.className='font-bold text-red-200'; }
       else { try{ alert('こわい'); }catch(e){} }
