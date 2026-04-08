@@ -4705,7 +4705,7 @@ function formatYMD(d){
     <p class="text-sm text-slate-400">読み込み中...</p>
   </div>
 </div>
-<div id="screen-mail" class="glass-panel p-0 h-full hidden flex-col overflow-hidden">  <div class="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 text-white flex-shrink-0">    <button class="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-sm" onclick="trySetMode('status')">←</button>    <h2 class="text-base font-black flex items-center gap-2">💬 質問チャット</h2>  </div>  <div id="studentMailList" class="flex-1 overflow-y-auto p-3 space-y-2" style="background:#e8d5f5;">    <p class="text-sm text-slate-400 text-center">読み込み中...</p>  </div>  <div class="flex-shrink-0 bg-white border-t border-slate-200 p-2 flex gap-2 items-end">    <textarea id="studentMailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-purple-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>    <button onclick="sendStudentMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-600 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>  </div>  <p id="studentMailMsg" class="text-xs text-center py-1 bg-white"></p></div>
+<div id="screen-mail" class="glass-panel p-0 h-full hidden flex-col overflow-hidden">  <div class="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 text-white flex-shrink-0">    <button class="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-sm" onclick="trySetMode('status')">←</button>    <h2 class="text-base font-black flex items-center gap-2">💬 質問チャット</h2>  </div>  <div id="studentMailList" class="flex-1 overflow-y-auto p-3 space-y-2" style="background:#e8d5f5;">    <p class="text-sm text-slate-400 text-center">読み込み中...</p>  </div>  <div class="flex-shrink-0 bg-white border-t border-slate-200 p-2"><div id="studentImagePreview" class="hidden pb-2"><div class="relative inline-block"><img id="studentImageThumb" class="h-16 rounded"/><button onclick="clearStudentImage()" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button></div></div><div class="flex gap-2 items-end"><input type="file" id="studentImageInput" accept="image/*" class="hidden" onchange="handleStudentImage(this)"/><button onclick="document.getElementById('studentImageInput').click()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-200 text-purple-700 font-bold shadow hover:bg-purple-300 flex-shrink-0" title="画像を添付">📷</button><textarea id="studentMailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-purple-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>    <button onclick="sendStudentMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-600 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>  </div></div>  <p id="studentMailMsg" class="text-xs text-center py-1 bg-white"></p></div>
 
 </div>
 
@@ -51291,7 +51291,8 @@ async function _loadStudentMail(){
       } else {
         msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
       }
-      msgDiv.textContent = m.body;
+      if(m.image){ var img=document.createElement("img"); img.src=m.image; img.className="rounded-lg max-w-full max-h-[200px] mb-1 cursor-pointer"; img.onclick=function(){window.open(m.image,"_blank");}; msgDiv.appendChild(img); }
+      if(m.body && m.body!=="(画像)"){ var txt=document.createElement("span"); txt.textContent=m.body; msgDiv.appendChild(txt); } else if(!m.image){ msgDiv.textContent=m.body; }
       bubble.insertAdjacentHTML("beforeend", nameTag);
       bubble.appendChild(msgDiv);
       bubble.insertAdjacentHTML("beforeend", timeHtml);
@@ -51313,14 +51314,36 @@ async function _loadStudentMail(){
     wrap.scrollTop = wrap.scrollHeight;
   }catch(e){ wrap.innerHTML='<p class="text-sm text-red-500 text-center">読み込みエラー</p>'; }
 }
+var _studentImageData = null;
+function handleStudentImage(input){
+  var file = input.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var canvas = document.createElement("canvas");
+      var maxW = 800, w = img.width, h = img.height;
+      if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      _studentImageData = canvas.toDataURL("image/jpeg", 0.6);
+      document.getElementById("studentImageThumb").src = _studentImageData;
+      document.getElementById("studentImagePreview").classList.remove("hidden");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = "";
+}
+function clearStudentImage(){ _studentImageData = null; document.getElementById("studentImagePreview").classList.add("hidden"); }
 async function sendStudentMail(){
   var body = document.getElementById('studentMailBody').value.trim();
   var msg = document.getElementById('studentMailMsg');
-  if(!body){ msg.textContent='メッセージを入力してね'; msg.className='text-xs text-center text-red-600'; return; }
+  if(!body && !_studentImageData){ msg.textContent='メッセージを入力してね'; msg.className='text-xs text-center text-red-600'; return; }
   try{
-    await apiJson('/api/student/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:body})});
+    await apiJson('/api/student/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:body||'(画像)',image:_studentImageData||undefined})});
     msg.textContent='送信しました！'; msg.className='text-xs text-center text-green-600';
-    document.getElementById('studentMailBody').value='';
+    document.getElementById('studentMailBody').value=''; clearStudentImage();
     _loadStudentMail();
   }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-xs text-center text-red-600'; }
 }
