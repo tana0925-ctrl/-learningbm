@@ -3955,7 +3955,7 @@ app.get('/teacher', (c) => {
         if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
-        if(tab === 'mail') loadTeacherMail();
+        if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
       }
 
       async function loadUnitAnalytics(){
@@ -4749,6 +4749,9 @@ app.get('/teacher', (c) => {
       var _mailCurrentStudent = null;
       var _mailCurrentClass = null;
 
+      var _mailPollTimer = null;
+      var _mailListPollTimer = null;
+
       async function loadTeacherMail(){
         try{
           var clsData = await api('/api/teacher/classes');
@@ -4817,18 +4820,21 @@ app.get('/teacher', (c) => {
         var cv = document.getElementById('mailChatView');
         cv.classList.remove('hidden'); cv.style.display='';
         loadMailChat();
+        if(_mailPollTimer) clearInterval(_mailPollTimer);
+        _mailPollTimer = setInterval(function(){ loadMailChat(true); }, 5000);
       }
 
       function closeMailChat(){
+        if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer = null; }
         _mailCurrentStudent = null;
         document.getElementById('mailStudentListView').style.display='';
         document.getElementById('mailChatView').style.display='none';
         loadMailStudentList();
       }
 
-      async function loadMailChat(){
+      async function loadMailChat(silent){
         var wrap = document.getElementById('mailChatMessages');
-        wrap.innerHTML = '<p class="text-sm text-slate-400 text-center">読み込み中...</p>';
+        if(!silent) wrap.innerHTML = '<p class="text-sm text-slate-400 text-center">読み込み中...</p>';
         if(!_mailCurrentClass || !_mailCurrentStudent) return;
         try{
           var data = await api('/api/teacher/messages?classId='+encodeURIComponent(_mailCurrentClass)+'&studentId='+encodeURIComponent(_mailCurrentStudent));
