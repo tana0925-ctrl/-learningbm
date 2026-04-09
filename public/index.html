@@ -28769,9 +28769,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 if (lbl) lbl.innerText = '今日がんばれる回数';
                 document.getElementById('detailDefeats').innerText = `${count}/${m.reqDefeats}`;
                 if (count < m.reqDefeats && !player.pokedex.includes(m.id)) {
-                    document.getElementById('partyBtn').disabled = true;
-                    document.getElementById('partyBtn').innerText = "まだ仲間にできません";
-                    document.getElementById('partyBtn').className = "w-full py-2 bg-gray-400 text-white font-bold rounded-lg text-xs";
+                    document.getElementById('partyBtn').style.display = 'none';
                 } else enablePartyBtn(m.id);
             } else {
                 document.getElementById('detailDefeats').parentElement.style.display = 'none';
@@ -28910,9 +28908,8 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
         }
 
         function enablePartyBtn(id) {
-            const btn = document.getElementById('partyBtn'); const inParty = player.party.includes(id);
-            btn.disabled = false; btn.innerText = inParty ? "パーティから外す" : "パーティに入れる";
-            btn.className = inParty ? "w-full py-2 bg-red-500 text-white font-bold rounded-lg text-sm" : "w-full py-2 bg-indigo-600 text-white font-bold rounded-lg text-sm";
+            const btn = document.getElementById('partyBtn');
+            if(btn) btn.style.display = 'none';
         }
 
         
