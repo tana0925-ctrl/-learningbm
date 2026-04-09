@@ -51334,11 +51334,11 @@ function _utcToJST(utcStr){
   if(!utcStr) return {date:'',time:''};
   var d = new Date(utcStr.replace(' ','T')+'Z');
   var jp = new Date(d.getTime() + 9*60*60*1000);
-  var mm = String(jp.getMonth()+1).padStart(2,'0');
-  var dd = String(jp.getDate()).padStart(2,'0');
-  var hh = String(jp.getHours()).padStart(2,'0');
-  var mi = String(jp.getMinutes()).padStart(2,'0');
-  return {date: jp.getFullYear()+'-'+mm+'-'+dd, time: hh+':'+mi};
+  var mm = String(jp.getUTCMonth()+1).padStart(2,'0');
+  var dd = String(jp.getUTCDate()).padStart(2,'0');
+  var hh = String(jp.getUTCHours()).padStart(2,'0');
+  var mi = String(jp.getUTCMinutes()).padStart(2,'0');
+  return {date: jp.getUTCFullYear()+'-'+mm+'-'+dd, time: hh+':'+mi};
 }
 function openStudentMail(){
   var mailBtn = document.getElementById('btn-mail');
