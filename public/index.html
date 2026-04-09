@@ -47133,7 +47133,10 @@ function _pickBank(bank) {
   const p = bank[_ri(0, bank.length - 1)];
   const options = [p.correct, ...p.wrongs].sort(() => Math.random() - 0.5);
   const ans = options.indexOf(p.correct);
-  return { q: p.q, ans: ans, options: options, inputType: 'mcq' };
+  // 選択肢表示用：カッコ補足を除去して長さヒントを消す
+  const _strip = s => (s||'').replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').trim();
+  const displayOptions = options.map(o => _strip(o));
+  return { q: p.q, ans: ans, options: displayOptions, fullOptions: options, inputType: 'mcq' };
 }
 
 // 漢字読みクイズ用ヘルパー: _kqR(漢字, 正しい読み, [不正解の読み...])
