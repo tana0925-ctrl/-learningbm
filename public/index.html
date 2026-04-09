@@ -51402,6 +51402,16 @@ async function _checkAnnouncementBadge(){
 
 <script>
 // ===== 質問チャット機能（生徒側） =====
+function _utcToJST(utcStr){
+  if(!utcStr) return {date:'',time:''};
+  var d = new Date(utcStr.replace(' ','T')+'Z');
+  var jp = new Date(d.getTime() + 9*60*60*1000);
+  var mm = String(jp.getMonth()+1).padStart(2,'0');
+  var dd = String(jp.getDate()).padStart(2,'0');
+  var hh = String(jp.getHours()).padStart(2,'0');
+  var mi = String(jp.getMinutes()).padStart(2,'0');
+  return {date: jp.getFullYear()+'-'+mm+'-'+dd, time: hh+':'+mi};
+}
 function openStudentMail(){
   var mailBtn = document.getElementById('btn-mail');
   if(mailBtn && mailBtn.style.display === 'none') return;
@@ -51420,7 +51430,8 @@ async function _loadStudentMail(){
     var prevDate = '';
     list.slice().reverse().forEach(function(m){
       var isFromMe = m.senderRole === 'student';
-      var dt = (m.createdAt||'').slice(0,10);
+      var jst = _utcToJST(m.createdAt);
+      var dt = jst.date;
       if(dt !== prevDate){
         var dateDiv = document.createElement('div');
         dateDiv.className = 'text-center my-2';
@@ -51434,7 +51445,7 @@ async function _loadStudentMail(){
       bubble.className = 'max-w-[75%] relative';
       var nameTag = '';
       if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">先生</div>'; }
-      var time = _escH((m.createdAt||'').slice(11,16));
+      var time = _escH(jst.time);
       var readMark = '';
       if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-purple-500">既読</span> '; }
       var timeHtml = '<div class="flex items-end gap-1 mt-0.5 ' + (isFromMe ? 'justify-end mr-1' : 'ml-1') + '"><span class="text-[10px] text-slate-400">' + readMark + time + '</span></div>';
