@@ -37635,42 +37635,6 @@ function getEnemyTemplate(difficulty){
       }
     }
 
-    // 壁ユニットボタンの状態更新
-    try{
-      const wallBtn = document.getElementById('warWallBtn');
-      if(wallBtn){
-        const wallCd = Math.max(0, Number(ps.wallCd||0));
-        const wallCost = 15;
-        const wallOk = (ps.power >= wallCost) && wallCd <= 0 && (ps.globalSpawnCd||0) <= 0 && !atLimit;
-        wallBtn.style.opacity = wallOk ? 1 : 0.55;
-        wallBtn.disabled = !wallOk;
-        const wCover = document.getElementById('warWallCover');
-        const wText = document.getElementById('warWallCdText');
-        const wBar = document.getElementById('warWallCdBar');
-        const wHint = document.getElementById('warWallHint');
-        if(atLimit){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = '上限';
-          if(wHint) wHint.textContent = '場がいっぱい';
-        }else if(wallCd > 0){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = `待ち ${wallCd.toFixed(1)}s`;
-          if(wHint) wHint.textContent = '再出撃待ち';
-        }else if(ps.power < wallCost){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = '⚡15';
-          if(wHint) wHint.textContent = 'パワー不足';
-        }else{
-          if(wCover){ wCover.classList.add('hidden'); wCover.classList.remove('flex'); }
-          if(wHint) wHint.textContent = 'タップで出陣';
-        }
-        if(wBar){
-          const wallCdMax = 1.8;
-          const remain = (wallCd > 0) ? (wallCd / wallCdMax) : 0;
-          wBar.style.width = clamp((1 - remain) * 100, 0, 100) + '%';
-        }
-      }
-    }catch(e){}
 
     // 学習パワー上限アップ（4つ目カード→5つ目に移動）の状態更新
     const capBtn = document.getElementById('warPowerCapBtn');
@@ -37992,23 +37956,6 @@ function partyToButtons(){
         </button>`;
     }
     
-    // 壁ユニット（にゃんこ風：安い・弱い・速いクールダウン）
-    ps.wallCd = ps.wallCd || 0;
-    box.innerHTML += `
-      <button id="warWallBtn" onclick="warSpawnWall()" class="relative overflow-hidden bg-amber-50 rounded-xl p-3 border-2 border-amber-300 shadow hover:shadow-lg transition active:translate-y-0.5">
-        <div class="absolute top-2 right-2 text-[10px] font-black bg-amber-100 text-amber-800 px-2 py-1 rounded-full border border-amber-200">⚡15</div>
-        <div class="text-3xl leading-none">🛡️</div>
-        <div class="text-xs font-black text-gray-800 mt-1 truncate">壁</div>
-        <div class="text-[10px] text-gray-500 font-bold line-clamp-1">安い！速い！弱い！</div>
-        <div class="mt-2 h-1 w-full bg-gray-200 rounded">
-          <div id="warWallCdBar" class="h-1 bg-amber-400 rounded" style="width:100%"></div>
-        </div>
-        <div class="mt-2 text-[10px] font-black text-amber-700 border border-amber-200 rounded-lg py-1 text-center" id="warWallHint">タップで出陣</div>
-        <div id="warWallCover" class="absolute inset-0 rounded-xl bg-white/80 hidden flex items-center justify-center">
-          <div class="text-xs font-black text-gray-800" id="warWallCdText">待ち 0.0s</div>
-        </div>
-      </button>`;
-
     // 4つ目(旧)：学習パワーを使って「上限アップ」
     box.innerHTML += `
       <button id="warPowerCapBtn" onclick="warUpgradePowerCap()" class="relative bg-white rounded-xl border-2 border-yellow-200 shadow hover:shadow-lg transition active:translate-y-0.5">
@@ -38204,34 +38151,6 @@ function spawnUnit(team, template){
     // スロットごとの再出撃待ち
     const cdMax = ps.slotCdMax[slot] || calcRechargeSec(st);
     ps.slotCd[slot] = cdMax;
-    updateSpawnButtonState();
-  };
-
-  // 壁ユニット出撃（にゃんこ風：安い・HP高め・攻撃弱い・クールダウン短い）
-  window.warSpawnWall = function(){
-    if(!warState.active) return;
-    const ps = warState;
-    if(ps.globalSpawnCd > 0) return;
-    if((ps.wallCd||0) > 0) return;
-    const alive = ps.units.filter(u=>u.team==='player' && u.hp>0).length;
-    if(alive >= (ps.maxPlayerUnits||6)){
-      const fb = document.getElementById('warFeedback');
-      if(fb){ fb.textContent = '🚫 これ以上出せない！（出撃上限）'; fb.className='font-bold text-yellow-200'; }
-      return;
-    }
-    const wallCost = 15;
-    if(ps.power < wallCost) return;
-    ps.power -= wallCost;
-    renderPower();
-    spawnUnit('player', {
-      kind:'wall', name:'壁', sprite:'🛡️',
-      buff:'guard', elementType:'normal',
-      hpMax: 80, hp: 80, atk: 3, def: 15,
-      move: 6, atkInterval: 1200, cost: wallCost,
-      skill3Name:'', skill3Effect:''
-    });
-    ps.globalSpawnCd = 0.15;
-    ps.wallCd = 1.8; // 1.8秒で再出撃可能（にゃんこの壁並みに速い）
     updateSpawnButtonState();
   };
 
@@ -39506,7 +39425,7 @@ if(!ps._battleWAt || (now - ps._battleWAt) > 1200){
     // cooldown timers
     ps.globalSpawnCd = Math.max(0, (ps.globalSpawnCd||0) - dt);
     for(let i=0;i<3;i++) ps.slotCd[i] = Math.max(0, (ps.slotCd[i]||0) - dt);
-    ps.wallCd = Math.max(0, (ps.wallCd||0) - dt);
+
 
     // power
     ps.baseRate = warGetPowerRate();
