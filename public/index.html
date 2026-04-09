@@ -15351,6 +15351,14 @@ function clearMasteredReview(){
   }catch(e){}
 }
 
+// 復習チャレンジ関数をグローバルに公開（initGame内で定義されているため）
+window.startReviewChallenge = startReviewChallenge;
+window.checkReviewAnswer = checkReviewAnswer;
+window.reviewNextQuestion = reviewNextQuestion;
+window.closeReviewModal = closeReviewModal;
+window.clearMasteredReview = clearMasteredReview;
+
+
 // 復習モーダルでEnterキー対応
 document.addEventListener('keydown', function(e){
   try{
