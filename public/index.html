@@ -51407,6 +51407,21 @@ async function _loadStudentMail(){
     wrap.scrollTop = wrap.scrollHeight;
   }catch(e){ wrap.innerHTML='<p class="text-sm text-red-500 text-center">読み込みエラー</p>'; }
 }
+async function _loadStudentMailSilent(){
+  var wrap = document.getElementById('studentMailList');
+  if(!wrap) return;
+  try{
+    var data = await apiJson('/api/student/messages');
+    var list = data.messages || [];
+    if(!list.length) return;
+    var atBottom = (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight) < 50;
+    var oldCount = wrap.children.length;
+    var newCount = list.length;
+    if(newCount === oldCount) return;
+    _loadStudentMail();
+    if(atBottom) setTimeout(function(){ wrap.scrollTop = wrap.scrollHeight; }, 100);
+  }catch(e){}
+}
 var _studentImageData = null;
 function handleStudentImage(input){
   var file = input.files[0]; if(!file) return;
@@ -51453,13 +51468,28 @@ async function _checkMailBadge(){
   }catch(e){}
 }
 
-// screen-mail のモード切替フック
+// screen-mail & contact のモード切替フック（自動更新付き）
+var _studentMailPollTimer = null;
+var _studentContactPollTimer = null;
 (function(){
   var origSetMode = window.trySetMode;
   if(!origSetMode) return;
   window.trySetMode = function(mode){
     origSetMode(mode);
-    if(mode === 'mail'){ _loadStudentMail(); }
+    if(mode === 'mail'){
+      _loadStudentMail();
+      if(_studentMailPollTimer) clearInterval(_studentMailPollTimer);
+      _studentMailPollTimer = setInterval(function(){ _loadStudentMailSilent(); }, 5000);
+    } else {
+      if(_studentMailPollTimer){ clearInterval(_studentMailPollTimer); _studentMailPollTimer = null; }
+    }
+    if(mode === 'contact'){
+      _loadStudentContactNotes();
+      if(_studentContactPollTimer) clearInterval(_studentContactPollTimer);
+      _studentContactPollTimer = setInterval(function(){ _loadStudentContactNotesSilent(); }, 10000);
+    } else {
+      if(_studentContactPollTimer){ clearInterval(_studentContactPollTimer); _studentContactPollTimer = null; }
+    }
   };
 })();
 
@@ -51577,6 +51607,21 @@ async function _loadStudentContactNotes(){
   }catch(e){
     wrap.innerHTML = '<p class="text-sm text-red-500">読み込みエラー</p>';
   }
+}
+
+// 連絡帳サイレント更新
+async function _loadStudentContactNotesSilent(){
+  var wrap = document.getElementById('contactNoteList');
+  if(!wrap) return;
+  try{
+    var data = await apiJson('/api/student/contact-notes');
+    var list = data.notes || [];
+    if(!list.length) return;
+    var oldCount = wrap.children.length;
+    var newCount = list.length;
+    if(newCount === oldCount) return;
+    _loadStudentContactNotes();
+  }catch(e){}
 }
 
 // 未読連絡帳バッジチェック
