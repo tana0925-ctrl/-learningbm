@@ -1335,7 +1335,7 @@ app.get('/api/ranking', async (c) => {
     switch (type) {
       case 'overall': extraSelect = ', (rs.total_level - rs.week_base_total_level) as weeklyScore'; orderCol = 'weeklyScore'; break
       case 'power': extraSelect = ', (rs.battle_power - rs.week_base_battle_power) as weeklyScore'; orderCol = 'weeklyScore'; break
-      case 'correct': case 'grade': extraSelect = ', (rs.ranking_points - rs.week_base_ranking_points) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'correct': case 'grade': extraSelect = ', ROUND(rs.ranking_points - rs.week_base_ranking_points, 1) as weeklyScore'; orderCol = 'weeklyScore'; break
       case 'pokedex': extraSelect = ', (rs.pokedex_count - rs.week_base_pokedex_count) as weeklyScore'; orderCol = 'weeklyScore'; break
       case 'wild': extraSelect = ', (rs.wild_win_streak - rs.week_base_wild_win_streak) as weeklyScore'; orderCol = 'weeklyScore'; break
     }
