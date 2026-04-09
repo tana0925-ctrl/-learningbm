@@ -4736,6 +4736,16 @@ app.get('/teacher', (c) => {
       // 報告一覧
 
       // ===== メール機能 =====
+      function _utcToJST(utcStr){
+        if(!utcStr) return {date:'',time:''};
+        var d = new Date(utcStr.replace(' ','T')+'Z');
+        var jp = new Date(d.getTime() + 9*60*60*1000);
+        var mm = String(jp.getMonth()+1).padStart(2,'0');
+        var dd = String(jp.getDate()).padStart(2,'0');
+        var hh = String(jp.getHours()).padStart(2,'0');
+        var mi = String(jp.getMinutes()).padStart(2,'0');
+        return {date: jp.getFullYear()+'-'+mm+'-'+dd, time: hh+':'+mi};
+      }
       var _mailCurrentStudent = null;
       var _mailCurrentClass = null;
 
@@ -4777,7 +4787,7 @@ app.get('/teacher', (c) => {
             var unread = unreadMap[m.userId] || 0;
             var lastMsg = lastMsgMap[m.userId];
             var preview = lastMsg ? lastMsg.body.slice(0,30) : 'メッセージなし';
-            var time = lastMsg ? (lastMsg.createdAt||'').slice(11,16) : '';
+            var time = lastMsg ? _utcToJST(lastMsg.createdAt).time : '';
             card.className = 'flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm cursor-pointer hover:bg-slate-50 border' + (unread ? ' border-orange-300' : ' border-slate-100');
             card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(m.name.slice(0,1))+'</div>'
               + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(m.name)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
@@ -4816,7 +4826,8 @@ app.get('/teacher', (c) => {
           var prevDate='';
           list.slice().reverse().forEach(function(m){
             var isFromMe = m.senderRole === 'teacher';
-            var dt = (m.createdAt||'').slice(0,10);
+            var jst = _utcToJST(m.createdAt);
+            var dt = jst.date;
             if(dt !== prevDate){
               wrap.insertAdjacentHTML('beforeend','<div class="text-center my-2"><span class="bg-black/10 text-slate-600 text-[10px] rounded-full px-3 py-0.5">'+escH(dt)+'</span></div>');
               prevDate = dt;
@@ -4827,7 +4838,7 @@ app.get('/teacher', (c) => {
             bubble.className = 'max-w-[75%]';
             var nameTag = '';
             if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">'+escH(m.senderName||'生徒')+'</div>'; }
-            var time = escH((m.createdAt||'').slice(11,16));
+            var time = escH(jst.time);
             var readMark = '';
             if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-teal-600">既読</span> '; }
             var msgDiv = document.createElement('div');
