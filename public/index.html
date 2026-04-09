@@ -35974,7 +35974,7 @@ function _rkValueOf(r, type, period) {
   switch(type) {
     case 'overall': return r.totalLevel || 0;
     case 'power': return r.battlePower || 0;
-    case 'correct': case 'grade': return Math.round((r.rankingPoints || r.correctCount || 0) * 10) / 10;
+    case 'correct': case 'grade': return Number(((r.rankingPoints || r.correctCount || 0)).toFixed(1));
     case 'pokedex': return r.pokedexCount || 0;
     case 'wild': return r.wildWinStreak || 0;
     default: return r.totalLevel || 0;
