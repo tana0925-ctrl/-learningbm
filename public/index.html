@@ -28618,7 +28618,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 <div class="mt-1">${typeBadgesHtml}</div>
             `;
 
-            const isPast = m.nextId && player.pokedex.includes(m.nextId);
+            const isPast = m.nextId && player.pokedex.includes(m.nextId) && detailOpenSource !== 'box';
             const statsDiv = document.getElementById('detailStatsDisplay');
             let mData = player.monsters[id];
             if (!mData) mData = { level: 1, exp: 0, nextExp: 60 };
