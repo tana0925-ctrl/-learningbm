@@ -4782,6 +4782,18 @@ app.get('/teacher', (c) => {
             if(m.senderRole==='student' && !m.readAt){ unreadMap[sid] = (unreadMap[sid]||0) + 1; }
           });
           wrap.innerHTML='';
+          // 未読がある生徒を上に、次に最新メッセージがある生徒、最後にメッセージなし
+          members.sort(function(a,b){
+            var ua = unreadMap[a.userId] || 0;
+            var ub = unreadMap[b.userId] || 0;
+            if(ua !== ub) return ub - ua; // 未読多い順
+            var la = lastMsgMap[a.userId];
+            var lb = lastMsgMap[b.userId];
+            if(la && !lb) return -1;
+            if(!la && lb) return 1;
+            if(la && lb) return la.createdAt > lb.createdAt ? -1 : 1; // 新しい順
+            return 0;
+          });
           members.forEach(function(m){
             var card = document.createElement('div');
             var unread = unreadMap[m.userId] || 0;
