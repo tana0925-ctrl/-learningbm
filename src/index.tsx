@@ -5017,7 +5017,7 @@ wrap.innerHTML = '';
             if(r && r.concentration) badges.push('<span class="bg-yellow-100 text-yellow-700 px-1 rounded text-[9px]">集中'+('★'.repeat(r.concentration))+'</span>');
             html += '<div class="flex items-center gap-1 text-[11px]">';
             html += '<div class="w-16 truncate text-slate-600">'+escH(m.name)+'</div>';
-            html +4= '<div class="flex gap-0.5 flex-wrap">'+(badges.length > 0 ? badges.join(' ') : '<span class="text-slate-300 text-[9px]">—</span>')+'</div>';
+            html += '<div class="flex gap-0.5 flex-wrap">'+(badges.length > 0 ? badges.join(' ') : '<span class="text-slate-300 text-[9px]">—</span>')+'</div>';
             html += '</div>';
           }
           html += '</div></div>';
