@@ -525,22 +525,11 @@ function extractRankingStats(stateJson: string, fallbackName: string) {
       return sum + Number(t?.correctCount ?? t?.count ?? 0)
     }, 0)
     // v2: battle_power, pokedex_count, wild_win_streak
-    const party: number[] = Array.isArray(s.party) ? s.party : []
-    let battlePower = 0
-    for (const mid of party) {
-      const m = monsters[String(mid)]
-      if (m) {
-        const lv = Number(m.level || 1)
-        const atk = Number(m.atk || 0)
-        const def = Number(m.def || 0)
-        const hp = Number(m.hp || 0)
-        const spd = Number(m.spd || 0)
-        battlePower += atk + def + hp + spd
-      }
-    }
+    // クライアント側で計算されたキャッシュ値を優先使用
+    const battlePower = Number(s._cachedBattlePower || 0)
     const pokedexCount = Array.isArray(s.pokedex) ? s.pokedex.length : 0
     const maxObj: any = s.max || (s.M && s.M.max) || {}
-    const wildWinStreak = Number(maxObj.winStreak || 0)
+    const wildWinStreak = Number(maxObj.winStreak || s._cachedWildWinStreak || 0)
     return {
       displayName: String(s.name || fallbackName).slice(0, 30),
       totalLevel, monsterCount, correctCount, rankingPoints,
