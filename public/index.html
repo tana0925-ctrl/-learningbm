@@ -4778,6 +4778,7 @@ function formatYMD(d){
     <button id="partyReorderPrev" class="flex-1 bg-blue-500 text-white px-3 py-2 rounded-lg font-bold shadow hover:bg-blue-600 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed" onclick="movePartyMember(-1)">⬅ 前へ</button>
     <button id="partyReorderNext" class="flex-1 bg-blue-500 text-white px-3 py-2 rounded-lg font-bold shadow hover:bg-blue-600 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed" onclick="movePartyMember(1)">次へ ➡</button>
   </div>
+  <button id="partyReorderRemove" class="w-full mt-2 bg-red-500 text-white py-2 rounded-lg font-bold shadow hover:bg-red-600 active:scale-95 transition" onclick="removePartyMember()">パーティから外す</button>
   <div class="text-[10px] text-gray-500 mt-2">※「現在のパーティ」から開いたときだけ表示されます。</div>
 </div>
 <button class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-base shadow-md transition transform active:scale-95 flex items-center justify-center gap-2 hidden" id="partyBtn" onclick="toggleParty()">
@@ -29310,7 +29311,8 @@ function closeDetail() {
             }
             if (confirm("本当にパーティから外しますか？")) {
                 player.party.splice(partyMenuIndex, 1);
-                closePartyMenu();
+                partyMenuIndex = null;
+                document.getElementById('detailModal').classList.add('hidden');
                 updatePlayerDisplay();
                 saveData();
             }
