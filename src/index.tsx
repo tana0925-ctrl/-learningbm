@@ -4020,7 +4020,7 @@ app.get('/admin', (c) => {
           reset.onclick = async ()=>{
             if(!confirm(t.name + 'のパスワードをリセットしますか？')){ return; }
             const r = await api('/api/admin/teacher-reset-password/'+t.id,{method:'POST'});
-            alert('仮パスワード: '+r.tempPassword+'\n本人に伝えてください');
+            alert('仮パスワード: '+r.tempPassword+'\\n本人に伝えてください');
           };
           right.appendChild(reset);
           div.appendChild(right);
