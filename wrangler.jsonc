@@ -7,6 +7,10 @@
     "nodejs_compat"
   ],
 
+  "ai": {
+    "binding": "AI"
+  },
+
   "d1_databases": [
     {
       "binding": "DB",
