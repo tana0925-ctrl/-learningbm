@@ -1482,8 +1482,8 @@ app.post('/api/homework/submit', async (c) => {
       (id, user_id, day_key, submitted_at, todo, why, aim, minutes, end_weather,
        weather_reason, next_improve, rest_day, streak_after,
        reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id,
-       self_study_plan, weekly_plan, weekly_reflection)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       self_study_plan, weekly_plan, weekly_reflection, work_photo_analysis)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).bind(
     id, u.id, dayKey, Date.now(),
     String(body.todo || '').slice(0, 500),
@@ -1503,10 +1503,60 @@ app.post('/api/homework/submit', async (c) => {
     teacherId,
     String(body.selfStudyPlan || '').slice(0, 500),
     String(body.weeklyPlan || '').slice(0, 1000),
-    String(body.weeklyReflection || '').slice(0, 1000)
+    String(body.weeklyReflection || '').slice(0, 1000),
+    String(body.workPhotoAnalysis || '').slice(0, 500)
   ).run()
 
   return c.json({ ok: true, id })
+})
+
+// 生徒：成果物写真をAIで分析してテキスト化→DB保存
+app.post('/api/homework/analyze-photo', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+
+  const formData = await c.req.formData().catch(() => null)
+  if (!formData) return jsonError(c, 400, 'invalid_form_data')
+
+  const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
+  if (!dayKey) return jsonError(c, 400, 'day_key_required')
+
+  const photo = formData.get('photo') as File | null
+  if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
+  if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
+
+  const imageBytes = new Uint8Array(await photo.arrayBuffer())
+
+  let analysisText = ''
+  try {
+    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'この画像は小学生の家庭学習の成果物です。何が写っているか、どんな学習をしたか、丁寧さや量、特徴を日本語で100文字以内で簡潔に説明してください。' },
+          { type: 'image', image: [...imageBytes] }
+        ]
+      }],
+      max_tokens: 300,
+    })
+    analysisText = String(aiRes.response || '').trim().slice(0, 500)
+  } catch (e: any) {
+    return jsonError(c, 500, 'ai_analysis_failed')
+  }
+
+  if (!analysisText) analysisText = '（画像の分析結果を取得できませんでした）'
+
+  const existing = await c.env.DB.prepare(
+    `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+  ).bind(u.id, dayKey).first<any>()
+
+  if (existing) {
+    await c.env.DB.prepare(
+      `UPDATE homework_submissions SET work_photo_analysis=? WHERE id=?`
+    ).bind(analysisText, existing.id).run()
+  }
+
+  return c.json({ ok: true, analysis: analysisText, saved: !!existing })
 })
 
 // 生徒：提出済みシートの内容を修正して再提出（報酬変更なし）
@@ -1601,6 +1651,7 @@ app.get('/api/teacher/homework', async (c) => {
            hs.returned_at as returnedAt, hs.reward_claimed as rewardClaimed,
            hs.weekly_plan as weeklyPlan, hs.weekly_reflection as weeklyReflection,
            hs.self_study_plan as selfStudyPlan,
+           hs.work_photo_analysis as workPhotoAnalysis,
            u.id as userId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
@@ -1660,7 +1711,8 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 
   const subs = await c.env.DB.prepare(`
     SELECT hs.id, hs.user_id, hs.todo, hs.why, hs.aim, hs.minutes, hs.end_weather,
-           hs.weather_reason, hs.next_improve, hs.weekly_reflection, hs.day_key, u.name
+           hs.weather_reason, hs.next_improve, hs.weekly_reflection, hs.day_key, u.name,
+           hs.work_photo_analysis
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id = ?
     JOIN users u ON u.id = hs.user_id
@@ -1688,19 +1740,21 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     const histText = hist.length
       ? hist.map((h: any) => `  [${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 先生:${h.teacher_comment||'なし'}`).join('\n')
       : '  なし'
+    const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
     return `${i+1}. 【${s.name}】(${s.day_key})
   やったこと: ${s.todo || '未記入'}
   なんで: ${s.why || '未記入'}
   めあて: ${s.aim || '未記入'}
   学習時間: ${s.minutes || 0}分
   振り返り: ${s.weather_reason || '未記入'}
-  次どうする: ${s.next_improve || '未記入'}
+  次どうする: ${s.next_improve || '未記入'}${photoLine}
   過去の記録:
 ${histText}`
   }).join('\n\n')
 
   const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
 その子の頑張りや成長を認め、過去の記録も参考にして個別最適な内容にしてください。
+「成果物の様子」がある場合は、ノートの丁寧さや学習内容の具体的な様子もコメントに反映してください。
 必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
 他のテキストは一切不要です。
 
@@ -5422,6 +5476,7 @@ wrap.innerHTML = '';
             + (s.selfStudyPlan ? '<div class="mt-1 p-1.5 bg-blue-50 rounded border border-blue-200"><b>📖 自主学習：</b>'+escH(s.selfStudyPlan)+'</div>' : '')
             + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
+            + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物（AI分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
             + '</div>';
 
           if(!returned){
