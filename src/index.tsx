@@ -4430,17 +4430,21 @@ app.get('/teacher', (c) => {
               <button onclick="generateWeeklyAIComments()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90" id="weeklyAiGenBtn">🤖 AIコメント一括生成</button>
               <div id="weeklyAiGenMsg" class="text-xs text-emerald-700"></div>
             </div>
-            <!-- 手動Gemini -->
-            <div class="font-bold text-sm text-purple-800">📋 Geminiで一括コメント返却（手動）</div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs text-slate-500">①</span>
-              <button onclick="copyWeeklyReflections()" class="bg-purple-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
-              <span class="text-xs text-slate-400">→ GeminiのGemに貼り付けてコメントを生成 →</span>
-            </div>
-            <div class="text-xs text-slate-500">② Geminiの返答をここに貼り付け</div>
-            <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
-            <button onclick="bulkReturnReflections()" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">✅ 貼り付けて一括返却</button>
-            <div id="bulkRefMsg" class="text-xs text-purple-700"></div>
+            <!-- 手動Gemini（折りたたみ） -->
+            <details class="bg-purple-50 border border-purple-200 rounded-lg">
+              <summary class="cursor-pointer p-2 text-xs font-bold text-purple-800 select-none">📋 Geminiでも手動で返却できます</summary>
+              <div class="px-2 pb-2 space-y-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-slate-500">①</span>
+                  <button onclick="copyWeeklyReflections()" class="bg-purple-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
+                  <span class="text-xs text-slate-400">→ GeminiのGemに貼り付けてコメントを生成 →</span>
+                </div>
+                <div class="text-xs text-slate-500">② Geminiの返答をここに貼り付け</div>
+                <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
+                <button onclick="bulkReturnReflections()" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">✅ 貼り付けて一括返却</button>
+                <div id="bulkRefMsg" class="text-xs text-purple-700"></div>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -4452,12 +4456,11 @@ app.get('/teacher', (c) => {
           <div id="hwAiGenMsg" class="text-xs text-emerald-700 min-h-[16px]"></div>
         </div>
 
-        <!-- Gemini連携パネル -->
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-amber-800">📋 Geminiで一括コメント返却（手動）</div>
+        <!-- Gemini連携パネル（折りたたみ） -->
+        <details class="bg-amber-50 border border-amber-200 rounded-xl">
+          <summary class="cursor-pointer p-3 text-sm font-bold text-amber-800 select-none">📋 Geminiでも手動で返却できます</summary>
+          <div class="px-3 pb-3 space-y-3">
             <button onclick="toggleGemPrompt()" class="text-xs text-amber-700 underline hover:no-underline">📝 Gem設定用プロンプトを表示</button>
-          </div>
           <!-- Gemプロンプト表示エリア（初期非表示） -->
           <div id="gemPromptArea" class="hidden bg-white border border-amber-300 rounded-lg p-3 space-y-2">
             <div class="text-xs font-bold text-amber-800">Gemini の「Gem」に以下をシステムプロンプトとして設定してください</div>
@@ -4487,7 +4490,8 @@ app.get('/teacher', (c) => {
           </div>
           <button onclick="pasteAndBulkReturn()" class="w-full bg-emerald-600 text-white rounded-lg px-4 py-2.5 text-sm font-bold shadow hover:opacity-90">✅ ③ 貼り付けて一括返却</button>
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
-        </div>
+          </div>
+        </details>
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap items-center">
             <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
