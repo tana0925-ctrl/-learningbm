@@ -4645,6 +4645,7 @@ function formatYMD(d){
               <textarea id="hsWeatherReason" class="hs-refText" data-maxfs="15" data-minfs="6" data-lh="1.25" placeholder="例：○○ができた／△△がむずかしかった など"></textarea>
               <div class="hs-nextQ">次、どうすると学びの天気が良くなる？（晴れの人は、どうしたら晴れのままでできる？）</div>
               <textarea id="hsNextImprove" class="hs-nextText" data-maxfs="15" data-minfs="8" placeholder="例：やり方を変える／先に計画を立てる など"></textarea>
+              <!-- 成果物写真（任意） -->
               <div id="hsPhotoSection" style="margin-top:6px; padding:6px 8px; background:#ecfeff; border:1.5px dashed #06b6d4; border-radius:10px;">
                 <div style="font-size:11px; font-weight:bold; color:#0e7490; margin-bottom:4px;">📷 成果物の写真（任意）</div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
@@ -11191,6 +11192,8 @@ const now = Date.now();
                     // Remove old fields
                     delete player.box;
                     delete player.boxCapacity;
+                    // Repair: ensure all monsters have box entries
+                    try { repairMissingBoxEntries(); } catch(e) { console.warn('[loadData] repairMissingBoxEntries error:', e); }
                     if (!player.name) player.name = "勇者タマゴン";
                     if (!player.defeats) player.defeats = {};
                     if (!player.monsters) player.monsters = { 1: { level: 1, exp: 0, nextExp: 60 } };
@@ -13275,6 +13278,7 @@ if (player.secret.mewtwoGot == null) player.secret.mewtwoGot = false;
             if (!player.monsters) player.monsters = {};
             if (!player.monsters[id]) {
                 player.monsters[id] = { level: lv, exp: 0, nextExp: calculateNextExp(lv) };
+                try { createBoxEntry(id, lv, 'shop'); } catch(e) {}
             } else {
                 // 既に持っている場合は経験値だけ少し
                 try{
@@ -13340,6 +13344,7 @@ function grantMewtwo(level){
     if (!player.monsters) player.monsters = {};
     if (!player.monsters[id]) {
         player.monsters[id] = { level: lv, exp: 0, nextExp: calculateNextExp(lv) };
+        try { createBoxEntry(id, lv, 'lab'); } catch(e) {}
     }
     if (!Array.isArray(player.pokedex)) player.pokedex = [];
     if (!player.pokedex.includes(id)) player.pokedex.push(id);
@@ -16227,6 +16232,7 @@ return;
                     player.monsters[monster.id] = { level: level, exp: 0, nextExp: calculateNextExp(level), stars: 0 };
                     result.isNew = true;
                     if (!player.pokedex.includes(monster.id)) player.pokedex.push(monster.id);
+                    try { createBoxEntry(monster.id, level, 'gacha'); } catch(e) {}
                     try{ logAcquire('ガチャ', monster.id, {isNew:true, note:'Lv.'+level}); }catch(e){}
                 } else {
                     const mData = player.monsters[monster.id];
@@ -18954,6 +18960,7 @@ setTimeout(() => {
                     player.pokedex.push(hanshinManCompanionId);
                 }
                 player.monsters[hanshinManCompanionId] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+        try { createBoxEntry(hanshinManCompanionId, 1, 'event'); } catch(e) {}
         try{ logAcquire('イベント', hanshinManCompanionId, {isNew:true, note:'Lv.1'}); }catch(e){}
 
                 alert("Lv.1の阪神マンが仲間になった！");
@@ -18978,6 +18985,7 @@ if (enemyMon.id === NEWYEAR_ID) {
     if (!player.monsters[NEWYEAR_ID]) {
         const captureLvl = (typeof enemyMon.level === 'number' ? enemyMon.level : 1);
         player.monsters[NEWYEAR_ID] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) };
+        try { createBoxEntry(NEWYEAR_ID, captureLvl, 'event'); } catch(e) {}
         try{ logAcquire('イベント', NEWYEAR_ID, {isNew:true, note:'Lv.'+captureLvl}); }catch(e){}
         alert(`🎍門松将軍（Lv.${captureLvl}）が仲間になった！`);
         try{
@@ -19009,6 +19017,7 @@ if (enemyMon.id === NEWYEAR_ID) {
     }
     if (!player.monsters[VALENTINE_ID]) {
         player.monsters[VALENTINE_ID] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+        try { createBoxEntry(VALENTINE_ID, 1, 'event'); } catch(e) {}
         try{ logAcquire('イベント', VALENTINE_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
     }
     alert("🍫バレソタイソが仲間になった！");
@@ -19030,7 +19039,8 @@ if (enemyMon.id === SANTA_ID) {
                 }
                 if (!player.monsters[SANTA_ID]) {
                     player.monsters[SANTA_ID] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
-                try{ logAcquire('イベント', SANTA_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
+                    try { createBoxEntry(SANTA_ID, 1, 'event'); } catch(e) {}
+                    try{ logAcquire('イベント', SANTA_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
                 }
                 alert("🎅サンタ様が仲間になった！");
                 try { endSantaBattleCleanup(); } catch(e) {}
@@ -19180,6 +19190,7 @@ let rewardMsg = "";
                     if (!player.monsters[mId]) {
                         player.monsters[mId] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
                         if (!player.pokedex.includes(mId)) player.pokedex.push(mId);
+                        try { createBoxEntry(mId, 1, 'friend'); } catch(e) {}
                         rewardMsg = `\n\n🎁 報酬: ${mName} (Lv.1) をゲットした！`;
                         try{ logAcquire('友達対戦', mId, {isNew:true, note:'報酬'}); }catch(e){}
                     } else {
@@ -25811,6 +25822,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（筆算わり算50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25844,6 +25856,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（九九50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25876,6 +25889,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（慣用句50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25908,6 +25922,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（小数×÷50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25937,6 +25952,7 @@ function trainSubmitSelectedOption(){
             if (player.pokedex.includes(id)) return;
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try { logAcquire('隠し（' + label + '）', id, { isNew: true, note: 'Lv.1' }); } catch(e) {}
             if (!player.party) player.party = [];
             const mon = getMonster(id);
@@ -26242,7 +26258,10 @@ function labGrantMonster(id){
 
   const __wasNew = !player.monsters[mid];
   if (!player.pokedex.includes(mid)) player.pokedex.push(mid);
-  if (!player.monsters[mid]) player.monsters[mid] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+  if (!player.monsters[mid]) {
+    player.monsters[mid] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+    try { createBoxEntry(mid, 1, 'lab'); } catch(e) {}
+  }
   try{ logAcquire('ラボ復活', mid, {isNew:__wasNew, note: __wasNew ? '復活' : '復活(再)'}); }catch(e){}
 
   // パーティに入れるか
@@ -26456,6 +26475,7 @@ function unlockDecimalFestMonsterIfNeeded(){
     // 仲間にする
     player.pokedex.push(id);
     player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+    try { createBoxEntry(id, 1, 'fest'); } catch(e) {}
             try{ logAcquire('小数フェス報酬', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
     // パーティに入れるか
@@ -28285,6 +28305,56 @@ try {
                 }
             }
             return null;
+        }
+
+        // Create a box entry for a newly acquired monster and place it in boxes
+        function createBoxEntry(monsterId, level, source) {
+            if (!Array.isArray(player.boxes)) return;
+            const uid = (source || 'acq') + '_' + monsterId + '_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+            const boxEntry = {
+                uid: uid,
+                monsterId: Number(monsterId),
+                level: level || 1,
+                exp: 0,
+                nextExp: (typeof calculateNextExp === 'function' ? calculateNextExp(level || 1) : 60),
+                stars: 0,
+                caughtAt: Date.now(),
+                isActive: true
+            };
+            const slot = findFirstEmptyBoxSlot();
+            if (slot) {
+                player.boxes[slot.boxIdx][slot.slotIdx] = boxEntry;
+            } else {
+                // All slots full - append to box 0
+                player.boxes[0].push(boxEntry);
+            }
+            return boxEntry;
+        }
+
+        // Repair: ensure every monster in player.monsters has at least one box entry
+        function repairMissingBoxEntries() {
+            if (!player.monsters || !Array.isArray(player.boxes)) return;
+            let repaired = 0;
+            for (const idStr of Object.keys(player.monsters)) {
+                const nid = Number(idStr);
+                let found = false;
+                for (let bi = 0; bi < player.boxes.length && !found; bi++) {
+                    const box = player.boxes[bi];
+                    if (!Array.isArray(box)) continue;
+                    for (let si = 0; si < box.length; si++) {
+                        if (box[si] && box[si].monsterId === nid) { found = true; break; }
+                    }
+                }
+                if (!found) {
+                    const md = player.monsters[nid];
+                    createBoxEntry(nid, md.level || 1, 'repair');
+                    repaired++;
+                }
+            }
+            if (repaired > 0) {
+                console.log('[repair] ' + repaired + ' missing box entries created');
+                try { saveData(); } catch(e) {}
+            }
         }
 
         // --- 図鑑：スクロール中の誤タップ防止（タップ判定） ---
@@ -42755,60 +42825,67 @@ async function hsEditEntrySave(dayKey){
 }
 // ─────────────────────────────────────────────────────
 
-window._hsPhotoAnalysisResult = '';
+// 成果物写真の処理
+var _hsPhotoAnalysisResult = '';
+var _hsPhotoFile = null;
 
 function hsPhotoSelected(input) {
-  const file = input.files[0];
+  const file = input.files && input.files[0];
   if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert('写真のサイズが大きすぎます（5MBまで）。');
+    input.value = '';
+    return;
+  }
+  _hsPhotoFile = file;
+  _hsPhotoAnalysisResult = '';
   const statusEl = document.getElementById('hsPhotoStatus');
   const previewEl = document.getElementById('hsPhotoPreview');
-  const thumbEl  = document.getElementById('hsPhotoThumb');
+  const thumbEl = document.getElementById('hsPhotoThumb');
   const analysisEl = document.getElementById('hsPhotoAnalysis');
-  if (file.size > 5 * 1024 * 1024) {
-    if (statusEl) statusEl.textContent = '⚠️ 5MB以下の写真を選んでください';
-    input.value = ''; return;
-  }
-  if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' (' + (file.size/1024).toFixed(0) + 'KB)';
+  // プレビュー表示
   const reader = new FileReader();
-  reader.onload = e => {
-    if (thumbEl) { thumbEl.src = e.target.result; }
-    if (previewEl) { previewEl.style.display = 'block'; }
+  reader.onload = function(e) {
+    thumbEl.src = e.target.result;
+    previewEl.style.display = 'block';
   };
   reader.readAsDataURL(file);
-  if (statusEl) statusEl.textContent += ' 🔍分析中...';
-  if (analysisEl) { analysisEl.style.display = 'none'; analysisEl.textContent = ''; }
-  window._hsPhotoAnalysisResult = '';
-  (async () => {
-    try {
-      const dayKey = hsGetDayKey830(new Date());
-      const fd = new FormData();
-      fd.append('dayKey', dayKey);
-      fd.append('photo', file);
-      const res = await fetch('/api/homework/analyze-photo', { method: 'POST', body: fd });
-      if (res.ok) {
-        const data = await res.json();
-        window._hsPhotoAnalysisResult = data.analysis || '';
-        if (analysisEl && data.analysis) { analysisEl.textContent = '📝 ' + data.analysis; analysisEl.style.display = 'block'; }
-        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' ✅';
+  // AI分析開始
+  statusEl.textContent = '🔄 AIが分析中...';
+  analysisEl.style.display = 'none';
+  const sess = hsGetSession();
+  const dayKey = sess ? sess.dayKey : hsGetDayKey830(new Date());
+  const fd = new FormData();
+  fd.append('photo', file);
+  fd.append('dayKey', dayKey);
+  fetch('/api/homework/analyze-photo', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok && j.analysis) {
+        _hsPhotoAnalysisResult = j.analysis;
+        statusEl.textContent = '✅ 分析完了';
+        analysisEl.textContent = '🤖 ' + j.analysis;
+        analysisEl.style.display = 'block';
       } else {
-        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' (分析スキップ)';
+        statusEl.textContent = '⚠️ 分析できませんでした';
+        _hsPhotoAnalysisResult = '';
       }
-    } catch(e) {
-      if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' (分析エラー)';
-    }
-  })();
+    })
+    .catch(function(e) {
+      console.warn('[photo-analysis]', e);
+      statusEl.textContent = '⚠️ エラーが発生しました';
+      _hsPhotoAnalysisResult = '';
+    });
 }
 
 function hsPhotoClear() {
-  const input = document.getElementById('hsPhotoInput');
-  const statusEl = document.getElementById('hsPhotoStatus');
-  const previewEl = document.getElementById('hsPhotoPreview');
-  const analysisEl = document.getElementById('hsPhotoAnalysis');
+  _hsPhotoFile = null;
+  _hsPhotoAnalysisResult = '';
+  var input = document.getElementById('hsPhotoInput');
   if (input) input.value = '';
-  if (statusEl) statusEl.textContent = '';
-  if (previewEl) previewEl.style.display = 'none';
-  if (analysisEl) { analysisEl.style.display = 'none'; analysisEl.textContent = ''; }
-  window._hsPhotoAnalysisResult = '';
+  document.getElementById('hsPhotoPreview').style.display = 'none';
+  document.getElementById('hsPhotoAnalysis').style.display = 'none';
+  document.getElementById('hsPhotoStatus').textContent = '';
 }
 
 async function hsSubmitAndExport(){
@@ -42901,7 +42978,7 @@ async function hsSubmitAndExport(){
         restDay: entry.restDay, streakAfter: entry.streakAfter,
         rewardKind: reward.kind, rewardCoins: reward.coins || 0, rewardShards: reward.shards || 0,
         bonusCoins: bonus.coins || 0, bonusShards: bonus.shards || 0,
-        workPhotoAnalysis: window._hsPhotoAnalysisResult || '',
+        workPhotoAnalysis: _hsPhotoAnalysisResult || '',
       };
       const r = await apiJson('/api/homework/submit', {
         method: 'POST',
@@ -42910,6 +42987,7 @@ async function hsSubmitAndExport(){
       });
       entry.dbSubmitted = true;
       try { entry.dbId = r.id || null; } catch(e) {}
+      // 写真をクリア
       hsPhotoClear();
     } catch(e) {
       // 提出失敗時はローカル保存のみ
