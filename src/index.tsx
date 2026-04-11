@@ -1035,18 +1035,11 @@ app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   // 管理者は全クラスを閲覧可能
-  const isAdmin = u.role === 'admin'
-  const res = isAdmin
-    ? await c.env.DB.prepare(
-        `SELECT c.id, c.class_code as classCode, c.name, c.ranking_enabled as rankingEnabled, c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled, c.created_at as createdAt, t.name as teacherName,
-         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
-         FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id ORDER BY c.created_at DESC`
-      ).all<any>()
-    : await c.env.DB.prepare(
+  const res = await c.env.DB.prepare(
         `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, menus_enabled as menusEnabled, created_at as createdAt,
          (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = classes.id) as memberCount
          FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
-      ).bind(u.id).all<any>()
+    ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
 })
 
@@ -2136,12 +2129,14 @@ app.get('/api/teacher/auto-feedback', async (c) => {
 
   for (const m of (members.results || [])) {
     // 各児童のデータを取得
-    const thisHW = await c.env.DB.prepare(`
+    let thisHW: any = { cnt: 0, totalMin: 0 }
+    let prevHW: any = { cnt: 0, totalMin: 0 }
+    try { thisHW = await c.env.DB.prepare(`
       SELECT COUNT(*) as cnt, COALESCE(SUM(minutes),0) as totalMin FROM homework_submissions WHERE user_id=? AND week_key=?
-    `).bind(m.id, weekKey).first<any>()
-    const prevHW = await c.env.DB.prepare(`
+    `).bind(m.id, weekKey).first<any>() || thisHW } catch {}
+    try { prevHW = await c.env.DB.prepare(`
       SELECT COUNT(*) as cnt, COALESCE(SUM(minutes),0) as totalMin FROM homework_submissions WHERE user_id=? AND week_key=?
-    `).bind(m.id, prevWeekKey).first<any>()
+    `).bind(m.id, prevWeekKey).first<any>() || prevHW } catch {}
     const streakRow = await c.env.DB.prepare(`
       SELECT streak_after as streak FROM homework_submissions WHERE user_id=? ORDER BY submitted_at DESC LIMIT 1
     `).bind(m.id).first<any>()
@@ -3309,7 +3304,9 @@ app.post('/api/teacher/contact-note', async (c) => {
   const rewardCoins = Number(body.rewardCoins) || 5
   if (!classId || !text || !dayKey) return jsonError(c, 400, 'classId_body_dayKey_required')
   // classIdが自分のクラスか確認（管理者も含む全員）
-  const cls = await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 403, 'not_your_class')
   const id = crypto.randomUUID()
   await c.env.DB.prepare(
