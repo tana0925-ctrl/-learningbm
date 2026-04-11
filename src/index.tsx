@@ -2137,20 +2137,24 @@ app.get('/api/teacher/auto-feedback', async (c) => {
     try { prevHW = await c.env.DB.prepare(`
       SELECT COUNT(*) as cnt, COALESCE(SUM(minutes),0) as totalMin FROM homework_submissions WHERE user_id=? AND week_key=?
     `).bind(m.id, prevWeekKey).first<any>() || prevHW } catch {}
-    const streakRow = await c.env.DB.prepare(`
+    let streakRow: any = null
+    try { streakRow = await c.env.DB.prepare(`
       SELECT streak_after as streak FROM homework_submissions WHERE user_id=? ORDER BY submitted_at DESC LIMIT 1
-    `).bind(m.id).first<any>()
-    const thisResults = await c.env.DB.prepare(`
+    `).bind(m.id).first<any>() } catch {}
+    let thisResults: any = { results: [] }
+    try { thisResults = await c.env.DB.prepare(`
       SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? AND week_key=? GROUP BY unit
-    `).bind(m.id, weekKey).all<any>()
-    const prevResults = await c.env.DB.prepare(`
+    `).bind(m.id, weekKey).all<any>() } catch {}
+    let prevResults: any = { results: [] }
+    try { prevResults = await c.env.DB.prepare(`
       SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? AND week_key=? GROUP BY unit
-    `).bind(m.id, prevWeekKey).all<any>()
-    const planRow = await c.env.DB.prepare(`
+    `).bind(m.id, prevWeekKey).all<any>() } catch {}
+    let planRow: any = null
+    try { planRow = await c.env.DB.prepare(`
       SELECT revision_count FROM student_weekly_plans WHERE user_id=? AND week_key=?
-    `).bind(m.id, weekKey).first<any>()
+    `).bind(m.id, weekKey).first<any>() } catch {}
 
     const msgs = generateFeedback({
       streak: streakRow?.streak || 0,
