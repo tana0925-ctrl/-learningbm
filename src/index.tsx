@@ -1315,7 +1315,7 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     '日本語で、箇条書きではなく教師に語りかけるような文章で回答してください。'
   ].join('\n')
   try {
-    const aiResult = await c.env.AI.run('@cf/google/gemma-7b-it', {
+    const aiResult = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 1024
     })
@@ -2037,21 +2037,26 @@ app.get('/api/teacher/class-analytics', async (c) => {
   `).bind(classId).all<any>()
 
   // 提出率ヒートマップ用（曜日×児童）
-  const hwData = await c.env.DB.prepare(`
+  let hwData: any = { results: [] }, prevHwData: any = { results: [] }
+  try {
+    hwData = await c.env.DB.prepare(`
     SELECT hs.user_id, hs.submitted_at, hs.minutes
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
     WHERE hs.week_key=?
   `).bind(classId, weekKey).all<any>()
+  } catch {}
 
   // 先週の提出データ（変化検知用）
-  const prevHwData = await c.env.DB.prepare(`
+  try {
+    prevHwData = await c.env.DB.prepare(`
     SELECT hs.user_id, COUNT(*) as cnt, SUM(hs.minutes) as totalMin
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
     WHERE hs.week_key=?
     GROUP BY hs.user_id
   `).bind(classId, prevWeekKey).all<any>()
+  } catch {}
 
   // 自己調整データ
   const planData = await c.env.DB.prepare(`
