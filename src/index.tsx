@@ -1646,6 +1646,93 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
   return c.json({ ok: true })
 })
 
+// AIで一括コメント生成（家庭学習の日々の振り返り）
+app.post('/api/teacher/homework-ai-comments', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.classId) return jsonError(c, 400, 'classId required')
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const subs = await c.env.DB.prepare(`
+    SELECT hs.id, hs.user_id, hs.todo, hs.why, hs.aim, hs.minutes, hs.end_weather,
+           hs.weather_reason, hs.next_improve, hs.weekly_reflection, hs.day_key, u.name
+    FROM homework_submissions hs
+    JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id = ?
+    JOIN users u ON u.id = hs.user_id
+    WHERE hs.returned_at IS NULL
+    ORDER BY u.name, hs.day_key DESC
+  `).bind(body.classId).all<any>()
+
+  if (!subs.results?.length) return c.json({ ok: true, comments: [] })
+
+  const userIds = [...new Set(subs.results.map((s: any) => s.user_id))]
+  const historyMap: Record<string, any[]> = {}
+  for (const uid of userIds) {
+    try {
+      const hist = await c.env.DB.prepare(`
+        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment
+        FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
+        ORDER BY day_key DESC LIMIT 3
+      `).bind(uid).all<any>()
+      historyMap[uid] = hist.results || []
+    } catch { historyMap[uid] = [] }
+  }
+
+  const lines = subs.results.map((s: any, i: number) => {
+    const hist = historyMap[s.user_id] || []
+    const histText = hist.length
+      ? hist.map((h: any) => `  [${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 先生:${h.teacher_comment||'なし'}`).join('\n')
+      : '  なし'
+    return `${i+1}. 【${s.name}】(${s.day_key})
+  やったこと: ${s.todo || '未記入'}
+  なんで: ${s.why || '未記入'}
+  めあて: ${s.aim || '未記入'}
+  学習時間: ${s.minutes || 0}分
+  振り返り: ${s.weather_reason || '未記入'}
+  次どうする: ${s.next_improve || '未記入'}
+  過去の記録:
+${histText}`
+  }).join('\n\n')
+
+  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
+その子の頑張りや成長を認め、過去の記録も参考にして個別最適な内容にしてください。
+必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
+他のテキストは一切不要です。
+
+=== 児童の振り返り ===
+${lines}`
+
+  try {
+    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000,
+    })
+    const text = (aiRes.response || '').trim()
+    let parsed: string[] = []
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const obj = JSON.parse(jsonMatch[0])
+        parsed = obj.comments || []
+      }
+    } catch {
+      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    }
+
+    const comments = subs.results.map((s: any, i: number) => ({
+      id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').slice(0, 50)
+    }))
+    return c.json({ ok: true, comments })
+  } catch (e: any) {
+    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
+  }
+})
+
 // -------------------- API: 先生メニュー (class weekly menu) --------------------
 
 // 今週のキーを返す (ISO week: YYYY-Wnn)
@@ -2268,6 +2355,67 @@ app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
   ).bind(comment, Date.now(), coins, planId).run()
 
   return c.json({ ok: true, coins, shards })
+})
+
+// AIで一括コメント生成（週の振り返り）
+app.post('/api/teacher/weekly-ai-comments', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.classId) return jsonError(c, 400, 'classId required')
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const weekKey = body.weekKey || getWeekKey()
+  const plans = await c.env.DB.prepare(`
+    SELECT swp.id, swp.user_id, swp.weekly_reflection, u.name
+    FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id AND cm.class_id = ?
+    JOIN users u ON u.id = swp.user_id
+    WHERE swp.week_key = ? AND swp.reflection_returned_at IS NULL AND swp.weekly_reflection IS NOT NULL
+  `).bind(body.classId, weekKey).all<any>()
+
+  if (!plans.results?.length) return c.json({ ok: true, comments: [] })
+
+  const lines = plans.results.map((p: any, i: number) =>
+    `${i+1}. 【${p.name}】\n  振り返り: ${p.weekly_reflection || '未記入'}`
+  ).join('\n\n')
+
+  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの1週間の家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
+その子の頑張りや成長を認める内容にしてください。
+必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
+他のテキストは一切不要です。
+
+=== 児童の振り返り ===
+${lines}`
+
+  try {
+    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000,
+    })
+    const text = (aiRes.response || '').trim()
+    let parsed: string[] = []
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const obj = JSON.parse(jsonMatch[0])
+        parsed = obj.comments || []
+      }
+    } catch {
+      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    }
+
+    const comments = plans.results.map((p: any, i: number) => ({
+      id: p.id, name: p.name, comment: (parsed[i] || '').slice(0, 50)
+    }))
+    return c.json({ ok: true, comments })
+  } catch (e: any) {
+    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
+  }
 })
 
 // -------------------- API: realtime battle --------------------
@@ -4275,8 +4423,15 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
           <!-- 振り返り一括AI返却 -->
-          <div id="bulkRefPanel" class="hidden border-t border-blue-200 pt-3 space-y-2">
-            <div class="font-bold text-sm text-purple-800">🤖 振り返り一括コメント返却</div>
+          <div id="bulkRefPanel" class="hidden border-t border-blue-200 pt-3 space-y-3">
+            <!-- アプリ内AI -->
+            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-2 space-y-2">
+              <div class="font-bold text-xs text-emerald-800">🤖 AIで一括コメント生成</div>
+              <button onclick="generateWeeklyAIComments()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90" id="weeklyAiGenBtn">🤖 AIコメント一括生成</button>
+              <div id="weeklyAiGenMsg" class="text-xs text-emerald-700"></div>
+            </div>
+            <!-- 手動Gemini -->
+            <div class="font-bold text-sm text-purple-800">📋 Geminiで一括コメント返却（手動）</div>
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs text-slate-500">①</span>
               <button onclick="copyWeeklyReflections()" class="bg-purple-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
@@ -4289,10 +4444,18 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        <!-- アプリ内AIコメント生成パネル -->
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
+          <div class="font-bold text-sm text-emerald-800">🤖 AIで一括コメント生成</div>
+          <div class="text-xs text-emerald-600">ボタンを押すと内蔵AIが未返却の家庭学習にコメントを自動生成し、各コメント欄に反映します。確認・修正してから返却できます。</div>
+          <button onclick="generateHWAIComments()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90" id="hwAiGenBtn">🤖 AIコメント一括生成</button>
+          <div id="hwAiGenMsg" class="text-xs text-emerald-700 min-h-[16px]"></div>
+        </div>
+
         <!-- Gemini連携パネル -->
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-amber-800">🤖 Geminiで一括コメント返却</div>
+            <div class="font-bold text-sm text-amber-800">📋 Geminiで一括コメント返却（手動）</div>
             <button onclick="toggleGemPrompt()" class="text-xs text-amber-700 underline hover:no-underline">📝 Gem設定用プロンプトを表示</button>
           </div>
           <!-- Gemプロンプト表示エリア（初期非表示） -->
@@ -5390,6 +5553,55 @@ wrap.innerHTML = '';
           document.body.removeChild(ta);
           msg.textContent='✅ コピーしました！';
         });
+      }
+
+      async function generateHWAIComments(){
+        var btn = document.getElementById('hwAiGenBtn');
+        var msg = document.getElementById('hwAiGenMsg');
+        var classId = document.getElementById('hwClassFilter').value;
+        if(!classId){ alert('クラスを選択してください'); return; }
+        btn.disabled=true; btn.textContent='⏳ AI生成中...';
+        msg.textContent='AIがコメントを生成しています…少しお待ちください';
+        try{
+          var r = await api('/api/teacher/homework-ai-comments',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId})});
+          if(!r.comments || !r.comments.length){ msg.textContent='未返却の提出がありません'; return; }
+          var filled = 0;
+          for(var i=0;i<r.comments.length;i++){
+            var c = r.comments[i];
+            var ta = document.getElementById('hwComment_'+c.id);
+            if(ta){ ta.value = c.comment; filled++; }
+          }
+          msg.textContent='✅ '+filled+'件のコメントを生成しました！内容を確認して「未返却をまとめて返却」で返却してください。';
+        }catch(e){
+          msg.textContent='❌ エラー: '+String(e.message||e);
+        }finally{
+          btn.disabled=false; btn.textContent='🤖 AIコメント一括生成';
+        }
+      }
+
+      async function generateWeeklyAIComments(){
+        var btn = document.getElementById('weeklyAiGenBtn');
+        var msg = document.getElementById('weeklyAiGenMsg');
+        var data = window._weeklyRefData || [];
+        if(!data.length){ alert('未返却の振り返りがありません'); return; }
+        var classId = (document.getElementById('wpClassSel')||{}).value || (document.getElementById('hwClassFilter')||{}).value;
+        if(!classId){ alert('クラスを選択してください'); return; }
+        btn.disabled=true; btn.textContent='⏳ AI生成中...';
+        msg.textContent='AIがコメントを生成しています…';
+        try{
+          var r = await api('/api/teacher/weekly-ai-comments',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId})});
+          if(!r.comments || !r.comments.length){ msg.textContent='未返却の振り返りがありません'; return; }
+          var ta = document.getElementById('bulkRefComments');
+          if(ta){
+            var json = JSON.stringify({comments: r.comments.map(function(c){ return c.comment; })});
+            ta.value = json;
+          }
+          msg.textContent='✅ '+r.comments.length+'件のコメントを生成しました！「貼り付けて一括返却」で返却してください。';
+        }catch(e){
+          msg.textContent='❌ エラー: '+String(e.message||e);
+        }finally{
+          btn.disabled=false; btn.textContent='🤖 AIコメント一括生成';
+        }
       }
 
       async function bulkReturnNoComment(){
