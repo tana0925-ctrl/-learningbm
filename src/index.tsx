@@ -1267,9 +1267,10 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     WHERE cm.class_id = ?
   `).bind(classId).all<any>()
   const weekKey = c.req.query('weekKey') || ''
-  const hw = await c.env.DB.prepare('SELECT user_id, subject, minutes, created_at FROM homework_logs WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
-  const plans = await c.env.DB.prepare('SELECT user_id, goal_text, plan_text, revision_count FROM weekly_plans WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
-  const refs = await c.env.DB.prepare('SELECT user_id, reflection_text, concentration, achievement FROM weekly_reflections WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
+  let hw: any = { results: [] }, plans: any = { results: [] }, refs: any = { results: [] }
+  try { hw = await c.env.DB.prepare('SELECT user_id, subject, minutes, created_at FROM homework_logs WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>() } catch {}
+  try { plans = await c.env.DB.prepare('SELECT user_id, goal_text, plan_text, revision_count FROM weekly_plans WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>() } catch {}
+  try { refs = await c.env.DB.prepare('SELECT user_id, reflection_text, concentration, achievement FROM weekly_reflections WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>() } catch {}
   const studentSummaries = members.results.map((m: any) => {
     const myHw = hw.results.filter((h: any) => h.user_id === m.id)
     const myPlan = plans.results.find((p: any) => p.user_id === m.id)
@@ -2023,7 +2024,9 @@ app.get('/api/teacher/class-analytics', async (c) => {
   const prevWeekKey = getPrevWeekKey(weekKey)
 
   // 権限チェック
-  const cls = await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).first<any>()
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   // 児童一覧
@@ -2114,7 +2117,9 @@ app.get('/api/teacher/auto-feedback', async (c) => {
   const prevWeekKey = getPrevWeekKey(weekKey)
 
   // 権限チェック
-  const cls = await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).first<any>()
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id FROM classes WHERE id=? AND teacher_id=?`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   // 児童一覧
