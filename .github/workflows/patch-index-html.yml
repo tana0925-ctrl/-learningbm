@@ -1,0 +1,22 @@
+name: index.html パッチ適用
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチスクリプトを実行
+        run: python3 scripts/patch_index.py
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add public/index.html
+          git diff --staged --quiet && echo "no changes" || git commit -m "Apply index.html patches via GitHub Actions"
+          git push
