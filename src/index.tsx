@@ -4911,7 +4911,7 @@ wrap.innerHTML = '';
             // 編集可能なテキストエリア + 送信ボタン
             html += '<div class="flex gap-1 items-end mt-1">';
             html += '<textarea class="flex-1 border rounded p-1.5 text-xs" rows="2" id="fbMsg_'+item.userId+'" placeholder="コメントを編集...">'+escH(item.messages.join(' '))+'</textarea>';
-            html += '<button class="bg-emerald-600 text-white rounded px-2 py-1.5 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="sendFeedback(\''+item.userId+'\',this)">💬 送信</button>';
+            html += '<button class="bg-emerald-600 text-white rounded px-2 py-1.5 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="sendFeedback(\\''+item.userId+'\\',this)">💬 送信</button>';
             html += '</div>';
             card.innerHTML = html;
             wrap.appendChild(card);
