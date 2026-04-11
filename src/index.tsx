@@ -4773,7 +4773,7 @@ app.get('/teacher', (c) => {
               ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+300coin+5かけら)</span>'
               : '';
             const revBadge = (p.revisionCount && p.revisionCount > 0)
-              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\''+escH(p.studentName)+'\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
+              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(p.studentName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
               : '';
             let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
               + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
