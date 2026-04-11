@@ -1271,6 +1271,65 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
 })
 
 
+// -------------------- API: teacher アクティビティ --------------------
+app.get('/api/teacher/class/:classId/activity', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  // クラスメンバー取得
+  const members = await c.env.DB.prepare(
+    `SELECT u.id, u.name, u.last_login_at as lastLoginAt
+     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ?`
+  ).bind(classId).all<any>()
+
+  // 今日の学習結果（UTC基準で当日）
+  const todayResults = await c.env.DB.prepare(
+    `SELECT r.user_id as userId, r.is_correct as isCorrect
+     FROM learning_results r
+     JOIN class_members cm ON cm.user_id = r.user_id AND cm.class_id = ?
+     WHERE r.answered_at >= datetime('now', '-24 hours')`
+  ).bind(classId).all<any>()
+
+  const activeToday = new Set(todayResults.results.map((r: any) => r.userId))
+  const totalProblems = todayResults.results.length
+  const correctCount = todayResults.results.filter((r: any) => r.isCorrect).length
+  const accuracy = totalProblems > 0 ? Math.round(correctCount / totalProblems * 100) : null
+
+  // 最近の活動ログ（直近50件）
+  const recentLog = await c.env.DB.prepare(
+    `SELECT r.answered_at as answeredAt, r.unit, r.is_correct as isCorrect, r.time_ms as timeMs,
+            u.name, u.login_id as loginId
+     FROM learning_results r
+     JOIN class_members cm ON cm.user_id = r.user_id AND cm.class_id = ?
+     JOIN users u ON u.id = r.user_id
+     ORDER BY r.answered_at DESC LIMIT 50`
+  ).bind(classId).all<any>()
+
+  // 7日以上学習していない生徒
+  const inactive = members.results.filter((m: any) => {
+    if (!m.lastLoginAt) return true
+    const last = new Date(m.lastLoginAt + 'Z')
+    return (Date.now() - last.getTime()) > 7 * 86400000
+  }).map((m: any) => ({ id: m.id, name: m.name, lastLoginAt: m.lastLoginAt }))
+
+  return c.json({
+    ok: true, class: cls,
+    summary: {
+      memberCount: members.results.length,
+      activeToday: activeToday.size,
+      totalProblems,
+      accuracy
+    },
+    recentLog: recentLog.results,
+    inactive
+  })
+})
+
 // -------------------- API: teacher AI分析 --------------------
 app.get('/api/teacher/class-ai-analysis', async (c) => {
   const u = requireTeacher(c)
@@ -4464,6 +4523,17 @@ app.get('/teacher', (c) => {
         <p id="createMsg" class="text-sm mt-1"></p>
       </div>
 
+      <!-- 今日の学習状況 -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold">📈 今日の学習状況</h2>
+          <select id="activityClassFilter" class="border p-1 rounded text-sm bg-white">
+            <option value="">クラスを選択...</option>
+          </select>
+        </div>
+        <div id="activitySummary" class="text-sm text-slate-400">クラスを選択してください</div>
+      </div>
+
       <!-- タブナビ -->
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
@@ -4492,6 +4562,17 @@ app.get('/teacher', (c) => {
             <span class="text-xs text-slate-400">※5問以上やった単元を表示します</span>
           </div>
           <div id="analyticsContent"></div>
+        </div>
+        <!-- 非アクティブ生徒の警告 -->
+        <div id="inactiveStudentsCard" class="bg-white rounded-xl shadow p-4 hidden">
+          <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
+          <p class="text-xs text-slate-400 mb-2">7日以上ログインがありません</p>
+          <div id="inactiveStudentsList" class="space-y-1 text-sm"></div>
+        </div>
+        <!-- 最近の活動ログ -->
+        <div id="recentActivityCard" class="bg-white rounded-xl shadow p-4 hidden">
+          <h3 class="font-bold text-slate-700 mb-2">📋 最近の活動ログ</h3>
+          <div id="recentActivityLog" class="space-y-1 text-sm max-h-96 overflow-y-auto"></div>
         </div>
       </div>
 
@@ -4755,10 +4836,77 @@ app.get('/teacher', (c) => {
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
         if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
+        if(tab === 'analytics') { var aId = document.getElementById('activityClassFilter').value; if(aId) loadActivitySummary(); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
       }
+
+      // --- アクティビティ（今日の学習状況）---
+      async function loadActivitySummary(){
+        const classId = document.getElementById('activityClassFilter').value;
+        const wrap = document.getElementById('activitySummary');
+        if(!classId){ wrap.innerHTML='<span class="text-slate-400">クラスを選択してください</span>'; return; }
+        wrap.innerHTML='<span class="text-slate-400">読み込み中...</span>';
+        let data;
+        try{ data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/activity'); }
+        catch(e){ wrap.innerHTML='<span class="text-red-600">読み込みエラー</span>'; return; }
+        const s = data.summary;
+        wrap.innerHTML =
+          '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">'
+          +'<div class="rounded-lg border p-3 text-center"><div class="text-xs text-slate-400">取り組んだ生徒</div><div class="text-2xl font-black text-emerald-600">'+s.activeToday+'<span class="text-sm font-normal text-slate-400"> / '+s.memberCount+'人</span></div></div>'
+          +'<div class="rounded-lg border p-3 text-center"><div class="text-xs text-slate-400">解いた問題数</div><div class="text-2xl font-black text-blue-600">'+s.totalProblems+'<span class="text-sm font-normal text-slate-400">問</span></div></div>'
+          +'<div class="rounded-lg border p-3 text-center"><div class="text-xs text-slate-400">正答率</div><div class="text-2xl font-black '+(s.accuracy===null?'text-slate-400':s.accuracy>=80?'text-green-600':s.accuracy>=60?'text-yellow-600':'text-red-600')+'">'+(s.accuracy!==null?s.accuracy+'%':'−')+'</div></div>'
+          +'<div class="rounded-lg border p-3 text-center"><div class="text-xs text-slate-400">未学習（7日+）</div><div class="text-2xl font-black '+(data.inactive.length>0?'text-orange-600':'text-slate-400')+'">'+data.inactive.length+'<span class="text-sm font-normal text-slate-400">人</span></div></div>'
+          +'</div>';
+
+        // 非アクティブ生徒を学習分析タブにも反映
+        const inactiveCard = document.getElementById('inactiveStudentsCard');
+        const inactiveList = document.getElementById('inactiveStudentsList');
+        if(data.inactive.length > 0){
+          inactiveCard.classList.remove('hidden');
+          inactiveList.innerHTML = data.inactive.map(function(st){
+            var lastTxt = st.lastLoginAt ? fmtLoginT(st.lastLoginAt) : '一度もログインなし';
+            return '<div class="flex items-center justify-between border rounded px-3 py-1.5">'
+              +'<span class="font-bold">'+escH(st.name)+'</span>'
+              +'<span class="text-xs text-slate-400">最終: '+lastTxt+'</span></div>';
+          }).join('');
+        } else {
+          inactiveCard.classList.add('hidden');
+        }
+
+        // 最近の活動ログを学習分析タブに反映
+        var logCard = document.getElementById('recentActivityCard');
+        var logWrap = document.getElementById('recentActivityLog');
+        if(data.recentLog.length > 0){
+          logCard.classList.remove('hidden');
+          var unitNames = {decimal:'小数', fraction:'分数', integer:'整数', kanji_read:'漢字読み', kanji_write:'漢字書き', social:'社会', science:'理科'};
+          logWrap.innerHTML = data.recentLog.map(function(r){
+            var dt = r.answeredAt ? fmtLoginT(r.answeredAt) : '';
+            var unitLabel = r.unit ? (r.unit.split(':')[0]) : '';
+            unitLabel = unitNames[unitLabel] || unitLabel;
+            var mark = r.isCorrect ? '<span class="text-green-600 font-bold">○</span>' : '<span class="text-red-500 font-bold">×</span>';
+            return '<div class="flex items-center gap-2 border-b py-1 text-xs">'
+              +'<span class="text-slate-400 w-32 shrink-0">'+dt+'</span>'
+              +'<span class="font-bold w-20 shrink-0">'+escH(r.name)+'</span>'
+              +'<span class="text-slate-500 w-16 shrink-0">'+escH(unitLabel)+'</span>'
+              +mark
+              +(r.timeMs ? '<span class="text-slate-400 ml-1">'+Math.round(r.timeMs/1000)+'秒</span>' : '')
+              +'</div>';
+          }).join('');
+        } else {
+          logCard.classList.add('hidden');
+        }
+      }
+
+      function fmtLoginT(dt){
+        if(!dt) return '';
+        var d = new Date(dt.indexOf('Z') >= 0 ? dt : dt + 'Z');
+        return d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0')
+          + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      }
+
+      document.getElementById('activityClassFilter').onchange = function(){ loadActivitySummary(); };
 
       async function loadUnitAnalytics(){
         const wrap = document.getElementById('analyticsContent');
@@ -4879,6 +5027,15 @@ app.get('/teacher', (c) => {
         if(analyticsSel){
           analyticsSel.innerHTML = '<option value="">クラスを選択...</option>';
           data.classes.forEach(c => { analyticsSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        }
+        // アクティビティ（今日の学習状況）のクラスフィルターも更新
+        const actSel = document.getElementById('activityClassFilter');
+        if(actSel){
+          const prevVal = actSel.value;
+          actSel.innerHTML = '<option value="">クラスを選択...</option>';
+          data.classes.forEach(c => { actSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+          if(data.classes.length === 1){ actSel.value = data.classes[0].id; loadActivitySummary(); }
+          else if(prevVal){ actSel.value = prevVal; }
         }
 
         for(const cls of data.classes){
