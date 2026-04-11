@@ -5167,7 +5167,7 @@ wrap.innerHTML = '';
           const res = await fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey);
           const data = await res.json();
           if(data.ok && data.analysis){
-            const formatted = data.analysis.replace(/\n/g, '<br>');
+            const formatted = data.analysis.replace(/\\n/g, '<br>');
             document.getElementById('aiAnalysisContent').innerHTML = '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">' + formatted + '</div>';
           } else {
             document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗しました: ' + (data.error || 'unknown') + '</p>';
