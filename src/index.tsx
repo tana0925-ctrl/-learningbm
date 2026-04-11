@@ -7,6 +7,7 @@ type Bindings = {
   SESSION_SECRET: string
   ADMIN_LOGIN_ID?: string
   ADMIN_PASSWORD?: string
+  AI: any
 }
 
 type Variables = {
@@ -1246,6 +1247,81 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
       )
     }))
   })
+})
+
+
+// -------------------- API: teacher AI分析 --------------------
+app.get('/api/teacher/class-ai-analysis', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.query('classId')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.name, p.state_json
+    FROM class_members cm JOIN users u ON u.id = cm.user_id
+    LEFT JOIN progress p ON p.user_id = cm.user_id
+    WHERE cm.class_id = ?
+  `).bind(classId).all<any>()
+  const weekKey = c.req.query('weekKey') || ''
+  const hw = await c.env.DB.prepare('SELECT user_id, subject, minutes, created_at FROM homework_logs WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
+  const plans = await c.env.DB.prepare('SELECT user_id, goal_text, plan_text, revision_count FROM weekly_plans WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
+  const refs = await c.env.DB.prepare('SELECT user_id, reflection_text, concentration, achievement FROM weekly_reflections WHERE class_id = ? AND week_key = ?').bind(classId, weekKey).all<any>()
+  const studentSummaries = members.results.map((m: any) => {
+    const myHw = hw.results.filter((h: any) => h.user_id === m.id)
+    const myPlan = plans.results.find((p: any) => p.user_id === m.id)
+    const myRef = refs.results.find((r: any) => r.user_id === m.id)
+    let learnData: Record<string, any> = {}
+    try {
+      if (m.state_json) {
+        const state = JSON.parse(m.state_json)
+        const bySubject = state?.metrics?.learn?.bySubject || {}
+        learnData = Object.fromEntries(Object.entries(bySubject).map(([k, v]: [string, any]) => [k, { total: v.total || 0, correct: v.correct || 0, acc: v.total ? Math.round(v.correct / v.total * 100) : 0 }]))
+      }
+    } catch {}
+    return {
+      name: m.name,
+      homework: { count: myHw.length, totalMinutes: myHw.reduce((s: number, h: any) => s + (h.minutes || 0), 0), subjects: myHw.map((h: any) => h.subject) },
+      plan: myPlan ? { goal: myPlan.goal_text, plan: myPlan.plan_text, revisions: myPlan.revision_count } : null,
+      reflection: myRef ? { text: myRef.reflection_text, concentration: myRef.concentration, achievement: myRef.achievement } : null,
+      learning: learnData
+    }
+  })
+  const prompt = [
+    'あなたは小学校の教師を支援するAIアシスタントです。以下は' + cls.name + 'の今週（' + weekKey + '）の学習データです。',
+    'クラス人数: ' + members.results.length + '人',
+    '',
+    '【児童別データ】',
+    ...studentSummaries.map((s: any) => {
+      let txt = '■ ' + s.name + ': 家庭学習' + s.homework.count + '回(' + s.homework.totalMinutes + '分)'
+      if (s.plan) txt += ', 計画あり(修正' + s.plan.revisions + '回)'
+      if (s.reflection) txt += ', ふりかえりあり(集中度' + s.reflection.concentration + ')'
+      if (Object.keys(s.learning).length > 0) {
+        txt += ', 教科別正答率: ' + Object.entries(s.learning).map(([k, v]: [string, any]) => k + v.acc + '%').join('/')
+      }
+      return txt
+    }),
+    '',
+    '以下の観点で分析してください：',
+    '1. 家庭学習の傾向: クラス全体の提出状況、学習時間の傾向',
+    '2. 困りごとの検出: 学習量が少ない・正答率が低い・未提出の児童を特定',
+    '3. 自己調整の力: 計画→実行→ふりかえりのサイクルができている児童、支援が必要な児童',
+    '4. 具体的なアドバイス: 教師として来週どんな声かけや支援をすべきか',
+    '',
+    '日本語で、箇条書きではなく教師に語りかけるような文章で回答してください。'
+  ].join('\n')
+  try {
+    const aiResult = await c.env.AI.run('@cf/google/gemma-7b-it', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 1024
+    })
+    return c.json({ ok: true, analysis: aiResult.response || aiResult.result || '' })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message || 'AI error' }, 500)
+  }
 })
 
 // -------------------- API: student (クラス参加) --------------------
@@ -4289,6 +4365,15 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-slate-400">クラスを選んで「分析」を押してください</p>
           </div>
         </div>
+        <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3 mt-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
+            <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
+          </div>
+          <div id="aiAnalysisContent" class="text-sm text-slate-600">
+            <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押すと、AIが学習データを分析します</p>
+          </div>
+        </div>
       </div>
 
       <!-- 連絡帳タブ -->
@@ -5071,6 +5156,28 @@ wrap.innerHTML = '';
         }
       }
 
+      async function loadAIAnalysis(){
+        const classId = document.getElementById('caClassFilter').value;
+        if(!classId){ document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
+        const btn = document.getElementById('btnAIAnalysis');
+        btn.disabled = true; btn.textContent = '分析中...';
+        document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-purple-500 animate-pulse">🤖 AIがデータを分析しています。少々お待ちください（数秒～10秒）...</p>';
+        try {
+          const weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
+          const res = await fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey);
+          const data = await res.json();
+          if(data.ok && data.analysis){
+            const formatted = data.analysis.replace(/\n/g, '<br>');
+            document.getElementById('aiAnalysisContent').innerHTML = '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">' + formatted + '</div>';
+          } else {
+            document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗しました: ' + (data.error || 'unknown') + '</p>';
+          }
+        } catch(e) {
+          document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">エラー: ' + e.message + '</p>';
+        } finally {
+          btn.disabled = false; btn.textContent = '✨ AIで分析';
+        }
+      }
       // フィルヿー初睛化市���況スコア分布
       async function initNewTabFilters(){
         try{
