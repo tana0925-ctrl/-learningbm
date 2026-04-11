@@ -3586,9 +3586,7 @@ app.get('/api/student/contact-notes', async (c) => {
   let classId: string | null = null
   // 教師・管理者はclass_membersではなくclassesテーブルから自分のクラスを取得
   if (u.role === 'teacher' || u.role === 'admin') {
-    const clsRow = u.role === 'admin'
-      ? await c.env.DB.prepare(`SELECT id FROM classes ORDER BY created_at DESC LIMIT 1`).first<any>()
-      : await c.env.DB.prepare(`SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1`).bind(u.id).first<any>()
+    const clsRow = await c.env.DB.prepare(`SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1`).bind(u.id).first<any>()
     classId = clsRow?.id || null
   } else {
     const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
