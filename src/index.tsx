@@ -288,6 +288,13 @@ app.post('/api/auth/login', async (c) => {
     // allow session but tell client
   }
 
+  // 最終ログイン時刻を記録
+  if (row.role === 'teacher') {
+    await c.env.DB.prepare(`UPDATE teacher_accounts SET last_login_at=datetime('now') WHERE id=?`).bind(row.id).run()
+  } else {
+    await c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(row.id).run()
+  }
+
   const token = await makeSession(c.env.SESSION_SECRET, {
     id: row.id,
     role: row.role,
@@ -592,7 +599,7 @@ app.get('/api/admin/users', async (c) => {
     binds.push(String(className))
   }
 
-  const sql = `SELECT id, login_id as loginId, name, grade, class_name as className, is_active as isActive, disabled_reason as disabledReason, created_at as createdAt
+  const sql = `SELECT id, login_id as loginId, name, grade, class_name as className, is_active as isActive, disabled_reason as disabledReason, created_at as createdAt, last_login_at as lastLoginAt
                FROM users WHERE ${cond.join(' AND ')} ORDER BY grade ASC, class_name ASC, name ASC`
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
@@ -837,6 +844,27 @@ app.delete('/api/admin/reject-teacher/:id', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   await c.env.DB.prepare(`DELETE FROM teacher_accounts WHERE id=? AND is_active=0`).bind(c.req.param('id')).run()
   return c.json({ ok: true })
+})
+
+app.get('/api/admin/teachers', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(
+    `SELECT id, login_id as loginId, name, school, is_active as isActive, last_login_at as lastLoginAt, created_at as createdAt
+     FROM teacher_accounts ORDER BY created_at DESC`
+  ).all<any>()
+  return c.json({ ok: true, teachers: res.results })
+})
+
+app.post('/api/admin/teacher-reset-password/:id', async (c) => {
+  const u = requireAdmin(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const id = c.req.param('id')
+  const tempPassword = randomHex(4)
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(tempPassword, salt)
+  await c.env.DB.prepare(`UPDATE teacher_accounts SET password_hash=?, password_salt=? WHERE id=?`).bind(hash, salt, id).run()
+  return c.json({ ok: true, tempPassword })
 })
 
 app.get('/api/admin/settings', async (c) => {
@@ -3820,6 +3848,12 @@ app.get('/admin', (c) => {
         </div>
       </div>
 
+      <!-- 教師一覧 -->
+      <div class="bg-white rounded-xl shadow p-6">
+        <h2 class="font-bold mb-2">👩‍🏫 教師一覧</h2>
+        <div id="teacherList" class="space-y-2 text-sm"></div>
+      </div>
+
       <!-- 教師承認 -->
       <div class="bg-white rounded-xl shadow p-6">
         <h2 class="font-bold mb-2">🍎 教師アカウント承認</h2>
@@ -3955,6 +3989,45 @@ app.get('/admin', (c) => {
         location.href = '/api/admin/results.csv?' + qs.toString();
       };
 
+      function fmtLogin(dt){
+        if(!dt) return '未ログイン';
+        const d = new Date(dt + 'Z');
+        return d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0')
+          + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      }
+
+      async function renderTeachers(){
+        const wrap = document.getElementById('teacherList');
+        let data;
+        try{ data = await api('/api/admin/teachers'); }
+        catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; return; }
+        wrap.innerHTML='';
+        if(!data.teachers.length){ wrap.textContent='教師がいません'; return; }
+        for(const t of data.teachers){
+          const div = document.createElement('div');
+          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
+          const left = document.createElement('div');
+          left.innerHTML = '<span class="font-bold">' + t.name + '</span>'
+            + ' <span class="text-gray-500 select-all">ID: ' + t.loginId + '</span>'
+            + (t.school ? ' <span class="text-xs text-gray-400">' + t.school + '</span>' : '')
+            + ' <span class="text-xs text-blue-600 ml-1">最終ログイン: ' + fmtLogin(t.lastLoginAt) + '</span>';
+          div.appendChild(left);
+          const right = document.createElement('div');
+          right.className='flex gap-2';
+          const reset = document.createElement('button');
+          reset.className='bg-slate-800 text-white rounded px-3 py-1';
+          reset.textContent='PWリセット';
+          reset.onclick = async ()=>{
+            if(!confirm(t.name + 'のパスワードをリセットしますか？')){ return; }
+            const r = await api('/api/admin/teacher-reset-password/'+t.id,{method:'POST'});
+            alert('仮パスワード: '+r.tempPassword+'\n本人に伝えてください');
+          };
+          right.appendChild(reset);
+          div.appendChild(right);
+          wrap.appendChild(div);
+        }
+      }
+
       async function renderPendingTeachers(){
         const wrap = document.getElementById('pendingTeachers');
         let data;
@@ -4068,7 +4141,8 @@ app.get('/admin', (c) => {
           const div = document.createElement('div');
           div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
           const left = document.createElement('div');
-          left.textContent = x.grade + '年 / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' [停止/未承認]');
+          left.innerHTML = x.grade + '年 / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' <span class="text-red-500">[停止/未承認]</span>')
+            + ' <span class="text-xs text-blue-600">最終ログイン: ' + fmtLogin(x.lastLoginAt) + '</span>';
           div.appendChild(left);
           const right = document.createElement('div');
           right.className='flex gap-2 flex-wrap';
@@ -4282,6 +4356,7 @@ app.get('/admin', (c) => {
       }
 
       async function loadAll(){
+        await renderTeachers();
         await renderPendingTeachers();
         await loadRankingSettings();
         await renderPending();
