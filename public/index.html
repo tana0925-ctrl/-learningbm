@@ -4646,25 +4646,25 @@ function formatYMD(d){
               <textarea id="hsWeatherReason" class="hs-refText" data-maxfs="15" data-minfs="6" data-lh="1.25" placeholder="例：○○ができた／△△がむずかしかった など"></textarea>
               <div class="hs-nextQ">次、どうすると学びの天気が良くなる？（晴れの人は、どうしたら晴れのままでできる？）</div>
               <textarea id="hsNextImprove" class="hs-nextText" data-maxfs="15" data-minfs="8" placeholder="例：やり方を変える／先に計画を立てる など"></textarea>
-              <!-- 成果物写真（任意） -->
-              <div id="hsPhotoSection" style="margin-top:6px; padding:6px 8px; background:#ecfeff; border:1.5px dashed #06b6d4; border-radius:10px;">
-                <div style="font-size:11px; font-weight:bold; color:#0e7490; margin-bottom:4px;">📷 成果物の写真（任意）</div>
-                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:11px; font-weight:bold; padding:4px 10px; border-radius:8px; display:inline-block;">
-                    写真をえらぶ
-                    <input type="file" id="hsPhotoInput" accept="image/*" capture="environment" style="display:none;" onchange="hsPhotoSelected(this)"/>
-                  </label>
-                  <span id="hsPhotoStatus" style="font-size:10px; color:#64748b;"></span>
-                </div>
-                <div id="hsPhotoPreview" style="display:none; margin-top:6px; position:relative;">
-                  <img id="hsPhotoThumb" style="max-width:120px; max-height:90px; border-radius:8px; border:1px solid #ccc;"/>
-                  <button type="button" onclick="hsPhotoClear()" style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">×</button>
-                </div>
-                <div id="hsPhotoAnalysis" style="display:none; margin-top:4px; font-size:10px; color:#0e7490; background:#fff; padding:4px 6px; border-radius:6px; border:1px solid #a5f3fc;"></div>
-              </div>
               <div id="hsLockOverlay" class="hs-lock hidden">
                 <div id="hsLockMsg">30分たつまで、ここは入力できません。</div>
               </div>
+            </div>
+            <!-- 成果物写真（振り返りパネルの外に独立配置） -->
+            <div id="hsPhotoSection" style="padding:8px 10px; background:#ecfeff; border:2px dashed #06b6d4; border-radius:10px; margin-top:6px;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <div style="font-size:12px; font-weight:bold; color:#0e7490;">📷 成果物の写真（任意）</div>
+                <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:11px; font-weight:bold; padding:4px 12px; border-radius:8px; display:inline-block;">
+                  写真をえらぶ
+                  <input type="file" id="hsPhotoInput" accept="image/*" capture="environment" style="display:none;" onchange="hsPhotoSelected(this)"/>
+                </label>
+                <span id="hsPhotoStatus" style="font-size:10px; color:#64748b;"></span>
+              </div>
+              <div id="hsPhotoPreview" style="display:none; margin-top:6px; position:relative;">
+                <img id="hsPhotoThumb" style="max-width:120px; max-height:90px; border-radius:8px; border:1px solid #ccc;"/>
+                <button type="button" onclick="hsPhotoClear()" style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">×</button>
+              </div>
+              <div id="hsPhotoAnalysis" style="display:none; margin-top:4px; font-size:10px; color:#0e7490; background:#fff; padding:4px 6px; border-radius:6px; border:1px solid #a5f3fc;"></div>
             </div>
             <div class="hs-col">
               <div class="hs-panel hs-mint hs-sigBox">
