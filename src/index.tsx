@@ -4541,7 +4541,7 @@ app.get('/teacher', (c) => {
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
-        <button id="tabAutoFeedback" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('autoFeedback')">💡 自動FB</button>
+
         <button id="tabClassAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('classAnalytics')">🔍 クラス分析</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
       </div>
@@ -4700,6 +4700,23 @@ app.get('/teacher', (c) => {
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
           </div>
         </details>
+        {/* 自動フィードバック（週間） */}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="font-bold text-sm text-yellow-800">💡 今週の自動フィードバック</div>
+            <div class="flex gap-2 items-center">
+              <select id="fbClassFilter" class="border p-1.5 rounded text-sm bg-white">
+                <option value="">クラスを選択...</option>
+              </select>
+              <button onclick="loadAutoFeedback()" class="bg-yellow-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔄 生成</button>
+            </div>
+          </div>
+          <p class="text-xs text-yellow-700">1週間の提出回数・学習時間・計画修正などから、児童ごとの声かけ候補を自動生成します。コメントは編集してから送信できます。</p>
+          <div id="autoFeedbackList" class="space-y-2 text-sm">
+            <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
+          </div>
+        </div>
+
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap items-center">
             <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
@@ -4716,24 +4733,6 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
-      <!-- 自動フィードバックタブ -->
-      <div id="tabPaneAutoFeedback" class="hidden space-y-3">
-        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-yellow-800">💡 自動フィードバック候補</div>
-            <div class="flex gap-2 items-center">
-              <select id="fbClassFilter" class="border p-1.5 rounded text-sm bg-white">
-                <option value="">クラスを選択...</option>
-              </select>
-              <button onclick="loadAutoFeedback()" class="bg-yellow-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔄 生成</button>
-            </div>
-          </div>
-          <p class="text-xs text-yellow-700">学習データに基づいて児童ごとのフィードバック候補を自動生成します。コメントは編集してから送信できます。</p>
-          <div id="autoFeedbackList" class="space-y-2 text-sm">
-            <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
-          </div>
-        </div>
-      </div>
 
       <!-- クラス分析タブ -->
       <div id="tabPaneClassAnalytics" class="hidden space-y-3">
@@ -4827,7 +4826,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','autoFeedback','classAnalytics','mail'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','classAnalytics','mail'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
