@@ -41166,7 +41166,8 @@ function hwSavePlans(){
     if(!planInputs) return;
 
     // 既存プランを読み込み（金曜の振り返りを保持するため）
-    const plan = hwGetPlanForWeek(weekKey) || {};
+    const oldPlan = hwGetPlanForWeek(weekKey) || {};
+    const plan = Object.assign({}, oldPlan);
     const textareas = planInputs.querySelectorAll('textarea');
     textareas.forEach(ta =>{
       const idx = Number(ta.dataset.dayIdx);
@@ -41174,7 +41175,6 @@ function hwSavePlans(){
         const key = _hwDayKeys830[idx];
         const existing = plan[key];
         if(idx === 4 && typeof existing === 'object' && existing.reflection){
-          // 金曜：振り返りを保持しつつ自主学習を更新
           plan[key] = { free: ta.value.trim(), reflection: existing.reflection };
         } else {
           plan[key] = ta.value.trim();
@@ -41182,20 +41182,41 @@ function hwSavePlans(){
       }
     });
 
+    // 既に提出済みの計画と比較して変更があるか確認
+    const hasOldPlan = Object.values(oldPlan).some(v => {
+      if(typeof v === 'object' && v) return !!(v.free || v.reflection);
+      return !!(v && String(v).trim());
+    });
+    const planChanged = hasOldPlan && JSON.stringify(oldPlan) !== JSON.stringify(plan);
+
+    // 修正の場合は理由を聞く
+    let reason = '';
+    if(planChanged){
+      reason = prompt('📝 計画を変えるんだね！\nどうして変えようと思ったのか教えてね。\n（例：時間がたりなかった、もっとやりたいことが見つかった など）');
+      if(reason === null) return; // キャンセル
+      reason = (reason || '').trim();
+      if(!reason){
+        alert('💡 計画を変えた理由を書くと、自分の学びをふり返る力がつくよ！もう一度書いてみてね。');
+        return;
+      }
+    }
+
     hwSavePlanForWeek(weekKey, plan);
 
     const msg = document.getElementById('hwPlanMsg');
 
-    // サーバーにも送信
+    // サーバーにも送信（修正理由付き）
     try{
+      const submitBody = { weekKey, plans: plan };
+      if(reason) submitBody.reason = reason;
       fetch('/api/student/weekly-plan', {
         method: 'POST',
         headers: {'content-type':'application/json'},
-        body: JSON.stringify({ weekKey, plans: plan })
+        body: JSON.stringify(submitBody)
       }).then(r => {
         if(msg){
           if(r.ok){
-            msg.textContent = '✅ 計画を提出しました！';
+            msg.textContent = planChanged ? '✅ 計画を修正しました！理由もばっちり！' : '✅ 計画を提出しました！';
           } else {
             msg.textContent = '⚠️ サーバー保存に失敗（ローカルには保存済み）';
           }
