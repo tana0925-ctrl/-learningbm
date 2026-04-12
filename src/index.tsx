@@ -1916,6 +1916,7 @@ app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const kanjiPage = String(body.kanjiPage || '').slice(0, 100)
   const keisanPage = String(body.keisanPage || '').slice(0, 100)
   const otherTasks = String(body.otherTasks || '').slice(0, 500)
+  const tests = String(body.tests || '').slice(0, 500)
   // 有効な曜日（デフォルト: 月〜金）
   const validDays = ['mon','tue','wed','thu','fri']
   const activeDays = Array.isArray(body.activeDays)
