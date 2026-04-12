@@ -1394,15 +1394,351 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     '',
     '日本語で、箇条書きではなく教師に語りかけるような文章で回答してください。'
   ].join('\n')
+  // Gemini APIで分析
+  const geminiKey = (c.env as any).GEMINI_API_KEY
   try {
-    const aiResult = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 1024
-    })
-    return c.json({ ok: true, analysis: aiResult.response || aiResult.result || '' })
+    let analysisText = ''
+    if (geminiKey) {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
+      const gRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: 'あなたは小学校の教師を支援する教育AIアシスタントです。データに基づいて具体的・実践的な分析をしてください。日本語で回答してください。' }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+        }),
+      })
+      if (gRes.ok) {
+        const gJson: any = await gRes.json()
+        analysisText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      }
+    }
+    // フォールバック
+    if (!analysisText) {
+      const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1024
+      })
+      analysisText = aiResult.response || aiResult.result || ''
+    }
+    return c.json({ ok: true, analysis: analysisText })
   } catch (e: any) {
     return c.json({ ok: false, error: e.message || 'AI error' }, 500)
   }
+})
+
+// 個人カルテAPI: 児童1人の詳細分析
+app.get('/api/teacher/student-karte', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const studentId = c.req.query('studentId')
+  if (!studentId) return jsonError(c, 400, 'studentId required')
+
+  // 権限チェック: この先生のクラスの児童か
+  const member = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT u.id, u.name FROM users u WHERE u.id=?`).bind(studentId).first<any>()
+    : await c.env.DB.prepare(`
+        SELECT u.id, u.name FROM users u
+        JOIN class_members cm ON cm.user_id = u.id
+        JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+        WHERE u.id = ?
+      `).bind(u.id, studentId).first<any>()
+  if (!member) return jsonError(c, 404, 'student_not_found')
+
+  // 過去60日分の提出データ
+  let submissions: any = { results: [] }
+  try {
+    submissions = await c.env.DB.prepare(`
+      SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve, work_photo_analysis, submitted_at
+      FROM homework_submissions WHERE user_id=? ORDER BY day_key DESC LIMIT 60
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 教科別成績（全期間）
+  let subjectResults: any = { results: [] }
+  try {
+    subjectResults = await c.env.DB.prepare(`
+      SELECT unit, week_key, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      FROM learning_results WHERE user_id=? GROUP BY unit, week_key ORDER BY week_key DESC
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 計画修正履歴
+  let revisions: any = { results: [] }
+  try {
+    revisions = await c.env.DB.prepare(`
+      SELECT week_key, revision_number, reason, created_at FROM plan_revisions WHERE user_id=? ORDER BY created_at DESC LIMIT 20
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 週間計画
+  let plans: any = { results: [] }
+  try {
+    plans = await c.env.DB.prepare(`
+      SELECT week_key, plans_json, revision_count, plan_approved FROM student_weekly_plans WHERE user_id=? ORDER BY week_key DESC LIMIT 8
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 構造化振り返り
+  let reflections: any = { results: [] }
+  try {
+    reflections = await c.env.DB.prepare(`
+      SELECT week_key, concentration, good_point, improve_point, next_action FROM structured_reflections WHERE user_id=? ORDER BY week_key DESC LIMIT 8
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  const subs = submissions.results || []
+  // 統計計算
+  const totalDays = subs.length
+  const avgMin = totalDays ? Math.round(subs.reduce((a: number, s: any) => a + (s.minutes || 0), 0) / totalDays) : 0
+  const weathers = subs.map((s: any) => s.end_weather).filter(Boolean)
+  const sunRate = weathers.length ? Math.round(weathers.filter((w: string) => w === 'sun').length / weathers.length * 100) : 0
+
+  // 週ごとの提出数・学習時間の推移
+  const weeklyStats: Record<string, { count: number, totalMin: number }> = {}
+  for (const s of subs) {
+    const wk = s.day_key ? s.day_key.slice(0, 7) : 'unknown'
+    if (!weeklyStats[wk]) weeklyStats[wk] = { count: 0, totalMin: 0 }
+    weeklyStats[wk].count++
+    weeklyStats[wk].totalMin += (s.minutes || 0)
+  }
+
+  // 教科別の得意/苦手
+  const subjectMap: Record<string, { total: number, correct: number }> = {}
+  for (const r of (subjectResults.results || [])) {
+    if (!subjectMap[r.unit]) subjectMap[r.unit] = { total: 0, correct: 0 }
+    subjectMap[r.unit].total += r.total
+    subjectMap[r.unit].correct += r.correct_count
+  }
+  const subjectAnalysis = Object.entries(subjectMap).map(([unit, v]) => ({
+    unit, total: v.total, correct: v.correct, rate: v.total ? Math.round(v.correct / v.total * 100) : 0
+  })).sort((a, b) => b.total - a.total)
+
+  // Gemini AIで個人分析
+  let aiAdvice = ''
+  const geminiKey = (c.env as any).GEMINI_API_KEY
+  if (geminiKey && totalDays > 0) {
+    try {
+      const recentSubs = subs.slice(0, 15).map((s: any) =>
+        `[${s.day_key}] ${s.todo||''}(${s.minutes||0}分) 天気:${s.end_weather||'?'} めあて:${s.aim||'-'} 振返り:${s.weather_reason||'-'}${s.work_photo_analysis ? ' 📷:'+s.work_photo_analysis : ''}`
+      ).join('\n')
+      const subjectTxt = subjectAnalysis.map(s => `${s.unit}: 正答率${s.rate}%(${s.total}問)`).join(', ')
+      const revTxt = (revisions.results || []).slice(0, 5).map((r: any) => `[${r.week_key}] ${r.reason || '理由なし'}`).join(', ')
+      const refTxt = (reflections.results || []).slice(0, 3).map((r: any) => `[${r.week_key}] 集中${r.concentration} 良:${r.good_point||'-'} 改:${r.improve_point||'-'} 次:${r.next_action||'-'}`).join('\n')
+
+      const kartePrompt = `以下は「${member.name}」さん（小学生）の学習データです。担任の先生への報告として分析してください。
+
+＜基本統計＞
+提出回数: ${totalDays}回 / 平均学習時間: ${avgMin}分 / 満足度(☀️率): ${sunRate}%
+
+＜教科別成績＞
+${subjectTxt || 'データなし'}
+
+＜直近の学習記録＞
+${recentSubs || 'データなし'}
+
+＜計画修正履歴＞
+${revTxt || 'なし'}
+
+＜構造化振り返り＞
+${refTxt || 'なし'}
+
+以下の4つの観点で分析してください（各100文字程度）：
+1. 📊 学習の傾向: 学習時間・提出頻度・教科の偏りなど
+2. 💪 強みと成長: この子の良いところ、伸びているところ
+3. 🔍 気になる点: 支援が必要そうなところ、注意すべき変化
+4. 💬 おすすめの声かけ: 具体的な声かけ例を2-3個
+
+必ずJSON形式で返答:
+{"trend":"...","strength":"...","concern":"...","advice":"..."}`
+
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
+      const gRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: kartePrompt }] }],
+          generationConfig: { temperature: 0.5, maxOutputTokens: 1024 },
+        }),
+      })
+      if (gRes.ok) {
+        const gJson: any = await gRes.json()
+        const rawText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          aiAdvice = jsonMatch[0]
+        }
+      }
+    } catch (e: any) {
+      console.error('Karte AI error:', e?.message || e)
+    }
+  }
+
+  return c.json({
+    ok: true,
+    student: { id: member.id, name: member.name },
+    stats: { totalDays, avgMin, sunRate, weeklyStats },
+    subjects: subjectAnalysis,
+    recentSubmissions: subs.slice(0, 20),
+    revisions: revisions.results || [],
+    plans: plans.results || [],
+    reflections: reflections.results || [],
+    aiAdvice,
+  })
+})
+
+// 週報レポートAPI: クラス全体の1週間まとめ
+app.get('/api/teacher/weekly-report', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+  const prevWeekKey = getPrevWeekKey(weekKey)
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  // 児童一覧
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
+  `).bind(classId).all<any>()
+  const memberList = members.results || []
+
+  // 今週の提出データ
+  let thisWeekHW: any = { results: [] }
+  try {
+    thisWeekHW = await c.env.DB.prepare(`
+      SELECT hs.user_id, hs.day_key, hs.minutes, hs.end_weather, hs.todo, hs.aim, hs.weather_reason, hs.work_photo_analysis
+      FROM homework_submissions hs JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? ORDER BY hs.day_key
+    `).bind(classId, weekKey).all<any>()
+  } catch {}
+
+  // 先週の提出データ（比較用）
+  let prevWeekHW: any = { results: [] }
+  try {
+    prevWeekHW = await c.env.DB.prepare(`
+      SELECT hs.user_id, COUNT(*) as cnt, SUM(hs.minutes) as totalMin
+      FROM homework_submissions hs JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? GROUP BY hs.user_id
+    `).bind(classId, prevWeekKey).all<any>()
+  } catch {}
+
+  // 教科別成績
+  let thisResults: any = { results: [] }
+  try {
+    thisResults = await c.env.DB.prepare(`
+      SELECT lr.user_id, lr.unit, COUNT(*) as total, SUM(CASE WHEN lr.correct=1 THEN 1 ELSE 0 END) as correct_count
+      FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id=?
+      WHERE lr.week_key=? GROUP BY lr.user_id, lr.unit
+    `).bind(classId, weekKey).all<any>()
+  } catch {}
+
+  // 計画データ
+  let plansData: any = { results: [] }
+  try {
+    plansData = await c.env.DB.prepare(`
+      SELECT user_id, revision_count FROM student_weekly_plans WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
+    `).bind(weekKey, classId).all<any>()
+  } catch {}
+
+  // データ集約
+  const hwList = thisWeekHW.results || []
+  const prevMap: Record<string, any> = {}
+  for (const r of (prevWeekHW.results || [])) prevMap[r.user_id] = r
+
+  const studentSummaries = memberList.map((m: any) => {
+    const myHW = hwList.filter((h: any) => h.user_id === m.id)
+    const prevW = prevMap[m.id]
+    const myResults = (thisResults.results || []).filter((r: any) => r.user_id === m.id)
+    const myPlan = (plansData.results || []).find((p: any) => p.user_id === m.id)
+    const totalMin = myHW.reduce((a: number, h: any) => a + (h.minutes || 0), 0)
+    const weathers = myHW.map((h: any) => h.end_weather).filter(Boolean)
+    const sunRate = weathers.length ? Math.round(weathers.filter((w: string) => w === 'sun').length / weathers.length * 100) : 0
+    const subjects = myResults.map((r: any) => `${r.unit}:${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%`).join(',')
+    return {
+      name: m.name,
+      thisWeek: { count: myHW.length, totalMin, sunRate },
+      prevWeek: prevW ? { count: prevW.cnt, totalMin: prevW.totalMin } : null,
+      subjects,
+      revisions: myPlan?.revision_count || 0,
+    }
+  })
+
+  // クラス全体統計
+  const classStats = {
+    totalStudents: memberList.length,
+    submittedStudents: new Set(hwList.map((h: any) => h.user_id)).size,
+    totalSubmissions: hwList.length,
+    avgMinPerStudent: memberList.length ? Math.round(hwList.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / memberList.length) : 0,
+    avgSunRate: (() => {
+      const allW = hwList.map((h: any) => h.end_weather).filter(Boolean)
+      return allW.length ? Math.round(allW.filter((w: string) => w === 'sun').length / allW.length * 100) : 0
+    })(),
+  }
+
+  // Gemini AIで週報生成
+  let reportText = ''
+  const geminiKey = (c.env as any).GEMINI_API_KEY
+  if (geminiKey) {
+    try {
+      const studentLines = studentSummaries.map((s, i) => {
+        let line = `${i+1}. ${s.name}: 提出${s.thisWeek.count}回(${s.thisWeek.totalMin}分) 満足度${s.thisWeek.sunRate}%`
+        if (s.prevWeek) line += ` [先週:${s.prevWeek.count}回/${s.prevWeek.totalMin}分]`
+        if (s.subjects) line += ` 教科:${s.subjects}`
+        if (s.revisions > 0) line += ` 計画修正${s.revisions}回`
+        return line
+      }).join('\n')
+
+      const reportPrompt = `あなたは小学校の担任教師の週報作成を手伝うAIアシスタントです。
+以下のデータから「${cls.name}」クラスの週報（${weekKey}）を作成してください。
+
+＜クラス統計＞
+在籍: ${classStats.totalStudents}人 / 提出者: ${classStats.submittedStudents}人 / 総提出: ${classStats.totalSubmissions}回
+1人あたり平均学習時間: ${classStats.avgMinPerStudent}分 / クラス全体の満足度: ${classStats.avgSunRate}%
+
+＜児童別データ＞
+${studentLines}
+
+以下の構成で週報を作成してください：
+1. 📊 今週の概況（クラス全体の提出率・学習時間・先週との比較）
+2. ⭐ 今週のMVP（特に頑張った児童3人と理由）
+3. 🔍 気になる児童（未提出・学習時間減少・満足度低下の児童）
+4. 📈 教科別の傾向（正答率が低い教科、よく取り組まれている教科）
+5. 💡 来週に向けて（教師へのアドバイス・声かけのポイント）
+
+温かく前向きなトーンで、先生が保護者や管理職に共有できるクオリティで書いてください。`
+
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
+      const gRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: reportPrompt }] }],
+          generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+        }),
+      })
+      if (gRes.ok) {
+        const gJson: any = await gRes.json()
+        reportText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      }
+    } catch (e: any) {
+      console.error('Weekly report AI error:', e?.message || e)
+    }
+  }
+
+  return c.json({
+    ok: true,
+    weekKey,
+    className: cls.name,
+    classStats,
+    studentSummaries,
+    reportText,
+  })
 })
 
 // -------------------- API: student (クラス参加) --------------------
@@ -4880,6 +5216,7 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ③: AI分析 -->
         <div id="anPane_ai" class="hidden space-y-3">
+          <!-- AIクラス分析 -->
           <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
@@ -4890,9 +5227,40 @@ app.get('/teacher', (c) => {
               <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押してください</p>
             </div>
           </div>
+
+          <!-- 週報レポート -->
+          <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-green-800">📋 週報レポート</div>
+              <button onclick="loadWeeklyReport()" class="bg-green-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-green-700" id="btnWeeklyReport">📝 週報を生成</button>
+            </div>
+            <p class="text-xs text-green-600">今週の学習状況をまとめた週報をAIが自動生成します。管理職や保護者への報告にも使えます。</p>
+            <div id="weeklyReportContent" class="text-sm text-slate-600">
+              <p class="text-xs text-slate-400">クラスを選んで「週報を生成」を押してください</p>
+            </div>
+          </div>
+
+          <!-- 個人カルテ -->
+          <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-amber-800">👤 個人カルテ</div>
+            </div>
+            <p class="text-xs text-amber-600">児童の名前をクリックすると、AIによる個人分析が表示されます。</p>
+            <div id="karteStudentList" class="flex flex-wrap gap-2">
+              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」または「週報を生成」を押すと、ここに児童一覧が表示されます</p>
+            </div>
+          </div>
+
+          <!-- 提出ヒートマップ -->
+          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <div class="font-bold text-sm text-slate-700">🗓️ 提出ヒートマップ（今週）</div>
+            <div id="heatmapContent" class="overflow-x-auto">
+              <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
+            </div>
+          </div>
         </div>
 
-        <!-- 個人カルテ（生徒名クリックで表示） -->
+        <!-- 個人カルテ詳細パネル（オーバーレイ） -->
         <div id="studentKartePanel" class="hidden bg-white rounded-xl shadow-lg p-4 space-y-3 border-2 border-purple-300">
           <div class="flex items-center justify-between">
             <div class="font-bold text-lg text-purple-800" id="karteStudentName"></div>
@@ -4909,15 +5277,12 @@ app.get('/teacher', (c) => {
           <button id="hwSubTab_menu" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-green-500 text-white" onclick="switchHomeworkSubTab('menu')">
             <span class="bg-white text-green-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 先生メニュー
           </button>
-          <span class="text-slate-300 text-lg font-bold">→</span>
           <button id="hwSubTab_plan" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('plan')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 今週の計画
           </button>
-          <span class="text-slate-300 text-lg font-bold">→</span>
           <button id="hwSubTab_daily" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('daily')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 毎日の振り返り
           </button>
-          <span class="text-slate-300 text-lg font-bold">→</span>
           <button id="hwSubTab_weekly" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('weekly')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> 今週の振り返り
           </button>
@@ -6091,28 +6456,202 @@ wrap.innerHTML = '';
         }
       }
 
-      async function loadAIAnalysis(){
+      // 週報レポート生成（loadAIAnalysisは上で再定義済み）
+      async function loadWeeklyReport(){
+        const classId = document.getElementById('analyticsClassFilter').value;
+        if(!classId){ document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
+        const btn = document.getElementById('btnWeeklyReport');
+        btn.disabled = true; btn.textContent = '生成中...';
+        document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-green-500 animate-pulse">📝 週報を作成しています...</p>';
+        try {
+          const weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
+          const res = await fetch('/api/teacher/weekly-report?classId=' + classId + '&weekKey=' + weekKey);
+          const data = await res.json();
+          if(data.ok){
+            // 統計カード
+            const s = data.classStats || {};
+            let html = '<div class="grid grid-cols-2 gap-2 mb-3">';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-blue-600">'+s.submittedStudents+'/'+s.totalStudents+'</div><div class="text-[10px] text-slate-500">提出者数</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-green-600">'+s.totalSubmissions+'</div><div class="text-[10px] text-slate-500">総提出回数</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-purple-600">'+s.avgMinPerStudent+'分</div><div class="text-[10px] text-slate-500">1人あたり平均</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-amber-600">'+s.avgSunRate+'%</div><div class="text-[10px] text-slate-500">満足度(☀️率)</div></div>';
+            html += '</div>';
+            // AI週報本文
+            if(data.reportText){
+              const formatted = data.reportText.replace(/\n/g, '<br>');
+              html += '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">'+formatted+'</div>';
+            }
+            document.getElementById('weeklyReportContent').innerHTML = html;
+            // 児童一覧を個人カルテエリアに表示
+            updateKarteStudentList(data.studentSummaries || [], classId);
+          } else {
+            document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">生成に失敗: '+(data.error||'unknown')+'</p>';
+          }
+        } catch(e) {
+          document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">エラー: '+e.message+'</p>';
+        } finally {
+          btn.disabled = false; btn.textContent = '📝 週報を生成';
+        }
+      }
+
+      // 個人カルテの児童一覧を更新
+      function updateKarteStudentList(students, classId){
+        const wrap = document.getElementById('karteStudentList');
+        if(!wrap) return;
+        if(!students.length){ wrap.innerHTML='<p class="text-xs text-slate-400">児童データがありません</p>'; return; }
+        wrap.innerHTML = '';
+        // ヒートマップ用データも保持
+        window._lastStudentSummaries = students;
+        window._lastAnalyticsClassId = classId;
+        for(const s of students){
+          const btn = document.createElement('button');
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition';
+          btn.textContent = '👤 ' + s.name;
+          btn.onclick = function(){ openStudentKarte(s.userId || s.name, s.name); };
+          wrap.appendChild(btn);
+        }
+        // ヒートマップも描画
+        renderHeatmap(students);
+      }
+
+      // 提出ヒートマップ描画
+      function renderHeatmap(students){
+        const wrap = document.getElementById('heatmapContent');
+        if(!wrap) return;
+        const days = ['月','火','水','木','金'];
+        let html = '<table class="w-full text-xs"><thead><tr><th class="text-left p-1 text-slate-500">名前</th>';
+        days.forEach(function(d){ html += '<th class="p-1 text-center text-slate-500">'+d+'</th>'; });
+        html += '</tr></thead><tbody>';
+        for(const s of students){
+          html += '<tr>';
+          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(\''+escH(s.userId||s.name)+'\',\''+escH(s.name)+'\')">' + escH(s.name) + '</td>';
+          const cnt = s.thisWeek ? s.thisWeek.count : 0;
+          // 曜日ごとの提出は簡易表示（提出回数に応じて色分け）
+          for(let d=0; d<5; d++){
+            const submitted = d < cnt;
+            const color = submitted ? 'bg-green-400' : 'bg-slate-100';
+            html += '<td class="p-1 text-center"><div class="w-6 h-6 rounded '+color+' mx-auto flex items-center justify-center">'+(submitted?'✓':'')+'</div></td>';
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+        wrap.innerHTML = html;
+      }
+
+      // 個人カルテを開く
+      async function openStudentKarte(studentId, studentName){
+        const panel = document.getElementById('studentKartePanel');
+        const nameEl = document.getElementById('karteStudentName');
+        const contentEl = document.getElementById('karteContent');
+        panel.classList.remove('hidden');
+        nameEl.textContent = '👤 ' + studentName + ' のカルテ';
+        contentEl.innerHTML = '<p class="text-xs text-purple-500 animate-pulse">🤖 AIが分析中...</p>';
+        // スクロール
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        try {
+          const res = await fetch('/api/teacher/student-karte?studentId=' + encodeURIComponent(studentId));
+          const data = await res.json();
+          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-xs">取得エラー</p>'; return; }
+          let html = '';
+          // 基本統計
+          const st = data.stats || {};
+          html += '<div class="grid grid-cols-3 gap-2 mb-3">';
+          html += '<div class="bg-blue-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-blue-600">'+st.totalDays+'</div><div class="text-[10px] text-slate-500">提出回数</div></div>';
+          html += '<div class="bg-green-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-green-600">'+st.avgMin+'分</div><div class="text-[10px] text-slate-500">平均学習時間</div></div>';
+          html += '<div class="bg-amber-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-amber-600">'+st.sunRate+'%</div><div class="text-[10px] text-slate-500">満足度</div></div>';
+          html += '</div>';
+          // 教科別成績
+          if(data.subjects && data.subjects.length > 0){
+            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">📊 教科別成績</div><div class="space-y-1">';
+            for(const sub of data.subjects){
+              const w = Math.max(sub.rate, 5);
+              const color = sub.rate >= 80 ? 'bg-green-400' : sub.rate >= 60 ? 'bg-yellow-400' : 'bg-red-400';
+              html += '<div class="flex items-center gap-2"><span class="text-xs w-16 text-slate-600 font-bold truncate">'+escH(sub.unit)+'</span>';
+              html += '<div class="flex-1 bg-slate-100 rounded-full h-4"><div class="'+color+' rounded-full h-4 text-[10px] text-white flex items-center justify-center font-bold" style="width:'+w+'%">'+sub.rate+'%</div></div>';
+              html += '<span class="text-[10px] text-slate-400">'+sub.total+'問</span></div>';
+            }
+            html += '</div></div>';
+          }
+          // 計画修正履歴
+          if(data.revisions && data.revisions.length > 0){
+            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">🔄 計画修正履歴</div><div class="space-y-1">';
+            for(const r of data.revisions.slice(0, 5)){
+              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="font-bold text-slate-500">['+escH(r.week_key)+']</span> '+escH(r.reason || '理由なし')+'</div>';
+            }
+            html += '</div></div>';
+          }
+          // AI分析
+          if(data.aiAdvice){
+            try{
+              const advice = JSON.parse(data.aiAdvice);
+              html += '<div class="space-y-2">';
+              if(advice.trend) html += '<div class="bg-blue-50 rounded-lg p-2.5 border border-blue-200"><div class="font-bold text-xs text-blue-700 mb-1">📊 学習の傾向</div><div class="text-xs text-slate-700">'+escH(advice.trend)+'</div></div>';
+              if(advice.strength) html += '<div class="bg-green-50 rounded-lg p-2.5 border border-green-200"><div class="font-bold text-xs text-green-700 mb-1">💪 強みと成長</div><div class="text-xs text-slate-700">'+escH(advice.strength)+'</div></div>';
+              if(advice.concern) html += '<div class="bg-orange-50 rounded-lg p-2.5 border border-orange-200"><div class="font-bold text-xs text-orange-700 mb-1">🔍 気になる点</div><div class="text-xs text-slate-700">'+escH(advice.concern)+'</div></div>';
+              if(advice.advice) html += '<div class="bg-purple-50 rounded-lg p-2.5 border border-purple-200"><div class="font-bold text-xs text-purple-700 mb-1">💬 おすすめの声かけ</div><div class="text-xs text-slate-700">'+escH(advice.advice)+'</div></div>';
+              html += '</div>';
+            }catch(_){
+              html += '<div class="bg-purple-50 rounded-lg p-2.5 border text-xs text-slate-700">'+escH(data.aiAdvice)+'</div>';
+            }
+          }
+          // 直近の学習記録
+          if(data.recentSubmissions && data.recentSubmissions.length > 0){
+            html += '<div class="mt-3"><div class="font-bold text-xs text-slate-600 mb-1">📝 直近の学習記録</div><div class="space-y-1 max-h-48 overflow-y-auto">';
+            for(const s of data.recentSubmissions.slice(0, 10)){
+              const wIcon = s.end_weather === 'sun' ? '☀️' : s.end_weather === 'cloud' ? '☁️' : s.end_weather === 'rain' ? '🌧️' : '❓';
+              html += '<div class="text-xs bg-white rounded p-1.5 border flex items-center gap-1">';
+              html += '<span class="font-bold text-slate-500">'+escH(s.day_key||'')+'</span> ';
+              html += wIcon+' ';
+              html += '<span class="text-slate-600">'+escH(s.todo||'')+'</span> ';
+              html += '<span class="text-slate-400">('+( s.minutes||0)+'分)</span>';
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+          contentEl.innerHTML = html;
+        } catch(e) {
+          contentEl.innerHTML = '<p class="text-red-500 text-xs">エラー: '+e.message+'</p>';
+        }
+      }
+
+      // AIクラス分析後に児童リストも更新
+      var _origLoadAIAnalysis = loadAIAnalysis;
+      loadAIAnalysis = async function(){
         const classId = document.getElementById('analyticsClassFilter').value;
         if(!classId){ document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
         const btn = document.getElementById('btnAIAnalysis');
         btn.disabled = true; btn.textContent = '分析中...';
-        document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-purple-500 animate-pulse">🤖 AIがデータを分析しています。少々お待ちください（数秒～10秒）...</p>';
+        document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-purple-500 animate-pulse">🤖 AIがデータを分析しています...</p>';
         try {
           const weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
-          const res = await fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey);
-          const data = await res.json();
+          // AI分析と同時にclass-analyticsも取得して児童一覧・ヒートマップに使う
+          const [aiRes, caRes] = await Promise.all([
+            fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey),
+            fetch('/api/teacher/class-analytics?classId=' + classId + '&weekKey=' + weekKey).then(r=>r.json()).catch(()=>null)
+          ]);
+          const data = await aiRes.json();
           if(data.ok && data.analysis){
-            const formatted = data.analysis.replace(/\\n/g, '<br>');
+            const formatted = data.analysis.replace(/\n/g, '<br>');
             document.getElementById('aiAnalysisContent').innerHTML = '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">' + formatted + '</div>';
           } else {
-            document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗しました: ' + (data.error || 'unknown') + '</p>';
+            document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗: ' + (data.error || 'unknown') + '</p>';
+          }
+          // 児童一覧更新
+          if(caRes && caRes.ok && caRes.members){
+            const studentList = caRes.members.map(function(m){
+              const hwByUser = {};
+              (caRes.homework || []).forEach(function(h){ if(h.user_id===m.id){ if(!hwByUser[m.id]) hwByUser[m.id]={count:0}; hwByUser[m.id].count++; } });
+              return { userId: m.id, name: m.name, thisWeek: { count: hwByUser[m.id] ? hwByUser[m.id].count : 0, totalMin: 0, sunRate: 0 } };
+            });
+            updateKarteStudentList(studentList, classId);
           }
         } catch(e) {
           document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">エラー: ' + e.message + '</p>';
         } finally {
           btn.disabled = false; btn.textContent = '✨ AIで分析';
         }
-      }
+      };
+
       // フィルター初期化
       async function initNewTabFilters(){
         try{
