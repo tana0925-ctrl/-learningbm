@@ -1880,9 +1880,6 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     }
   }
   return c.json({ ok: true, comments })
-  } catch (e: any) {
-    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
-  }
 })
 
 // -------------------- API: 先生メニュー (class weekly menu) --------------------
