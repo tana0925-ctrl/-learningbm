@@ -6122,6 +6122,13 @@ wrap.innerHTML = '';
           var data = await api('/api/teacher/messages?classId='+encodeURIComponent(_mailCurrentClass)+'&studentId='+encodeURIComponent(_mailCurrentStudent));
           var list = data.messages || [];
           if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-4">まだメッセージはありません</p>'; return; }
+          // 生徒からの未読メッセージを自動で既読にする
+          var unreadIds = [];
+          list.forEach(function(m){ if(m.senderRole==='student' && !m.readAt) unreadIds.push(m.id); });
+          if(unreadIds.length > 0){
+            Promise.all(unreadIds.map(function(mid){ return api('/api/teacher/message/'+mid+'/read',{method:'POST'}); }))
+              .then(function(){ if(!silent) loadMailChat(true); });
+          }
           wrap.innerHTML='';
           var prevDate='';
           list.slice().reverse().forEach(function(m){
