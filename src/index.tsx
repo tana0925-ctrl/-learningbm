@@ -6325,15 +6325,9 @@ wrap.innerHTML = '';
                 const card = document.createElement('div');
                 card.className = 'border rounded-lg p-2 bg-white space-y-1 mb-2';
                 const hdr = document.createElement('div');
-                hdr.className = 'font-bold text-sm text-slate-700 mb-1';
+                hdr.className = 'font-bold text-sm text-slate-700';
                 hdr.textContent = item.name;
                 card.appendChild(hdr);
-                for(const msg of item.messages){
-                  const d = document.createElement('div');
-                  d.className = 'text-xs text-yellow-800 bg-yellow-50 px-1.5 py-0.5 rounded';
-                  d.textContent = msg;
-                  card.appendChild(d);
-                }
                 const ta = document.createElement('textarea');
                 ta.id = 'fbMsg_' + item.userId;
                 ta.className = 'w-full border rounded p-1.5 text-xs mt-1';
