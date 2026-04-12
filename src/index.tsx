@@ -1622,27 +1622,65 @@ app.post('/api/homework/analyze-photo', async (c) => {
       }
       const base64 = btoa(binary)
       const mimeType = photo.type || 'image/jpeg'
-      const dataUri = `data:${mimeType};base64,${base64}`
 
-      // Gemma 4 26B: 高性能ビジョン + 日本語対応
-      const aiRes: any = await c.env.AI.run('@cf/google/gemma-4-26b-a4b-it', {
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUri } },
-            { type: 'text', text: `You are a Japanese elementary school teacher. Look at this photo of a student's homework/study work and describe what you see. Answer in Japanese (日本語で回答).
+      const photoPrompt = `あなたは小学校の先生です。児童が提出した家庭学習の写真を見て、内容を分析してください。
 
 80〜120文字で簡潔に書いてください:
 - 教科・学習内容（何の勉強か）
 - 学習の量や丁寧さ
 - 良い点を1つ
 
-温かい言葉で。名前や挨拶は不要。` }
-          ]
-        }],
-        max_tokens: 300,
-      })
-      analysisText = String(aiRes.response || '').trim().slice(0, 500)
+温かい言葉で。名前や挨拶は不要。`
+
+      // Gemini 2.5 Flash で画像分析
+      const geminiKey = (c.env as any).GEMINI_API_KEY
+      let geminiDone = false
+      if (geminiKey) {
+        try {
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
+          const gRes = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [
+                { inline_data: { mime_type: mimeType, data: base64 } },
+                { text: photoPrompt }
+              ] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+            }),
+          })
+          if (gRes.ok) {
+            const gJson: any = await gRes.json()
+            const text = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+            if (text.trim()) {
+              analysisText = text.trim().slice(0, 500)
+              geminiDone = true
+            }
+          }
+        } catch (ge: any) {
+          console.error('Gemini photo analysis error:', ge?.message || ge)
+        }
+      }
+
+      // フォールバック: Cloudflare AI (Gemma 4 26B)
+      if (!geminiDone) {
+        try {
+          const dataUri = `data:${mimeType};base64,${base64}`
+          const aiRes: any = await c.env.AI.run('@cf/google/gemma-4-26b-a4b-it', {
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: dataUri } },
+                { type: 'text', text: photoPrompt }
+              ]
+            }],
+            max_tokens: 300,
+          })
+          analysisText = String(aiRes.response || '').trim().slice(0, 500)
+        } catch (cfErr: any) {
+          console.error('CF AI photo fallback error:', cfErr?.message || cfErr)
+        }
+      }
     } catch (e: any) {
       console.error('AI photo analysis error:', e)
       analysisText = ''
