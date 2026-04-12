@@ -6478,7 +6478,7 @@ wrap.innerHTML = '';
             html += '</div>';
             // AI週報本文
             if(data.reportText){
-              const formatted = data.reportText.split('\\n').join('<br>');
+              const formatted = data.reportText.split(String.fromCharCode(10)).join('<br>');
               html += '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">'+formatted+'</div>';
             }
             document.getElementById('weeklyReportContent').innerHTML = html;
@@ -6631,7 +6631,7 @@ wrap.innerHTML = '';
           ]);
           const data = await aiRes.json();
           if(data.ok && data.analysis){
-            const formatted = data.analysis.split('\\n').join('<br>');
+            const formatted = data.analysis.split(String.fromCharCode(10)).join('<br>');
             document.getElementById('aiAnalysisContent').innerHTML = '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">' + formatted + '</div>';
           } else {
             document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗: ' + (data.error || 'unknown') + '</p>';
