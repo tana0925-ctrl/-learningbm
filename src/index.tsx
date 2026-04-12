@@ -1845,44 +1845,73 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     } catch { historyMap[uid] = [] }
   }
 
-  // 1児童ずつ個別にコメント生成
-  const comments: any[] = []
-  for (const s of subs.results) {
+  // Gemini API で一括コメント生成
+  const lines = subs.results.map((s: any, i: number) => {
     const hist = historyMap[s.user_id] || []
-    // 過去の学習傾向をまとめる
     const subjects = hist.map((h: any) => h.todo).filter(Boolean)
     const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
-    const pastComments = hist.filter((h: any) => h.teacher_comment).slice(0, 3).map((h: any) => h.teacher_comment)
+    const recentHist = hist.slice(0, 5).map((h: any) =>
+      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} ${h.teacher_comment ? '先生:'+h.teacher_comment : ''}`
+    ).join('\n    ')
+    const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
+    return `${i+1}. 【${s.name}】(${s.day_key})
+  今日やったこと: ${s.todo || '未記入'}
+  なんで: ${s.why || '未記入'}
+  めあて: ${s.aim || '未記入'}
+  学習時間: ${s.minutes || 0}分 (過去平均: ${avgMin}分)
+  振り返り: ${s.weather_reason || '未記入'}
+  次どうする: ${s.next_improve || '未記入'}${photoLine}
+  過去の記録:
+    ${recentHist || 'なし'}`
+  }).join('\n\n')
 
-    let userData = `今日の学習: ${s.todo || '未記入'}\n学習時間: ${s.minutes || 0}分\nめあて: ${s.aim || '未記入'}\n振り返り: ${s.weather_reason || '未記入'}\n次にすること: ${s.next_improve || '未記入'}`
-    if (s.work_photo_analysis) userData += `\n成果物の様子: ${s.work_photo_analysis}`
-    if (hist.length > 0) {
-      userData += `\n\n過去の記録(${hist.length}回分): 平均${avgMin}分/回`
-      if (subjects.length) userData += `, よくやる教科: ${[...new Set(subjects)].slice(0, 3).join('・')}`
-      if (s.minutes > avgMin) userData += `, 今日は平均より${s.minutes - avgMin}分多い`
-    }
-    if (pastComments.length) userData += `\n過去の先生コメント例: ${pastComments.join(' / ')}`
+  const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
+【ルール】
+- 児童の「今日の振り返り」と「過去の振り返り」を読む
+- 各児童への温かく具体的な先生コメントを30文字以内で考える
+- その子の成長・課題・継続している努力を踏まえた個別最適な内容にする
+- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+【返答形式】
+{"comments":["コメント1","コメント2","コメント3",...]}
+貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
+  const geminiKey = c.env.GEMINI_API_KEY || ''
+  if (!geminiKey) return jsonError(c, 500, 'GEMINI_API_KEY not set')
+
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`
+    const geminiBody = JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: lines }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+    })
+    const resp = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: geminiBody
+    })
+    const json: any = await resp.json()
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+    let parsed: string[] = []
     try {
-      const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages: [
-          { role: 'system', content: `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
-児童の「今日の振り返り」と「過去の振り返り」を読んで、温かく具体的な先生コメントを30文字以内で1つだけ書いてください。
-その子の成長・課題・継続している努力を踏まえた個別最適な内容にしてください。
-コメントの文章だけを出力してください。前置き・説明・記号・カッコは不要です。` },
-          { role: 'user', content: userData }
-        ],
-        max_tokens: 80,
-      })
-      let text = (aiRes.response || '').trim()
-      // 余計な記号を除去
-      text = text.replace(/^["「『【]+|["」』】]+$/g, '').replace(/^\d+[\.\)]\s*/, '').replace(/^コメント[:：]\s*/,'').trim()
-      comments.push({ id: s.id, name: s.name, dayKey: s.day_key, comment: text.slice(0, 80) })
-    } catch (e: any) {
-      comments.push({ id: s.id, name: s.name, dayKey: s.day_key, comment: '' })
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const obj = JSON.parse(jsonMatch[0])
+        parsed = obj.comments || []
+      }
+    } catch {
+      // JSONパース失敗時は番号付きリストとして処理
+      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
     }
+
+    const comments = subs.results.map((s: any, i: number) => ({
+      id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
+    }))
+    return c.json({ ok: true, comments })
+  } catch (e: any) {
+    return jsonError(c, 500, 'Gemini API error: ' + (e.message || String(e)))
   }
-  return c.json({ ok: true, comments })
 })
 
 // -------------------- API: 先生メニュー (class weekly menu) --------------------
@@ -2578,47 +2607,51 @@ app.post('/api/teacher/weekly-ai-comments', async (c) => {
   if (!plans.results?.length) return c.json({ ok: true, comments: [] })
 
   const lines = plans.results.map((p: any, i: number) =>
-    `${i+1}. 振り返り:${p.weekly_reflection || '未記入'}`
-  ).join('\n')
+    `${i+1}. 【${p.name}】\n  振り返り: ${p.weekly_reflection || '未記入'}`
+  ).join('\n\n')
 
-  const prompt = `/no_think
-以下の児童の1週間の振り返りに対して、先生からの温かいコメントを1人1行で書いてください。
+  const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
+【ルール】
+- 児童の1週間の振り返りを読む
+- 各児童への温かく具体的な先生コメントを30文字以内で考える
+- その子の成長や努力を踏まえた内容にする
+- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+【返答形式】
+{"comments":["コメント1","コメント2","コメント3",...]}
+貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
-条件:
-- 1行20〜30文字程度
-- 番号だけつけて、コメントのみ書く
-- 名前は書かない
-- 振り返り内容に触れて褒める
-
-児童データ:
-${lines}
-
-回答例:
-1. 1週間よくがんばったね！成長を感じるよ！
-2. 毎日コツコツ続けられてすばらしい！
-
-回答:`
+  const geminiKey = c.env.GEMINI_API_KEY || ''
+  if (!geminiKey) return jsonError(c, 500, 'GEMINI_API_KEY not set')
 
   try {
-    const aiRes: any = await c.env.AI.run('@cf/qwen/qwen3-30b-a3b-fp8', {
-      messages: [
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 1000,
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`
+    const geminiBody = JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: lines }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
     })
-    const text = (aiRes.response || '').trim()
-    const parsed: string[] = []
-    for (const line of text.split('\n')) {
-      const m = line.match(/^\d+[\.\)]\s*(.+)/)
-      if (m) parsed.push(m[1].trim())
+    const resp = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: geminiBody
+    })
+    const json: any = await resp.json()
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+    let parsed: string[] = []
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]).comments || []
+    } catch {
+      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
     }
 
     const comments = plans.results.map((p: any, i: number) => ({
-      id: p.id, name: p.name, comment: (parsed[i] || '').slice(0, 50)
+      id: p.id, name: p.name, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
     }))
     return c.json({ ok: true, comments })
   } catch (e: any) {
-    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
+    return jsonError(c, 500, 'Gemini API error: ' + (e.message || String(e)))
   }
 })
 
