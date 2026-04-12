@@ -41047,9 +41047,7 @@ async function hwRenderWeekView(){
         const targetPlanRaw = plan[_hwDayKeys830[targetDowIdx]] || '';
         const targetHasPlan = typeof targetPlanRaw === 'object' ? !!targetPlanRaw.free : !!targetPlanRaw;
         if(isWeekend){
-          todayBtn.textContent = '📝 金曜のシートを開く';
-          todayBtn.classList.remove('hidden');
-          todayBtn.setAttribute('onclick', "hwOpenDay('" + targetDayKey + "')");
+          todayBtn.classList.add('hidden');
         } else if(targetEntry){
           todayBtn.textContent = '📝 今日のシートを確認する';
           todayBtn.classList.remove('hidden');
