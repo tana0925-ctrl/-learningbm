@@ -4584,17 +4584,17 @@ function formatYMD(d){
           </div>
 
           <!-- 毎日の計画セクション -->
-          <div class="hs-row" style="height:auto; min-height:100px;">
+          <div class="hs-row" style="height:auto; min-height:auto;">
             <div class="hs-panel hs-cream" style="flex:1;">
               <div class="hs-label">📝 今日やること</div>
-              <div class="mt-8 space-y-2">
+              <div class="mt-8 space-y-1">
                 <div class="px-2 py-1 bg-blue-50 rounded-lg">
-                  <div class="text-sm font-bold text-blue-700 mb-1">📖 今日の復習</div>
-                  <textarea id="hsReview" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:40px;" placeholder="例：漢字ドリルp.20～22、算数の復習 など"></textarea>
+                  <div class="text-xs font-bold text-blue-700 mb-0.5">📖 今日の復習</div>
+                  <textarea id="hsReview" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:28px; padding-top:2px;" placeholder="例：漢字ドリルp.20～22、算数の復習 など"></textarea>
                 </div>
                 <div class="px-2 py-1 bg-purple-50 rounded-lg">
-                  <div class="text-sm font-bold text-purple-700 mb-1">✍️ 自主学習</div>
-                  <textarea id="hsTodo" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:40px;" placeholder="例：漢字スキルp.15～18、算数プリント など"></textarea>
+                  <div class="text-xs font-bold text-purple-700 mb-0.5">✍️ 自主学習</div>
+                  <textarea id="hsTodo" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:28px; padding-top:2px;" placeholder="例：漢字スキルp.15～18、算数プリント など"></textarea>
                 </div>
                 <div id="hsSelfStudyPlanLine" class="hidden px-2 py-1 bg-green-50 rounded-lg">
                   <div class="text-xs font-bold text-green-700">📚 先生メニュー</div>
@@ -4605,18 +4605,18 @@ function formatYMD(d){
           </div>
 
           <!-- なんでそれをやるの？ -->
-          <div class="hs-row" style="height:auto; min-height:80px;">
+          <div class="hs-row" style="height:auto; min-height:auto;">
             <div class="hs-panel hs-pink">
               <div class="hs-label mint">↑ なんで今日それをやるの？</div>
-              <textarea id="hsWhy" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" placeholder="例：昨日できなかったところをできるようにしたい など"></textarea>
+              <textarea id="hsWhy" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" style="min-height:32px;" placeholder="例：昨日できなかったところをできるようにしたい など"></textarea>
             </div>
           </div>
 
           <!-- めあて -->
-          <div class="hs-row" style="height:auto; min-height:70px;">
+          <div class="hs-row" style="height:auto; min-height:auto;">
             <div class="hs-panel hs-cream">
               <div class="hs-label blue">めあて（どのように取り組む？意気込みなどどうぞ！）</div>
-              <textarea id="hsAim" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" placeholder="例：30分集中して、間違い直しまでやる"></textarea>
+              <textarea id="hsAim" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" style="min-height:32px;" placeholder="例：30分集中して、間違い直しまでやる"></textarea>
             </div>
           </div>
           <div class="hs-bottom">
