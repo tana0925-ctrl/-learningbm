@@ -16,6 +16,13 @@
     "GEMINI_API_KEY_2": "AIzaSyDEH5LZgRvt_tnILWrh9iCGkKt8qrzLWmQ"
   },
 
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "learningbm-photos"
+    }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",
