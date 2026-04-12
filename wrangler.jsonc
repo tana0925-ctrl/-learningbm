@@ -11,6 +11,10 @@
     "binding": "AI"
   },
 
+  "vars": {
+    "GEMINI_API_KEY": "AIzaSyD9DpZU8xiqVj6SzwVOfQMQ0I54Rzh-g3U"
+  },
+
   "d1_databases": [
     {
       "binding": "DB",
