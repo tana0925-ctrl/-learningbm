@@ -40936,7 +40936,7 @@ async function hwRenderWeekView(){
 
       const planPreview = dayPlan ? '<div class="text-[10px] text-slate-600 mt-1 line-clamp-2 break-words">' + escapeHtml(dayPlan) + '</div>' : '';
 
-      const canClick = isDayActive && ((isToday && !isWeekend) || entry);
+      const canClick = isDayActive && (isToday || isPast || entry);
       const clickAttr = canClick ? `onclick="hwOpenDay('${dk}')"` : '';
       const cursorClass = canClick ? 'cursor-pointer hover:shadow-md' : '';
 
@@ -41032,21 +41032,32 @@ async function hwRenderWeekView(){
     var submitBtn = document.getElementById('hwPlanSubmitBtn');
     if(submitBtn) submitBtn.style.display = isReadOnly ? 'none' : '';
 
-    // 今日ボタン
-    const todayDowKey = _hwDayKeys830[todayDow - 1];
+    // 今日ボタン（週末は直近の金曜を対象にする）
+    let targetDowIdx = todayDow - 1; // 0=Mon..4=Fri
+    let targetDayKey = todayKey;
+    if(isWeekend){
+      // 土日は金曜日を対象にする
+      targetDowIdx = 4; // fri
+      targetDayKey = displayDays[4];
+    }
+    const todayDowKey = _hwDayKeys830[targetDowIdx];
     const isTodayActive = todayDowKey && activeDays.indexOf(todayDowKey) >= 0;
     const todayBtn = document.getElementById('hwOpenTodayBtn');
     if(todayBtn){
-      if(isWeekend || !isTodayActive){
+      if(!isTodayActive){
         todayBtn.classList.add('hidden');
       } else {
-        const todayEntry = hsGetEntryForDay(logs, todayKey);
-        const todayPlanRaw = plan[_hwDayKeys830[todayDow - 1]] || '';
-        const todayHasPlan = typeof todayPlanRaw === 'object' ? !!todayPlanRaw.free : !!todayPlanRaw;
-        if(todayEntry){
+        const targetEntry = hsGetEntryForDay(logs, targetDayKey);
+        const targetPlanRaw = plan[_hwDayKeys830[targetDowIdx]] || '';
+        const targetHasPlan = typeof targetPlanRaw === 'object' ? !!targetPlanRaw.free : !!targetPlanRaw;
+        if(isWeekend){
+          todayBtn.textContent = '📝 金曜のシートを開く';
+          todayBtn.classList.remove('hidden');
+          todayBtn.setAttribute('onclick', "hwOpenDay('" + targetDayKey + "')");
+        } else if(targetEntry){
           todayBtn.textContent = '📝 今日のシートを確認する';
           todayBtn.classList.remove('hidden');
-        } else if(todayHasPlan){
+        } else if(targetHasPlan){
           todayBtn.textContent = '📝 今日のシートを開く';
           todayBtn.classList.remove('hidden');
         } else {
@@ -41060,7 +41071,7 @@ async function hwRenderWeekView(){
     const todaySt = document.getElementById('hwTodayStatus');
     if(todaySt){
       if(isWeekend){
-        todaySt.innerHTML = '🛌 今日は<b>おやすみ</b>です（土日）。来週の計画を立てておこう！';
+        todaySt.innerHTML = '🛌 今日は<b>土日</b>です。曜日カードをタップして振り返りや計画の確認ができます！';
       } else {
         const todayEntry = hsGetEntryForDay(logs, todayKey);
         const streak = hsCalcRequiredStreak(logs, todayKey);
