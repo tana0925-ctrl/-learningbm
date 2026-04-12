@@ -1599,51 +1599,58 @@ app.post('/api/homework/submit', async (c) => {
 
 // 生徒：成果物写真をAIで分析してテキスト化→DB保存
 app.post('/api/homework/analyze-photo', async (c) => {
-  const u = c.get('user')
-  if (!u) return jsonError(c, 403, 'forbidden')
-
-  const formData = await c.req.formData().catch(() => null)
-  if (!formData) return jsonError(c, 400, 'invalid_form_data')
-
-  const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
-  if (!dayKey) return jsonError(c, 400, 'day_key_required')
-
-  const photo = formData.get('photo') as File | null
-  if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
-  if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
-
-  const imageBytes = new Uint8Array(await photo.arrayBuffer())
-
-  let analysisText = ''
   try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'この画像は小学生の家庭学習の成果物です。何が写っているか、どんな学習をしたか、丁寧さや量、特徴を日本語で100文字以内で簡潔に説明してください。' },
-          { type: 'image', image: [...imageBytes] }
-        ]
-      }],
-      max_tokens: 300,
-    })
-    analysisText = String(aiRes.response || '').trim().slice(0, 500)
+    const u = c.get('user')
+    if (!u) return jsonError(c, 403, 'forbidden')
+
+    const formData = await c.req.formData().catch(() => null)
+    if (!formData) return jsonError(c, 400, 'invalid_form_data')
+
+    const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
+    if (!dayKey) return jsonError(c, 400, 'day_key_required')
+
+    const photo = formData.get('photo') as File | null
+    if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
+    if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
+
+    let analysisText = ''
+    try {
+      const imageBytes = new Uint8Array(await photo.arrayBuffer())
+      const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'この画像は小学生の家庭学習の成果物です。何が写っているか、どんな学習をしたか、丁寧さや量、特徴を日本語で100文字以内で簡潔に説明してください。' },
+            { type: 'image', image: [...imageBytes] }
+          ]
+        }],
+        max_tokens: 300,
+      })
+      analysisText = String(aiRes.response || '').trim().slice(0, 500)
+    } catch (e: any) {
+      console.error('AI photo analysis error:', e)
+      analysisText = ''
+    }
+
+    // AI分析が失敗してもOKを返す（写真自体は提出時に保存される）
+    if (analysisText) {
+      try {
+        const existing = await c.env.DB.prepare(
+          `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+        ).bind(u.id, dayKey).first<any>()
+        if (existing) {
+          await c.env.DB.prepare(
+            `UPDATE homework_submissions SET work_photo_analysis=? WHERE id=?`
+          ).bind(analysisText, existing.id).run()
+        }
+      } catch (_) {}
+    }
+
+    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText })
   } catch (e: any) {
-    return jsonError(c, 500, 'ai_analysis_failed')
+    console.error('analyze-photo error:', e)
+    return c.json({ ok: true, analysis: '', saved: false })
   }
-
-  if (!analysisText) analysisText = '（画像の分析結果を取得できませんでした）'
-
-  const existing = await c.env.DB.prepare(
-    `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
-  ).bind(u.id, dayKey).first<any>()
-
-  if (existing) {
-    await c.env.DB.prepare(
-      `UPDATE homework_submissions SET work_photo_analysis=? WHERE id=?`
-    ).bind(analysisText, existing.id).run()
-  }
-
-  return c.json({ ok: true, analysis: analysisText, saved: !!existing })
 })
 
 // 生徒：提出済みシートの内容を修正して再提出（報酬変更なし）
