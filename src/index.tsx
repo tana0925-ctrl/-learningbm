@@ -4578,7 +4578,7 @@ app.get('/teacher', (c) => {
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
-        {/* ステップ風サブタブナビゲーション */}
+        <!-- ステップ風サブタブナビゲーション -->
         <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
           <button id="hwSubTab_menu" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-green-500 text-white" onclick="switchHomeworkSubTab('menu')">
             <span class="bg-white text-green-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 先生メニュー
@@ -4597,7 +4597,7 @@ app.get('/teacher', (c) => {
           </button>
         </div>
 
-        {/* サブタブ①: 先生メニュー */}
+        <!-- サブタブ①: 先生メニュー -->
         <div id="hwPane_menu" class="space-y-3">
         <!-- 先生メニュー（週の課題設定） -->
         <div class="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
@@ -4643,7 +4643,7 @@ app.get('/teacher', (c) => {
         </div>
 
         </div>
-        {/* サブタブ②: 今週の計画 */}
+        <!-- サブタブ②: 今週の計画 -->
         <div id="hwPane_plan" class="hidden space-y-3">
         <!-- 生徒の今週の計画 -->
         <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
@@ -4681,7 +4681,7 @@ app.get('/teacher', (c) => {
         </div>
 
         </div>
-        {/* サブタブ③: 毎日の振り返り */}
+        <!-- サブタブ③: 毎日の振り返り -->
         <div id="hwPane_daily" class="hidden space-y-3">
         <!-- アプリ内AIコメント生成パネル -->
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
@@ -4727,7 +4727,7 @@ app.get('/teacher', (c) => {
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
           </div>
         </details>
-        {/* 毎日の宿題一覧（日次返却） */}
+        <!-- 毎日の宿題一覧（日次返却） -->
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap items-center">
             <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
@@ -4744,9 +4744,9 @@ app.get('/teacher', (c) => {
         </div>
         </div>
 
-        {/* サブタブ④: 今週の振り返り */}
+        <!-- サブタブ④: 今週の振り返り -->
         <div id="hwPane_weekly" class="hidden space-y-3">
-        {/* 自動フィードバック（週間） */}
+        <!-- 自動フィードバック（週間） -->
         <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="font-bold text-sm text-yellow-800">💡 今週の自動フィードバック</div>
