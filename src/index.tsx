@@ -6614,9 +6614,8 @@ wrap.innerHTML = '';
         }
       }
 
-      // AIクラス分析後に児童リストも更新
-      var _origLoadAIAnalysis = loadAIAnalysis;
-      loadAIAnalysis = async function(){
+      // AIクラス分析（Gemini対応＋児童リスト・ヒートマップ連動）
+      async function loadAIAnalysis(){
         const classId = document.getElementById('analyticsClassFilter').value;
         if(!classId){ document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
         const btn = document.getElementById('btnAIAnalysis');
@@ -6650,7 +6649,7 @@ wrap.innerHTML = '';
         } finally {
           btn.disabled = false; btn.textContent = '✨ AIで分析';
         }
-      };
+      }
 
       // フィルター初期化
       async function initNewTabFilters(){
