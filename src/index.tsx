@@ -1882,7 +1882,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 
   if (geminiKey) {
     try {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
       const geminiBody = JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: lines }] }],
@@ -2653,7 +2653,7 @@ app.post('/api/teacher/weekly-ai-comments', async (c) => {
   if (!geminiKey) return jsonError(c, 500, 'GEMINI_API_KEY not set')
 
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
     const geminiBody = JSON.stringify({
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{ parts: [{ text: lines }] }],
