@@ -174,13 +174,18 @@ Analyze the image and respond in Japanese (日本語で回答). Describe:
         SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment
         FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
         ORDER BY day_key DESC LIMIT 20
-      `).bind(u).all();i[u]=m.results||[]}catch{i[u]=[]}const l=`あなたは小学校の担任の先生のアシスタントです。以下の児童たちの家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認め、過去の記録も参考にして個別最適な内容にしてください。
-「成果物の様子」がある場合は、ノートの丁寧さや学習内容の具体的な様子もコメントに反映してください。
-必ずJSON形式のみで返答してください: {"comments":["コメント1","コメント2",...]}
-他のテキストは一切不要です。
+      `).bind(u).all();i[u]=m.results||[]}catch{i[u]=[]}const l=`You are an assistant for a Japanese elementary school teacher. Read each student's home study reflection below and write a short, warm comment (20-30 characters in Japanese) for each student.
 
-=== 児童の振り返り ===
+Rules:
+- Write comments in Japanese (日本語)
+- Each comment should praise specific effort or progress
+- Reference what the student studied and their reflection
+- If "成果物の様子" (work photo analysis) is provided, mention the neatness or effort visible in their work
+- Use encouraging, warm tone appropriate for elementary students
+- Return ONLY valid JSON, no other text: {"comments":["コメント1","コメント2",...]}
+- The number of comments must exactly match the number of students listed
+
+=== Student Reflections ===
 ${n.results.map((u,m)=>{const g=i[u.user_id]||[],w=g.length?g.map(y=>`  [${y.day_key}] ${y.todo||""}(${y.minutes||0}分) 先生:${y.teacher_comment||"なし"}`).join(`
 `):"  なし",b=u.work_photo_analysis?`
   成果物の様子: ${u.work_photo_analysis}`:"";return`${m+1}. 【${u.name}】(${u.day_key})
@@ -193,7 +198,7 @@ ${n.results.map((u,m)=>{const g=i[u.user_id]||[],w=g.length?g.map(y=>`  [${y.day
   過去の記録:
 ${w}`}).join(`
 
-`)}`;try{const m=((await e.env.AI.run("@cf/meta/llama-3.1-8b-instruct",{messages:[{role:"user",content:l}],max_tokens:2e3})).response||"").trim();let g=[];try{const b=m.match(/\{[\s\S]*\}/);b&&(g=JSON.parse(b[0]).comments||[])}catch{g=m.split(`
+`)}`;try{const m=((await e.env.AI.run("@cf/google/gemma-4-26b-a4b-it",{messages:[{role:"user",content:l}],max_tokens:2e3})).response||"").trim();let g=[];try{const b=m.match(/\{[\s\S]*\}/);b&&(g=JSON.parse(b[0]).comments||[])}catch{g=m.split(`
 `).filter(b=>b.match(/^\d+[\.\)]/)).map(b=>b.replace(/^\d+[\.\)]\s*/,"").trim())}const w=n.results.map((b,y)=>({id:b.id,name:b.name,dayKey:b.day_key,comment:(g[y]||"").slice(0,50)}));return e.json({ok:!0,comments:w})}catch(u){return o(e,500,"AI error: "+(u.message||String(u)))}});function J(e){const t=new Date,s=new Date(Date.UTC(t.getFullYear(),t.getMonth(),t.getDate()));s.setUTCDate(s.getUTCDate()+4-(s.getUTCDay()||7));const a=new Date(Date.UTC(s.getUTCFullYear(),0,1)),n=Math.ceil(((s.getTime()-a.getTime())/864e5+1)/7);return`${s.getUTCFullYear()}-W${String(n).padStart(2,"0")}`}function Ve(e){const t=e.match(/^(\d{4})-W(\d{2})$/);if(!t)return e;let s=parseInt(t[1]),a=parseInt(t[2]);return a--,a<1&&(s--,a=52),s+"-W"+String(a).padStart(2,"0")}h.post("/api/teacher/class/:classId/weekly-menu",async e=>{const t=e.get("user");if(!t||t.role!=="teacher"&&t.role!=="admin")return o(e,403,"forbidden");const s=e.req.param("classId");if(!(t.role==="admin"?await e.env.DB.prepare("SELECT id FROM classes WHERE id=? LIMIT 1").bind(s).first():await e.env.DB.prepare("SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1").bind(s,t.id).first()))return o(e,404,"class_not_found");const r=await e.req.json().catch(()=>null);if(!r)return o(e,400,"invalid_json");const i=String(r.weekKey||J()).slice(0,8),d=String(r.kanjiPage||"").slice(0,100),l=String(r.keisanPage||"").slice(0,100),c=String(r.otherTasks||"").slice(0,500),u=String(r.tests||"").slice(0,500),m=["mon","tue","wed","thu","fri"],g=Array.isArray(r.activeDays)?r.activeDays.filter(b=>m.includes(b)):m,w=JSON.stringify(g);return await e.env.DB.prepare(`
     INSERT INTO class_weekly_menu (class_id, week_key, kanji_page, keisan_page, other_tasks, tests, active_days, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -365,16 +370,21 @@ ${w}`}).join(`
     JOIN class_members cm ON cm.user_id = swp.user_id AND cm.class_id = ?
     JOIN users u ON u.id = swp.user_id
     WHERE swp.week_key = ? AND swp.reflection_returned_at IS NULL AND swp.weekly_reflection IS NOT NULL
-  `).bind(s.classId,n).all();if(!((l=r.results)!=null&&l.length))return e.json({ok:!0,comments:[]});const d=`あなたは小学校の担任の先生のアシスタントです。以下の児童たちの1週間の家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認める内容にしてください。
-必ずJSON形式のみで返答してください: {"comments":["コメント1","コメント2",...]}
-他のテキストは一切不要です。
+  `).bind(s.classId,n).all();if(!((l=r.results)!=null&&l.length))return e.json({ok:!0,comments:[]});const d=`You are an assistant for a Japanese elementary school teacher. Read each student's weekly home study reflection below and write a short, warm comment (20-30 characters in Japanese) for each student.
 
-=== 児童の振り返り ===
+Rules:
+- Write comments in Japanese (日本語)
+- Praise their weekly effort and growth
+- Be specific about what they reflected on
+- Use encouraging, warm tone appropriate for elementary students
+- Return ONLY valid JSON, no other text: {"comments":["コメント1","コメント2",...]}
+- The number of comments must exactly match the number of students listed
+
+=== Student Weekly Reflections ===
 ${r.results.map((c,u)=>`${u+1}. 【${c.name}】
   振り返り: ${c.weekly_reflection||"未記入"}`).join(`
 
-`)}`;try{const u=((await e.env.AI.run("@cf/meta/llama-3.1-8b-instruct",{messages:[{role:"user",content:d}],max_tokens:2e3})).response||"").trim();let m=[];try{const w=u.match(/\{[\s\S]*\}/);w&&(m=JSON.parse(w[0]).comments||[])}catch{m=u.split(`
+`)}`;try{const u=((await e.env.AI.run("@cf/google/gemma-4-26b-a4b-it",{messages:[{role:"user",content:d}],max_tokens:2e3})).response||"").trim();let m=[];try{const w=u.match(/\{[\s\S]*\}/);w&&(m=JSON.parse(w[0]).comments||[])}catch{m=u.split(`
 `).filter(w=>w.match(/^\d+[\.\)]/)).map(w=>w.replace(/^\d+[\.\)]\s*/,"").trim())}const g=r.results.map((w,b)=>({id:w.id,name:w.name,comment:(m[b]||"").slice(0,50)}));return e.json({ok:!0,comments:g})}catch(c){return o(e,500,"AI error: "+(c.message||String(c)))}});function j(e){const t=e.get("user");return t||null}function Ke(){const e="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let t="";const s=new Uint8Array(6);crypto.getRandomValues(s);for(let a=0;a<6;a++)t+=e[s[a]%e.length];return t}h.post("/api/battle/create",async e=>{const t=j(e);if(!t)return o(e,401,"unauthorized");const s=await e.req.json().catch(()=>null);if(!s)return o(e,400,"invalid_json");const a=JSON.stringify(s.party||[]),n=String(s.name||"プレイヤー").slice(0,20),r=String(s.area||"rounding").slice(0,40),i=String(s.battleMode||"normal").slice(0,10);await e.env.DB.prepare("DELETE FROM battle_rooms WHERE host_user_id=? AND status='waiting'").bind(t.id).run();let d=Ke();for(let l=0;l<5&&await e.env.DB.prepare("SELECT id FROM battle_rooms WHERE id=?").bind(d).first();l++)d=Ke();return await e.env.DB.prepare(`
     INSERT INTO battle_rooms (id, host_user_id, host_name, host_party_json, area, battle_mode, status, host_hp, guest_hp, host_score, guest_score, question_index)
     VALUES (?, ?, ?, ?, ?, ?, 'waiting', 100, 100, 0, 0, 0)
