@@ -55,6 +55,53 @@ function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
 
 // -------------------- utils --------------------
 
+// Gemini API キーローテーション（交互使用＋429フェイルオーバー）
+let _geminiKeyIndex = 0
+function getGeminiKeys(env: any): string[] {
+  const keys: string[] = []
+  if (env.GEMINI_API_KEY) keys.push(env.GEMINI_API_KEY)
+  if (env.GEMINI_API_KEY_2) keys.push(env.GEMINI_API_KEY_2)
+  return keys
+}
+
+async function callGemini(env: any, body: any, model = 'gemini-2.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {
+  const keys = getGeminiKeys(env)
+  if (!keys.length) return { ok: false, text: '', source: 'no_key' }
+
+  // ラウンドロビン: リクエストごとに交互に使う
+  const startIdx = _geminiKeyIndex % keys.length
+  _geminiKeyIndex++
+
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const keyIdx = (startIdx + attempt) % keys.length
+    const key = keys[keyIdx]
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        const json: any = await res.json()
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        return { ok: true, text, source: 'gemini_key' + (keyIdx + 1) }
+      }
+      if (res.status === 429) {
+        console.log(`Gemini key${keyIdx + 1} got 429, trying next key...`)
+        continue // 次のキーを試す
+      }
+      // 429以外のエラーはそのまま失敗
+      console.error(`Gemini key${keyIdx + 1} error: ${res.status}`)
+      return { ok: false, text: '', source: 'gemini_error_' + res.status }
+    } catch (e: any) {
+      console.error(`Gemini key${keyIdx + 1} fetch error:`, e?.message || e)
+      continue
+    }
+  }
+  return { ok: false, text: '', source: 'all_keys_exhausted' }
+}
+
 function jsonError(c: any, status: number, message: string) {
   return c.json({ ok: false, error: message }, status)
 }
@@ -1395,24 +1442,15 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     '日本語で、箇条書きではなく教師に語りかけるような文章で回答してください。'
   ].join('\n')
   // Gemini APIで分析
-  const geminiKey = (c.env as any).GEMINI_API_KEY
   try {
     let analysisText = ''
-    if (geminiKey) {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-      const gRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: 'あなたは小学校の教師を支援する教育AIアシスタントです。データに基づいて具体的・実践的な分析をしてください。日本語で回答してください。' }] },
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
-        }),
-      })
-      if (gRes.ok) {
-        const gJson: any = await gRes.json()
-        analysisText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
+    const gRes = await callGemini(c.env, {
+      system_instruction: { parts: [{ text: 'あなたは小学校の教師を支援する教育AIアシスタントです。データに基づいて具体的・実践的な分析をしてください。日本語で回答してください。' }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+    })
+    if (gRes.ok) {
+      analysisText = gRes.text
     }
     // フォールバック
     if (!analysisText) {
@@ -1517,8 +1555,7 @@ app.get('/api/teacher/student-karte', async (c) => {
 
   // Gemini AIで個人分析
   let aiAdvice = ''
-  const geminiKey = (c.env as any).GEMINI_API_KEY
-  if (geminiKey && totalDays > 0) {
+  if (totalDays > 0) {
     try {
       const recentSubs = subs.slice(0, 15).map((s: any) =>
         `[${s.day_key}] ${s.todo||''}(${s.minutes||0}分) 天気:${s.end_weather||'?'} めあて:${s.aim||'-'} 振返り:${s.weather_reason||'-'}${s.work_photo_analysis ? ' 📷:'+s.work_photo_analysis : ''}`
@@ -1553,18 +1590,12 @@ ${refTxt || 'なし'}
 必ずJSON形式で返答:
 {"trend":"...","strength":"...","concern":"...","advice":"..."}`
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-      const gRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: kartePrompt }] }],
-          generationConfig: { temperature: 0.5, maxOutputTokens: 1024 },
-        }),
+      const gRes = await callGemini(c.env, {
+        contents: [{ role: 'user', parts: [{ text: kartePrompt }] }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 1024 },
       })
       if (gRes.ok) {
-        const gJson: any = await gRes.json()
-        const rawText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const rawText = gRes.text
         const jsonMatch = rawText.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           aiAdvice = jsonMatch[0]
@@ -1683,18 +1714,16 @@ app.get('/api/teacher/weekly-report', async (c) => {
 
   // Gemini AIで週報生成
   let reportText = ''
-  const geminiKey = (c.env as any).GEMINI_API_KEY
-  if (geminiKey) {
-    try {
-      const studentLines = studentSummaries.map((s, i) => {
-        let line = `${i+1}. ${s.name}: 提出${s.thisWeek.count}回(${s.thisWeek.totalMin}分) 満足度${s.thisWeek.sunRate}%`
-        if (s.prevWeek) line += ` [先週:${s.prevWeek.count}回/${s.prevWeek.totalMin}分]`
-        if (s.subjects) line += ` 教科:${s.subjects}`
-        if (s.revisions > 0) line += ` 計画修正${s.revisions}回`
-        return line
-      }).join('\n')
+  try {
+    const studentLines = studentSummaries.map((s, i) => {
+      let line = `${i+1}. ${s.name}: 提出${s.thisWeek.count}回(${s.thisWeek.totalMin}分) 満足度${s.thisWeek.sunRate}%`
+      if (s.prevWeek) line += ` [先週:${s.prevWeek.count}回/${s.prevWeek.totalMin}分]`
+      if (s.subjects) line += ` 教科:${s.subjects}`
+      if (s.revisions > 0) line += ` 計画修正${s.revisions}回`
+      return line
+    }).join('\n')
 
-      const reportPrompt = `あなたは小学校の担任教師の週報作成を手伝うAIアシスタントです。
+    const reportPrompt = `あなたは小学校の担任教師の週報作成を手伝うAIアシスタントです。
 以下のデータから「${cls.name}」クラスの週報（${weekKey}）を作成してください。
 
 ＜クラス統計＞
@@ -1713,22 +1742,15 @@ ${studentLines}
 
 温かく前向きなトーンで、先生が保護者や管理職に共有できるクオリティで書いてください。`
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-      const gRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: reportPrompt }] }],
-          generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
-        }),
-      })
-      if (gRes.ok) {
-        const gJson: any = await gRes.json()
-        reportText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-    } catch (e: any) {
-      console.error('Weekly report AI error:', e?.message || e)
+    const gRes = await callGemini(c.env, {
+      contents: [{ role: 'user', parts: [{ text: reportPrompt }] }],
+      generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+    })
+    if (gRes.ok) {
+      reportText = gRes.text
     }
+  } catch (e: any) {
+    console.error('Weekly report AI error:', e?.message || e)
   }
 
   return c.json({
@@ -1969,33 +1991,24 @@ app.post('/api/homework/analyze-photo', async (c) => {
 温かい言葉で。名前や挨拶は不要。`
 
       // Gemini 2.5 Flash で画像分析
-      const geminiKey = (c.env as any).GEMINI_API_KEY
       let geminiDone = false
-      if (geminiKey) {
-        try {
-          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-          const gRes = await fetch(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [
-                { inline_data: { mime_type: mimeType, data: base64 } },
-                { text: photoPrompt }
-              ] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
-            }),
-          })
-          if (gRes.ok) {
-            const gJson: any = await gRes.json()
-            const text = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-            if (text.trim()) {
-              analysisText = text.trim().slice(0, 500)
-              geminiDone = true
-            }
+      try {
+        const gRes = await callGemini(c.env, {
+          contents: [{ role: 'user', parts: [
+            { inline_data: { mime_type: mimeType, data: base64 } },
+            { text: photoPrompt }
+          ] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+        })
+        if (gRes.ok) {
+          const text = gRes.text
+          if (text.trim()) {
+            analysisText = text.trim().slice(0, 500)
+            geminiDone = true
           }
-        } catch (ge: any) {
-          console.error('Gemini photo analysis error:', ge?.message || ge)
         }
+      } catch (ge: any) {
+        console.error('Gemini photo analysis error:', ge?.message || ge)
       }
 
       // フォールバック: Cloudflare AI (Gemma 4 26B)
@@ -2278,20 +2291,13 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 
   if (geminiKey) {
     try {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-      const geminiBody = JSON.stringify({
+      const resp = await callGemini(c.env, {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: lines }] }],
         generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
       })
-      const resp = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: geminiBody
-      })
       if (resp.ok) {
-        const json: any = await resp.json()
-        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const text = resp.text
         if (text) {
           try {
             const jsonMatch = text.match(/\{[\s\S]*\}/)
@@ -2301,7 +2307,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
           }
         }
       } else {
-        console.warn('[Gemini] HTTP', resp.status, '- falling back to Cloudflare AI')
+        console.warn('[Gemini] API error - falling back to Cloudflare AI')
         aiSource = 'cloudflare-fallback'
       }
     } catch (e: any) {
@@ -2949,20 +2955,14 @@ app.get('/api/teacher/auto-feedback', async (c) => {
 - 必ずJSON形式だけで返答: {"feedback":[["メッセージ1","メッセージ2"],["メッセージ1"],...]}
   （外側の配列は児童順、内側の配列は各児童のメッセージ群）`
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-      const gRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: `以下の児童データに基づいて週次フィードバックを生成してください。\n\n${lines}` }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-        }),
+      const gRes = await callGemini(c.env, {
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: `以下の児童データに基づいて週次フィードバックを生成してください。\n\n${lines}` }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
       })
 
       if (gRes.ok) {
-        const gJson: any = await gRes.json()
-        const rawText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const rawText = gRes.text
         const jsonMatch = rawText.match(/\{[\s\S]*"feedback"[\s\S]*\}/)
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0])
@@ -3134,23 +3134,15 @@ app.post('/api/teacher/weekly-ai-comments', async (c) => {
 {"comments":["コメント1","コメント2","コメント3",...]}
 貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
-  const geminiKey = c.env.GEMINI_API_KEY || ''
-  if (!geminiKey) return jsonError(c, 500, 'GEMINI_API_KEY not set')
-
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
-    const geminiBody = JSON.stringify({
+    const resp = await callGemini(c.env, {
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{ parts: [{ text: lines }] }],
       generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
     })
-    const resp = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: geminiBody
-    })
-    const json: any = await resp.json()
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    if (!resp.ok) return jsonError(c, 500, 'Gemini API error')
+
+    const text = resp.text
 
     let parsed: string[] = []
     try {
