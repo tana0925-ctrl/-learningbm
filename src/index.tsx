@@ -1955,28 +1955,37 @@ app.get('/api/teacher/class/:classId/weekly-menu', async (c) => {
   return c.json({ ok: true, menu: row || null, weekKey })
 })
 
-// 生徒（または管理者）：自分のクラスの今週の先生メニューを取得
+// 生徒（または管理者・教師）：自分のクラスの今週の先生メニューを取得
 app.get('/api/student/weekly-menu', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
-  // admin/teacher も閲覧可能（ゲーム画面確認用）
 
   const weekKey = c.req.query('weekKey') || getWeekKey()
+  const classIdParam = c.req.query('classId') || ''
 
-  const row = await c.env.DB.prepare(`
-    SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
-           cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
-           cwm.active_days as activeDays
-    FROM class_weekly_menu cwm
-    JOIN class_members cm ON cm.class_id = cwm.class_id
-    WHERE cm.user_id = ? AND cwm.week_key = ?
-    LIMIT 1
-  `).bind(u.id, weekKey).first<any>()
-
-  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
-  if (!row) {
-    const prevWk = getPrevWeekKey(weekKey)
-    const prevRow = await c.env.DB.prepare(`
+  // 生徒はclass_members経由、teacher/adminはclasses経由（またはclassIdパラメータ）で検索
+  let row: any = null
+  if (u.role === 'teacher' || u.role === 'admin') {
+    if (classIdParam) {
+      row = await c.env.DB.prepare(`
+        SELECT kanji_page as kanjiPage, keisan_page as keisanPage,
+               other_tasks as otherTasks, tests, week_key as weekKey, active_days as activeDays
+        FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1
+      `).bind(classIdParam, weekKey).first<any>()
+    } else {
+      // classId未指定時は教師の最初のクラスを使用
+      row = await c.env.DB.prepare(`
+        SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+               cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+               cwm.active_days as activeDays
+        FROM class_weekly_menu cwm
+        JOIN classes cls ON cls.id = cwm.class_id
+        WHERE cls.teacher_id = ? AND cwm.week_key = ?
+        LIMIT 1
+      `).bind(u.id, weekKey).first<any>()
+    }
+  } else {
+    row = await c.env.DB.prepare(`
       SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
              cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
              cwm.active_days as activeDays
@@ -1984,7 +1993,42 @@ app.get('/api/student/weekly-menu', async (c) => {
       JOIN class_members cm ON cm.class_id = cwm.class_id
       WHERE cm.user_id = ? AND cwm.week_key = ?
       LIMIT 1
-    `).bind(u.id, prevWk).first<any>()
+    `).bind(u.id, weekKey).first<any>()
+  }
+
+  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
+  if (!row) {
+    const prevWk = getPrevWeekKey(weekKey)
+    let prevRow: any = null
+    if (u.role === 'teacher' || u.role === 'admin') {
+      if (classIdParam) {
+        prevRow = await c.env.DB.prepare(`
+          SELECT kanji_page as kanjiPage, keisan_page as keisanPage,
+                 other_tasks as otherTasks, tests, week_key as weekKey, active_days as activeDays
+          FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1
+        `).bind(classIdParam, prevWk).first<any>()
+      } else {
+        prevRow = await c.env.DB.prepare(`
+          SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+                 cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+                 cwm.active_days as activeDays
+          FROM class_weekly_menu cwm
+          JOIN classes cls ON cls.id = cwm.class_id
+          WHERE cls.teacher_id = ? AND cwm.week_key = ?
+          LIMIT 1
+        `).bind(u.id, prevWk).first<any>()
+      }
+    } else {
+      prevRow = await c.env.DB.prepare(`
+        SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+               cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+               cwm.active_days as activeDays
+        FROM class_weekly_menu cwm
+        JOIN class_members cm ON cm.class_id = cwm.class_id
+        WHERE cm.user_id = ? AND cwm.week_key = ?
+        LIMIT 1
+      `).bind(u.id, prevWk).first<any>()
+    }
     return c.json({ ok: true, menu: prevRow || null, weekKey, published: false, fallbackWeek: prevRow ? prevWk : null })
   }
 
