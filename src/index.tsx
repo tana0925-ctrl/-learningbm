@@ -1600,7 +1600,7 @@ app.post('/api/homework/submit', async (c) => {
 // 生徒：成果物写真をAIで分析してテキスト化→DB保存
 app.post('/api/homework/analyze-photo', async (c) => {
   const u = c.get('user')
-  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  if (!u) return jsonError(c, 403, 'forbidden')
 
   const formData = await c.req.formData().catch(() => null)
   if (!formData) return jsonError(c, 400, 'invalid_form_data')
