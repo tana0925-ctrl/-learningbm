@@ -5856,24 +5856,28 @@ app.get('/teacher', (c) => {
         wrap.innerHTML='';
         if(!data.classes.length){ wrap.innerHTML='<p class="text-sm text-slate-400 bg-white rounded-xl shadow p-4">クラスはまだありません。上から作成してください。</p>'; return; }
 
-        // クラスフィルター選択肢を更新
+        // クラスフィルター選択肢を更新（全セレクトで最初のクラスを自動選択）
+        const defaultClassId = data.classes.length > 0 ? data.classes[0].id : '';
         const sel = document.getElementById('hwClassFilter');
         sel.innerHTML = '<option value="">全クラス</option>';
         data.classes.forEach(c => { sel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        if(defaultClassId) sel.value = defaultClassId;
         // 学習分析タブのクラスフィルターも更新
         const analyticsSel = document.getElementById('analyticsClassFilter');
         if(analyticsSel){
-          analyticsSel.innerHTML = '<option value="">クラスを選択...</option>';
+          analyticsSel.innerHTML = '';
           data.classes.forEach(c => { analyticsSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+          if(defaultClassId) analyticsSel.value = defaultClassId;
         }
         // アクティビティ（今日の学習状況）のクラスフィルターも更新
         const actSel = document.getElementById('activityClassFilter');
         if(actSel){
           const prevVal = actSel.value;
-          actSel.innerHTML = '<option value="">クラスを選択...</option>';
+          actSel.innerHTML = '';
           data.classes.forEach(c => { actSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
-          if(data.classes.length === 1){ actSel.value = data.classes[0].id; loadActivitySummary(); }
-          else if(prevVal){ actSel.value = prevVal; }
+          if(prevVal){ actSel.value = prevVal; }
+          else if(defaultClassId){ actSel.value = defaultClassId; }
+          loadActivitySummary();
         }
 
         for(const cls of data.classes){
