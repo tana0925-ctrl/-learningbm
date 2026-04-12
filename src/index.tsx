@@ -1875,52 +1875,72 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 {"comments":["コメント1","コメント2","コメント3",...]}
 貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
+  // Gemini API → 失敗時は Cloudflare Workers AI にフォールバック
   const geminiKey = c.env.GEMINI_API_KEY || ''
-  if (!geminiKey) return jsonError(c, 500, 'GEMINI_API_KEY not set')
+  let parsed: string[] = []
+  let aiSource = 'gemini'
 
-  try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`
-    const geminiBody = JSON.stringify({
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ parts: [{ text: lines }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
-    })
-    const resp = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: geminiBody
-    })
-    if (!resp.ok) {
-      const errText = await resp.text()
-      console.error('[Gemini API Error]', resp.status, errText)
-      return jsonError(c, 500, 'Gemini API HTTP ' + resp.status + ': ' + errText.slice(0, 200))
-    }
-    const json: any = await resp.json()
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-    console.log('[Gemini Response]', text.slice(0, 500))
-
-    if (!text) {
-      return jsonError(c, 500, 'Gemini returned empty. Raw: ' + JSON.stringify(json).slice(0, 300))
-    }
-
-    let parsed: string[] = []
+  if (geminiKey) {
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const obj = JSON.parse(jsonMatch[0])
-        parsed = obj.comments || []
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`
+      const geminiBody = JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: lines }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+      })
+      const resp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: geminiBody
+      })
+      if (resp.ok) {
+        const json: any = await resp.json()
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        if (text) {
+          try {
+            const jsonMatch = text.match(/\{[\s\S]*\}/)
+            if (jsonMatch) parsed = JSON.parse(jsonMatch[0]).comments || []
+          } catch {
+            parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+          }
+        }
+      } else {
+        console.warn('[Gemini] HTTP', resp.status, '- falling back to Cloudflare AI')
+        aiSource = 'cloudflare-fallback'
       }
-    } catch {
-      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    } catch (e: any) {
+      console.warn('[Gemini] Error:', e.message, '- falling back to Cloudflare AI')
+      aiSource = 'cloudflare-fallback'
     }
-
-    const comments = subs.results.map((s: any, i: number) => ({
-      id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
-    }))
-    return c.json({ ok: true, comments, _debug: { geminiRaw: text.slice(0, 300), parsedCount: parsed.length } })
-  } catch (e: any) {
-    return jsonError(c, 500, 'Gemini API error: ' + (e.message || String(e)))
+  } else {
+    aiSource = 'cloudflare-no-key'
   }
+
+  // フォールバック: Cloudflare Workers AI（1児童ずつ個別生成）
+  if (!parsed.length && aiSource !== 'gemini') {
+    for (const s of subs.results) {
+      const hist = historyMap[s.user_id] || []
+      const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
+      let ud = `学習: ${s.todo || '未記入'}, ${s.minutes || 0}分(平均${avgMin}分), 振り返り: ${s.weather_reason || '未記入'}`
+      if (s.work_photo_analysis) ud += `, 成果物: ${s.work_photo_analysis}`
+      try {
+        const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          messages: [
+            { role: 'system', content: 'あなたは小学校の先生です。児童の家庭学習に対するコメントを1つだけ出力。30文字以内。温かく褒める。名前不要。コメントだけ出力。' },
+            { role: 'user', content: ud }
+          ],
+          max_tokens: 80,
+        })
+        let t = (aiRes.response || '').trim().replace(/^["「『【]+|["」』】]+$/g, '').replace(/^\d+[\.\)]\s*/, '').replace(/^コメント[:：]\s*/,'').trim()
+        parsed.push(t.slice(0, 60))
+      } catch { parsed.push('') }
+    }
+  }
+
+  const comments = subs.results.map((s: any, i: number) => ({
+    id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
+  }))
+  return c.json({ ok: true, comments, _source: aiSource })
 })
 
 // -------------------- API: 先生メニュー (class weekly menu) --------------------
