@@ -3101,6 +3101,106 @@ app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
   return c.json({ ok: true, coins, shards })
 })
 
+// AI計画チェック：生徒の週間計画を評価し問題点をフラグ
+app.post('/api/teacher/ai-plan-check', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.classId) return jsonError(c, 400, 'classId required')
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const weekKey = body.weekKey || getWeekKey()
+  const plans = await c.env.DB.prepare(`
+    SELECT swp.id, swp.plans_json, swp.revision_count, swp.plan_approved,
+           u.id as userId, u.name, u.grade, u.class_name
+    FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id AND cm.class_id = ?
+    JOIN users u ON u.id = swp.user_id
+    WHERE swp.week_key = ?
+    ORDER BY u.name
+  `).bind(body.classId, weekKey).all<any>()
+
+  if (!plans.results?.length) return c.json({ ok: true, results: [], message: 'まだ計画が提出されていません' })
+
+  const dayLabels = ['月', '火', '水', '木', '金']
+  const lines = plans.results.map((p: any, i: number) => {
+    let parsed: any = {}
+    try { parsed = JSON.parse(p.plans_json || '{}') } catch (_) {}
+    const keys = Object.keys(parsed).filter((k: string) => k !== '_modified')
+    const dayPlans = keys.slice(0, 5).map((k: string, di: number) => {
+      const val = parsed[k]
+      const text = typeof val === 'object' ? (val.free || '') : (val || '')
+      return `${dayLabels[di] || '?'}：${text || '（空欄）'}`
+    }).join('　/　')
+    return `${i + 1}. 【${p.name}】${dayPlans}${p.revision_count > 0 ? `　（${p.revision_count}回修正済）` : ''}`
+  }).join('\n')
+
+  const prompt = `あなたは小学校の先生のアシスタントです。以下は児童が提出した今週の家庭学習計画です。
+
+各児童の計画を評価し、以下の観点で問題がある場合にフラグを立ててください：
+- 「勉強する」「がんばる」など具体性がない曖昧な計画
+- 毎日同じ内容でバリエーションがない
+- 空欄が多い（やる気の低下の可能性）
+- 非現実的な量や内容
+- 教科の偏り（例：毎日算数だけ）
+
+必ず以下のJSON形式だけで返答してください：
+{"results":[{"name":"児童名","level":"ok|caution|warning","comment":"短い評価コメント（20文字以内）"},...]}"
+
+level の意味：
+- "ok" = 問題なし（具体的で良い計画）
+- "caution" = 少し気になる点あり（声かけ推奨）
+- "warning" = 要注意（計画の立て直しが必要）
+
+【児童の計画一覧】
+${lines}`
+
+  try {
+    const gemResult = await callGemini(c.env, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+    })
+
+    if (gemResult.ok) {
+      let parsed: any = null
+      try {
+        const jsonMatch = gemResult.text.match(/\{[\s\S]*\}/)
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
+      } catch (_) {}
+      if (parsed?.results) {
+        return c.json({ ok: true, results: parsed.results, source: gemResult.source })
+      }
+    }
+
+    // Gemini失敗時：ルールベースの簡易チェック
+    const ruleResults = plans.results.map((p: any) => {
+      let parsed: any = {}
+      try { parsed = JSON.parse(p.plans_json || '{}') } catch (_) {}
+      const keys = Object.keys(parsed).filter((k: string) => k !== '_modified')
+      const texts = keys.slice(0, 5).map((k: string) => {
+        const val = parsed[k]
+        return typeof val === 'object' ? (val.free || '') : (val || '')
+      })
+      const emptyCount = texts.filter((t: string) => !t.trim()).length
+      const vague = texts.filter((t: string) => /^(勉強|がんばる|べんきょう|頑張る|やる)$/i.test(t.trim())).length
+      const unique = new Set(texts.filter((t: string) => t.trim())).size
+
+      let level = 'ok', comment = '問題なし'
+      if (emptyCount >= 3) { level = 'warning'; comment = '空欄が多い（' + emptyCount + '日分）' }
+      else if (vague >= 2) { level = 'caution'; comment = '具体性が不足' }
+      else if (unique <= 1 && emptyCount < 3) { level = 'caution'; comment = '毎日同じ内容' }
+      return { name: p.name, level, comment }
+    })
+    return c.json({ ok: true, results: ruleResults, source: 'rule-based' })
+  } catch (e: any) {
+    return jsonError(c, 500, 'ai_error: ' + (e.message || ''))
+  }
+})
+
 // AIで一括コメント生成（週の振り返り）
 app.post('/api/teacher/weekly-ai-comments', async (c) => {
   const u = c.get('user')
@@ -5337,7 +5437,9 @@ app.get('/teacher', (c) => {
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画</div>
             <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
+            <button onclick="aiPlanCheck()" class="bg-red-500 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90" id="aiPlanCheckBtn">🤖 AI計画チェック</button>
           </div>
+          <div id="aiPlanCheckResult" class="hidden bg-white border border-red-200 rounded-lg p-2 space-y-1"></div>
           <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
@@ -6266,6 +6368,62 @@ app.get('/teacher', (c) => {
         }
         if(msg) msg.textContent = '✅ '+ok+'人に返却完了' + (fail ? ' ('+fail+'人失敗)' : '');
         await loadStudentPlans();
+      }
+
+      async function aiPlanCheck(){
+        var btn = document.getElementById('aiPlanCheckBtn');
+        var wrap = document.getElementById('aiPlanCheckResult');
+        if(!wrap) return;
+        var classId = document.getElementById('hwClassFilter') ? document.getElementById('hwClassFilter').value : '';
+        if(!classId){ alert('クラスを選択してください'); return; }
+        btn.disabled = true; btn.textContent = '🤖 チェック中...';
+        wrap.classList.remove('hidden');
+        wrap.innerHTML = '<p class="text-xs text-slate-400">AIが計画を分析しています...</p>';
+        try{
+          var wk = getWeekKeyLocal();
+          var res = await api('/api/teacher/ai-plan-check', {
+            method:'POST', headers:{'content-type':'application/json'},
+            body: JSON.stringify({classId: classId, weekKey: wk})
+          });
+          var results = res.results || [];
+          if(!results.length){
+            wrap.innerHTML = '<p class="text-xs text-slate-400">計画がまだ提出されていません</p>';
+            return;
+          }
+          var warnCount = results.filter(function(r){ return r.level === 'warning'; }).length;
+          var cautionCount = results.filter(function(r){ return r.level === 'caution'; }).length;
+          var okCount = results.filter(function(r){ return r.level === 'ok'; }).length;
+
+          var html = '<div class="flex items-center gap-2 flex-wrap mb-1">'
+            + '<span class="font-bold text-sm text-red-700">🤖 AI計画チェック結果</span>'
+            + '<span class="text-xs bg-green-100 text-green-700 px-1.5 rounded font-bold">' + okCount + '人OK</span>'
+            + (cautionCount ? '<span class="text-xs bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold">' + cautionCount + '人注意</span>' : '')
+            + (warnCount ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 rounded font-bold">' + warnCount + '人要注意</span>' : '')
+            + '<span class="text-[10px] text-slate-400">(' + (res.source || 'AI') + ')</span>'
+            + '</div>';
+
+          // 要注意と注意を先に表示
+          var sorted = results.slice().sort(function(a,b){
+            var order = {warning:0, caution:1, ok:2};
+            return (order[a.level]||2) - (order[b.level]||2);
+          });
+          for(var i = 0; i < sorted.length; i++){
+            var r = sorted[i];
+            var bgClass = r.level === 'warning' ? 'bg-red-50 border-red-300' : r.level === 'caution' ? 'bg-yellow-50 border-yellow-300' : 'bg-green-50 border-green-200';
+            var icon = r.level === 'warning' ? '🚨' : r.level === 'caution' ? '⚠️' : '✅';
+            var textClass = r.level === 'warning' ? 'text-red-700' : r.level === 'caution' ? 'text-yellow-700' : 'text-green-700';
+            html += '<div class="flex items-center gap-2 px-2 py-1 rounded border ' + bgClass + ' text-xs">'
+              + '<span>' + icon + '</span>'
+              + '<span class="font-bold">' + escH(r.name) + '</span>'
+              + '<span class="' + textClass + '">' + escH(r.comment) + '</span>'
+              + '</div>';
+          }
+          wrap.innerHTML = html;
+        }catch(e){
+          wrap.innerHTML = '<p class="text-xs text-red-600">エラー: ' + escH(String(e.message||e)) + '</p>';
+        }finally{
+          btn.disabled = false; btn.textContent = '🤖 AI計画チェック';
+        }
       }
 
       async function approvePlan(planId, btn){
