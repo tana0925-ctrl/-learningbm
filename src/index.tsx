@@ -4540,9 +4540,7 @@ app.get('/teacher', (c) => {
         <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
-        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
-
-        <button id="tabClassAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('classAnalytics')">🔍 クラス分析</button>
+        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
       </div>
 
@@ -4551,28 +4549,84 @@ app.get('/teacher', (c) => {
         <div id="classList" class="space-y-4"></div>
       </div>
 
-      <!-- 学習分析タブ -->
+      <!-- 分析タブ（統合） -->
       <div id="tabPaneAnalytics" class="hidden space-y-3">
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white">
-              <option value="">クラスを選択...</option>
-            </select>
-            <button onclick="loadUnitAnalytics()" class="bg-purple-600 text-white rounded px-3 py-2 text-sm font-bold">📊 分析を表示</button>
-            <span class="text-xs text-slate-400">※5問以上やった単元を表示します</span>
+        <!-- サブタブナビ -->
+        <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
+          <button id="anSubTab_subject" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-purple-500 text-white" onclick="switchAnalyticsSubTab('subject')">
+            <span class="bg-white text-purple-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 教科の成績
+          </button>
+          <span class="text-slate-300 text-lg font-bold">→</span>
+          <button id="anSubTab_homework" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('homework')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 家庭学習
+          </button>
+          <span class="text-slate-300 text-lg font-bold">→</span>
+          <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> AI分析
+          </button>
+        </div>
+        <!-- 共通クラス選択 -->
+        <div class="bg-white rounded-xl shadow p-3 flex gap-2 items-center flex-wrap">
+          <span class="text-sm font-bold text-slate-600">クラス:</span>
+          <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+        </div>
+
+        <!-- サブタブ①: 教科の成績 -->
+        <div id="anPane_subject" class="space-y-3">
+          <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div class="font-bold text-sm text-purple-800">📊 教科別・単元別の正解率</div>
+              <button onclick="loadUnitAnalytics()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析を表示</button>
+            </div>
+            <div id="analyticsContent"><p class="text-xs text-slate-400">クラスを選んで「分析を表示」を押してください</p></div>
           </div>
-          <div id="analyticsContent"></div>
+          <!-- 非アクティブ生徒の警告 -->
+          <div id="inactiveStudentsCard" class="bg-orange-50 border border-orange-200 rounded-xl p-4 hidden">
+            <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
+            <p class="text-xs text-slate-400 mb-2">7日以上ログインがありません</p>
+            <div id="inactiveStudentsList" class="space-y-1 text-sm"></div>
+          </div>
+          <!-- 最近の活動ログ -->
+          <div id="recentActivityCard" class="bg-white rounded-xl shadow p-4 hidden">
+            <h3 class="font-bold text-slate-700 mb-2">📋 最近の活動ログ</h3>
+            <div id="recentActivityLog" class="space-y-1 text-sm max-h-96 overflow-y-auto"></div>
+          </div>
         </div>
-        <!-- 非アクティブ生徒の警告 -->
-        <div id="inactiveStudentsCard" class="bg-white rounded-xl shadow p-4 hidden">
-          <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
-          <p class="text-xs text-slate-400 mb-2">7日以上ログインがありません</p>
-          <div id="inactiveStudentsList" class="space-y-1 text-sm"></div>
+
+        <!-- サブタブ②: 家庭学習 -->
+        <div id="anPane_homework" class="hidden space-y-3">
+          <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-indigo-800">📝 今週の家庭学習ダッシュボード</div>
+              <button onclick="loadClassAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析</button>
+            </div>
+            <div id="classAnalyticsContent" class="space-y-3">
+              <p class="text-xs text-slate-400">「分析」を押してください</p>
+            </div>
+          </div>
         </div>
-        <!-- 最近の活動ログ -->
-        <div id="recentActivityCard" class="bg-white rounded-xl shadow p-4 hidden">
-          <h3 class="font-bold text-slate-700 mb-2">📋 最近の活動ログ</h3>
-          <div id="recentActivityLog" class="space-y-1 text-sm max-h-96 overflow-y-auto"></div>
+
+        <!-- サブタブ③: AI分析 -->
+        <div id="anPane_ai" class="hidden space-y-3">
+          <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
+              <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
+            </div>
+            <p class="text-xs text-purple-600">教科の成績＋家庭学習＋自己調整のデータをAIが総合的に分析し、声かけアドバイスを生成します。</p>
+            <div id="aiAnalysisContent" class="text-sm text-slate-600">
+              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押してください</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 個人カルテ（生徒名クリックで表示） -->
+        <div id="studentKartePanel" class="hidden bg-white rounded-xl shadow-lg p-4 space-y-3 border-2 border-purple-300">
+          <div class="flex items-center justify-between">
+            <div class="font-bold text-lg text-purple-800" id="karteStudentName"></div>
+            <button onclick="document.getElementById('studentKartePanel').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-xl font-bold">✕</button>
+          </div>
+          <div id="karteContent"></div>
         </div>
       </div>
 
@@ -4766,32 +4820,7 @@ app.get('/teacher', (c) => {
       </div>
 
 
-      <!-- クラス分析タブ -->
-      <div id="tabPaneClassAnalytics" class="hidden space-y-3">
-        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-indigo-800">🔍 クラス分析ダッシュボード</div>
-            <div class="flex gap-2 items-center">
-              <select id="caClassFilter" class="border p-1.5 rounded text-sm bg-white">
-                <option value="">クラスを選択...</option>
-              </select>
-              <button onclick="loadClassAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析</button>
-            </div>
-          </div>
-          <div id="classAnalyticsContent" class="space-y-3">
-            <p class="text-xs text-slate-400">クラスを選んで「分析」を押してください</p>
-          </div>
-        </div>
-        <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3 mt-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
-            <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
-          </div>
-          <div id="aiAnalysisContent" class="text-sm text-slate-600">
-            <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押すと、AIが学習データを分析します</p>
-          </div>
-        </div>
-      </div>
+      <!-- (クラス分析は分析タブに統合済み) -->
 
       <!-- 連絡帳タブ -->
       <div id="tabPaneContact" class="hidden space-y-3">
@@ -4858,7 +4887,7 @@ app.get('/teacher', (c) => {
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','classAnalytics','mail'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','mail'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -4867,7 +4896,7 @@ app.get('/teacher', (c) => {
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
         if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
-        if(tab === 'analytics') { var aId = document.getElementById('activityClassFilter').value; if(aId) loadActivitySummary(); }
+        if(tab === 'analytics') { initAnalyticsFilters(); switchAnalyticsSubTab('subject'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
@@ -5026,7 +5055,7 @@ app.get('/teacher', (c) => {
           +'</tr></thead><tbody>';
         students.forEach((s,i)=>{
           const row = '<tr class="'+(i%2===0?'':'bg-slate-50')+'">'
-            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'">'+escH(s.name)+'</td>'
+            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'"><a href="javascript:void(0)" onclick="showStudentKarte(&#39;'+escH(s.id)+'&#39;,&#39;'+escH(s.name)+'&#39;)" class="text-purple-600 hover:underline cursor-pointer">'+escH(s.name)+'</a></td>'
             +'<td class="border px-2 py-1 text-center">'+(s.learnStreak>0?'🔥'+s.learnStreak:'−')+'</td>'
             +['math','jp','soc','science'].map(subj=>{
               const d = s.bySubject[subj];
@@ -5041,6 +5070,122 @@ app.get('/teacher', (c) => {
         html += '<p class="text-xs text-slate-400 mt-1">括弧内は解答数。5問未満は「−」表示。</p></div>';
 
         wrap.innerHTML = html;
+      }
+
+      // --- 分析サブタブ切り替え ---
+      function switchAnalyticsSubTab(sub){
+        var tabs = ['subject','homework','ai'];
+        var colors = {subject:'purple',homework:'indigo',ai:'purple'};
+        tabs.forEach(function(t){
+          var pane = document.getElementById('anPane_' + t);
+          if(pane) pane.classList.toggle('hidden', sub !== t);
+          var btn = document.getElementById('anSubTab_' + t);
+          if(!btn) return;
+          var c = colors[t] || 'slate';
+          if(sub === t){
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-'+c+'-500 text-white';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-white text-'+c+'-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          } else {
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          }
+        });
+      }
+
+      async function initAnalyticsFilters(){
+        try{
+          var cdata = await api('/api/teacher/classes');
+          var classes = (cdata && cdata.classes) || [];
+          var el = document.getElementById('analyticsClassFilter');
+          if(el && el.options.length <= 1){
+            el.innerHTML = '';
+            classes.forEach(function(cls){
+              var opt = document.createElement('option');
+              opt.value = cls.id;
+              opt.textContent = cls.name;
+              el.appendChild(opt);
+            });
+          }
+        }catch(_){}
+      }
+
+      // --- 個人カルテ ---
+      async function showStudentKarte(studentId, studentName){
+        var panel = document.getElementById('studentKartePanel');
+        var content = document.getElementById('karteContent');
+        document.getElementById('karteStudentName').textContent = studentName + ' さんのカルテ';
+        panel.classList.remove('hidden');
+        content.innerHTML = '<p class="text-slate-400 text-sm animate-pulse">読み込み中...</p>';
+        var classId = document.getElementById('analyticsClassFilter').value;
+        try{
+          var weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
+          var unitData = await api('/api/teacher/class/' + encodeURIComponent(classId) + '/unit-analytics');
+          var caData = await api('/api/teacher/class-analytics?classId=' + encodeURIComponent(classId) + '&weekKey=' + encodeURIComponent(weekKey));
+          var student = (unitData.students||[]).find(function(s){ return s.id === studentId; });
+          var hwAll = (caData.homework||[]).filter(function(h){ return h.user_id === studentId; });
+          var plan = (caData.plans||[]).find(function(p){ return p.user_id === studentId; });
+          var ref = (caData.reflections||[]).find(function(r){ return r.user_id === studentId; });
+          var subjName = {math:'算数', jp:'国語', soc:'社会', science:'理科'};
+          var html = '';
+
+          // 教科別成績
+          html += '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">';
+          ['math','jp','soc','science'].forEach(function(subj){
+            var d = student && student.bySubject[subj];
+            if(!d || d.total < 5){
+              html += '<div class="rounded-lg border p-2 text-center"><div class="text-xs text-slate-400">'+(subjName[subj]||subj)+'</div><div class="text-lg font-bold text-slate-300">−</div></div>';
+            } else {
+              var c = d.acc>=80?'text-green-600':d.acc>=60?'text-yellow-600':'text-red-600';
+              html += '<div class="rounded-lg border p-2 text-center"><div class="text-xs font-bold text-slate-500">'+(subjName[subj]||subj)+'</div><div class="text-xl font-black '+c+'">'+d.acc+'%</div><div class="text-[10px] text-slate-400">'+d.total+'問</div></div>';
+            }
+          });
+          html += '</div>';
+
+          // 連続学習
+          if(student && student.learnStreak > 0){
+            html += '<div class="bg-orange-50 border border-orange-200 rounded-lg p-2 mb-3 text-sm">🔥 連続学習 <b>'+student.learnStreak+'日</b></div>';
+          }
+
+          // 家庭学習状況
+          html += '<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 space-y-1">';
+          html += '<div class="font-bold text-xs text-blue-800">📝 今週の家庭学習</div>';
+          if(hwAll.length > 0){
+            var totalMin = hwAll.reduce(function(s,h){ return s + (h.minutes||0); }, 0);
+            html += '<div class="text-sm">提出 <b>'+hwAll.length+'回</b> / 合計 <b>'+totalMin+'分</b></div>';
+            html += '<div class="flex gap-1 flex-wrap">';
+            hwAll.forEach(function(h){
+              html += '<span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">'+escH(h.subject||'')+(h.minutes?(' '+h.minutes+'分'):'')+'</span>';
+            });
+            html += '</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">今週の提出はまだありません</div>';
+          }
+          html += '</div>';
+
+          // 計画・ふりかえり
+          html += '<div class="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1">';
+          html += '<div class="font-bold text-xs text-purple-800">🔄 自己調整</div>';
+          if(plan){
+            html += '<div class="text-xs"><b>計画:</b> '+escH(plan.plan_text||plan.goal_text||'(内容なし)')+'</div>';
+            if(plan.revision_count > 0) html += '<div class="text-xs text-orange-600">🔄 計画修正 '+plan.revision_count+'回</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">計画の提出なし</div>';
+          }
+          if(ref){
+            html += '<div class="text-xs"><b>ふりかえり:</b> '+escH(ref.reflection_text||'(内容なし)')+'</div>';
+            if(ref.concentration) html += '<div class="text-xs">集中度: '+('★'.repeat(ref.concentration))+'</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">ふりかえりなし</div>';
+          }
+          html += '</div>';
+
+          content.innerHTML = html;
+          panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }catch(e){
+          content.innerHTML = '<p class="text-red-500 text-sm">読み込みエラー: '+escH(String(e.message||e))+'</p>';
+        }
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -5582,7 +5727,7 @@ wrap.innerHTML = '';
       async function loadClassAnalytics(){
         const wrap = document.getElementById('classAnalyticsContent');
         if(!wrap) return;
-        const classId = document.getElementById('caClassFilter')?.value;
+        const classId = document.getElementById('analyticsClassFilter')?.value;
         if(!classId){ alert('クラスを選択してください'); return; }
         wrap.innerHTML='<p class="text-slate-400">分析中...</p>';
         try{
@@ -5675,7 +5820,7 @@ wrap.innerHTML = '';
       }
 
       async function loadAIAnalysis(){
-        const classId = document.getElementById('caClassFilter').value;
+        const classId = document.getElementById('analyticsClassFilter').value;
         if(!classId){ document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
         const btn = document.getElementById('btnAIAnalysis');
         btn.disabled = true; btn.textContent = '分析中...';
@@ -5696,12 +5841,12 @@ wrap.innerHTML = '';
           btn.disabled = false; btn.textContent = '✨ AIで分析';
         }
       }
-      // フィルヿー初睛化市���況スコア分布
+      // フィルター初期化
       async function initNewTabFilters(){
         try{
           const cdata = await api('/api/teacher/classes');
           const classes= (cdata && cdata.classes) || [];
-          ['fbClassFilter','caClassFilter'].forEach(function(filterId){
+          ['fbClassFilter'].forEach(function(filterId){
             const el = document.getElementById(filterId);
             if(el && el.options.length <= 1){
               el.innerHTML = '';
