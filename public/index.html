@@ -4664,7 +4664,7 @@ function formatYMD(d){
                 <img id="hsPhotoThumb" style="max-width:120px; max-height:90px; border-radius:8px; border:1px solid #ccc;"/>
                 <button type="button" onclick="hsPhotoClear()" style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; line-height:1;">×</button>
               </div>
-              <div id="hsPhotoAnalysis" style="display:none; margin-top:4px; font-size:10px; color:#0e7490; background:#fff; padding:4px 6px; border-radius:6px; border:1px solid #a5f3fc;"></div>
+              <!-- AI分析結果は教師ダッシュボードでのみ表示 -->
             </div>
             <div class="hs-col">
               <div class="hs-panel hs-mint hs-sigBox">
@@ -42853,7 +42853,6 @@ function hsPhotoSelected(input) {
   const statusEl = document.getElementById('hsPhotoStatus');
   const previewEl = document.getElementById('hsPhotoPreview');
   const thumbEl = document.getElementById('hsPhotoThumb');
-  const analysisEl = document.getElementById('hsPhotoAnalysis');
   // プレビュー表示
   const reader = new FileReader();
   reader.onload = function(e) {
@@ -42861,9 +42860,8 @@ function hsPhotoSelected(input) {
     previewEl.style.display = 'block';
   };
   reader.readAsDataURL(file);
-  // AI分析開始
-  statusEl.textContent = '🔄 AIが分析中...';
-  analysisEl.style.display = 'none';
+  statusEl.textContent = '📎 写真をセットしました';
+  // AI分析は提出時にサーバー側で実行（生徒には結果を見せない）
   const sess = hsGetSession();
   const dayKey = sess ? sess.dayKey : hsGetDayKey830(new Date());
   const fd = new FormData();
@@ -42874,17 +42872,12 @@ function hsPhotoSelected(input) {
     .then(function(j) {
       if (j.ok && j.analysis) {
         _hsPhotoAnalysisResult = j.analysis;
-        statusEl.textContent = '✅ 分析完了';
-        analysisEl.textContent = '🤖 ' + j.analysis;
-        analysisEl.style.display = 'block';
       } else {
-        statusEl.textContent = '⚠️ 分析できませんでした';
         _hsPhotoAnalysisResult = '';
       }
     })
     .catch(function(e) {
       console.warn('[photo-analysis]', e);
-      statusEl.textContent = '⚠️ エラーが発生しました';
       _hsPhotoAnalysisResult = '';
     });
 }
