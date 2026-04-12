@@ -1989,13 +1989,15 @@ app.post('/api/homework/analyze-photo', async (c) => {
     const imageBytes = new Uint8Array(await photo.arrayBuffer())
     const mimeType = photo.type || 'image/jpeg'
 
-    // R2に写真を保存
+    // R2に写真を保存（R2バインディングがある場合のみ）
     const ext = mimeType === 'image/png' ? 'png' : 'jpg'
     const photoKey = `photos/${u.id}/${dayKey}.${ext}`
     try {
-      await c.env.PHOTOS.put(photoKey, imageBytes, {
-        httpMetadata: { contentType: mimeType },
-      })
+      if (c.env.PHOTOS) {
+        await c.env.PHOTOS.put(photoKey, imageBytes, {
+          httpMetadata: { contentType: mimeType },
+        })
+      }
       // DBにキーを記録
       const existing0 = await c.env.DB.prepare(
         `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
@@ -2118,6 +2120,7 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     photoKey = `photos/${targetUserId}/${dayKey}.jpg`
   }
 
+  if (!c.env.PHOTOS) return jsonError(c, 404, 'photo_storage_not_configured')
   try {
     let obj = await c.env.PHOTOS.get(photoKey)
     if (!obj && photoKey.endsWith('.jpg')) {
