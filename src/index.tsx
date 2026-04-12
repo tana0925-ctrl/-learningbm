@@ -4830,11 +4830,9 @@ app.get('/teacher', (c) => {
           <button id="anSubTab_subject" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-purple-500 text-white" onclick="switchAnalyticsSubTab('subject')">
             <span class="bg-white text-purple-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 教科の成績
           </button>
-          <span class="text-slate-300 text-lg font-bold">→</span>
           <button id="anSubTab_homework" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('homework')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 家庭学習
           </button>
-          <span class="text-slate-300 text-lg font-bold">→</span>
           <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> AI分析
           </button>
