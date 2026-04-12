@@ -1816,7 +1816,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
       const hist = await c.env.DB.prepare(`
         SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment
         FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
-        ORDER BY day_key DESC LIMIT 3
+        ORDER BY day_key DESC LIMIT 20
       `).bind(uid).all<any>()
       historyMap[uid] = hist.results || []
     } catch { historyMap[uid] = [] }
@@ -4578,6 +4578,27 @@ app.get('/teacher', (c) => {
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
+        {/* ステップ風サブタブナビゲーション */}
+        <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
+          <button id="hwSubTab_menu" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-green-500 text-white" onclick="switchHomeworkSubTab('menu')">
+            <span class="bg-white text-green-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 先生メニュー
+          </button>
+          <span class="text-slate-300 text-lg font-bold">→</span>
+          <button id="hwSubTab_plan" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('plan')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 今週の計画
+          </button>
+          <span class="text-slate-300 text-lg font-bold">→</span>
+          <button id="hwSubTab_daily" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('daily')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 毎日の振り返り
+          </button>
+          <span class="text-slate-300 text-lg font-bold">→</span>
+          <button id="hwSubTab_weekly" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('weekly')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> 今週の振り返り
+          </button>
+        </div>
+
+        {/* サブタブ①: 先生メニュー */}
+        <div id="hwPane_menu" class="space-y-3">
         <!-- 先生メニュー（週の課題設定） -->
         <div class="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
           <div class="font-bold text-sm text-green-800">📋 先生メニュー（今週の課題）</div>
@@ -4621,6 +4642,9 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        </div>
+        {/* サブタブ②: 今週の計画 */}
+        <div id="hwPane_plan" class="hidden space-y-3">
         <!-- 生徒の今週の計画 -->
         <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
@@ -4656,6 +4680,9 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        </div>
+        {/* サブタブ③: 毎日の振り返り */}
+        <div id="hwPane_daily" class="hidden space-y-3">
         <!-- アプリ内AIコメント生成パネル -->
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
           <div class="font-bold text-sm text-emerald-800">🤖 AIで一括コメント生成</div>
@@ -4700,6 +4727,25 @@ app.get('/teacher', (c) => {
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
           </div>
         </details>
+        {/* 毎日の宿題一覧（日次返却） */}
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="">すべて</option>
+              <option value="unreturned">未返却</option>
+              <option value="returned">返却済み</option>
+            </select>
+            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
+            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
+            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
+          </div>
+          <div id="hwList" class="space-y-3 text-sm"></div>
+        </div>
+        </div>
+
+        {/* サブタブ④: 今週の振り返り */}
+        <div id="hwPane_weekly" class="hidden space-y-3">
         {/* 自動フィードバック（週間） */}
         <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
@@ -4716,20 +4762,6 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
           </div>
         </div>
-
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
-            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
-              <option value="">すべて</option>
-              <option value="unreturned">未返却</option>
-              <option value="returned">返却済み</option>
-            </select>
-            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
-            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
-            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
-          </div>
-          <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
       </div>
 
@@ -4834,11 +4866,36 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
+        if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
         if(tab === 'analytics') { var aId = document.getElementById('activityClassFilter').value; if(aId) loadActivitySummary(); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
+      }
+
+      // --- 家庭学習サブタブ切り替え ---
+      function switchHomeworkSubTab(sub){
+        const tabs = ['menu','plan','daily','weekly'];
+        const colors = {menu:'green',plan:'blue',daily:'emerald',weekly:'yellow'};
+        tabs.forEach(function(t){
+          var pane = document.getElementById('hwPane_' + t);
+          if(pane) pane.classList.toggle('hidden', sub !== t);
+          var btn = document.getElementById('hwSubTab_' + t);
+          if(!btn) return;
+          var c = colors[t] || 'slate';
+          if(sub === t){
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-'+c+'-500 text-white';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-white text-'+c+'-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          } else {
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          }
+        });
+        if(sub === 'daily') loadHomework();
+        if(sub === 'plan') loadStudentPlans();
+        if(sub === 'weekly'){ initNewTabFilters(); }
       }
 
       // --- アクティビティ（今日の学習状況）---
