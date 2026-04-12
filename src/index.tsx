@@ -1837,9 +1837,9 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
   for (const uid of userIds) {
     try {
       const hist = await c.env.DB.prepare(`
-        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment
+        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve
         FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
-        ORDER BY day_key DESC LIMIT 20
+        ORDER BY day_key DESC LIMIT 30
       `).bind(uid).all<any>()
       historyMap[uid] = hist.results || []
     } catch { historyMap[uid] = [] }
@@ -1849,27 +1849,49 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
   const lines = subs.results.map((s: any, i: number) => {
     const hist = historyMap[s.user_id] || []
     const subjects = hist.map((h: any) => h.todo).filter(Boolean)
+    const uniqueSubjects = [...new Set(subjects)].slice(0, 5)
     const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
-    const recentHist = hist.slice(0, 5).map((h: any) =>
-      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} ${h.teacher_comment ? '先生:'+h.teacher_comment : ''}`
+    const totalDays = hist.length
+    // 天気（学びの満足度）の傾向
+    const weathers = hist.map((h: any) => h.end_weather).filter(Boolean)
+    const sunCount = weathers.filter((w: string) => w === 'sun').length
+    // 学習時間の推移（最近5回 vs それ以前）
+    const recent5 = hist.slice(0, 5)
+    const older = hist.slice(5)
+    const recent5Avg = recent5.length ? Math.round(recent5.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / recent5.length) : 0
+    const olderAvg = older.length ? Math.round(older.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / older.length) : 0
+    const trend = recent5Avg > olderAvg + 5 ? '↑増加傾向' : recent5Avg < olderAvg - 5 ? '↓減少傾向' : '→安定'
+    // 直近の記録（詳細）
+    const recentHist = hist.slice(0, 10).map((h: any) =>
+      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} めあて:${h.aim||'-'} 振り返り:${h.weather_reason||'-'}${h.teacher_comment ? ' 先生:'+h.teacher_comment : ''}`
     ).join('\n    ')
     const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
     return `${i+1}. 【${s.name}】(${s.day_key})
-  今日やったこと: ${s.todo || '未記入'}
+  ＜今日の学習＞
+  やったこと: ${s.todo || '未記入'}
   なんで: ${s.why || '未記入'}
   めあて: ${s.aim || '未記入'}
-  学習時間: ${s.minutes || 0}分 (過去平均: ${avgMin}分)
-  振り返り: ${s.weather_reason || '未記入'}
+  学習時間: ${s.minutes || 0}分
+  振り返り(天気): ${s.end_weather || '?'} 理由: ${s.weather_reason || '未記入'}
   次どうする: ${s.next_improve || '未記入'}${photoLine}
-  過去の記録:
-    ${recentHist || 'なし'}`
+  ＜過去の傾向（${totalDays}回分）＞
+  平均学習時間: ${avgMin}分 / 最近の傾向: ${trend}（直近5回平均${recent5Avg}分 vs 以前${olderAvg}分）
+  よくやる教科: ${uniqueSubjects.join('・') || 'データなし'}
+  学びの天気☀️率: ${weathers.length ? Math.round(sunCount/weathers.length*100) : 0}%
+  ＜直近の記録＞
+    ${recentHist || 'まだ記録なし'}`
   }).join('\n\n')
 
   const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
 【ルール】
-- 児童の「今日の振り返り」と「過去の振り返り」を読む
-- 各児童への温かく具体的な先生コメントを30文字以内で考える
-- その子の成長・課題・継続している努力を踏まえた個別最適な内容にする
+- 児童の「今日の振り返り」と「過去30回分の振り返り・傾向」を読む
+- 各児童への温かく具体的な先生コメントを40文字以内で考える
+- 以下の観点を踏まえて、その子だけに向けた個別最適なコメントにする:
+  ・賞賛: 今日の頑張り、継続している努力、成長を具体的に褒める
+  ・アドバイス: めあてや振り返りの内容から、次につながるヒントを一言添える
+  ・成長の気づき: 過去と比べて学習時間が増えた、新しい教科に挑戦した等
+- 過去の先生コメントと重複しない新鮮な内容にする
+- 過去データがまだない児童には、今日の取り組みだけを褒める
 - 必ずJSON形式だけで返答する（他のテキストは一切不要）
 【返答形式】
 {"comments":["コメント1","コメント2","コメント3",...]}
