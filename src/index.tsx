@@ -2740,7 +2740,7 @@ function generateFeedback(data: {
   if (data.selfRegScore >= 10) msgs.push('🏆 自己調整スコアが' + data.selfRegScore + '点！自分の学びをしっかりコントロールできてるね！')
 
   // デフォルト
-  if (msgs.length === 0) msgs.push('🌟 今週も家庭学羒をがんばろう！少しずつで大丈夫だよ！')
+  if (msgs.length === 0) msgs.push('🌟 今週も家庭学習をがんばろう！少しずつで大丈夫だよ！')
 
   return msgs.slice(0, 4) // 最大4つに絞る
 }
