@@ -2491,8 +2491,10 @@ app.get('/api/teacher/auto-feedback', async (c) => {
 
   const feedbackList: { userId: string, name: string, messages: string[] }[] = []
 
+  // 各児童のデータを収集
+  const studentDataList: { userId: string, name: string, thisHW: any, prevHW: any, streak: number, thisResults: any[], prevResults: any[], revisionCount: number }[] = []
+
   for (const m of (members.results || [])) {
-    // 各児童のデータを取得
     let thisHW: any = { cnt: 0, totalMin: 0 }
     let prevHW: any = { cnt: 0, totalMin: 0 }
     try { thisHW = await c.env.DB.prepare(`
@@ -2520,18 +2522,105 @@ app.get('/api/teacher/auto-feedback', async (c) => {
       SELECT revision_count FROM student_weekly_plans WHERE user_id=? AND week_key=?
     `).bind(m.id, weekKey).first<any>() } catch {}
 
-    const msgs = generateFeedback({
+    // 過去30日分の提出データも取得
+    let recentHistory: any = { results: [] }
+    try { recentHistory = await c.env.DB.prepare(`
+      SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve
+      FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
+      ORDER BY day_key DESC LIMIT 30
+    `).bind(m.id).all<any>() } catch {}
+
+    studentDataList.push({
+      userId: m.id, name: m.name,
+      thisHW, prevHW,
       streak: streakRow?.streak || 0,
-      thisWeekMin: thisHW?.totalMin || 0, prevWeekMin: prevHW?.totalMin || 0,
-      thisWeekCount: thisHW?.cnt || 0,
-      thisWeekResults: thisResults.results || [], prevWeekResults: prevResults.results || [],
-      selfRegScore: 0, revisionCount: planRow?.revision_count || 0,
+      thisResults: thisResults.results || [],
+      prevResults: prevResults.results || [],
+      revisionCount: planRow?.revision_count || 0,
     })
 
-    feedbackList.push({ userId: m.id, name: m.name, messages: msgs })
+    // Gemini用のデータに過去履歴も含める
+    ;(studentDataList[studentDataList.length - 1] as any).recentHistory = recentHistory.results || []
   }
 
-  return c.json({ ok: true, feedbackList, weekKey })
+  // Gemini APIで一括フィードバック生成
+  let geminiSuccess = false
+  const geminiKey = (c.env as any).GEMINI_API_KEY
+  if (geminiKey && studentDataList.length > 0) {
+    try {
+      const lines = studentDataList.map((s, i) => {
+        const thisR = s.thisResults.map((r: any) => `${r.unit}:正答率${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%(${r.total}問)`).join(', ')
+        const prevR = s.prevResults.map((r: any) => `${r.unit}:正答率${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%(${r.total}問)`).join(', ')
+        const history = ((s as any).recentHistory || []).slice(0, 5).map((h: any) =>
+          `${h.day_key}: ${h.todo || ''}(${h.minutes}分) 天気:${h.end_weather || '?'} めあて:${h.aim || ''} 次:${h.next_improve || ''}`
+        ).join(' / ')
+        return `${i + 1}. 【${s.name}】
+＜今週＞ 提出${s.thisHW?.cnt || 0}回, 合計${s.thisHW?.totalMin || 0}分
+＜先週＞ 提出${s.prevHW?.cnt || 0}回, 合計${s.prevHW?.totalMin || 0}分
+連続提出: ${s.streak}日
+計画見直し回数: ${s.revisionCount}回
+今週の教科別: ${thisR || 'なし'}
+先週の教科別: ${prevR || 'なし'}
+直近の記録: ${history || 'なし'}`
+      }).join('\n\n')
+
+      const systemPrompt = `あなたは小学校の担任の先生の代わりに、週次フィードバックを書くアシスタントです。
+【ルール】
+- 各児童の今週と先週のデータ、連続提出日数、教科別成績、直近の記録を読む
+- 各児童に対して、1〜4個の温かくて具体的なフィードバックメッセージを生成する
+- 賞賛・アドバイス・成長の気づきを踏まえた個別最適なメッセージにする
+- 各メッセージは絵文字1つ＋50文字以内
+- 先週との比較で具体的な変化に言及する
+- データがない児童には「今週もがんばろう！」系の励ましを1つだけ
+- 必ずJSON形式だけで返答: {"feedback":[["メッセージ1","メッセージ2"],["メッセージ1"],...]}
+  （外側の配列は児童順、内側の配列は各児童のメッセージ群）`
+
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`
+      const gRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: `以下の児童データに基づいて週次フィードバックを生成してください。\n\n${lines}` }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        }),
+      })
+
+      if (gRes.ok) {
+        const gJson: any = await gRes.json()
+        const rawText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const jsonMatch = rawText.match(/\{[\s\S]*"feedback"[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          if (parsed.feedback && Array.isArray(parsed.feedback) && parsed.feedback.length === studentDataList.length) {
+            for (let i = 0; i < studentDataList.length; i++) {
+              const msgs = Array.isArray(parsed.feedback[i]) ? parsed.feedback[i].filter((m: any) => typeof m === 'string' && m.length > 0) : []
+              feedbackList.push({ userId: studentDataList[i].userId, name: studentDataList[i].name, messages: msgs.length > 0 ? msgs : ['🌟 今週もがんばろう！'] })
+            }
+            geminiSuccess = true
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('Gemini weekly feedback error:', e?.message || e)
+    }
+  }
+
+  // フォールバック: ルールベースのgenerateFeedback
+  if (!geminiSuccess) {
+    for (const s of studentDataList) {
+      const msgs = generateFeedback({
+        streak: s.streak,
+        thisWeekMin: s.thisHW?.totalMin || 0, prevWeekMin: s.prevHW?.totalMin || 0,
+        thisWeekCount: s.thisHW?.cnt || 0,
+        thisWeekResults: s.thisResults, prevWeekResults: s.prevResults,
+        selfRegScore: 0, revisionCount: s.revisionCount,
+      })
+      feedbackList.push({ userId: s.userId, name: s.name, messages: msgs })
+    }
+  }
+
+  return c.json({ ok: true, feedbackList, weekKey, aiSource: geminiSuccess ? 'gemini' : 'rule' })
 })
 
 // 先生：特定の生徒の計画修正履歴を取得
