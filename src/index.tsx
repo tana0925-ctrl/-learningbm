@@ -538,6 +538,8 @@ app.post('/api/student/results', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   if (!rateLimit(`results:${u.id}`, 30, 60)) return jsonError(c, 429, 'too_many_requests')
+  // 最終アクティブ日時を更新（fire-and-forget）
+  c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(u.id).run().catch(() => {})
 
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
@@ -1903,6 +1905,8 @@ function genHwId() {
 app.post('/api/homework/submit', async (c) => {
   const u = c.get('user')
   if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  // 最終アクティブ日時を更新（fire-and-forget）
+  c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(u.id).run().catch(() => {})
   const body = await c.req.json<any>().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
 
