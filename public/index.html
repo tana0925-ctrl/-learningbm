@@ -4674,6 +4674,13 @@ function formatYMD(d){
                 <div class="hs-subLabel">先生から</div>
                 <div id="hsTeacherComment" class="hs-teacherComment"></div>
               </div>
+              <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+                <button id="hsStartBtn" class="px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow hover:opacity-90 w-full text-sm">🚀 家庭学習スタート</button>
+                <button id="hsExportBtn" class="px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-bold shadow hover:opacity-90 w-full text-sm">📤 先生に提出</button>
+                <button id="hsReExportBtn" class="px-4 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 font-bold shadow hover:bg-indigo-100 w-full text-sm hidden">📤 再提出する</button>
+                <button id="hsResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-300 w-full">やり直す</button>
+                <div id="hsRewardMsg" class="text-sm font-bold text-emerald-700 text-center"></div>
+              </div>
             </div>
           </div>
 
@@ -4693,13 +4700,7 @@ function formatYMD(d){
 
         </div>
       </div>
-      <div class="flex flex-wrap gap-2 items-center">
-        <button id="hsStartBtn" class="px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow hover:opacity-90">家庭学習スタート</button>
-        <button id="hsResetBtn" class="px-4 py-3 rounded-xl bg-slate-200 text-slate-800 font-bold shadow hover:bg-slate-300">やり直す</button>
-        <button id="hsExportBtn" class="px-4 py-3 rounded-xl bg-indigo-600 text-white font-bold shadow hover:opacity-90">📤 先生に提出</button>
-        <button id="hsReExportBtn" class="px-4 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-bold shadow hover:bg-indigo-100 hidden">📤 再提出する</button>
-        <div id="hsRewardMsg" class="text-sm font-bold text-emerald-700 ml-2"></div>
-      </div>
+      <!-- ボタンは右カラムに移動済み -->
       <div class="border-t pt-3">
         <div class="flex items-center justify-between">
           <div class="font-bold text-sm text-slate-700">履歴（最新100件）</div>
