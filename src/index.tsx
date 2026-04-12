@@ -6524,7 +6524,7 @@ wrap.innerHTML = '';
         html += '</tr></thead><tbody>';
         for(const s of students){
           html += '<tr>';
-          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(\''+escH(s.userId||s.name)+'\',\''+escH(s.name)+'\')">' + escH(s.name) + '</td>';
+          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(s.name)+'&#39;)">' + escH(s.name) + '</td>';
           const cnt = s.thisWeek ? s.thisWeek.count : 0;
           // 曜日ごとの提出は簡易表示（提出回数に応じて色分け）
           for(let d=0; d<5; d++){
