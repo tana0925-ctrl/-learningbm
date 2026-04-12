@@ -1890,8 +1890,18 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
       headers: { 'Content-Type': 'application/json' },
       body: geminiBody
     })
+    if (!resp.ok) {
+      const errText = await resp.text()
+      console.error('[Gemini API Error]', resp.status, errText)
+      return jsonError(c, 500, 'Gemini API HTTP ' + resp.status + ': ' + errText.slice(0, 200))
+    }
     const json: any = await resp.json()
     const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    console.log('[Gemini Response]', text.slice(0, 500))
+
+    if (!text) {
+      return jsonError(c, 500, 'Gemini returned empty. Raw: ' + JSON.stringify(json).slice(0, 300))
+    }
 
     let parsed: string[] = []
     try {
@@ -1901,14 +1911,13 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
         parsed = obj.comments || []
       }
     } catch {
-      // JSONパース失敗時は番号付きリストとして処理
       parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
     }
 
     const comments = subs.results.map((s: any, i: number) => ({
       id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
     }))
-    return c.json({ ok: true, comments })
+    return c.json({ ok: true, comments, _debug: { geminiRaw: text.slice(0, 300), parsedCount: parsed.length } })
   } catch (e: any) {
     return jsonError(c, 500, 'Gemini API error: ' + (e.message || String(e)))
   }
