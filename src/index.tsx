@@ -1875,7 +1875,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
   for (const uid of userIds) {
     try {
       const hist = await c.env.DB.prepare(`
-        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve
+        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve, work_photo_analysis
         FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
         ORDER BY day_key DESC LIMIT 30
       `).bind(uid).all<any>()
@@ -1901,7 +1901,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     const trend = recent5Avg > olderAvg + 5 ? '↑増加傾向' : recent5Avg < olderAvg - 5 ? '↓減少傾向' : '→安定'
     // 直近の記録（詳細）
     const recentHist = hist.slice(0, 10).map((h: any) =>
-      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} めあて:${h.aim||'-'} 振り返り:${h.weather_reason||'-'}${h.teacher_comment ? ' 先生:'+h.teacher_comment : ''}`
+      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} めあて:${h.aim||'-'} 振り返り:${h.weather_reason||'-'}${h.work_photo_analysis ? ' 📷:'+h.work_photo_analysis : ''}${h.teacher_comment ? ' 先生:'+h.teacher_comment : ''}`
     ).join('\n    ')
     const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
     return `${i+1}. 【${s.name}】(${s.day_key})
