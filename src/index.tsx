@@ -1616,12 +1616,28 @@ app.post('/api/homework/analyze-photo', async (c) => {
     let analysisText = ''
     try {
       const imageBytes = new Uint8Array(await photo.arrayBuffer())
-      const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+      let binary = ''
+      for (let i = 0; i < imageBytes.length; i += 8192) {
+        binary += String.fromCharCode(...imageBytes.subarray(i, Math.min(i + 8192, imageBytes.length)))
+      }
+      const base64 = btoa(binary)
+      const mimeType = photo.type || 'image/jpeg'
+      const dataUri = `data:${mimeType};base64,${base64}`
+
+      // Gemma 4 26B: 高性能ビジョン + 日本語対応
+      const aiRes: any = await c.env.AI.run('@cf/google/gemma-4-26b-a4b-it', {
         messages: [{
           role: 'user',
           content: [
-            { type: 'text', text: 'この画像は小学生の家庭学習の成果物です。何が写っているか、どんな学習をしたか、丁寧さや量、特徴を日本語で100文字以内で簡潔に説明してください。' },
-            { type: 'image', image: [...imageBytes] }
+            { type: 'image_url', image_url: { url: dataUri } },
+            { type: 'text', text: `You are a Japanese elementary school teacher. Look at this photo of a student's homework/study work and describe what you see. Answer in Japanese (日本語で回答).
+
+80〜120文字で簡潔に書いてください:
+- 教科・学習内容（何の勉強か）
+- 学習の量や丁寧さ
+- 良い点を1つ
+
+温かい言葉で。名前や挨拶は不要。` }
           ]
         }],
         max_tokens: 300,
@@ -1829,53 +1845,41 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     } catch { historyMap[uid] = [] }
   }
 
-  const lines = subs.results.map((s: any, i: number) => {
+  // 1児童ずつ個別にコメント生成
+  const comments: any[] = []
+  for (const s of subs.results) {
     const hist = historyMap[s.user_id] || []
-    const histText = hist.length
-      ? hist.map((h: any) => `  [${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 先生:${h.teacher_comment||'なし'}`).join('\n')
-      : '  なし'
-    const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
-    return `${i+1}. 【${s.name}】(${s.day_key})
-  やったこと: ${s.todo || '未記入'}
-  なんで: ${s.why || '未記入'}
-  めあて: ${s.aim || '未記入'}
-  学習時間: ${s.minutes || 0}分
-  振り返り: ${s.weather_reason || '未記入'}
-  次どうする: ${s.next_improve || '未記入'}${photoLine}
-  過去の記録:
-${histText}`
-  }).join('\n\n')
+    // 過去の学習傾向をまとめる
+    const subjects = hist.map((h: any) => h.todo).filter(Boolean)
+    const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
+    const pastComments = hist.filter((h: any) => h.teacher_comment).slice(0, 3).map((h: any) => h.teacher_comment)
 
-  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認め、過去の記録も参考にして個別最適な内容にしてください。
-「成果物の様子」がある場合は、ノートの丁寧さや学習内容の具体的な様子もコメントに反映してください。
-必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
-他のテキストは一切不要です。
-
-=== 児童の振り返り ===
-${lines}`
-
-  try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2000,
-    })
-    const text = (aiRes.response || '').trim()
-    let parsed: string[] = []
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const obj = JSON.parse(jsonMatch[0])
-        parsed = obj.comments || []
-      }
-    } catch {
-      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    let userData = `今日の学習: ${s.todo || '未記入'}\n学習時間: ${s.minutes || 0}分\nめあて: ${s.aim || '未記入'}\n振り返り: ${s.weather_reason || '未記入'}\n次にすること: ${s.next_improve || '未記入'}`
+    if (s.work_photo_analysis) userData += `\n成果物の様子: ${s.work_photo_analysis}`
+    if (hist.length > 0) {
+      userData += `\n\n過去の記録(${hist.length}回分): 平均${avgMin}分/回`
+      if (subjects.length) userData += `, よくやる教科: ${[...new Set(subjects)].slice(0, 3).join('・')}`
+      if (s.minutes > avgMin) userData += `, 今日は平均より${s.minutes - avgMin}分多い`
     }
+    if (pastComments.length) userData += `\n過去の先生コメント例: ${pastComments.join(' / ')}`
 
-    const comments = subs.results.map((s: any, i: number) => ({
-      id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').slice(0, 50)
-    }))
-    return c.json({ ok: true, comments })
+    try {
+      const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: 'あなたは小学校の担任の先生です。児童の家庭学習カードを見てコメントを1つ書きます。30〜50文字の日本語で、その子の頑張りを具体的に褒めてください。過去の記録があれば成長にも触れてください。成果物の様子があればノートの丁寧さなども褒めてください。コメントのみ出力。名前・番号・カッコは不要。' },
+          { role: 'user', content: userData }
+        ],
+        max_tokens: 150,
+      })
+      let text = (aiRes.response || '').trim()
+      // 余計な記号を除去
+      text = text.replace(/^["「『【]+|["」』】]+$/g, '').replace(/^\d+[\.\)]\s*/, '').replace(/^コメント[:：]\s*/,'').trim()
+      comments.push({ id: s.id, name: s.name, dayKey: s.day_key, comment: text.slice(0, 80) })
+    } catch (e: any) {
+      comments.push({ id: s.id, name: s.name, dayKey: s.day_key, comment: '' })
+    }
+  }
+  return c.json({ ok: true, comments })
   } catch (e: any) {
     return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
   }
@@ -2574,32 +2578,39 @@ app.post('/api/teacher/weekly-ai-comments', async (c) => {
   if (!plans.results?.length) return c.json({ ok: true, comments: [] })
 
   const lines = plans.results.map((p: any, i: number) =>
-    `${i+1}. 【${p.name}】\n  振り返り: ${p.weekly_reflection || '未記入'}`
-  ).join('\n\n')
+    `${i+1}. 振り返り:${p.weekly_reflection || '未記入'}`
+  ).join('\n')
 
-  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの1週間の家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認める内容にしてください。
-必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
-他のテキストは一切不要です。
+  const prompt = `/no_think
+以下の児童の1週間の振り返りに対して、先生からの温かいコメントを1人1行で書いてください。
 
-=== 児童の振り返り ===
-${lines}`
+条件:
+- 1行20〜30文字程度
+- 番号だけつけて、コメントのみ書く
+- 名前は書かない
+- 振り返り内容に触れて褒める
+
+児童データ:
+${lines}
+
+回答例:
+1. 1週間よくがんばったね！成長を感じるよ！
+2. 毎日コツコツ続けられてすばらしい！
+
+回答:`
 
   try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2000,
+    const aiRes: any = await c.env.AI.run('@cf/qwen/qwen3-30b-a3b-fp8', {
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 1000,
     })
     const text = (aiRes.response || '').trim()
-    let parsed: string[] = []
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const obj = JSON.parse(jsonMatch[0])
-        parsed = obj.comments || []
-      }
-    } catch {
-      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    const parsed: string[] = []
+    for (const line of text.split('\n')) {
+      const m = line.match(/^\d+[\.\)]\s*(.+)/)
+      if (m) parsed.push(m[1].trim())
     }
 
     const comments = plans.results.map((p: any, i: number) => ({
@@ -6106,6 +6117,7 @@ wrap.innerHTML = '';
         msg.textContent='AIがコメントを生成しています…少しお待ちください';
         try{
           var r = await api('/api/teacher/homework-ai-comments',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId})});
+          console.log('[AI-COMMENT-RESPONSE]', JSON.stringify(r));
           if(!r.comments || !r.comments.length){ msg.textContent='未返却の提出がありません'; return; }
           var filled = 0;
           for(var i=0;i<r.comments.length;i++){
