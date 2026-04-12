@@ -215,6 +215,16 @@ app.use('*', async (c, next) => {
   return next()
 })
 
+// -------------------- DB migration (add columns if missing) --------------------
+let _dbMigrated = false
+app.use('*', async (c, next) => {
+  if (!_dbMigrated) {
+    _dbMigrated = true
+    try { await c.env.DB.exec(`ALTER TABLE homework_submissions ADD COLUMN work_photo_key TEXT DEFAULT ''`) } catch (_) {}
+  }
+  return next()
+})
+
 // -------------------- auth middleware --------------------
 app.use('/api/*', async (c, next) => {
   const token = getCookie(c, 'session')
@@ -1976,14 +1986,35 @@ app.post('/api/homework/analyze-photo', async (c) => {
     if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
 
     let analysisText = ''
+    const imageBytes = new Uint8Array(await photo.arrayBuffer())
+    const mimeType = photo.type || 'image/jpeg'
+
+    // R2に写真を保存
+    const ext = mimeType === 'image/png' ? 'png' : 'jpg'
+    const photoKey = `photos/${u.id}/${dayKey}.${ext}`
     try {
-      const imageBytes = new Uint8Array(await photo.arrayBuffer())
+      await c.env.PHOTOS.put(photoKey, imageBytes, {
+        httpMetadata: { contentType: mimeType },
+      })
+      // DBにキーを記録
+      const existing0 = await c.env.DB.prepare(
+        `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+      ).bind(u.id, dayKey).first<any>()
+      if (existing0) {
+        await c.env.DB.prepare(
+          `UPDATE homework_submissions SET work_photo_key=? WHERE id=?`
+        ).bind(photoKey, existing0.id).run()
+      }
+    } catch (r2err: any) {
+      console.error('R2 photo save error:', r2err?.message || r2err)
+    }
+
+    try {
       let binary = ''
       for (let i = 0; i < imageBytes.length; i += 8192) {
         binary += String.fromCharCode(...imageBytes.subarray(i, Math.min(i + 8192, imageBytes.length)))
       }
       const base64 = btoa(binary)
-      const mimeType = photo.type || 'image/jpeg'
 
       const photoPrompt = `あなたは小学校の先生です。児童が提出した家庭学習の写真を見て、内容を分析してください。
 
@@ -2057,6 +2088,48 @@ app.post('/api/homework/analyze-photo', async (c) => {
   } catch (e: any) {
     console.error('analyze-photo error:', e)
     return c.json({ ok: true, analysis: '', saved: false })
+  }
+})
+
+// 写真を取得（先生 or 本人のみ）
+app.get('/api/photo/:userId/:dayKey', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 403, 'forbidden')
+  const targetUserId = c.req.param('userId')
+  const dayKey = c.req.param('dayKey')
+
+  // 本人 or 先生のみ
+  if (u.role === 'student' && u.id !== targetUserId) return jsonError(c, 403, 'forbidden')
+  if (u.role === 'teacher') {
+    const isMine = await c.env.DB.prepare(
+      `SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1`
+    ).bind(u.id, targetUserId).first<any>()
+    if (!isMine) return jsonError(c, 403, 'forbidden')
+  }
+
+  // DBからキー取得 or フォールバックでキー推測
+  const row = await c.env.DB.prepare(
+    `SELECT work_photo_key FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+  ).bind(targetUserId, dayKey).first<any>()
+
+  let photoKey = row?.work_photo_key || ''
+  if (!photoKey) {
+    // 旧データ用フォールバック：jpgとpngを試す
+    photoKey = `photos/${targetUserId}/${dayKey}.jpg`
+  }
+
+  try {
+    let obj = await c.env.PHOTOS.get(photoKey)
+    if (!obj && photoKey.endsWith('.jpg')) {
+      obj = await c.env.PHOTOS.get(photoKey.replace('.jpg', '.png'))
+    }
+    if (!obj) return jsonError(c, 404, 'photo_not_found')
+    const headers = new Headers()
+    headers.set('Content-Type', obj.httpMetadata?.contentType || 'image/jpeg')
+    headers.set('Cache-Control', 'private, max-age=3600')
+    return new Response(obj.body, { headers })
+  } catch (e: any) {
+    return jsonError(c, 500, 'photo_error')
   }
 })
 
@@ -2153,6 +2226,7 @@ app.get('/api/teacher/homework', async (c) => {
            hs.weekly_plan as weeklyPlan, hs.weekly_reflection as weeklyReflection,
            hs.self_study_plan as selfStudyPlan,
            hs.work_photo_analysis as workPhotoAnalysis,
+           hs.work_photo_key as workPhotoKey,
            u.id as userId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
@@ -6870,6 +6944,7 @@ wrap.innerHTML = '';
             + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
             + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物（AI分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
+            + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
             + '</div>';
 
           if(!returned){
