@@ -1255,7 +1255,7 @@ app.get('/api/teacher/class/:classId/ranking', async (c) => {
     : await c.env.DB.prepare(`SELECT id, name, class_code as classCode FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
   const res = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.grade, u.class_name as className,
+    SELECT u.id, u.login_id as loginId, u.name, u.grade, u.class_name as className,
            COALESCE(rs.total_level, 0) as totalLevel,
            COALESCE(rs.monster_count, 0) as monsterCount,
            COALESCE(rs.correct_count, 0) as correctCount,
