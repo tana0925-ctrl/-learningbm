@@ -5783,7 +5783,7 @@ app.get('/teacher', (c) => {
           });
           var csv = rows.map(function(r){
             return r.map(function(c){ return '"' + String(c).replace(/"/g,'""') + '"'; }).join(',');
-          }).join('\n');
+          }).join('\\n');
           var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
           var a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
@@ -5813,8 +5813,8 @@ app.get('/teacher', (c) => {
           } else {
             if(ch === '"'){ inQuote = true; }
             else if(ch === ','){ row.push(cur); cur = ''; }
-            else if(ch === '\n' || ch === '\r'){
-              if(ch === '\r' && text[i+1] === '\n') i++;
+            else if(ch === '\\n' || ch === '\\r'){
+              if(ch === '\\r' && text[i+1] === '\\n') i++;
               row.push(cur); cur = '';
               rows.push(row); row = [];
             } else { cur += ch; }
@@ -5857,8 +5857,8 @@ app.get('/teacher', (c) => {
         }
       }
       async function anonymizeCloudNames(){
-        if(!confirm('【最終確認】\nクラウド側に保存されている児童の名前をすべて空にします。\n（ログインIDと同じ値に置き換わります）\n\n※ 先生のブラウザの名簿CSVがあれば、これまで通り実名で表示されます。\n※ この操作は取り消せません。\n\n続けますか？')) return;
-        if(!confirm('もう一度確認します。\n本当にクラウド側の名前をすべて匿名化しますか？')) return;
+        if(!confirm('【最終確認】\\nクラウド側に保存されている児童の名前をすべて空にします。\\n（ログインIDと同じ値に置き換わります）\\n\\n※ 先生のブラウザの名簿CSVがあれば、これまで通り実名で表示されます。\\n※ この操作は取り消せません。\\n\\n続けますか？')) return;
+        if(!confirm('もう一度確認します。\\n本当にクラウド側の名前をすべて匿名化しますか？')) return;
         try {
           var r = await api('/api/teacher/anonymize-names', {
             method:'POST',
@@ -5874,7 +5874,7 @@ app.get('/teacher', (c) => {
         }
       }
       function clearStudentCSV(){
-        if(!confirm('このブラウザに保存されている名簿マッピングを削除します。\n（クラウド側のデータには影響しません）\nよろしいですか？')) return;
+        if(!confirm('このブラウザに保存されている名簿マッピングを削除します。\\n（クラウド側のデータには影響しません）\\nよろしいですか？')) return;
         setStudentNameMap({});
         var msg = document.getElementById('csvStatusMsg');
         if(msg) msg.textContent = '🗑 名簿マッピングを削除しました';
