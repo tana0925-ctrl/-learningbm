@@ -1118,6 +1118,38 @@ app.post('/api/teacher/class', async (c) => {
 })
 
 // クラス一覧
+// 先生の担当クラスの全児童（CSV書き出し用）
+app.get('/api/teacher/all-students', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(`
+    SELECT DISTINCT u.id as userId, u.login_id as loginId, u.name, u.grade, u.class_name as className
+    FROM users u
+    JOIN class_members cm ON cm.user_id = u.id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE u.role = 'student'
+    ORDER BY u.grade, u.class_name, u.login_id
+  `).bind(u.id).all<any>()
+  return c.json({ ok: true, students: res.results })
+})
+
+// 先生の担当クラスの全児童の名前をクラウドから消去（匿名化）
+app.post('/api/teacher/anonymize-names', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => ({}))
+  if (body?.confirm !== 'YES_ANONYMIZE') return jsonError(c, 400, 'confirm_required')
+  // 担当クラスの児童のnameを login_id に置き換える（空にはしない、表示識別のため）
+  const res = await c.env.DB.prepare(`
+    UPDATE users SET name = login_id
+    WHERE role = 'student' AND id IN (
+      SELECT DISTINCT cm.user_id FROM class_members cm
+      JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    )
+  `).bind(u.id).run()
+  return c.json({ ok: true, updated: res.meta?.changes || 0 })
+})
+
 app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -1138,7 +1170,7 @@ app.get('/api/teacher/class/:classId/members', async (c) => {
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class not found')
   const rows = await c.env.DB.prepare(
-    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
+    'SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
   ).bind(classId).all<any>()
   return c.json({ ok: true, members: rows.results })
 })
@@ -1248,7 +1280,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   const members = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.grade, p.state_json as stateJson
+    SELECT u.id, u.login_id as loginId, u.name, u.grade, p.state_json as stateJson
     FROM class_members cm
     JOIN users u ON u.id = cm.user_id
     LEFT JOIN progress p ON p.user_id = cm.user_id
@@ -1288,7 +1320,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
       }
     })
 
-    studentData.push({ id: m.id, name: m.name || '', grade: m.grade || '', byUnit, bySubject, learnStreak })
+    studentData.push({ id: m.id, loginId: m.loginId || '', name: m.name || '', grade: m.grade || '', byUnit, bySubject, learnStreak })
   }
 
   const unitKeys: string[] = []
@@ -1311,7 +1343,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
     ok: true, class: cls, unitSummary,
     unitInfo: Object.fromEntries(allUnits),
     students: studentData.map((s: any) => ({
-      id: s.id, name: s.name, grade: s.grade, learnStreak: s.learnStreak,
+      id: s.id, loginId: s.loginId, name: s.name, grade: s.grade, learnStreak: s.learnStreak,
       bySubject: Object.fromEntries(
         Object.entries(s.bySubject).map(([k, v]: [string, any]) => [k, {
           total: v.total || 0, correct: v.correct || 0,
@@ -1647,7 +1679,7 @@ app.get('/api/teacher/weekly-report', async (c) => {
 
   // 児童一覧
   const members = await c.env.DB.prepare(`
-    SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
+    SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
   `).bind(classId).all<any>()
   const memberList = members.results || []
 
@@ -1704,6 +1736,8 @@ app.get('/api/teacher/weekly-report', async (c) => {
     const sunRate = weathers.length ? Math.round(weathers.filter((w: string) => w === 'sun').length / weathers.length * 100) : 0
     const subjects = myResults.map((r: any) => `${r.unit}:${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%`).join(',')
     return {
+      userId: m.id,
+      loginId: m.loginId,
       name: m.name,
       thisWeek: { count: myHW.length, totalMin, sunRate },
       prevWeek: prevW ? { count: prevW.cnt, totalMin: prevW.totalMin } : null,
@@ -2230,7 +2264,7 @@ app.get('/api/teacher/homework', async (c) => {
            hs.self_study_plan as selfStudyPlan,
            hs.work_photo_analysis as workPhotoAnalysis,
            hs.work_photo_key as workPhotoKey,
-           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+           u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
     JOIN class_members cm ON cm.user_id = hs.user_id
@@ -2849,7 +2883,7 @@ app.get('/api/teacher/class-analytics', async (c) => {
 
   // 児童一覧
   const members = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.grade, u.class_name as className
+    SELECT u.id, u.login_id as loginId, u.name, u.grade, u.class_name as className
     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
     ORDER BY u.grade, u.class_name, u.name
   `).bind(classId).all<any>()
@@ -2902,21 +2936,21 @@ app.get('/api/teacher/class-analytics', async (c) => {
     thisHwByUser[r.user_id].totalMin += (r.minutes || 0)
   }
 
-  const alerts: { userId: string, name: string, type: string, detail: string }[] = []
+  const alerts: { userId: string, loginId: string, name: string, type: string, detail: string }[] = []
   for (const m of (members.results || [])) {
     const thisW = thisHwByUser[m.id]
     const prevW = prevHwMap[m.id]
     // 提出が減った
     if (prevW && prevW.cnt >= 3 && (!thisW || thisW.cnt <= 1)) {
-      alerts.push({ userId: m.id, name: m.name, type: 'submission_drop', detail: '先週'+prevW.cnt+'回→今週'+(thisW?.cnt||0)+'回に減少' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'submission_drop', detail: '先週'+prevW.cnt+'回→今週'+(thisW?.cnt||0)+'回に減少' })
     }
     // 学習時間が大幅減
     if (prevW && prevW.totalMin >= 60 && thisW && thisW.totalMin < prevW.totalMin * 0.5) {
-      alerts.push({ userId: m.id, name: m.name, type: 'time_drop', detail: '学習時間が先週の半分以下' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'time_drop', detail: '学習時間が先週の半分以下' })
     }
     // 今週ゼロ提出
     if (!thisW && (members.results || []).length > 0) {
-      alerts.push({ userId: m.id, name: m.name, type: 'no_submission', detail: '今週まだ提出なし' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'no_submission', detail: '今週まだ提出なし' })
     }
   }
 
@@ -3113,7 +3147,7 @@ app.get('/api/teacher/weekly-plans', async (c) => {
            swp.plan_approved as planApproved, swp.plan_approved_at as planApprovedAt,
            swp.reflection_comment as reflectionComment, swp.reflection_returned_at as reflectionReturnedAt,
            swp.revision_count as revisionCount,
-           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+           u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM student_weekly_plans swp
     JOIN users u ON u.id = swp.user_id
     JOIN class_members cm ON cm.user_id = swp.user_id
@@ -4442,7 +4476,7 @@ app.get('/api/teacher/contact-note/:id/reads', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const noteId = c.req.param('id')
   const res = await c.env.DB.prepare(
-    `SELECT cnr.user_id as userId, cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed, u.name as studentName
+    `SELECT cnr.user_id as userId, cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed, u.login_id as loginId, u.name as studentName
      FROM contact_note_reads cnr JOIN users u ON u.id = cnr.user_id
      WHERE cnr.note_id = ? ORDER BY cnr.read_at ASC`
   ).bind(noteId).all<any>()
@@ -4580,8 +4614,10 @@ app.get('/signup', (c) => {
       <h1 class="text-xl font-bold mb-4">児童 新規登録</h1>
       <div class="space-y-3">
         <div>
-          <label class="text-sm font-bold text-gray-700 mb-1 block">名前</label>
-          <input id="name" class="w-full border p-2 rounded" placeholder="例：山田 太郎"/>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">ニックネーム</label>
+          <input id="name" class="w-full border p-2 rounded" placeholder="例：ひろ、たろう、りんご"/>
+          <p class="text-xs text-red-600 mt-1">⚠️ 本名（フルネーム）は書かないでください</p>
+          <p class="text-xs text-gray-500 mt-0.5">好きなニックネームでOK！あとから変更もできます</p>
         </div>
         <div class="flex gap-2">
           <div class="flex-1">
@@ -4616,8 +4652,8 @@ app.get('/signup', (c) => {
         loginId_too_short: 'ログインIDは3文字以上にしてください',
         loginId_taken: 'このログインIDはすでに使われています',
         password_too_short: 'パスワードは6文字以上にしてください',
-        name_required: '名前を入力してください',
-        name_inappropriate: 'その名前は使えません',
+        name_required: 'ニックネームを入力してください',
+        name_inappropriate: 'そのニックネームは使えません',
         grade_invalid: '学年を選択してください',
         invalid_json: '入力内容に問題があります',
       };
@@ -4631,7 +4667,13 @@ app.get('/signup', (c) => {
           password: document.getElementById('password').value,
         };
         // クライアント側バリデーション
-        if(!payload.name){ msg.textContent='名前を入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!payload.name){ msg.textContent='ニックネームを入力してください'; msg.className='text-sm text-red-600'; return; }
+        // 本名っぽい入力（漢字2文字以上が連続）を警告
+        if(/[\u4e00-\u9fa5]{2,}\s*[\u4e00-\u9fa5]{2,}/.test(payload.name)){
+          if(!confirm('本名（フルネーム）のように見えます。\\n本当にこれをニックネームにしますか？\\n\\n※ プライバシー保護のため、ニックネームの使用をおすすめします。')){
+            return;
+          }
+        }
         if(!gradeVal){ msg.textContent='学年を選択してください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.loginId || payload.loginId.length < 3){ msg.textContent='ログインIDは3文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.password || payload.password.length < 6){ msg.textContent='パスワードは6文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
@@ -5506,6 +5548,26 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        <!-- 名簿管理（プライバシー保護） -->
+        <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3">
+          <div class="font-bold text-sm text-rose-800">🔒 名簿管理（プライバシー保護）</div>
+          <div class="text-xs text-rose-700 leading-relaxed">
+            児童の実名をクラウドに保存せず、先生のPCの中だけで管理する仕組みです。<br>
+            ① 「名簿CSVダウンロード」で現在の児童リストを取得 → ②必要なら実名に編集 → ③「名簿CSVアップロード」で先生のブラウザに保存。<br>
+            <span class="font-bold">④最後に「クラウド側の名前を空にする」を押すと完全匿名化されます。</span>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <button onclick="downloadStudentCSV()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📥 ① 現在の名簿をCSVダウンロード</button>
+            <label class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90 cursor-pointer">
+              📤 ③ 名簿CSVアップロード
+              <input type="file" accept=".csv" onchange="uploadStudentCSV(event)" class="hidden"/>
+            </label>
+            <button onclick="anonymizeCloudNames()" class="bg-red-700 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔒 ④ クラウド側の名前を空にする</button>
+            <button onclick="clearStudentCSV()" class="bg-slate-400 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🗑 名簿リセット（このブラウザのみ）</button>
+          </div>
+          <div id="csvStatusMsg" class="text-xs text-rose-700 font-bold"></div>
+        </div>
+
         </div>
         <!-- サブタブ②: 今週の計画 -->
         <div id="hwPane_plan" class="hidden space-y-3">
@@ -5698,6 +5760,127 @@ app.get('/teacher', (c) => {
 
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+      // ===== 名簿マッピング（localStorage）=====
+      function getStudentNameMap(){
+        try { return JSON.parse(localStorage.getItem('studentNameMap') || '{}'); } catch(_) { return {}; }
+      }
+      function setStudentNameMap(map){
+        try { localStorage.setItem('studentNameMap', JSON.stringify(map||{})); } catch(_) {}
+      }
+      function resolveStudentName(loginId, fallback){
+        var map = getStudentNameMap();
+        if(loginId && map[loginId]) return map[loginId];
+        return fallback || loginId || '';
+      }
+      async function downloadStudentCSV(){
+        try {
+          var data = await api('/api/teacher/all-students');
+          var rows = [['ログインID','実名','学年','クラス']];
+          var map = getStudentNameMap();
+          (data.students || []).forEach(function(s){
+            var realName = map[s.loginId] || s.name || '';
+            rows.push([s.loginId, realName, s.grade || '', s.className || '']);
+          });
+          var csv = rows.map(function(r){
+            return r.map(function(c){ return '"' + String(c).replace(/"/g,'""') + '"'; }).join(',');
+          }).join('\n');
+          var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = '名簿_' + new Date().toISOString().slice(0,10) + '.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '✅ 名簿CSVをダウンロードしました（' + ((data.students||[]).length) + '名）';
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      function parseCSV(text){
+        // シンプルなCSVパーサ（ダブルクォート対応）
+        var rows = [];
+        var row = [];
+        var cur = '';
+        var inQuote = false;
+        for(var i=0; i<text.length; i++){
+          var ch = text[i];
+          if(inQuote){
+            if(ch === '"'){
+              if(text[i+1] === '"'){ cur += '"'; i++; }
+              else { inQuote = false; }
+            } else { cur += ch; }
+          } else {
+            if(ch === '"'){ inQuote = true; }
+            else if(ch === ','){ row.push(cur); cur = ''; }
+            else if(ch === '\n' || ch === '\r'){
+              if(ch === '\r' && text[i+1] === '\n') i++;
+              row.push(cur); cur = '';
+              rows.push(row); row = [];
+            } else { cur += ch; }
+          }
+        }
+        if(cur !== '' || row.length > 0){ row.push(cur); rows.push(row); }
+        return rows;
+      }
+      async function uploadStudentCSV(ev){
+        try {
+          var file = ev.target.files[0];
+          if(!file) return;
+          var text = await file.text();
+          // BOM除去
+          if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+          var rows = parseCSV(text);
+          if(rows.length < 2){ alert('CSVにデータがありません'); return; }
+          var header = rows[0].map(function(h){ return String(h).trim(); });
+          var idxLogin = header.indexOf('ログインID');
+          var idxName = header.indexOf('実名');
+          if(idxLogin < 0) idxLogin = 0;
+          if(idxName < 0) idxName = 1;
+          var map = {};
+          var count = 0;
+          for(var i=1; i<rows.length; i++){
+            var r = rows[i];
+            if(!r || r.length === 0) continue;
+            var loginId = String(r[idxLogin]||'').trim();
+            var realName = String(r[idxName]||'').trim();
+            if(loginId && realName){ map[loginId] = realName; count++; }
+          }
+          setStudentNameMap(map);
+          ev.target.value = '';
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '✅ 名簿を読み込みました（' + count + '名）。このブラウザにのみ保存されます。';
+          // 画面を更新
+          if(typeof loadClasses === 'function') loadClasses();
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      async function anonymizeCloudNames(){
+        if(!confirm('【最終確認】\nクラウド側に保存されている児童の名前をすべて空にします。\n（ログインIDと同じ値に置き換わります）\n\n※ 先生のブラウザの名簿CSVがあれば、これまで通り実名で表示されます。\n※ この操作は取り消せません。\n\n続けますか？')) return;
+        if(!confirm('もう一度確認します。\n本当にクラウド側の名前をすべて匿名化しますか？')) return;
+        try {
+          var r = await api('/api/teacher/anonymize-names', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ confirm: 'YES_ANONYMIZE' })
+          });
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '🔒 匿名化完了（' + (r.updated||0) + '名の名前を空にしました）';
+          alert('匿名化しました。');
+          if(typeof loadClasses === 'function') loadClasses();
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      function clearStudentCSV(){
+        if(!confirm('このブラウザに保存されている名簿マッピングを削除します。\n（クラウド側のデータには影響しません）\nよろしいですか？')) return;
+        setStudentNameMap({});
+        var msg = document.getElementById('csvStatusMsg');
+        if(msg) msg.textContent = '🗑 名簿マッピングを削除しました';
+        if(typeof loadClasses === 'function') loadClasses();
+      }
+
       function switchTab(tab){
         ['classes','contact','announcements','homework','analytics','mail'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -5867,7 +6050,7 @@ app.get('/teacher', (c) => {
           +'</tr></thead><tbody>';
         students.forEach((s,i)=>{
           const row = '<tr class="'+(i%2===0?'':'bg-slate-50')+'">'
-            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'"><a href="javascript:void(0)" onclick="showStudentKarte(&#39;'+escH(s.id)+'&#39;,&#39;'+escH(s.name)+'&#39;)" class="text-purple-600 hover:underline cursor-pointer">'+escH(s.name)+'</a></td>'
+            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'"><a href="javascript:void(0)" onclick="showStudentKarte(&#39;'+escH(s.id)+'&#39;,&#39;'+escH(resolveStudentName(s.loginId, s.name))+'&#39;)" class="text-purple-600 hover:underline cursor-pointer">'+escH(resolveStudentName(s.loginId, s.name))+'</a></td>'
             +'<td class="border px-2 py-1 text-center">'+(s.learnStreak>0?'🔥'+s.learnStreak:'−')+'</td>'
             +['math','jp','soc','science'].map(subj=>{
               const d = s.bySubject[subj];
@@ -6336,11 +6519,12 @@ app.get('/teacher', (c) => {
             const approvedBadge = p.planApproved
               ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+300coin+5かけら)</span>'
               : '';
+            const __pName = resolveStudentName(p.loginId, p.studentName);
             const revBadge = (p.revisionCount && p.revisionCount > 0)
-              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(p.studentName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
+              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(__pName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
               : '';
             let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
-              + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
+              + '<div class="font-bold text-sm">'+escH(__pName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
               + '<div class="text-[10px] text-slate-400">'+new Date(p.updatedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'
               + '</div>';
 
@@ -6375,7 +6559,7 @@ app.get('/teacher', (c) => {
               if(p.reflectionReturnedAt){
                 html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+300coin+5かけら)</span></div>';
               } else {
-                window._weeklyRefData.push({ id: p.id, name: p.studentName, reflection: reflection });
+                window._weeklyRefData.push({ id: p.id, name: __pName, reflection: reflection });
                 html += '<div class="flex items-center gap-1">'
                   + '<textarea id="refComment_'+p.id+'" class="flex-1 border rounded p-1.5 text-xs" rows="1" placeholder="コメント（一括AIも可）"></textarea>'
                   + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="returnReflection('+p.id+',this)">返却</button>'
@@ -6607,7 +6791,7 @@ wrap.innerHTML = '';
             html += '<div class="font-bold text-sm text-red-800">⚠️ 気になる児童 ('+alerts.length+'人)</div>';
             for(const a of alerts){
               const icon = a.type==='no_submission' ? '🔴' : a.type==='submission_drop' ? '🟡' : '🟠';
-              html += '<div class="text-xs text-red-700">'+icon+' <b>'+escH(a.name)+'</b>: '+escH(a.detail)+'</div>';
+              html += '<div class="text-xs text-red-700">'+icon+' <b>'+escH(resolveStudentName(a.loginId, a.name))+'</b>: '+escH(a.detail)+'</div>';
             }
             html += '</div>';
           } else {
@@ -6637,7 +6821,7 @@ wrap.innerHTML = '';
             const barW = Math.min(100, hw.cnt * 20); // 5回=100%
             const color = hw.cnt >= 4 ? 'bg-emerald-500' : hw.cnt >= 2 ? 'bg-yellow-500' : hw.cnt > 0 ? 'bg-orange-400' : 'bg-red-300';
             html += '<div class="flex items-center gap-1 text-[11px]">';
-            html += '<div class="w-16 truncate text-slate-600">'+escH(m.name)+'</div>';
+            html += '<div class="w-16 truncate text-slate-600">'+escH(resolveStudentName(m.loginId, m.name))+'</div>';
             html += '<div class="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden"><div class="h-full rounded-full '+color+'" style="width:'+barW+'%"></div></div>';
             html += '<div class="w-10 text-right text-slate-500">'+hw.cnt+'回</div>';
             html += '<div class="w-14 text-right text-slate-400">'+(hw.totalMin||0)+'分</div>';
@@ -6673,7 +6857,7 @@ wrap.innerHTML = '';
             if(r) badges.push('<span class="bg-purple-100 text-purple-700 px-1 rounded text-[9px]">💭ふりかえり</span>');
             if(r && r.concentration) badges.push('<span class="bg-yellow-100 text-yellow-700 px-1 rounded text-[9px]">集中'+('★'.repeat(r.concentration))+'</span>');
             html += '<div class="flex items-center gap-1 text-[11px]">';
-            html += '<div class="w-16 truncate text-slate-600">'+escH(m.name)+'</div>';
+            html += '<div class="w-16 truncate text-slate-600">'+escH(resolveStudentName(m.loginId, m.name))+'</div>';
             html += '<div class="flex gap-0.5 flex-wrap">'+(badges.length > 0 ? badges.join(' ') : '<span class="text-slate-300 text-[9px]">—</span>')+'</div>';
             html += '</div>';
           }
@@ -6735,8 +6919,9 @@ wrap.innerHTML = '';
         for(const s of students){
           const btn = document.createElement('button');
           btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition';
-          btn.textContent = '👤 ' + s.name;
-          btn.onclick = function(){ openStudentKarte(s.userId || s.name, s.name); };
+          const __n = resolveStudentName(s.loginId, s.name);
+          btn.textContent = '👤 ' + __n;
+          btn.onclick = (function(name){ return function(){ openStudentKarte(s.userId || s.name, name); }; })(__n);
           wrap.appendChild(btn);
         }
         // ヒートマップも描画
@@ -6753,7 +6938,8 @@ wrap.innerHTML = '';
         html += '</tr></thead><tbody>';
         for(const s of students){
           html += '<tr>';
-          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(s.name)+'&#39;)">' + escH(s.name) + '</td>';
+          var __hName = resolveStudentName(s.loginId, s.name);
+          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(__hName)+'&#39;)">' + escH(__hName) + '</td>';
           const cnt = s.thisWeek ? s.thisWeek.count : 0;
           // 曜日ごとの提出は簡易表示（提出回数に応じて色分け）
           for(let d=0; d<5; d++){
@@ -6922,7 +7108,8 @@ wrap.innerHTML = '';
           card.className='border rounded-xl p-3 space-y-2 ' + (returned ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300');
           card.dataset.hwId = s.id;
           card.dataset.hwUserId = s.userId||'';
-          card.dataset.hwName = s.studentName||'';
+          const __sName = resolveStudentName(s.loginId, s.studentName);
+          card.dataset.hwName = __sName||'';
           card.dataset.hwDayKey = s.dayKey||'';
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
@@ -6933,7 +7120,7 @@ wrap.innerHTML = '';
             : '<span class="bg-red-100 text-red-600 text-xs px-1 rounded font-bold">未返却</span>';
 
           card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
-            + '<div class="font-bold">' + escH(s.studentName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
+            + '<div class="font-bold">' + escH(__sName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
             + '<div class="flex gap-1 items-center text-xs">' + returnedBadge + physicalBadge + '<span class="text-slate-400">'+escH(s.dayKey)+'</span></div>'
             + '</div>'
             + '<div class="text-xs space-y-0.5 text-slate-700">'
@@ -7021,7 +7208,7 @@ wrap.innerHTML = '';
           for(var si=0;si<all.length;si++){ if(all[si].id===id){ sub=all[si]; break; } }
           if(!sub) continue;
           var w = {sun:'☀晴れ',cloud:'☁くもり',rain:'☂あめ'}[sub.endWeather]||'';
-          var today = idx+'. 【'+sub.studentName+'】（'+sub.dayKey+'）';
+          var today = idx+'. 【'+resolveStudentName(sub.loginId, sub.studentName)+'】（'+sub.dayKey+'）';
           today += '\\n  やったこと: '+(sub.todo||'―');
           today += '\\n  なんで: '+(sub.why||'―');
           today += '\\n  めあて: '+(sub.aim||'―');
@@ -7272,10 +7459,11 @@ wrap.innerHTML = '';
             var preview = lastMsg ? lastMsg.body.slice(0,30) : 'メッセージなし';
             var time = lastMsg ? _utcToJST(lastMsg.createdAt).time : '';
             card.className = 'flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm cursor-pointer hover:bg-slate-50 border' + (unread ? ' border-orange-300' : ' border-slate-100');
-            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(m.name.slice(0,1))+'</div>'
-              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(m.name)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
+            var __mName = resolveStudentName(m.loginId, m.name);
+            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(__mName.slice(0,1))+'</div>'
+              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(__mName)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
               + (unread ? '<span class="bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold">'+unread+'</span>' : '');
-            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:m.name});
+            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:__mName});
             wrap.appendChild(card);
           });
         }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm">読み込みエラー</p>'; }
@@ -7483,7 +7671,7 @@ wrap.innerHTML = '';
           data.reads.forEach(function(r){
             var reward = r.rewardClaimed ? '<span class="text-green-600">💰</span>' : '<span class="text-slate-400">-</span>';
             html += '<div class="flex gap-2 items-center">'
-              + '<span>'+escH(r.studentName)+'</span>'
+              + '<span>'+escH(resolveStudentName(r.loginId, r.studentName))+'</span>'
               + '<span class="text-xs text-slate-400">'+escH((r.readAt||'').slice(0,16))+'</span>'
               + reward + '</div>';
           });

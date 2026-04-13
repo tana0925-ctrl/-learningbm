@@ -3079,6 +3079,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-training" style="background: linear-gradient(180deg, #60a5fa, #2563eb);" onclick="trySetMode('training')"><span class="nav3d-icon">🏋️</span>修行</button>
 <button id="btn-homestudy" class="nav3d relative" style="background: linear-gradient(180deg, #4ade80, #16a34a);" onclick="openHomeStudy()"><span class="nav3d-icon">🏠</span>家庭学習<span id="hsNavBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-black">!</span></button>
 <button id="btn-contact" class="nav3d relative" style="background: linear-gradient(180deg, #60a5fa, #3b82f6);" onclick="openContactNotes()"><span class="nav3d-icon">📓</span>連絡帳<span id="headerContactBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
+<button id="btn-mail" class="nav3d relative" style="display:none; background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="openStudentMail()"><span class="nav3d-icon">💬</span>質問<span id="headerMailBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-black animate-pulse">0</span></button>
 
 <div class="relative" id="battle-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #f87171, #dc2626);" onclick="toggleBattleMenu(event)"><span class="nav3d-icon">⚔️</span>バトル</button>
@@ -3090,7 +3091,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-wrap">
-  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span>友達通信</button>
+  <button class="nav3d w-full" style="background: linear-gradient(180deg, #a78bfa, #7c3aed);" onclick="toggleFriendMenu(event)"><span class="nav3d-icon">🤝</span><span style="font-size:0.85em">友達通信</span><span style="font-size:0.5em;opacity:0.7;margin-left:2px">β開発中</span></button>
   <div id="friend-menu" class="hidden absolute bottom-0 left-full ml-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:160px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenu()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenu()"><span>🔄</span>友達交換</button>
@@ -3115,6 +3116,7 @@ function formatYMD(d){
 <button class="mnav-btn" onclick="trySetMode('training')"><span class="mnav-icon">🏋️</span><span class="mnav-label" style="color:#2563eb">修行</span></button>
 <button id="mobile-btn-homestudy" class="mnav-btn" onclick="openHomeStudy()"><span class="mnav-icon">🏠</span><span class="mnav-label" style="color:#16a34a">家庭学習</span></button>
 <button id="mobile-btn-contact" class="mnav-btn" onclick="openContactNotes()"><span class="mnav-icon">📓</span><span class="mnav-label" style="color:#2563eb">連絡帳</span></button>
+<button id="mobile-btn-mail" class="mnav-btn" style="display:none;" onclick="openStudentMail()"><span class="mnav-icon">✉️</span><span class="mnav-label" style="color:#7c3aed">質問</span></button>
 <div class="relative" id="battle-nav-mobile-wrap">
   <button class="mnav-btn" onclick="toggleBattleMenuMobile(event)"><span class="mnav-icon">⚔️</span><span class="mnav-label" style="color:#dc2626">バトル</span></button>
   <div id="battle-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
@@ -3125,7 +3127,7 @@ function formatYMD(d){
   </div>
 </div>
 <div class="relative" id="friend-nav-mobile-wrap">
-  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信</span></button>
+  <button class="mnav-btn" onclick="toggleFriendMenuMobile(event)"><span class="mnav-icon">🤝</span><span class="mnav-label" style="color:#7c3aed">友達通信<span style="font-size:0.7em;opacity:0.7">β</span></span></button>
   <div id="friend-menu-mobile" class="hidden absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:150px">
     <button class="w-full px-4 py-3 text-sm font-bold text-purple-700 hover:bg-purple-50 flex items-center gap-2 whitespace-nowrap" onclick="trySetMode('friend'); closeFriendMenuMobile()"><span>⚔️</span>友達対戦</button>
     <button class="w-full px-4 py-3 text-sm font-bold text-teal-700 hover:bg-teal-50 flex items-center gap-2 whitespace-nowrap border-t border-slate-100" onclick="openTradeAccept(); closeFriendMenuMobile()"><span>🔄</span>友達交換</button>
@@ -3556,7 +3558,8 @@ function formatYMD(d){
 </div>
 </div>
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-friend">
-<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-4">🤝 友達対戦（ともだちたいせん）</h2>
+<h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-2">🤝 友達対戦（ともだちたいせん）</h2>
+<div class="bg-purple-50 border-2 border-purple-300 rounded-xl p-3 mb-4 text-center"><span class="text-purple-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-purple-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
 
 <!-- タブ切り替え -->
 <div class="flex gap-2 mb-4">
@@ -3575,13 +3578,13 @@ function formatYMD(d){
         <p class="text-xs text-gray-600 mb-2">相手を呼ぶ！</p>
         <div class="text-xs text-gray-600 mb-2">バトル形式</div>
         <label class="text-xs flex items-center gap-1 mb-1">
-          <input name="rtBattleType" type="radio" value="normal" checked/> 野生バトル形式
+          <input name="rtBattleType" type="radio" value="normal" checked onchange="document.getElementById('rtGradeSubjectArea').style.display=''"/> 野生バトル形式
         </label>
         <label class="text-xs flex items-center gap-1 mb-2">
-          <input name="rtBattleType" type="radio" value="gym"/> ジムバトル形式
+          <input name="rtBattleType" type="radio" value="gym" onchange="document.getElementById('rtGradeSubjectArea').style.display='none'"/> ジムバトル形式
         </label>
                 <!-- タマゴバトル形式はRT同期未対応のため非表示 -->
-        <div class="mb-2">
+        <div id="rtGradeSubjectArea"><div class="mb-2">
           <div class="text-[10px] text-gray-500 font-bold mb-1">①学年</div>
           <div class="flex flex-wrap gap-1" id="rtGradeButtons">
             <button class="rt-grade-btn px-2 py-0.5 rounded-full text-[10px] font-bold border-2 bg-white text-gray-600 border-gray-300" data-grade="1" onclick="selectRtGrade(1)">1年</button>
@@ -3600,7 +3603,7 @@ function formatYMD(d){
           <div class="text-[10px] text-gray-500 font-bold mb-1">③単元</div>
           <select id="rtAreaSelect" class="w-full p-1 border border-sky-300 rounded text-xs">
           </select>
-        </div>
+        </div></div>
         <button class="bg-purple-600 text-white px-3 py-2 rounded-lg font-bold shadow w-full text-sm" onclick="rtCreateRoom()">ルーム作成</button>
       </div>
       <div class="bg-green-50 p-4 rounded-xl border border-green-200">
@@ -4269,6 +4272,7 @@ function formatYMD(d){
 <div class="glass-panel p-4 h-full hidden overflow-y-auto" id="screen-trade">
 <div class="flex justify-between items-center mb-2 border-b pb-2">
   <h2 class="text-lg font-bold text-teal-800">🔄 友達交換</h2>
+<div class="bg-teal-50 border-2 border-teal-300 rounded-xl p-3 mb-4 text-center"><span class="text-teal-700 font-bold text-sm">🔧 この機能は現在開発中です！</span><div class="text-xs text-teal-500 mt-1">不具合があるかもしれません。温かく見守ってください🙏</div></div>
   <button class="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700" onclick="setMode('status')">← もどる</button>
 </div>
 
@@ -4471,6 +4475,9 @@ function formatYMD(d){
     <div class="w-20"></div>
   </div>
 
+  <!-- 今日の状態 -->
+  <div id="hwTodayStatus" class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-sm text-amber-800 font-bold text-center"></div>
+
   <!-- 先生メニュー -->
   <div id="hwMenuPanel" class="bg-green-50 border-2 border-green-300 rounded-xl p-3">
     <div class="font-bold text-sm text-green-800 mb-1">📚 先生メニュー（今週の課題）</div>
@@ -4478,10 +4485,12 @@ function formatYMD(d){
       <div id="hwMenuKanji">漢字スキル：<span class="font-bold">—</span></div>
       <div id="hwMenuKeisan">計算スキル：<span class="font-bold">—</span></div>
       <div id="hwMenuOther" class="hidden">その他：<span class="font-bold"></span></div>
+      <div id="hwMenuTests" class="hidden">📝 今週のテスト：<span class="font-bold"></span></div>
     </div>
   </div>
 
   <!-- 曜日カード -->
+  <div id="hwNoMenuMsg" class="hidden"></div>
   <div class="grid grid-cols-5 gap-2" id="hwDayCards">
     <!-- JS で生成 -->
   </div>
@@ -4493,7 +4502,7 @@ function formatYMD(d){
     <div class="space-y-2" id="hwPlanInputs">
       <!-- JS で月～金の入力欄を生成 -->
     </div>
-    <button onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
+    <button id="hwPlanSubmitBtn" onclick="hwSavePlans()" class="w-full bg-emerald-600 text-white rounded-xl py-2.5 font-bold shadow hover:opacity-90">📨 計画を提出</button>
     <div id="hwPlanMsg" class="text-xs text-emerald-700 text-center"></div>
   </div>
 
@@ -4508,8 +4517,6 @@ function formatYMD(d){
     <div id="hwReflectionMsg" class="text-xs text-orange-700 text-center"></div>
   </div>
 
-  <!-- 今日の状態 -->
-  <div id="hwTodayStatus" class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-700"></div>
 
   <!-- ボタン -->
   <div class="flex gap-2">
@@ -4566,6 +4573,7 @@ function formatYMD(d){
                   <div id="hsMenuKanji" class="ml-2">漢字スキル：<span class="font-bold">—</span></div>
                   <div id="hsMenuKeisan" class="ml-2">計算スキル：<span class="font-bold">—</span></div>
                   <div id="hsMenuOther" class="ml-2 hidden">その他：<span class="font-bold"></span></div>
+                  <div id="hsMenuTests" class="ml-2 hidden">📝 今週のテスト：<span class="font-bold"></span></div>
                 </div>
                 <div class="mt-2">
                   <div class="text-xs font-bold text-green-800 mb-1">✏️ 今週の自主学習計画（何をどこまでやる？）</div>
@@ -4576,17 +4584,17 @@ function formatYMD(d){
           </div>
 
           <!-- 毎日の計画セクション -->
-          <div class="hs-row" style="height:auto; min-height:100px;">
+          <div class="hs-row" style="height:auto; min-height:auto;">
             <div class="hs-panel hs-cream" style="flex:1;">
               <div class="hs-label">📝 今日やること</div>
-              <div class="mt-8 space-y-2">
+              <div class="mt-8 space-y-1">
                 <div class="px-2 py-1 bg-blue-50 rounded-lg">
-                  <div class="text-sm font-bold text-blue-700 mb-1">📖 今日の復習</div>
-                  <textarea id="hsReview" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:40px;" placeholder="例：漢字ドリルp.20～22、算数の復習 など"></textarea>
+                  <div class="text-xs font-bold text-blue-700 mb-0.5">📖 今日の復習</div>
+                  <textarea id="hsReview" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:28px; padding-top:2px;" placeholder="例：漢字ドリルp.20～22、算数の復習 など"></textarea>
                 </div>
                 <div class="px-2 py-1 bg-purple-50 rounded-lg">
-                  <div class="text-sm font-bold text-purple-700 mb-1">✍️ 自主学習</div>
-                  <textarea id="hsTodo" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:40px;" placeholder="例：漢字スキルp.15～18、算数プリント など"></textarea>
+                  <div class="text-xs font-bold text-purple-700 mb-0.5">✍️ 自主学習</div>
+                  <textarea id="hsTodo" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:28px; padding-top:2px;" placeholder="例：漢字スキルp.15～18、算数プリント など"></textarea>
                 </div>
                 <div id="hsSelfStudyPlanLine" class="hidden px-2 py-1 bg-green-50 rounded-lg">
                   <div class="text-xs font-bold text-green-700">📚 先生メニュー</div>
@@ -4597,19 +4605,20 @@ function formatYMD(d){
           </div>
 
           <!-- なんでそれをやるの？ -->
-          <div class="hs-row" style="height:auto; min-height:80px;">
+          <div class="hs-row" style="height:auto; min-height:auto;">
             <div class="hs-panel hs-pink">
               <div class="hs-label mint">↑ なんで今日それをやるの？</div>
-              <textarea id="hsWhy" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" placeholder="例：昨日できなかったところをできるようにしたい など"></textarea>
+              <textarea id="hsWhy" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" style="min-height:32px;" placeholder="例：昨日できなかったところをできるようにしたい など"></textarea>
             </div>
           </div>
 
-          <!-- めあて -->
-          <div class="hs-row" style="height:auto; min-height:70px;">
-            <div class="hs-panel hs-cream">
+          <!-- めあて + スタートボタン -->
+          <div class="hs-row" style="height:auto; min-height:auto; display:flex; gap:10px; align-items:stretch;">
+            <div class="hs-panel hs-cream" style="flex:1;">
               <div class="hs-label blue">めあて（どのように取り組む？意気込みなどどうぞ！）</div>
-              <textarea id="hsAim" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" placeholder="例：30分集中して、間違い直しまでやる"></textarea>
+              <textarea id="hsAim" class="hs-ta smallpad" data-maxfs="16" data-minfs="8" style="min-height:32px;" placeholder="例：30分集中して、間違い直しまでやる"></textarea>
             </div>
+            <button id="hsStartBtn" style="flex:0 0 auto; padding:12px 20px; border-radius:14px; background:linear-gradient(135deg,#059669,#10b981); color:#fff; font-weight:800; font-size:15px; border:3px solid #047857; box-shadow:0 4px 12px rgba(5,150,105,0.4); cursor:pointer; white-space:nowrap; align-self:center;">🚀<br>スタート</button>
           </div>
           <div class="hs-bottom">
             <div class="hs-col">
@@ -4669,8 +4678,19 @@ function formatYMD(d){
 
         </div>
       </div>
+      <!-- 成果物写真（複数枚対応） -->
+      <div id="hsPhotoSection" style="padding:10px 14px; background:#ecfeff; border:2px dashed #06b6d4; border-radius:12px;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div style="font-size:13px; font-weight:bold; color:#0e7490;">📷 成果物の写真（任意・複数OK）</div>
+          <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:12px; font-weight:bold; padding:5px 14px; border-radius:8px; display:inline-block;">
+            写真を追加
+            <input type="file" id="hsPhotoInput" accept="image/*" multiple style="display:none;" onchange="hsPhotosSelected(this)"/>
+          </label>
+          <span id="hsPhotoStatus" style="font-size:11px; color:#64748b;"></span>
+        </div>
+        <div id="hsPhotoPreviewList" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
+      </div>
       <div class="flex flex-wrap gap-2 items-center">
-        <button id="hsStartBtn" class="px-4 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow hover:opacity-90">家庭学習スタート</button>
         <button id="hsResetBtn" class="px-4 py-3 rounded-xl bg-slate-200 text-slate-800 font-bold shadow hover:bg-slate-300">やり直す</button>
         <button id="hsExportBtn" class="px-4 py-3 rounded-xl bg-indigo-600 text-white font-bold shadow hover:opacity-90">📤 先生に提出</button>
         <button id="hsReExportBtn" class="px-4 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-bold shadow hover:bg-indigo-100 hidden">📤 再提出する</button>
@@ -4697,6 +4717,7 @@ function formatYMD(d){
     <p class="text-sm text-slate-400">読み込み中...</p>
   </div>
 </div>
+<div id="screen-mail" class="glass-panel p-0 h-full hidden flex-col overflow-hidden">  <div class="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 text-white flex-shrink-0">    <button class="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-sm" onclick="trySetMode('status')">←</button>    <h2 class="text-base font-black flex items-center gap-2">💬 質問チャット</h2>  </div>  <div id="studentMailList" class="flex-1 overflow-y-auto p-3 space-y-2" style="background:#e8d5f5;">    <p class="text-sm text-slate-400 text-center">読み込み中...</p>  </div>  <div class="flex-shrink-0 bg-white border-t border-slate-200 p-2"><div id="studentImagePreview" class="hidden pb-2"><div class="relative inline-block"><img id="studentImageThumb" class="h-16 rounded"/><button onclick="clearStudentImage()" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button></div></div><div class="flex gap-2 items-end"><input type="file" id="studentImageInput" accept="image/*" class="hidden" onchange="handleStudentImage(this)"/><button onclick="document.getElementById('studentImageInput').click()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-200 text-purple-700 font-bold shadow hover:bg-purple-300 flex-shrink-0" title="画像を添付">📷</button><textarea id="studentMailBody" class="flex-1 border border-slate-300 rounded-2xl px-3 py-2 text-sm resize-none focus:border-purple-500 focus:outline-none" rows="1" placeholder="メッセージを入力..." oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>    <button onclick="sendStudentMail()" class="w-10 h-10 flex items-center justify-center rounded-full bg-purple-600 text-white font-bold shadow hover:opacity-90 flex-shrink-0">▶</button>  </div></div>  <p id="studentMailMsg" class="text-xs text-center py-1 bg-white"></p></div>
 
 </div>
 
@@ -4769,9 +4790,10 @@ function formatYMD(d){
     <button id="partyReorderPrev" class="flex-1 bg-blue-500 text-white px-3 py-2 rounded-lg font-bold shadow hover:bg-blue-600 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed" onclick="movePartyMember(-1)">⬅ 前へ</button>
     <button id="partyReorderNext" class="flex-1 bg-blue-500 text-white px-3 py-2 rounded-lg font-bold shadow hover:bg-blue-600 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed" onclick="movePartyMember(1)">次へ ➡</button>
   </div>
+  <button id="partyReorderRemove" class="w-full mt-2 bg-red-500 text-white py-2 rounded-lg font-bold shadow hover:bg-red-600 active:scale-95 transition" onclick="removePartyMember()">パーティから外す</button>
   <div class="text-[10px] text-gray-500 mt-2">※「現在のパーティ」から開いたときだけ表示されます。</div>
 </div>
-<button class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-base shadow-md transition transform active:scale-95 flex items-center justify-center gap-2" id="partyBtn" onclick="toggleParty()">
+<button class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-base shadow-md transition transform active:scale-95 flex items-center justify-center gap-2 hidden" id="partyBtn" onclick="toggleParty()">
                         パーティに入れる
                     </button>
 </div>
@@ -5408,7 +5430,7 @@ function setupQrScanUi(){
             // 秘伝ボーナス（既存）
             const applied = hidenApplyToStats(bs, mid, et);
 
-            // === 田中先生・なしひろし：1日3回制限（4回目以降は全ステータス1） ===
+            // === タナカティーチャー・なしひろし：1日3回制限（4回目以降は全ステータス1） ===
             try{
                 if ((typeof isLimitedDailyUnit==='function' && isLimitedDailyUnit(mid, monster && monster.name)) && typeof isDailyFatigued === 'function' && isDailyFatigued(mid)) {
                     return {
@@ -6207,13 +6229,21 @@ function setupQrScanUi(){
             MONSTERS.push({ id: idCounter++, name: fam[1], sprite: fam[4], hp: 55 + Math.floor(i * 1.6), atk: 12 + (i / 1.8) | 0, def: Math.floor(baseDef * 1.8), spd: Math.floor(baseSpd * 1.8), buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage: 2, desc: fam[7], skills: skills });
             MONSTERS.push({ id: idCounter++, name: fam[2], sprite: fam[5], hp: 100 + Math.floor(i * 2.5), atk: 22 + (i / 1.2) | 0, def: Math.floor(baseDef * 3), spd: Math.floor(baseSpd * 3), buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage: 3, desc: fam[8], skills: skills });
         }
-        MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】16:00〜18:00だけ野生バトルにこっそり出現（レア）。' , skills: FAMILY_SKILLS[0]});
-        MONSTERS.push({ id: 152, name: 'なしひろし', sprite: '🍐', hp: 5000, atk: 300, def: 300, spd: 300, buff: 'speed', elementType: 'grass', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '田中先生が生み出したキャラ。年齢不詳。1日3回だけ本気、4回目からは全能力1で省エネ。' , skills: [
+        MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】16:00〜18:00だけ野生バトルにこっそり出現（レア）。' , skills: [
+            { name: 'サイコウェーブ', type: 'normal', pow: 15, acc: 0.95, element: 'psychic', desc: '念力の波を放つ' },
+            { name: 'リボンウィップ', type: 'heavy', pow: 35, acc: 0.72, desc: 'リボンで叩きつける' },
+            { name: 'ふしぎなひかり', type: 'unique', pow: 0, acc: 0.90, effect: 'debuff_random', element: 'psychic', desc: '不思議な光で相手の能力をダウン' }
+        ]});
+        MONSTERS.push({ id: 152, name: 'なしひろし', sprite: '🍐', hp: 5000, atk: 300, def: 300, spd: 300, buff: 'speed', elementType: 'grass', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: 'タナカティーチャーが生み出したキャラ。年齢不詳。1日3回だけ本気、4回目からは全能力1で省エネ。' , skills: [
                 { name: 'シャリシャリタックル', type: 'normal', pow: 14, acc: 0.96, desc: 'シャリっと体当たり' },
                 { name: '梨汁スプラッシュ！', type: 'heavy', pow: 28, acc: 0.78, desc: '梨汁を全力噴射！' },
                 { name: 'すべり芸', type: 'unique', pow: 0, acc: 1.0, effect: 'debuff_random', desc: '相手の攻撃/防御/命中をランダムで下げる' }
             ]});
-        MONSTERS.push({ id: 153, name: '田中先生', sprite: '👨‍🏫', hp: 8000, atk: 500, def: 500, spd: 500, buff: 'attack', elementType: 'psychic', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '阪神ファン。でも阪神以上にみんなのファンである。1日3回だけ超本気、4回目から全能力1で小休止。' , skills: FAMILY_SKILLS[0]});
+        MONSTERS.push({ id: 153, name: 'タナカティーチャー', sprite: '👨‍🏫', hp: 8000, atk: 500, def: 500, spd: 500, buff: 'attack', elementType: 'psychic', rarity: 6, uncapturable: true, reqDefeats: 1, stage: 1, desc: '阪神ファン。でも阪神以上にみんなのファンである。1日3回だけ超本気、4回目から全能力1で小休止。' , skills: [
+            { name: 'はなまるビーム', type: 'normal', pow: 45, acc: 0.95, desc: '最高のはなまるからビームが出る' },
+            { name: '六甲おろし', type: 'heavy', pow: 90, acc: 0.70, element: 'psychic', desc: '阪神愛を込めた大技' },
+            { name: '全力応援', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_atk', desc: '自分の攻撃力を上げる' }
+        ]});
         MONSTERS.push({ id: 154, name: '阪神マン', sprite: '🐯', hp: 999, atk: 99, def: 99, spd: 99, buff: 'lucky', elementType: 'fighting', uncapturable: true, stage: 1, desc: '修行を見守る謎の虎。その実力は計り知れない。' , skills: [
                 { name: '甲子園スマッシュ', type: 'normal', pow: 18, acc: 0.95, desc: '甲子園魂の一撃' },
                 { name: '栄光のバックホーム', type: 'heavy', pow: 32, acc: 0.75, desc: '全力の遠投' },
@@ -6565,7 +6595,7 @@ MONSTERS.push({
         // ガチャと基本モンスターの橋渡し。野生バトルで低確率出現。
         const MID_TIER = [
             { id: 220, name: 'カゲムシャ', sprite: '🥷', hp: 320, atk: 55, def: 50, spd: 75, buff: 'speed', elementType: 'dark',
-              desc: '影に潜む忍者。正解の速さで真価を発揮する。【入手】野生バトルでまれに出現。' },
+              desc: '影に潜む忍者。正解の速さで真価を発揮する。【入手】野生バトルで5連勝以上するとまれに出現。' },
             { id: 221, name: 'テツジン', sprite: '🦾', hp: 400, atk: 65, def: 80, spd: 40, buff: 'guard', elementType: 'steel',
               desc: '鉄の体を持つ鋼の戦士。防御は一級品。【入手】野生バトルでまれに出現。' },
             { id: 222, name: 'アラシ', sprite: '🌪️', hp: 350, atk: 70, def: 55, spd: 70, buff: 'attack', elementType: 'flying',
@@ -6577,9 +6607,9 @@ MONSTERS.push({
             { id: 225, name: 'ヌシガメ', sprite: '🐢', hp: 500, atk: 50, def: 90, spd: 30, buff: 'guard', elementType: 'water',
               desc: '池の主。千年生きた亀は万年の知恵を持つ。【入手】野生バトルでまれに出現。' },
             { id: 226, name: 'キツネビ', sprite: '🦊', hp: 340, atk: 65, def: 55, spd: 85, buff: 'lucky', elementType: 'psychic',
-              desc: '化けるのが得意な狐。Lucky効果で経験値UP。【入手】野生バトルでまれに出現。' },
+              desc: '化けるのが得意な狐。Lucky効果で経験値UP。【入手】野生バトルで5連勝以上するとまれに出現。' },
             { id: 227, name: 'ライジン', sprite: '⚡', hp: 360, atk: 80, def: 50, spd: 75, buff: 'attack', elementType: 'electric',
-              desc: '雷を操る鬼神。一撃の破壊力は折り紙付き。【入手】野生バトルでまれに出現。' }
+              desc: '雷を操る鬼神。一撃の破壊力は折り紙付き。【入手】野生バトルで7連勝以上するとまれに出現。' }
         ];
         MID_TIER.forEach(m => {
             MONSTERS.push({
@@ -7990,6 +8020,24 @@ MONSTERS.push({
     desc: 'ラボで「かけら」を使って復活できる最強クラスのヒーロー。1日3回だけ超本気、4回目から全能力1で省エネ。ゾンビ襲来では出撃できない。'
 });
 
+// === 連勝ごほうびキャラ：ポポ（3連勝〜出現）===
+const POPO_ID = 1050;
+MONSTERS.push({
+    id: POPO_ID,
+    name: 'ポポ',
+    sprite: '🦜',
+    hp: 220, atk: 65, def: 45, spd: 75,
+    buff: 'speed',
+    elementType: 'flying',
+    stage: 1, gacha: false, rarity: 5,
+    skills: [
+        { name: 'おしゃべりアタック', type: 'normal', pow: 20, acc: 0.96, element: 'flying', desc: 'しゃべりながら体当たり' },
+        { name: 'フェザーストーム', type: 'heavy', pow: 58, acc: 0.72, element: 'flying', desc: '羽を巻き起こして大嵐' },
+        { name: 'ものまね', type: 'unique', pow: 0, acc: 1.0, effect: 'debuff_random', desc: '相手の能力をダウンさせる' }
+    ],
+    desc: 'おしゃべりが大好きなインコ。先生の口グセを完コピして教室を爆笑の渦に包む。足が意外と速い。【入手】野生バトルで3連勝以上するとまれに出現。'
+});
+
 // === 追加キャラ（爬虫類マン）===
 const REPTILEMAN_ID = 930;
 
@@ -7997,17 +8045,17 @@ MONSTERS.push({
     id: REPTILEMAN_ID,
     name: '爬虫類マン',
     sprite: '🐸',
-    hp: 210, atk: 58, def: 44, spd: 62,
+    hp: 450, atk: 92, def: 68, spd: 85,
     buff: 'speed',
     elementType: 'poison',
     stage: 1,
     gacha: false,
     skills: [
-        { name: 'ぴょんキック', type: 'normal', pow: 28, acc: 0.95, desc: '' },
-        { name: 'ぬめぬめスラップ', type: 'heavy', pow: 68, acc: 0.70, element: 'poison', desc: '' },
-        { name: 'ベロの時間止め', type: 'unique', pow: 0, acc: 0.90, effect: 'stun', stunMs: 1800, desc: '相手を少しの間停止させる' }
+        { name: 'ぴょんキック', type: 'normal', pow: 35, acc: 0.95, desc: '跳躍力を活かした素早いキック' },
+        { name: 'ぬめぬめスラップ', type: 'heavy', pow: 82, acc: 0.72, element: 'poison', desc: '毒をまとった強烈なビンタ' },
+        { name: 'ベロの時間止め', type: 'unique', pow: 0, acc: 0.92, effect: 'stun', stunMs: 2200, desc: '長い舌で相手を捕らえ時間を止める' }
     ],
-    desc: '自称「爬虫類」のヒーロー。実は両生類であるカエルだが、自分のことを爬虫類だと思い込んでいる。ツッコむと時間を止めてくる。'
+    desc: '自称「爬虫類」のヒーロー。実は両生類であるカエルだが、自分のことを爬虫類だと思い込んでいる。ツッコむと時間を止めてくる。【入手】野生バトルで10連勝以上するとまれに出現。'
 });
 
 // === 期間限定キャラ（サンタ様：図鑑「特殊」に表示）===
@@ -9906,6 +9954,37 @@ const WILD_AREA_POOLS = {
     'social-nagoyasouth': { 1: [330, 1100, NW(19)], 2: [330, 331, 1100, NW(20)], 3: [331, 1100, 980] },
     'social-seto': { 1: [330, NW(19), NW(22)], 2: [330, NW(20), NW(23), NW(25)], 3: [330, NW(21), NW(26), 980] },
 
+    // === 小1 ===
+    'm1-add-cy':  { 1: [NW(5), NW(6)],         2: [NW(0), NW(28)],          3: [NW(31), NW(30)] },
+    'm1-sub-bo':  { 1: [NW(3), NW(27)],        2: [NW(4), NW(29)],          3: [NW(8), NW(32)] },
+    'j1-kanji':   { 1: [NW(14), NW(16)],       2: [NW(15), NW(17)],         3: [NW(18), NW(36)] },
+
+    // === 小2 ===
+    'm2-add2':    { 1: [NW(0), NW(3)],         2: [NW(1), NW(4)],           3: [NW(2), NW(10)] },
+    'j2-kanji':   { 1: [NW(11), NW(33)],       2: [NW(12), NW(34)],         3: [NW(13), NW(35)] },
+
+    // === 小3 ===
+    'm3-mul1':    { 1: [NW(7), NW(5)],         2: [NW(8), NW(6)],           3: [NW(9), NW(32)] },
+    'm3-div0':    { 1: [NW(3), NW(27)],        2: [NW(4), NW(28)],          3: [NW(10), NW(30)] },
+    'j3-kotowaza':{ 1: [NW(14), NW(11)],       2: [NW(15), NW(12)],         3: [NW(36), NW(13)] },
+    's3-map':     { 1: [NW(19), NW(22)],       2: [NW(20), NW(23)],         3: [NW(21), NW(26)] },
+    'r3-magnet':  { 1: [NW(16), NW(33)],       2: [NW(17), NW(34)],         3: [NW(18), NW(35)] },
+
+    // === 小5 ===
+    'm5-frac-eq': { 1: [NW(27), NW(28), 1120], 2: [NW(29), NW(30), 1121],   3: [NW(2), NW(10), 1122] },
+    'm5-percent': { 1: [NW(0), NW(3)],         2: [NW(1), NW(4), NW(9)],    3: [NW(2), NW(10), NW(32)] },
+    'm5-speed':   { 1: [NW(5), NW(31)],        2: [NW(7), NW(8)],           3: [NW(9), NW(2)] },
+    'j5-keigo':   { 1: [NW(14), NW(16)],       2: [NW(15), NW(33), 1110],   3: [NW(36), NW(13), 1112] },
+    's5-agri':    { 1: [NW(19), NW(22)],       2: [NW(20), NW(23), NW(37)], 3: [NW(21), NW(26), NW(39)] },
+    'r5-weather': { 1: [NW(11), NW(17)],       2: [NW(12), NW(18)],         3: [NW(13), NW(35)] },
+
+    // === 小6 ===
+    'm6-frac-mul':{ 1: [NW(27), NW(7), 1120],  2: [NW(29), NW(8), 1121],    3: [NW(30), NW(10), 1122] },
+    'm6-ratio':   { 1: [NW(0), NW(5)],         2: [NW(1), NW(6), NW(9)],    3: [NW(2), NW(32)] },
+    'j6-bunpo':   { 1: [NW(11), NW(14)],       2: [NW(12), NW(15), 1110],   3: [NW(13), NW(36), 1112] },
+    's6-hist-u6': { 1: [NW(19), NW(24)],       2: [NW(20), NW(25), NW(37)], 3: [NW(21), NW(26), NW(38), 980] },
+    's6-politics':{ 1: [330, NW(22), NW(19)],   2: [330, NW(23), NW(20)],    3: [330, NW(26), NW(39), 980] },
+    'r6-combust': { 1: [NW(16), NW(33)],       2: [NW(17), NW(34)],         3: [NW(18), NW(35), NW(13)] },
 };
 
 function pickWildMonsterId(areaId, depth) {
@@ -9922,7 +10001,8 @@ function pickWildMonsterId(areaId, depth) {
         }
 
         // 中間層モンスター（ID220-227）: 全エリアで5%の確率で出現
-        const MID_TIER_IDS = [220, 221, 222, 223, 224, 225, 226, 227];
+        const MID_TIER_IDS = [221, 222, 223, 224, 225];
+        // 220(カゲムシャ),226(キツネビ),227(ライジン)は連勝ごほうびに移動
         if (!isFriend && Math.random() < 0.05) {
             return MID_TIER_IDS[Math.floor(Math.random() * MID_TIER_IDS.length)];
         }
@@ -10047,6 +10127,18 @@ function calculateNextExp(level) {
                 // 旧コイン監視用の日付と基準値を保存
                 player.oldCoinDailyDate = getTodayYMD();
                 player.oldCoinDailyStart = player.coins || 0;
+                saveData();
+            }
+
+            // 救済処理：旧コインが加算されていたのにnewCoinsに反映されていなかった場合の修正
+            if (player.migratedToNewCoinSystem && !player.coinSyncV2) {
+                // newCoinsがcoinsより少ない場合、coinsの値で上書き（旧報酬がnewCoinsに加算されていなかったバグ対策）
+                const oldC = Number(player.coins || 0);
+                const newC = Number(player.newCoins || 0);
+                if (oldC > newC) {
+                    player.newCoins = oldC;
+                }
+                player.coinSyncV2 = true;
                 saveData();
             }
 
@@ -10709,9 +10801,9 @@ window.useBeamLevelUpTicket = function(){
             }
         }
 
-        // === 田中先生・なしひろし：1日3回制限（4回目から全ステータス1） ===
-const LIMITED_DAILY_IDS = [152, 153, 999]; // なしひろし, 田中先生, 阪神マン(999)
-const LIMITED_DAILY_NAME_MAP = {152:'なしひろし',153:'田中先生',999:'阪神マン'};
+        // === タナカティーチャー・なしひろし：1日3回制限（4回目から全ステータス1） ===
+const LIMITED_DAILY_IDS = [152, 153, 999]; // なしひろし, タナカティーチャー, 阪神マン(999)
+const LIMITED_DAILY_NAME_MAP = {152:'なしひろし',153:'タナカティーチャー',999:'阪神マン'};
 const LIMITED_DAILY_NAMES = Object.values(LIMITED_DAILY_NAME_MAP);
 const LIMITED_DAILY_MAX = 3;          // 1日3回まで本気（4回目以降は弱体化）
 const LIMITED_DAILY_RESET_HOUR = 8;   // 他のデイリー仕様と合わせて朝8時リセット
@@ -11096,6 +11188,8 @@ const now = Date.now();
                     // Remove old fields
                     delete player.box;
                     delete player.boxCapacity;
+                    // Repair: ensure all monsters have box entries
+                    try { repairMissingBoxEntries(); } catch(e) { console.warn('[loadData] repairMissingBoxEntries error:', e); }
                     if (!player.name) player.name = "勇者タマゴン";
                     if (!player.defeats) player.defeats = {};
                     if (!player.monsters) player.monsters = { 1: { level: 1, exp: 0, nextExp: 60 } };
@@ -11209,6 +11303,12 @@ const now = Date.now();
             }
             try {
                 syncPokedex();
+                // ランキング用キャッシュ：戦闘力・連勝数
+                try{
+                    player._cachedBattlePower = (typeof getPartyCombatPower === 'function') ? getPartyCombatPower() : 0;
+                    var _mObj = (player.M && player.M.max) || player.max || {};
+                    player._cachedWildWinStreak = Number(_mObj.winStreak || 0);
+                }catch(e){}
                 const now = Date.now();
                 const sessionDurationSec = (now - sessionStartTime) / 1000;
                 player.continuousPlayTime += sessionDurationSec;
@@ -13083,8 +13183,8 @@ function startSantaBattle() {
                         m.freeTraits.personality = 'ひらめき型';
                     }
                 
-                    // 田中先生：趣味を固定（写真好き→ペット好き）
-                    if (m && (m.name === '田中先生' || m.id === 153)){
+                    // タナカティーチャー：趣味を固定（写真好き→ペット好き）
+                    if (m && (m.name === 'タナカティーチャー' || m.id === 153)){
                         m.freeTraits.hobby = 'ペット好き';
                     }
 }
@@ -13174,6 +13274,7 @@ if (player.secret.mewtwoGot == null) player.secret.mewtwoGot = false;
             if (!player.monsters) player.monsters = {};
             if (!player.monsters[id]) {
                 player.monsters[id] = { level: lv, exp: 0, nextExp: calculateNextExp(lv) };
+                try { createBoxEntry(id, lv, 'shop'); } catch(e) {}
             } else {
                 // 既に持っている場合は経験値だけ少し
                 try{
@@ -13239,6 +13340,7 @@ function grantMewtwo(level){
     if (!player.monsters) player.monsters = {};
     if (!player.monsters[id]) {
         player.monsters[id] = { level: lv, exp: 0, nextExp: calculateNextExp(lv) };
+        try { createBoxEntry(id, lv, 'lab'); } catch(e) {}
     }
     if (!Array.isArray(player.pokedex)) player.pokedex = [];
     if (!player.pokedex.includes(id)) player.pokedex.push(id);
@@ -13394,11 +13496,11 @@ function grantOcha(){
                             </div>
                         </div>`;
                     } else {
-                        html += `<div onclick="trySetMode('pokedex')" class="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border-2 border-dashed border-gray-300 opacity-70 cursor-pointer hover:bg-gray-100 hover:opacity-100 transition group">
+                        html += `<div onclick="trySetMode('box')" class="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border-2 border-dashed border-gray-300 opacity-70 cursor-pointer hover:bg-gray-100 hover:opacity-100 transition group">
                             <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 text-lg font-bold group-hover:bg-gray-300 group-hover:text-gray-600">＋</div>
                             <div class="flex flex-col justify-center">
                                 <div class="text-xs text-gray-500 font-bold group-hover:text-gray-700">仲間をさがす</div>
-                                <div class="text-[9px] text-gray-400 group-hover:text-gray-600">（図鑑に移動）</div>
+                                <div class="text-[9px] text-gray-400 group-hover:text-gray-600">（ボックスに移動）</div>
                             </div>
                         </div>`;
                     }
@@ -13707,6 +13809,7 @@ if (mode === 'battle') {
                 const ctScr = document.getElementById('screen-contact');
                 if(ctScr){ ctScr.classList.remove('hidden'); ctScr.classList.add('flex'); }
                 try{ _loadStudentContactNotes(); }catch(e){}
+            } else if (mode === 'mail') {                var mailScr = document.getElementById('screen-mail');                if(mailScr){ mailScr.classList.remove('hidden'); mailScr.classList.add('flex'); }                try{ _loadStudentMail(); }catch(e){}
             } else {
                 if (mode === 'backup') {
                     document.getElementById('screen-backup').classList.remove('hidden');
@@ -14039,6 +14142,27 @@ function _allTrainingModes(){
     return ['rounding','division','decimal','long-division','area','idiom','conjunction','yoji','social','science-heat','science-seasons','science-airwater','science-moonstars','science-body','science-weather','science-electric','science-rainwater','science-temperature-volume','science-water-change'];
 }
 
+// 指定学年のCURRICULUM単元IDをすべて返す
+function _modesForGrade(grade){
+    const ids = [];
+    try{
+        if(typeof CURRICULUM === 'undefined' || !grade) return ids;
+        const g = Number(grade);
+        if(!g || g < 1 || g > 6) return ids;
+        for(const subjectKey of Object.keys(CURRICULUM)){
+            const sub = CURRICULUM[subjectKey];
+            if(!sub || !sub.grades || !sub.grades[g]) continue;
+            const gd = sub.grades[g];
+            if(gd && gd.units){
+                for(const u of gd.units){
+                    if(u.id) ids.push(u.id);
+                }
+            }
+        }
+    }catch(e){}
+    return ids;
+}
+
 function _getTodayDailyTargets(){
     try{
         const M = ensureMetrics();
@@ -14050,8 +14174,14 @@ function _getTodayDailyTargets(){
             return cur.modes.filter(Boolean);
         }
 
-        // Build candidate list from TRAINING_MODE_INFO (not from DOM)
-        let candidates = _allTrainingModes().slice();
+        // Build candidate list: 学年がある場合はその学年の単元のみ
+        const userGrade = window.__userGrade ? Number(window.__userGrade) : 0;
+        let candidates;
+        if(userGrade >= 1 && userGrade <= 6){
+            candidates = _modesForGrade(userGrade);
+        } else {
+            candidates = _allTrainingModes().slice();
+        }
         
         // Group by subject for balanced selection
         const bySubject = { math: [], jp: [], soc: [], science: [] };
@@ -14108,6 +14238,11 @@ function _getTodayDailyTargets(){
         try{ saveData(); }catch(e){}
         return picked;
     }catch(e){
+        const ug = window.__userGrade ? Number(window.__userGrade) : 0;
+        if(ug >= 1 && ug <= 6){
+            const gm = _modesForGrade(ug);
+            if(gm.length) return gm.slice(0,5);
+        }
         return _allTrainingModes().slice(0,5);
     }
 }
@@ -14152,7 +14287,13 @@ function updateDailyMissionUI(){
           }
         }
       }catch(e){}
-const FALLBACK = {
+// Fallback 3: use TRAINING_MODE_INFO unitName
+      try{
+        if(typeof TRAINING_MODE_INFO !== 'undefined' && TRAINING_MODE_INFO[k]){
+          return TRAINING_MODE_INFO[k].unitName || TRAINING_MODE_INFO[k].subjectName || k;
+        }
+      }catch(e){}
+      const FALLBACK = {
         'rounding':'がい数',
         'kuku':'九九',
         'division':'わり算(暗算)',
@@ -14163,6 +14304,18 @@ const FALLBACK = {
         'idiom':'慣用句',
         'conjunction':'つなぎ言葉',
         'kanji':'漢字',
+        'social':'社会',
+        'science-seasons':'季節と生き物',
+        'science-heat':'もののあたたまり方',
+        'science-airwater':'空気と水',
+        'science-moonstars':'月と星',
+        'science-body':'人の体',
+        'science-weather':'天気と気温',
+        'science-electric':'電池のはたらき',
+        'science-rainwater':'雨水のゆくえ',
+        'science-temperature-volume':'温度と体積',
+        'science-water-change':'すがたを変える水',
+        'yoji':'四字熟語',
       };
       return FALLBACK[k] || k;
     };
@@ -15059,6 +15212,9 @@ const rows = unitRows.filter(r=>r.total>=10).sort((a,b)=>a.acc-b.acc).slice(0,3)
 var _reviewQueue = [];
 var _reviewCurrentIdx = 0;
 var _reviewCurrentItem = null;
+var _reviewCorrectCount = 0;
+var _reviewTotalCoins = 0;
+var _reviewTotalHerbs = 0;
 
 function startReviewChallenge(){
   try{
@@ -15076,6 +15232,9 @@ function startReviewChallenge(){
     }
     _reviewQueue = arr;
     _reviewCurrentIdx = 0;
+    _reviewCorrectCount = 0;
+    _reviewTotalCoins = 0;
+    _reviewTotalHerbs = 0;
     _showReviewQuestion();
     const modal = document.getElementById('reviewChallengeModal');
     if(modal){ modal.style.display='flex'; modal.classList.remove('hidden'); }
@@ -15090,7 +15249,13 @@ function _showReviewQuestion(){
       const q = document.getElementById('reviewModalQ');
       const area = document.getElementById('reviewModalAnswerArea');
       const prog = document.getElementById('reviewModalProgress');
-      if(q) q.textContent = '🎉 全部終わったよ！おつかれさま！';
+      var summary = '\u{1F389} 全部終わったよ！おつかれさま！';
+      if(_reviewTotalCoins > 0 || _reviewTotalHerbs > 0){
+        summary += '\n\n--- 獲得報酬 ---';
+        if(_reviewTotalCoins > 0) summary += '\n\u{1F4B0} ' + _reviewTotalCoins + ' コイン';
+        if(_reviewTotalHerbs > 0) summary += '\n\u{1F33F} やくそう ' + _reviewTotalHerbs + ' 個';
+      }
+      if(q) q.innerText = summary;
       if(area) area.style.display='none';
       if(fb) fb.style.display='none';
       if(prog) prog.textContent = `${_reviewQueue.length}/${_reviewQueue.length} 完了`;
@@ -15131,9 +15296,45 @@ function checkReviewAnswer(){
       fbEl.className = 'mt-3 rounded-xl p-4 text-center ' + (isOk ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300');
     }
     if(iconEl) iconEl.textContent = isOk ? '⭕' : '❌';
-    if(txtEl) txtEl.textContent = isOk ? 'せいかい！' : 'ちがうよ…';
     if(ansEl) ansEl.textContent = correct;
     if(areaEl) areaEl.style.display='none';
+
+    // 報酬（修行モードと同じ確率）
+    var rewardTxt = '';
+    if(isOk){
+      _reviewCorrectCount++;
+      // レアドロップ（連続正解数 × 1%、最大50%）
+      var rareRate = Math.min(0.5, _reviewCorrectCount * 0.01);
+      if(Math.random() < rareRate){
+        var rc = 50; // デフォルト
+        var m = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
+        if(m==='rounding'||m==='long-division'||m==='area') rc = 100;
+        else if(m==='kuku'||m==='conjunction') rc = 10;
+        player.newCoins = (player.newCoins||0) + rc;
+        _reviewTotalCoins += rc;
+        _reviewCorrectCount = 0;
+        rewardTxt = '💰 ' + rc + 'コインゲット！';
+      } else {
+        // 通常ドロップ: やくそう10%、コイン10%
+        if(Math.random() < 0.1){
+          player.herbs = (player.herbs||0) + 1;
+          _reviewTotalHerbs++;
+          rewardTxt += '🌿 やくそうゲット！ ';
+        }
+        if(Math.random() < 0.1){
+          var cc = 8;
+          var m2 = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
+          if(m2==='rounding'||m2==='long-division'||m2==='area') cc = 15;
+          else if(m2==='kuku') cc = 1;
+          player.newCoins = (player.newCoins||0) + cc;
+          _reviewTotalCoins += cc;
+          rewardTxt += '💰 ' + cc + 'コインゲット！';
+        }
+      }
+      try{ document.getElementById('trainingCoinCount').innerText = player.newCoins||0; }catch(e){}
+      try{ saveData(); }catch(e){}
+    }
+    if(txtEl) txtEl.innerHTML = (isOk ? 'せいかい！' : 'ちがうよ…') + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
   }catch(e){}
 }
 
@@ -15172,6 +15373,14 @@ function clearMasteredReview(){
     renderStatusLearningAnalysis();
   }catch(e){}
 }
+
+// 復習チャレンジ関数をグローバルに公開（initGame内で定義されているため）
+window.startReviewChallenge = startReviewChallenge;
+window.checkReviewAnswer = checkReviewAnswer;
+window.reviewNextQuestion = reviewNextQuestion;
+window.closeReviewModal = closeReviewModal;
+window.clearMasteredReview = clearMasteredReview;
+
 
 // 復習モーダルでEnterキー対応
 document.addEventListener('keydown', function(e){
@@ -16019,6 +16228,7 @@ return;
                     player.monsters[monster.id] = { level: level, exp: 0, nextExp: calculateNextExp(level), stars: 0 };
                     result.isNew = true;
                     if (!player.pokedex.includes(monster.id)) player.pokedex.push(monster.id);
+                    try { createBoxEntry(monster.id, level, 'gacha'); } catch(e) {}
                     try{ logAcquire('ガチャ', monster.id, {isNew:true, note:'Lv.'+level}); }catch(e){}
                 } else {
                     const mData = player.monsters[monster.id];
@@ -16672,7 +16882,7 @@ if (type === 'gym') {
 
 function initBattleFriend(friendData) {
             battle.mode = 'friend';
-            try{ document.getElementById('btnThrowBall').style.display = 'none'; } catch(e) {}
+            try{ var _bb = document.getElementById('btnThrowBall'); _bb.style.display = ''; _bb.disabled = true; _bb.style.opacity = '0.35'; _bb.style.pointerEvents = 'none'; _bb.title = '友達対戦ではボールは使えません'; } catch(e) {}
             try{ recordLimitedUseForParty('friend'); }catch(e){}
             battle.friendCodeKey = friendData && friendData._k ? friendData._k : (battle.friendCodeKey || null);
             battle.phase = 'ready';
@@ -16768,32 +16978,60 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
 
                 // ===== PvE エリア選択（野生バトル） =====
         const PVE_AREAS = [
-            { id: 'rounding',  subject:'math', name: 'がいすうの森',   emoji: '🌲', desc: 'がいすう（四捨五入）の問題が出るよ' },
-            { id: 'division',  subject:'math', name: 'わり算谷',       emoji: '🏞️', desc: 'わり算の問題が出るよ' },
-            { id: 'long-division',  subject:'math', name: '筆算の洞くつ',     emoji: '📝', desc: '筆算（わり算）の問題が出るよ' },
-            { id: 'decimal',   subject:'math', name: '小数の海',       emoji: '🌊', desc: '小数の計算の問題が出るよ' },
-            { id: 'area',      subject:'math', name: '面積遺跡',       emoji: '🏛️', desc: '面積の問題が出るよ' },
-            { id: 'brackets',  subject:'math', name: '順序の迷宮',   emoji: '🧭', desc: '計算の順序の問題が出るよ（×÷が先、同じなら左から）' },
+            // === 小1 ===
+            { id: 'm1-add-cy', subject:'math', grade:1, name: 'くり上がりの丘',  emoji: '🌈', desc: 'くり上がりのあるたしざんが出るよ' },
+            { id: 'm1-sub-bo', subject:'math', grade:1, name: 'くり下がりの谷',  emoji: '🌀', desc: 'くり下がりのあるひきざんが出るよ' },
+            { id: 'j1-kanji',  subject:'jp',   grade:1, name: 'かんじの広場',    emoji: '🅰️', desc: '1年生のかんじが出るよ（1〜4を入力）' },
 
-            { id: 'fraction-mixed', subject:'math', name: '分数の村',     emoji: '🏡', desc: '分数のへんしん＆計算（□うめ）の問題が出るよ' },
-            { id: 'idiom',     subject:'jp',   name: '慣用句山',       emoji: '⛰️', desc: '慣用句の意味・使い方の問題が出るよ（1〜4を入力）' },
-            { id: 'conjunction', subject:'jp', name: '接続詞の橋',     emoji: '🌉', desc: '接続詞のクイズが出るよ（1〜4を入力）' },
-            { id: 'yoji',     subject:'jp',   name: '四字熟語の塔',   emoji: '🗼', desc: '四字熟語の意味・選択・文脈の問題が出るよ（1〜4を入力）' },
+            // === 小2 ===
+            { id: 'kuku',      subject:'math', grade:2, name: '九九バトルフィールド', emoji: '🔥', desc: '九九の問題が出るよ' },
+            { id: 'm2-add2',   subject:'math', grade:2, name: 'たし算キャンプ',  emoji: '⛺', desc: '2けたのたし算が出るよ' },
+            { id: 'j2-kanji',  subject:'jp',   grade:2, name: 'かん字の道',      emoji: '✏️', desc: '2年生のかん字が出るよ（1〜4を入力）' },
 
-            { id: 'social',    subject:'soc',  name: '社会のまち',     emoji: '🏙️', desc: '社会のクイズが出るよ（1〜4を入力）' },
+            // === 小3 ===
+            { id: 'm3-mul1',   subject:'math', grade:3, name: 'かけ算のとりで',  emoji: '🏰', desc: '2けた×1けたの問題が出るよ' },
+            { id: 'm3-div0',   subject:'math', grade:3, name: 'わり算の泉',      emoji: '⛲', desc: 'わりきれるわり算が出るよ' },
+            { id: 'j3-kotowaza', subject:'jp', grade:3, name: 'ことわざの里',    emoji: '🏘️', desc: 'ことわざの問題が出るよ（1〜4を入力）' },
+            { id: 's3-map',    subject:'soc',  grade:3, name: '地図記号の島',    emoji: '🗺️', desc: '地図記号のクイズが出るよ（1〜4を入力）' },
+            { id: 'r3-magnet', subject:'sci',  grade:3, name: 'じしゃくの洞くつ', emoji: '🧲', desc: 'じしゃくの問題が出るよ（1〜4を入力）' },
 
-            { id: 'social-nagoyasouth', subject:'soc', name: '名古屋南部の港', emoji: '⚓', desc: '名古屋南部の開発クイズが出るよ（1〜4を入力）' },
+            // === 小4 ===
+            { id: 'rounding',  subject:'math', grade:4, name: 'がいすうの森',   emoji: '🌲', desc: 'がいすう（四捨五入）の問題が出るよ' },
+            { id: 'division',  subject:'math', grade:4, name: 'わり算谷',       emoji: '🏞️', desc: 'わり算の問題が出るよ' },
+            { id: 'long-division',  subject:'math', grade:4, name: '筆算の洞くつ',     emoji: '📝', desc: '筆算（わり算）の問題が出るよ' },
+            { id: 'decimal',   subject:'math', grade:4, name: '小数の海',       emoji: '🌊', desc: '小数の計算の問題が出るよ' },
+            { id: 'area',      subject:'math', grade:4, name: '面積遺跡',       emoji: '🏛️', desc: '面積の問題が出るよ' },
+            { id: 'brackets',  subject:'math', grade:4, name: '順序の迷宮',   emoji: '🧭', desc: '計算の順序の問題が出るよ（×÷が先、同じなら左から）' },
+            { id: 'fraction-mixed', subject:'math', grade:4, name: '分数の村',     emoji: '🏡', desc: '分数のへんしん＆計算（□うめ）の問題が出るよ' },
+            { id: 'idiom',     subject:'jp',   grade:4, name: '慣用句山',       emoji: '⛰️', desc: '慣用句の意味・使い方の問題が出るよ（1〜4を入力）' },
+            { id: 'conjunction', subject:'jp', grade:4, name: '接続詞の橋',     emoji: '🌉', desc: '接続詞のクイズが出るよ（1〜4を入力）' },
+            { id: 'yoji',     subject:'jp',   grade:4, name: '四字熟語の塔',   emoji: '🗼', desc: '四字熟語の意味・選択・文脈の問題が出るよ（1〜4を入力）' },
+            { id: 'social',    subject:'soc',  grade:4, name: '社会のまち',     emoji: '🏙️', desc: '社会のクイズが出るよ（1〜4を入力）' },
+            { id: 'social-nagoyasouth', subject:'soc', grade:4, name: '名古屋南部の港', emoji: '⚓', desc: '名古屋南部の開発クイズが出るよ（1〜4を入力）' },
+            { id: 'social-seto', subject:'soc', grade:4, name: '瀬戸のやきもの', emoji: '🏺', desc: '瀬戸のやきものクイズが出るよ（1〜4を入力）' },
+            { id: 'science-heat',      subject:'sci', grade:4, name: 'あたたまり方ラボ', emoji: '🔥', desc: 'もののあたたまり方（1〜4を入力）' },
+            { id: 'science-seasons',   subject:'sci', grade:4, name: '季節と生き物の森', emoji: '🍁', desc: '季節と生き物（1〜4を入力）' },
+            { id: 'science-airwater',  subject:'sci', grade:4, name: '空気と水の洞くつ', emoji: '💨', desc: '空気と水の性質（1〜4を入力）' },
+            { id: 'science-moonstars', subject:'sci', grade:4, name: '月と星の丘',       emoji: '🌙', desc: '月と星（1〜4を入力）' },
+            { id: 'science-body',      subject:'sci', grade:4, name: 'からだの研究所',   emoji: '🧠', desc: '人の体のつくり（1〜4を入力）' },
+            { id: 'science-weather',   subject:'sci', grade:4, name: '天気のタワー',     emoji: '☁️', desc: '天気と気温（1〜4を入力）' },
+            { id: 'science-electric',  subject:'sci', grade:4, name: '電気の発電所',     emoji: '⚡', desc: '電気のはたらき（1〜4を入力）' },
 
-            { id: 'social-seto', subject:'soc', name: '瀬戸のやきもの', emoji: '🏺', desc: '瀬戸のやきものクイズが出るよ（1〜4を入力）' },
+            // === 小5 ===
+            { id: 'm5-frac-eq',  subject:'math', grade:5, name: '約分の道場',    emoji: '🥋', desc: '約分と通分の問題が出るよ' },
+            { id: 'm5-percent',  subject:'math', grade:5, name: '割合の市場',    emoji: '📈', desc: '割合（百分率）の問題が出るよ' },
+            { id: 'm5-speed',    subject:'math', grade:5, name: '速さの草原',    emoji: '🏃', desc: '速さの問題が出るよ' },
+            { id: 'j5-keigo',    subject:'jp',   grade:5, name: '敬語の御殿',    emoji: '🎩', desc: '敬語の問題が出るよ（1〜4を入力）' },
+            { id: 's5-agri',     subject:'soc',  grade:5, name: '農業の大地',    emoji: '🌾', desc: '農業のクイズが出るよ（1〜4を入力）' },
+            { id: 'r5-weather',  subject:'sci',  grade:5, name: '天気の観測所',  emoji: '⛅', desc: '天気の変化の問題が出るよ（1〜4を入力）' },
 
-            // 理科は後で問題を追加予定（UIは先に作る）
-            { id: 'science-heat',      subject:'sci', name: 'あたたまり方ラボ', emoji: '🔥', desc: 'もののあたたまり方（1〜4を入力）' },
-            { id: 'science-seasons',   subject:'sci', name: '季節と生き物の森', emoji: '🍁', desc: '季節と生き物（1〜4を入力）' },
-            { id: 'science-airwater',  subject:'sci', name: '空気と水の洞くつ', emoji: '💨', desc: '空気と水の性質（1〜4を入力）' },
-            { id: 'science-moonstars', subject:'sci', name: '月と星の丘',       emoji: '🌙', desc: '月と星（1〜4を入力）' },
-            { id: 'science-body',      subject:'sci', name: 'からだの研究所',   emoji: '🧠', desc: '人の体のつくり（1〜4を入力）' },
-            { id: 'science-weather',   subject:'sci', name: '天気のタワー',     emoji: '☁️', desc: '天気と気温（1〜4を入力）' },
-            { id: 'science-electric',  subject:'sci', name: '電気の発電所',     emoji: '⚡', desc: '電気のはたらき（1〜4を入力）' }];
+            // === 小6 ===
+            { id: 'm6-frac-mul', subject:'math', grade:6, name: '分数×分数の砦', emoji: '🏯', desc: '分数×分数の問題が出るよ' },
+            { id: 'm6-ratio',    subject:'math', grade:6, name: '比の天秤',      emoji: '⚖️', desc: '比の問題が出るよ' },
+            { id: 'j6-bunpo',    subject:'jp',   grade:6, name: '文法の書庫',    emoji: '📚', desc: '文法まとめの問題が出るよ（1〜4を入力）' },
+            { id: 's6-hist-u6',  subject:'soc',  grade:6, name: '天下統一の戦場', emoji: '🔥', desc: '戦国時代のクイズが出るよ（1〜4を入力）' },
+            { id: 's6-politics', subject:'soc',  grade:6, name: '政治の国会',    emoji: '🏛️', desc: '政治のクイズが出るよ（1〜4を入力）' },
+            { id: 'r6-combust',  subject:'sci',  grade:6, name: '燃焼の実験室',  emoji: '🧪', desc: 'ものの燃え方の問題が出るよ（1〜4を入力）' }];
 
         function getPveDepths(areaId) {
             const MAP = {
@@ -16813,6 +17051,34 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
 
                 conjunction: { labels: ['橋のたもと', '橋のまんなか', '向こう岸'], emojis: ['🌉','🪵','🌌'] },
                 science_lab: { labels: ['実験室前', '実験台', '危険エリア'], emojis: ['🧫','⚗️','💥'] },
+
+                // 小1
+                'm1-add-cy': { labels: ['ふもと', 'なかば', 'てっぺん'], emojis: ['🌈','☁️','⭐'] },
+                'm1-sub-bo': { labels: ['入口', 'まんなか', 'おくそこ'], emojis: ['🌀','💫','🌟'] },
+                'j1-kanji':  { labels: ['あいうえお', 'かきくけこ', 'むずかしい字'], emojis: ['🅰️','📖','🏆'] },
+                // 小2
+                'm2-add2':   { labels: ['やさしめ', 'ふつう', 'むずかしい'], emojis: ['⛺','🏕️','🗻'] },
+                'j2-kanji':  { labels: ['読みがな', 'まぜまぜ', 'マスター'], emojis: ['✏️','📝','👑'] },
+                // 小3
+                'm3-mul1':   { labels: ['外壁', '中庭', '天守閣'], emojis: ['🏰','⚔️','👑'] },
+                'm3-div0':   { labels: ['水面', '中流', '源泉'], emojis: ['⛲','🌊','💎'] },
+                'j3-kotowaza':{ labels: ['里の入口', '奥の小道', '長老の家'], emojis: ['🏘️','🌿','🧙'] },
+                's3-map':    { labels: ['海岸', '平地', '山頂'], emojis: ['🏖️','🗺️','⛰️'] },
+                'r3-magnet': { labels: ['入口', '実験台', '奥の間'], emojis: ['🧲','🔬','⚡'] },
+                // 小5
+                'm5-frac-eq':{ labels: ['白帯', '茶帯', '黒帯'], emojis: ['🥋','🟤','⬛'] },
+                'm5-percent':{ labels: ['露店', '本店', '卸売'], emojis: ['📈','🏪','🏢'] },
+                'm5-speed':  { labels: ['ジョギング', 'ダッシュ', '超速'], emojis: ['🚶','🏃','⚡'] },
+                'j5-keigo':  { labels: ['庭', '広間', '奥の間'], emojis: ['🌳','🎩','👑'] },
+                's5-agri':   { labels: ['田んぼ', '畑', '工場'], emojis: ['🌾','🥬','🏭'] },
+                'r5-weather':{ labels: ['地上', '雲の中', '成層圏'], emojis: ['⛅','☁️','🌩️'] },
+                // 小6
+                'm6-frac-mul':{ labels: ['門前', '本丸', '天守'], emojis: ['🏯','⚔️','🐉'] },
+                'm6-ratio':  { labels: ['左の皿', '支点', '右の皿'], emojis: ['⚖️','🔵','⚖️'] },
+                'j6-bunpo':  { labels: ['入口', '閲覧室', '禁帯出'], emojis: ['📚','📖','🔒'] },
+                's6-hist-u6':{ labels: ['陣地', '本陣', '天下'], emojis: ['⚔️','🔥','👑'] },
+                's6-politics':{ labels: ['受付', '議場', '本会議'], emojis: ['🏛️','📜','🗳️'] },
+                'r6-combust': { labels: ['準備室', '実験台', '高温炉'], emojis: ['🧪','🔥','💥'] },
             };
             const cfg = MAP[areaId] || { labels: ['手前','中ほど','最奥'], emojis: ['🌱','🌿','🔥'] };
 
@@ -16848,7 +17114,20 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
                 'science-moonstars': 1.0,
                 'science-body': 1.0,
                 'science-weather': 1.0,
-                'science-electric': 1.0
+                'science-electric': 1.0,
+
+                // 小1
+                'm1-add-cy': 0.5, 'm1-sub-bo': 0.5, 'j1-kanji': 0.5,
+                // 小2
+                'm2-add2': 0.55, 'j2-kanji': 0.55,
+                // 小3
+                'm3-mul1': 0.65, 'm3-div0': 0.65, 'j3-kotowaza': 0.7, 's3-map': 0.7, 'r3-magnet': 0.7,
+                // 小5
+                'm5-frac-eq': 1.1, 'm5-percent': 1.1, 'm5-speed': 1.15,
+                'j5-keigo': 1.1, 's5-agri': 1.05, 'r5-weather': 1.05,
+                // 小6
+                'm6-frac-mul': 1.2, 'm6-ratio': 1.2, 'j6-bunpo': 1.15,
+                's6-hist-u6': 1.15, 's6-politics': 1.15, 'r6-combust': 1.15
             };
             return (areaId && M[areaId] != null) ? M[areaId] : 1.0;
         }
@@ -16936,7 +17215,8 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
             backBtn.onclick = () => (window.renderPvEDistrictSelect || renderPvEDistrictSelect)();
             areaWrap.appendChild(backBtn);
 
-            const list = PVE_AREAS.filter(a => a.subject === districtId);
+            const ug = window.__userGrade ? Number(window.__userGrade) : 0;
+            const list = PVE_AREAS.filter(a => a.subject === districtId && (!(ug >= 1 && ug <= 6) || a.grade === ug));
             if (!list.length) {
                 const p = document.createElement('div');
                 p.className = "text-sm text-gray-600 p-4";
@@ -17332,7 +17612,7 @@ function startPvE(difficulty) {
 
         function initBattlePvE(continueFlag = false) {
             battle.mode = 'pve';
-            try{ document.getElementById('btnThrowBall').style.display = ''; } catch(e) {}
+            try{ var _bb = document.getElementById('btnThrowBall'); _bb.style.display = ''; _bb.disabled = false; _bb.style.opacity = ''; _bb.style.pointerEvents = ''; _bb.title = ''; } catch(e) {}
             try{ recordLimitedUseForParty('pve'); }catch(e){}
             battle.phase = 'ready';
             battle.consecutiveCorrect = 0;
@@ -17475,11 +17755,24 @@ try{
                     return;
                 }
             }catch(e){}
-            // 🐸 爬虫類マン（野生バトル限定・登場確率 1000分の1）
-            const isReptileMan = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId) && Math.random() < 0.001;
-            if (isReptileMan) {
-                try{ const M = ensureMetrics(); M.rare.reptileman = M.rare.reptileman || {encounter:0}; M.rare.reptileman.encounter++; }catch(e){}
-                enemyId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
+            // 🏆 連勝ごほうびキャラ（winStreak に応じて出現）
+            let __streakEncounterId = null;
+            const __ws = (battle && typeof battle.winStreak === 'number') ? battle.winStreak : 0;
+            const __noForced = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId);
+            const __notFriend = !(battle && (battle.friendGym || battle.friendCodeKey));
+            if (__noForced && __notFriend) {
+                // 10連勝〜: 爬虫類マン 15%
+                if (__ws >= 10 && Math.random() < 0.15) __streakEncounterId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
+                // 7連勝〜: ライジン 12%
+                else if (__ws >= 7 && Math.random() < 0.12) __streakEncounterId = 227;
+                // 5連勝〜: カゲムシャ or キツネビ 10%
+                else if (__ws >= 5 && Math.random() < 0.10) __streakEncounterId = (Math.random() < 0.5) ? 220 : 226;
+                // 3連勝〜: ポポ 8%
+                else if (__ws >= 3 && Math.random() < 0.08) __streakEncounterId = (typeof POPO_ID !== 'undefined') ? POPO_ID : 1050;
+            }
+            if (__streakEncounterId) {
+                try{ const M = ensureMetrics(); M.rare = M.rare || {}; M.rare.streak = M.rare.streak || {encounter:0}; M.rare.streak.encounter++; }catch(e){}
+                enemyId = __streakEncounterId;
                 m = getMonster(enemyId);
                 // プレイヤー先頭のレベルに少しだけ上乗せ（強すぎ/弱すぎになりにくい）
                 eLvl = Math.max(1, Math.min(100, (playerLevel || 1) + 5));
@@ -17511,7 +17804,7 @@ try{
                     buff: m.buff, elementType: m.elementType
                 });
                 document.getElementById('messageLog').innerHTML =
-                    `<span class="text-green-500 font-bold text-lg">✨ 激レア ✨<br>やせいの ${m.name} があらわれた！</span>`;
+                    `<span class="text-yellow-500 font-bold text-lg">🏆 ${__ws}連勝ボーナス！🏆<br>${m.sprite} ${m.name} があらわれた！</span>`;
                 finishInitPvE(continueFlag);
                 return;
             }
@@ -18663,6 +18956,7 @@ setTimeout(() => {
                     player.pokedex.push(hanshinManCompanionId);
                 }
                 player.monsters[hanshinManCompanionId] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+        try { createBoxEntry(hanshinManCompanionId, 1, 'event'); } catch(e) {}
         try{ logAcquire('イベント', hanshinManCompanionId, {isNew:true, note:'Lv.1'}); }catch(e){}
 
                 alert("Lv.1の阪神マンが仲間になった！");
@@ -18687,6 +18981,7 @@ if (enemyMon.id === NEWYEAR_ID) {
     if (!player.monsters[NEWYEAR_ID]) {
         const captureLvl = (typeof enemyMon.level === 'number' ? enemyMon.level : 1);
         player.monsters[NEWYEAR_ID] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) };
+        try { createBoxEntry(NEWYEAR_ID, captureLvl, 'event'); } catch(e) {}
         try{ logAcquire('イベント', NEWYEAR_ID, {isNew:true, note:'Lv.'+captureLvl}); }catch(e){}
         alert(`🎍門松将軍（Lv.${captureLvl}）が仲間になった！`);
         try{
@@ -18718,6 +19013,7 @@ if (enemyMon.id === NEWYEAR_ID) {
     }
     if (!player.monsters[VALENTINE_ID]) {
         player.monsters[VALENTINE_ID] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+        try { createBoxEntry(VALENTINE_ID, 1, 'event'); } catch(e) {}
         try{ logAcquire('イベント', VALENTINE_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
     }
     alert("🍫バレソタイソが仲間になった！");
@@ -18739,7 +19035,8 @@ if (enemyMon.id === SANTA_ID) {
                 }
                 if (!player.monsters[SANTA_ID]) {
                     player.monsters[SANTA_ID] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
-                try{ logAcquire('イベント', SANTA_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
+                    try { createBoxEntry(SANTA_ID, 1, 'event'); } catch(e) {}
+                    try{ logAcquire('イベント', SANTA_ID, {isNew:true, note:'Lv.1'}); }catch(e){}
                 }
                 alert("🎅サンタ様が仲間になった！");
                 try { endSantaBattleCleanup(); } catch(e) {}
@@ -18889,6 +19186,7 @@ let rewardMsg = "";
                     if (!player.monsters[mId]) {
                         player.monsters[mId] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
                         if (!player.pokedex.includes(mId)) player.pokedex.push(mId);
+                        try { createBoxEntry(mId, 1, 'friend'); } catch(e) {}
                         rewardMsg = `\n\n🎁 報酬: ${mName} (Lv.1) をゲットした！`;
                         try{ logAcquire('友達対戦', mId, {isNew:true, note:'報酬'}); }catch(e){}
                     } else {
@@ -25520,6 +25818,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（筆算わり算50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25553,6 +25852,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（九九50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25585,6 +25885,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（慣用句50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25617,6 +25918,7 @@ function trainSubmitSelectedOption(){
             // 仲間にする
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try{ logAcquire('隠し（小数×÷50連続）', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
             // パーティに入れるか（既に3体以上なら確認）
@@ -25646,6 +25948,7 @@ function trainSubmitSelectedOption(){
             if (player.pokedex.includes(id)) return;
             player.pokedex.push(id);
             player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+            try { createBoxEntry(id, 1, 'secret'); } catch(e) {}
             try { logAcquire('隠し（' + label + '）', id, { isNew: true, note: 'Lv.1' }); } catch(e) {}
             if (!player.party) player.party = [];
             const mon = getMonster(id);
@@ -25951,7 +26254,10 @@ function labGrantMonster(id){
 
   const __wasNew = !player.monsters[mid];
   if (!player.pokedex.includes(mid)) player.pokedex.push(mid);
-  if (!player.monsters[mid]) player.monsters[mid] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+  if (!player.monsters[mid]) {
+    player.monsters[mid] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+    try { createBoxEntry(mid, 1, 'lab'); } catch(e) {}
+  }
   try{ logAcquire('ラボ復活', mid, {isNew:__wasNew, note: __wasNew ? '復活' : '復活(再)'}); }catch(e){}
 
   // パーティに入れるか
@@ -26165,6 +26471,7 @@ function unlockDecimalFestMonsterIfNeeded(){
     // 仲間にする
     player.pokedex.push(id);
     player.monsters[id] = { level: 1, exp: 0, nextExp: calculateNextExp(1) };
+    try { createBoxEntry(id, 1, 'fest'); } catch(e) {}
             try{ logAcquire('小数フェス報酬', id, {isNew:true, note:'Lv.1'}); }catch(e){}
 
     // パーティに入れるか
@@ -27996,6 +28303,56 @@ try {
             return null;
         }
 
+        // Create a box entry for a newly acquired monster and place it in boxes
+        function createBoxEntry(monsterId, level, source) {
+            if (!Array.isArray(player.boxes)) return;
+            const uid = (source || 'acq') + '_' + monsterId + '_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+            const boxEntry = {
+                uid: uid,
+                monsterId: Number(monsterId),
+                level: level || 1,
+                exp: 0,
+                nextExp: (typeof calculateNextExp === 'function' ? calculateNextExp(level || 1) : 60),
+                stars: 0,
+                caughtAt: Date.now(),
+                isActive: true
+            };
+            const slot = findFirstEmptyBoxSlot();
+            if (slot) {
+                player.boxes[slot.boxIdx][slot.slotIdx] = boxEntry;
+            } else {
+                // All slots full - append to box 0
+                player.boxes[0].push(boxEntry);
+            }
+            return boxEntry;
+        }
+
+        // Repair: ensure every monster in player.monsters has at least one box entry
+        function repairMissingBoxEntries() {
+            if (!player.monsters || !Array.isArray(player.boxes)) return;
+            let repaired = 0;
+            for (const idStr of Object.keys(player.monsters)) {
+                const nid = Number(idStr);
+                let found = false;
+                for (let bi = 0; bi < player.boxes.length && !found; bi++) {
+                    const box = player.boxes[bi];
+                    if (!Array.isArray(box)) continue;
+                    for (let si = 0; si < box.length; si++) {
+                        if (box[si] && box[si].monsterId === nid) { found = true; break; }
+                    }
+                }
+                if (!found) {
+                    const md = player.monsters[nid];
+                    createBoxEntry(nid, md.level || 1, 'repair');
+                    repaired++;
+                }
+            }
+            if (repaired > 0) {
+                console.log('[repair] ' + repaired + ' missing box entries created');
+                try { saveData(); } catch(e) {}
+            }
+        }
+
         // --- 図鑑：スクロール中の誤タップ防止（タップ判定） ---
 
         function addSafeTap(el, onTap) {
@@ -28349,7 +28706,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 <div class="mt-1">${typeBadgesHtml}</div>
             `;
 
-            const isPast = m.nextId && player.pokedex.includes(m.nextId);
+            const isPast = m.nextId && player.pokedex.includes(m.nextId) && detailOpenSource !== 'box';
             const statsDiv = document.getElementById('detailStatsDisplay');
             let mData = player.monsters[id];
             if (!mData) mData = { level: 1, exp: 0, nextExp: 60 };
@@ -28479,7 +28836,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             
             
             try{ ensureHidenData(); const eq=(typeof hidenEquipList==='function')?(hidenEquipList(id)||[]):[]; const n=(Array.isArray(eq)?eq.length:0); const btn=document.getElementById('hidenEquipBtn'); if(btn){ btn.innerText = `📜 秘伝の書を装備 (${n}/${HIDEN_MAX_EQUIP})`; } }catch(e){}
-// 田中先生・なしひろし：日替わり制限（ここは『今日の使用回数』を表示）
+// タナカティーチャー・なしひろし：日替わり制限（ここは『今日の使用回数』を表示）
             const __isLimited = (typeof isLimitedDailyUnit === 'function') ? isLimitedDailyUnit(m.id, m.name) : false;
             if (__isLimited) {
                 try{
@@ -28500,9 +28857,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 if (lbl) lbl.innerText = '今日がんばれる回数';
                 document.getElementById('detailDefeats').innerText = `${count}/${m.reqDefeats}`;
                 if (count < m.reqDefeats && !player.pokedex.includes(m.id)) {
-                    document.getElementById('partyBtn').disabled = true;
-                    document.getElementById('partyBtn').innerText = "まだ仲間にできません";
-                    document.getElementById('partyBtn').className = "w-full py-2 bg-gray-400 text-white font-bold rounded-lg text-xs";
+                    document.getElementById('partyBtn').style.display = 'none';
                 } else enablePartyBtn(m.id);
             } else {
                 document.getElementById('detailDefeats').parentElement.style.display = 'none';
@@ -28641,9 +28996,8 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
         }
 
         function enablePartyBtn(id) {
-            const btn = document.getElementById('partyBtn'); const inParty = player.party.includes(id);
-            btn.disabled = false; btn.innerText = inParty ? "パーティから外す" : "パーティに入れる";
-            btn.className = inParty ? "w-full py-2 bg-red-500 text-white font-bold rounded-lg text-sm" : "w-full py-2 bg-indigo-600 text-white font-bold rounded-lg text-sm";
+            const btn = document.getElementById('partyBtn');
+            if(btn) btn.style.display = 'none';
         }
 
         
@@ -29044,7 +29398,8 @@ function closeDetail() {
             }
             if (confirm("本当にパーティから外しますか？")) {
                 player.party.splice(partyMenuIndex, 1);
-                closePartyMenu();
+                partyMenuIndex = null;
+                document.getElementById('detailModal').classList.add('hidden');
                 updatePlayerDisplay();
                 saveData();
             }
@@ -33688,12 +34043,20 @@ function endGymBattle(isWin) {
             var rect = btnEl.getBoundingClientRect();
             m.style.position = 'fixed';
             m.style.left = (rect.right + 4) + 'px';
-            m.style.bottom = (window.innerHeight - rect.bottom) + 'px';
-            m.style.top = 'auto';
             m.style.zIndex = '9999';
             m.classList.remove('hidden');
+            var mRect = m.getBoundingClientRect();
+            var desiredTop = rect.bottom - mRect.height;
+            if (desiredTop < 8) desiredTop = 8;
+            if (desiredTop + mRect.height > window.innerHeight - 8) {
+                desiredTop = window.innerHeight - 8 - mRect.height;
+            }
+            if (desiredTop < 8) desiredTop = 8;
+            m.style.top = desiredTop + 'px';
+            m.style.bottom = 'auto';
             _activeSideMenu = menuId;
         }
+
         function _closeAllSideMenus() {
             ['sys-menu','battle-menu','friend-menu',
              'sys-menu-mobile','battle-menu-mobile','friend-menu-mobile'].forEach(function(id){
@@ -35705,7 +36068,7 @@ function _rkValueOf(r, type, period) {
   switch(type) {
     case 'overall': return r.totalLevel || 0;
     case 'power': return r.battlePower || 0;
-    case 'correct': case 'grade': return Math.round((r.rankingPoints || r.correctCount || 0) * 10) / 10;
+    case 'correct': case 'grade': return Number(((r.rankingPoints || r.correctCount || 0)).toFixed(1));
     case 'pokedex': return r.pokedexCount || 0;
     case 'wild': return r.wildWinStreak || 0;
     default: return r.totalLevel || 0;
@@ -37358,42 +37721,6 @@ function getEnemyTemplate(difficulty){
       }
     }
 
-    // 壁ユニットボタンの状態更新
-    try{
-      const wallBtn = document.getElementById('warWallBtn');
-      if(wallBtn){
-        const wallCd = Math.max(0, Number(ps.wallCd||0));
-        const wallCost = 15;
-        const wallOk = (ps.power >= wallCost) && wallCd <= 0 && (ps.globalSpawnCd||0) <= 0 && !atLimit;
-        wallBtn.style.opacity = wallOk ? 1 : 0.55;
-        wallBtn.disabled = !wallOk;
-        const wCover = document.getElementById('warWallCover');
-        const wText = document.getElementById('warWallCdText');
-        const wBar = document.getElementById('warWallCdBar');
-        const wHint = document.getElementById('warWallHint');
-        if(atLimit){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = '上限';
-          if(wHint) wHint.textContent = '場がいっぱい';
-        }else if(wallCd > 0){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = `待ち ${wallCd.toFixed(1)}s`;
-          if(wHint) wHint.textContent = '再出撃待ち';
-        }else if(ps.power < wallCost){
-          if(wCover){ wCover.classList.remove('hidden'); wCover.classList.add('flex'); }
-          if(wText) wText.textContent = '⚡15';
-          if(wHint) wHint.textContent = 'パワー不足';
-        }else{
-          if(wCover){ wCover.classList.add('hidden'); wCover.classList.remove('flex'); }
-          if(wHint) wHint.textContent = 'タップで出陣';
-        }
-        if(wBar){
-          const wallCdMax = 1.8;
-          const remain = (wallCd > 0) ? (wallCd / wallCdMax) : 0;
-          wBar.style.width = clamp((1 - remain) * 100, 0, 100) + '%';
-        }
-      }
-    }catch(e){}
 
     // 学習パワー上限アップ（4つ目カード→5つ目に移動）の状態更新
     const capBtn = document.getElementById('warPowerCapBtn');
@@ -37695,7 +38022,7 @@ function partyToButtons(){
       }
       const mon = (typeof getMonster==='function') ? getMonster(id) : null;
       const st = mon ? getWarUnitStatsFromMonster(mon, id) : {cost:60, name:'?', sprite:'❓', hpMax:200, atk:20};
-      const isZombieForbidden = !!(warState && warState.zombieMode) && (id===152 || id===153 || id===999 || (mon && (mon.name==='田中先生' || mon.name==='なしひろし')));
+      const isZombieForbidden = !!(warState && warState.zombieMode) && (id===152 || id===153 || id===999 || (mon && (mon.name==='タナカティーチャー' || mon.name==='なしひろし')));
       const cdMax = calcRechargeSec(st);
       ps.slotCdMax[i] = cdMax;
       if(typeof ps.slotCd[i] !== 'number') ps.slotCd[i] = 0;
@@ -37715,23 +38042,6 @@ function partyToButtons(){
         </button>`;
     }
     
-    // 壁ユニット（にゃんこ風：安い・弱い・速いクールダウン）
-    ps.wallCd = ps.wallCd || 0;
-    box.innerHTML += `
-      <button id="warWallBtn" onclick="warSpawnWall()" class="relative overflow-hidden bg-amber-50 rounded-xl p-3 border-2 border-amber-300 shadow hover:shadow-lg transition active:translate-y-0.5">
-        <div class="absolute top-2 right-2 text-[10px] font-black bg-amber-100 text-amber-800 px-2 py-1 rounded-full border border-amber-200">⚡15</div>
-        <div class="text-3xl leading-none">🛡️</div>
-        <div class="text-xs font-black text-gray-800 mt-1 truncate">壁</div>
-        <div class="text-[10px] text-gray-500 font-bold line-clamp-1">安い！速い！弱い！</div>
-        <div class="mt-2 h-1 w-full bg-gray-200 rounded">
-          <div id="warWallCdBar" class="h-1 bg-amber-400 rounded" style="width:100%"></div>
-        </div>
-        <div class="mt-2 text-[10px] font-black text-amber-700 border border-amber-200 rounded-lg py-1 text-center" id="warWallHint">タップで出陣</div>
-        <div id="warWallCover" class="absolute inset-0 rounded-xl bg-white/80 hidden flex items-center justify-center">
-          <div class="text-xs font-black text-gray-800" id="warWallCdText">待ち 0.0s</div>
-        </div>
-      </button>`;
-
     // 4つ目(旧)：学習パワーを使って「上限アップ」
     box.innerHTML += `
       <button id="warPowerCapBtn" onclick="warUpgradePowerCap()" class="relative bg-white rounded-xl border-2 border-yellow-200 shadow hover:shadow-lg transition active:translate-y-0.5">
@@ -37910,7 +38220,7 @@ function spawnUnit(team, template){
     if(id == null) return;
     const mon = (typeof getMonster==='function') ? getMonster(id) : null;
     if(!mon) return;
-    if(warState && warState.zombieMode && (id===152 || id===153 || id===999 || (mon && (mon.name==='田中先生' || mon.name==='なしひろし')))){
+    if(warState && warState.zombieMode && (id===152 || id===153 || id===999 || (mon && (mon.name==='タナカティーチャー' || mon.name==='なしひろし')))){
       const fb = document.getElementById('warFeedback');
       if(fb){ fb.textContent = 'こわい'; fb.className='font-bold text-red-200'; }
       else { try{ alert('こわい'); }catch(e){} }
@@ -37927,34 +38237,6 @@ function spawnUnit(team, template){
     // スロットごとの再出撃待ち
     const cdMax = ps.slotCdMax[slot] || calcRechargeSec(st);
     ps.slotCd[slot] = cdMax;
-    updateSpawnButtonState();
-  };
-
-  // 壁ユニット出撃（にゃんこ風：安い・HP高め・攻撃弱い・クールダウン短い）
-  window.warSpawnWall = function(){
-    if(!warState.active) return;
-    const ps = warState;
-    if(ps.globalSpawnCd > 0) return;
-    if((ps.wallCd||0) > 0) return;
-    const alive = ps.units.filter(u=>u.team==='player' && u.hp>0).length;
-    if(alive >= (ps.maxPlayerUnits||6)){
-      const fb = document.getElementById('warFeedback');
-      if(fb){ fb.textContent = '🚫 これ以上出せない！（出撃上限）'; fb.className='font-bold text-yellow-200'; }
-      return;
-    }
-    const wallCost = 15;
-    if(ps.power < wallCost) return;
-    ps.power -= wallCost;
-    renderPower();
-    spawnUnit('player', {
-      kind:'wall', name:'壁', sprite:'🛡️',
-      buff:'guard', elementType:'normal',
-      hpMax: 80, hp: 80, atk: 3, def: 15,
-      move: 6, atkInterval: 1200, cost: wallCost,
-      skill3Name:'', skill3Effect:''
-    });
-    ps.globalSpawnCd = 0.15;
-    ps.wallCd = 1.8; // 1.8秒で再出撃可能（にゃんこの壁並みに速い）
     updateSpawnButtonState();
   };
 
@@ -39229,7 +39511,7 @@ if(!ps._battleWAt || (now - ps._battleWAt) > 1200){
     // cooldown timers
     ps.globalSpawnCd = Math.max(0, (ps.globalSpawnCd||0) - dt);
     for(let i=0;i<3;i++) ps.slotCd[i] = Math.max(0, (ps.slotCd[i]||0) - dt);
-    ps.wallCd = Math.max(0, (ps.wallCd||0) - dt);
+
 
     // power
     ps.baseRate = warGetPowerRate();
@@ -40518,15 +40800,49 @@ async function hwRenderWeekView(){
 
     // 先生メニュー取得
     const menu = await hsFetchWeeklyMenu(todayKey);
+    const activeDays = (menu && menu.activeDays) || ['mon','tue','wed','thu','fri'];
+    const menuPublished = !!(menu && menu.published);
+
+    // 未配信時は前週の日付・データで表示
+    var displayWeekKey = weekKey;
+    var displayDays = days;
+    var isReadOnly = false;
+    if(!menuPublished && menu && menu.fallbackWeek){
+      displayWeekKey = menu.fallbackWeek;
+      var fbDayKey = hsGetFirstDayOfWeek830(menu.fallbackWeek);
+      if(fbDayKey) displayDays = hwGetWeekDays(fbDayKey);
+      isReadOnly = true;
+      if(wl) wl.textContent = weekKey + '（前週のデータ）';
+    }
+
+    // メニュー未配信メッセージ
+    const noMenuMsg = document.getElementById('hwNoMenuMsg');
+    if(noMenuMsg){
+      if(!menuPublished){
+        var fbMsg = (menu && menu.fallbackWeek) ? '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生から今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">前の週（' + menu.fallbackWeek + '）の計画を表示しています</div></div>' : '<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 text-center"><div class="text-amber-700 font-bold text-sm">\u{1F4CB} 先生からの今週のメニューがまだ届いていません</div><div class="text-xs text-amber-600 mt-1">メニューが届くと、計画を書き込めるようになります</div></div>';
+        noMenuMsg.innerHTML = fbMsg;
+        noMenuMsg.classList.remove('hidden');
+      } else {
+        noMenuMsg.classList.add('hidden');
+        noMenuMsg.innerHTML = '';
+      }
+    }
+
     const mk = document.getElementById('hwMenuKanji');
     const mks = document.getElementById('hwMenuKeisan');
     const mo = document.getElementById('hwMenuOther');
+    const mt = document.getElementById('hwMenuTests');
     if(mk) mk.innerHTML = '漢字スキル：<span class="font-bold">' + escapeHtml((menu && menu.kanjiPage) || '—') + '</span>';
     if(mks) mks.innerHTML = '計算スキル：<span class="font-bold">' + escapeHtml((menu && menu.keisanPage) || '—') + '</span>';
     if(mo){
       const ot = (menu && menu.otherTasks) || '';
       if(ot){ mo.innerHTML = 'その他：<span class="font-bold">' + escapeHtml(ot) + '</span>'; mo.classList.remove('hidden'); }
       else mo.classList.add('hidden');
+    }
+    if(mt){
+      const ts = (menu && menu.tests) || '';
+      if(ts){ mt.innerHTML = '\u{1F4DD} 今週のテスト：<span class="font-bold">' + escapeHtml(ts) + '</span>'; mt.classList.remove('hidden'); }
+      else mt.classList.add('hidden');
     }
 
     // 計画承認・振り返り返却の報酬チェック
@@ -40559,7 +40875,7 @@ async function hwRenderWeekView(){
     }catch(_){}
 
     // 週間計画を取得
-    const plan = hwGetPlanForWeek(weekKey) || {};
+    const plan = hwGetPlanForWeek(displayWeekKey) || {};
 
     // 曜日カード描画
     const cardsEl = document.getElementById('hwDayCards');
@@ -40569,8 +40885,14 @@ async function hwRenderWeekView(){
     const todayDow = hsParseDayKey(todayKey).getDay(); // 0-6
     const isWeekend = (todayDow === 0 || todayDow === 6);
 
+    // 最初と最後の活動日を特定（計画・振返ラベル用）
+    let firstActiveIdx = -1, lastActiveIdx = -1;
+    for(let ai = 0; ai < 5; ai++){ if(activeDays.indexOf(_hwDayKeys830[ai]) >= 0){ if(firstActiveIdx < 0) firstActiveIdx = ai; lastActiveIdx = ai; } }
+
     for(let i = 0; i < 5; i++){
-      const dk = days[i];
+      const dk = displayDays[i];
+      const dayKey830 = _hwDayKeys830[i];
+      const isDayActive = activeDays.indexOf(dayKey830) >= 0;
       const dayPlanRaw = plan[_hwDayKeys830[i]] || '';
       const dayPlan = typeof dayPlanRaw === 'object' ? (dayPlanRaw.free || '') : dayPlanRaw;
       const hasPlan = !!dayPlan;
@@ -40584,7 +40906,11 @@ async function hwRenderWeekView(){
       let statusClass = 'bg-slate-50 border-slate-200';
       let weatherIcon = '';
 
-      if(entry){
+      // 非活動日（祝日等）はグレーアウト表示
+      if(!isDayActive && !entry){
+        statusIcon = '\u{1F6AB}';
+        statusClass = 'bg-slate-100 border-slate-200 opacity-40';
+      } else if(entry){
         weatherIcon = hsWeatherIcon(entry.endWeather || entry.weather);
         statusIcon = '✅';
         statusClass = 'bg-emerald-50 border-emerald-300';
@@ -40601,12 +40927,12 @@ async function hwRenderWeekView(){
 
       const isModified = plan._modified && plan._modified[_hwDayKeys830[i]];
       const modBadge = isModified ? '<div class="text-[10px] text-orange-600 font-bold">✎変更</div>' : '';
-      const dayBadge = (isMon ? '<div class="text-[10px] text-green-700 font-bold">📋計画</div>' :
-                       isFri ? '<div class="text-[10px] text-orange-700 font-bold">🌟振返</div>' : '') + modBadge;
+      const dayBadge = ((i === firstActiveIdx) ? '<div class="text-[10px] text-green-700 font-bold">📋計画</div>' :
+                       (i === lastActiveIdx) ? '<div class="text-[10px] text-orange-700 font-bold">🌟振返</div>' : '') + modBadge;
 
       const planPreview = dayPlan ? '<div class="text-[10px] text-slate-600 mt-1 line-clamp-2 break-words">' + escapeHtml(dayPlan) + '</div>' : '';
 
-      const canClick = (isToday && !isWeekend) || entry;
+      const canClick = isDayActive && (isToday || isPast || entry);
       const clickAttr = canClick ? `onclick="hwOpenDay('${dk}')"` : '';
       const cursorClass = canClick ? 'cursor-pointer hover:shadow-md' : '';
 
@@ -40618,8 +40944,8 @@ async function hwRenderWeekView(){
         <div class="text-[10px] text-slate-500">${(hsParseDayKey(dk).getMonth()+1)}/${hsParseDayKey(dk).getDate()}</div>
         ${dayBadge}
         <div class="text-xl my-1">${entry ? weatherIcon : statusIcon}</div>
-        ${entry ? '<div class="text-[10px] text-emerald-700 font-bold">提出済</div>' : ''}
-        ${planPreview}
+        ${entry ? '<div class="text-[10px] text-emerald-700 font-bold">提出済</div>' : (!isDayActive ? '<div class="text-[10px] text-slate-400">おやすみ</div>' : '')}
+        ${isDayActive ? planPreview : ''}
       `;
       cardsEl.appendChild(card);
     }
@@ -40632,7 +40958,9 @@ async function hwRenderWeekView(){
       planInputs.innerHTML = '';
 
       for(let i = 0; i < 5; i++){
-        const dk = days[i];
+        const dk = displayDays[i];
+        // 非活動日は計画入力欄をスキップ
+        if(activeDays.indexOf(_hwDayKeys830[i]) < 0) continue;
         const entry = hsGetEntryForDay(logs, dk);
         const dayPlanRaw = plan[_hwDayKeys830[i]];
         const dayVal = typeof dayPlanRaw === 'object' ? (dayPlanRaw.free || '') : (dayPlanRaw || '');
@@ -40644,7 +40972,7 @@ async function hwRenderWeekView(){
         row.className = 'flex items-start gap-2';
 
         const label = document.createElement('div');
-        label.className = 'w-8 text-center font-bold text-sm pt-1.5 shrink-0 ' + (isMon ? 'text-green-700' : isFri ? 'text-orange-700' : 'text-slate-700');
+        label.className = 'w-8 text-center font-bold text-sm pt-1.5 shrink-0 ' + ((i === firstActiveIdx) ? 'text-green-700' : (i === lastActiveIdx) ? 'text-orange-700' : 'text-slate-700');
         label.textContent = _hwDayLabels[i];
 
         const rightCol = document.createElement('div');
@@ -40652,7 +40980,7 @@ async function hwRenderWeekView(){
 
         // 固定ラベル（入力不要な部分）
         const fixedParts = [];
-        if(isMon) fixedParts.push('📝今週の計画');
+        if(i === firstActiveIdx) fixedParts.push('📝今週の計画');
         fixedParts.push('📖今日の復習');
 
         const fixedLabel = document.createElement('div');
@@ -40666,8 +40994,8 @@ async function hwRenderWeekView(){
         input.placeholder = '自主学習（例：計算スキルp.10～12）';
         input.value = dayVal;
         input.dataset.dayIdx = i;
-        input.disabled = isSubmitted;
-        if(!isSubmitted){
+        input.disabled = isSubmitted || isReadOnly;
+        if(!isSubmitted && !isReadOnly){
           input.addEventListener('input', function(){
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 80) + 'px';
@@ -40696,19 +41024,34 @@ async function hwRenderWeekView(){
       }
     }
 
-    // 今日ボタン
+    // 未配信時は提出ボタンを隠す
+    var submitBtn = document.getElementById('hwPlanSubmitBtn');
+    if(submitBtn) submitBtn.style.display = isReadOnly ? 'none' : '';
+
+    // 今日ボタン（週末は直近の金曜を対象にする）
+    let targetDowIdx = todayDow - 1; // 0=Mon..4=Fri
+    let targetDayKey = todayKey;
+    if(isWeekend){
+      // 土日は金曜日を対象にする
+      targetDowIdx = 4; // fri
+      targetDayKey = displayDays[4];
+    }
+    const todayDowKey = _hwDayKeys830[targetDowIdx];
+    const isTodayActive = todayDowKey && activeDays.indexOf(todayDowKey) >= 0;
     const todayBtn = document.getElementById('hwOpenTodayBtn');
     if(todayBtn){
-      if(isWeekend){
+      if(!isTodayActive){
         todayBtn.classList.add('hidden');
       } else {
-        const todayEntry = hsGetEntryForDay(logs, todayKey);
-        const todayPlanRaw = plan[_hwDayKeys830[todayDow - 1]] || '';
-        const todayHasPlan = typeof todayPlanRaw === 'object' ? !!todayPlanRaw.free : !!todayPlanRaw;
-        if(todayEntry){
+        const targetEntry = hsGetEntryForDay(logs, targetDayKey);
+        const targetPlanRaw = plan[_hwDayKeys830[targetDowIdx]] || '';
+        const targetHasPlan = typeof targetPlanRaw === 'object' ? !!targetPlanRaw.free : !!targetPlanRaw;
+        if(isWeekend){
+          todayBtn.classList.add('hidden');
+        } else if(targetEntry){
           todayBtn.textContent = '📝 今日のシートを確認する';
           todayBtn.classList.remove('hidden');
-        } else if(todayHasPlan){
+        } else if(targetHasPlan){
           todayBtn.textContent = '📝 今日のシートを開く';
           todayBtn.classList.remove('hidden');
         } else {
@@ -40722,7 +41065,7 @@ async function hwRenderWeekView(){
     const todaySt = document.getElementById('hwTodayStatus');
     if(todaySt){
       if(isWeekend){
-        todaySt.innerHTML = '🛌 今日は<b>おやすみ</b>です（土日）。来週の計画を立てておこう！';
+        todaySt.innerHTML = '🛌 今日は<b>土日</b>です。曜日カードをタップして振り返りや計画の確認ができます！';
       } else {
         const todayEntry = hsGetEntryForDay(logs, todayKey);
         const streak = hsCalcRequiredStreak(logs, todayKey);
@@ -40821,7 +41164,8 @@ function hwSavePlans(){
     if(!planInputs) return;
 
     // 既存プランを読み込み（金曜の振り返りを保持するため）
-    const plan = hwGetPlanForWeek(weekKey) || {};
+    const oldPlan = hwGetPlanForWeek(weekKey) || {};
+    const plan = Object.assign({}, oldPlan);
     const textareas = planInputs.querySelectorAll('textarea');
     textareas.forEach(ta =>{
       const idx = Number(ta.dataset.dayIdx);
@@ -40829,7 +41173,6 @@ function hwSavePlans(){
         const key = _hwDayKeys830[idx];
         const existing = plan[key];
         if(idx === 4 && typeof existing === 'object' && existing.reflection){
-          // 金曜：振り返りを保持しつつ自主学習を更新
           plan[key] = { free: ta.value.trim(), reflection: existing.reflection };
         } else {
           plan[key] = ta.value.trim();
@@ -40837,20 +41180,41 @@ function hwSavePlans(){
       }
     });
 
+    // 既に提出済みの計画と比較して変更があるか確認
+    const hasOldPlan = Object.values(oldPlan).some(v => {
+      if(typeof v === 'object' && v) return !!(v.free || v.reflection);
+      return !!(v && String(v).trim());
+    });
+    const planChanged = hasOldPlan && JSON.stringify(oldPlan) !== JSON.stringify(plan);
+
+    // 修正の場合は理由を聞く
+    let reason = '';
+    if(planChanged){
+      reason = prompt('📝 計画を変えるんだね！\nどうして変えようと思ったのか教えてね。\n（例：時間がたりなかった、もっとやりたいことが見つかった など）');
+      if(reason === null) return; // キャンセル
+      reason = (reason || '').trim();
+      if(!reason){
+        alert('💡 計画を変えた理由を書くと、自分の学びをふり返る力がつくよ！もう一度書いてみてね。');
+        return;
+      }
+    }
+
     hwSavePlanForWeek(weekKey, plan);
 
     const msg = document.getElementById('hwPlanMsg');
 
-    // サーバーにも送信
+    // サーバーにも送信（修正理由付き）
     try{
+      const submitBody = { weekKey, plans: plan };
+      if(reason) submitBody.reason = reason;
       fetch('/api/student/weekly-plan', {
         method: 'POST',
         headers: {'content-type':'application/json'},
-        body: JSON.stringify({ weekKey, plans: plan })
+        body: JSON.stringify(submitBody)
       }).then(r => {
         if(msg){
           if(r.ok){
-            msg.textContent = '✅ 計画を提出しました！';
+            msg.textContent = planChanged ? '✅ 計画を修正しました！理由もばっちり！' : '✅ 計画を提出しました！';
           } else {
             msg.textContent = '⚠️ サーバー保存に失敗（ローカルには保存済み）';
           }
@@ -41133,6 +41497,7 @@ function hsGrantRewards(reward, bonus){
 
     if (coins > 0){
       player.coins = Number(player.coins || 0) + coins;
+      player.newCoins = Number(player.newCoins || 0) + coins;
       try{
         if (typeof player.oldCoinDailyStart !== 'undefined') player.oldCoinDailyStart = player.coins || 0;
         if (typeof getTodayYMD === 'function') player.oldCoinDailyDate = getTodayYMD();
@@ -41253,13 +41618,27 @@ function hsIsMonday(dayKey){ return hsGetDayOfWeek(dayKey) === 1; }
 function hsIsFriday(dayKey){ return hsGetDayOfWeek(dayKey) === 5; }
 
 // 先生メニューをAPIから取得してキャッシュ
+function hsGetFirstDayOfWeek830(weekKeyStr){
+  var match = weekKeyStr.match(/^(\d{4})-W(\d{2})$/);
+  if(!match) return null;
+  var y = parseInt(match[1]), w = parseInt(match[2]);
+  var jan4 = new Date(y, 0, 4);
+  var dayOfWeek = jan4.getDay() || 7;
+  var mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - dayOfWeek + 1 + (w - 1) * 7);
+  return hsGetDayKey830(mon);
+}
+
 async function hsFetchWeeklyMenu(dayKey){
   try{
     const wk = hsGetWeekKey(dayKey);
     if(_hsWeeklyMenuCache && _hsWeeklyMenuCache.weekKey === wk) return _hsWeeklyMenuCache;
     const r = await apiJson('/api/student/weekly-menu?weekKey=' + encodeURIComponent(wk));
     if(r && r.ok){
-      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'' } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '' };
+      var ad = null; try{ ad = r.menu && r.menu.activeDays ? JSON.parse(r.menu.activeDays) : null; }catch(e){}
+      var pub = r.published !== undefined ? !!r.published : !!(r.menu);
+      var fbw = r.fallbackWeek || null;
+      _hsWeeklyMenuCache = r.menu ? { weekKey: wk, kanjiPage: r.menu.kanjiPage||'', keisanPage: r.menu.keisanPage||'', otherTasks: r.menu.otherTasks||'', tests: r.menu.tests||'', activeDays: ad || ['mon','tue','wed','thu','fri'], menuExists: true, published: pub, fallbackWeek: fbw } : { weekKey: wk, kanjiPage: '', keisanPage: '', otherTasks: '', tests: '', activeDays: ['mon','tue','wed','thu','fri'], menuExists: false, published: false, fallbackWeek: null };
       return _hsWeeklyMenuCache;
     }
   }catch(e){}
@@ -41271,12 +41650,14 @@ function hsUpdateMenuDisplay(menu){
   const kanjiEl = document.getElementById('hsMenuKanji');
   const keisanEl = document.getElementById('hsMenuKeisan');
   const otherEl = document.getElementById('hsMenuOther');
+  const testsEl = document.getElementById('hsMenuTests');
   const dailyEl = document.getElementById('hsDailyMenuDisplay');
   const dailyLine = document.getElementById('hsSelfStudyPlanLine');
 
   const kp = (menu && menu.kanjiPage) ? menu.kanjiPage : '—';
   const ksp = (menu && menu.keisanPage) ? menu.keisanPage : '—';
   const ot = (menu && menu.otherTasks) ? menu.otherTasks : '';
+  const ts = (menu && menu.tests) ? menu.tests : '';
 
   if(kanjiEl) kanjiEl.innerHTML = '漢字スキル：<span class="font-bold">' + escapeHtml(kp) + '</span>';
   if(keisanEl) keisanEl.innerHTML = '計算スキル：<span class="font-bold">' + escapeHtml(ksp) + '</span>';
@@ -41284,15 +41665,20 @@ function hsUpdateMenuDisplay(menu){
     if(ot){ otherEl.innerHTML = 'そ��他：<span class="font-bold">' + escapeHtml(ot) + '</span>'; otherEl.classList.remove('hidden'); }
     else otherEl.classList.add('hidden');
   }
+  if(testsEl){
+    if(ts){ testsEl.innerHTML = '\u{1F4DD} 今週のテスト：<span class="font-bold">' + escapeHtml(ts) + '</span>'; testsEl.classList.remove('hidden'); }
+    else testsEl.classList.add('hidden');
+  }
 
   // 毎日の先生メニュー表示（計画セクション下）
-  const hasMenu = (menu && (menu.kanjiPage || menu.keisanPage || menu.otherTasks));
+  const hasMenu = (menu && (menu.kanjiPage || menu.keisanPage || menu.otherTasks || menu.tests));
   if(dailyLine) dailyLine.classList.toggle('hidden', !hasMenu);
   if(dailyEl && hasMenu){
     let parts = [];
     if(menu.kanjiPage) parts.push('漢字スキル ' + escapeHtml(menu.kanjiPage));
     if(menu.keisanPage) parts.push('計算スキル ' + escapeHtml(menu.keisanPage));
     if(menu.otherTasks) parts.push(escapeHtml(menu.otherTasks));
+    if(menu.tests) parts.push('\u{1F4DD}テスト: ' + escapeHtml(menu.tests));
     dailyEl.textContent = parts.join(' / ');
   }
 }
@@ -41316,6 +41702,33 @@ async function _checkHomeworkVisibility(){
     if(b2) b2.style.display = d;
     window.__contactHidden = !on;
   }
+  function _setMenuVisible(key, on){
+    var d = on ? '' : 'none';
+    var map = {
+      status: ['btn-status'],
+      training: ['btn-training'],
+      mail: ['btn-mail','mobile-btn-mail'],
+      battle: ['battle-nav-wrap','battle-nav-mobile-wrap'],
+      friend: ['friend-nav-wrap','friend-nav-mobile-wrap'],
+      shop: ['btn-shop'],
+      lab: ['btn-lab'],
+      pokedex: ['btn-pokedex'],
+      box: ['btn-box'],
+      ranking: ['btn-ranking']
+    };
+    var ids = map[key];
+    if(!ids) return;
+    ids.forEach(function(id){ var el = document.getElementById(id); if(el) el.style.display = d; });
+  }
+  function _applyMenus(menusEnabled){
+    var menus = {};
+    if(menusEnabled){
+      try{ menus = typeof menusEnabled === 'string' ? JSON.parse(menusEnabled) : menusEnabled; }catch(e){}
+    }
+    ['status','training','mail','battle','friend','shop','lab','pokedex','box','ranking'].forEach(function(k){
+      _setMenuVisible(k, menus[k] !== false && menus[k] !== 0);
+    });
+  }
   try{
     const role = window.__loggedInRole;
     // 管理者・教師：自分のクラス設定を反映（OFFにしたら自分のページでもOFF確認できる）
@@ -41327,6 +41740,7 @@ async function _checkHomeworkVisibility(){
         if(cls){
           _setHwVisible(cls.homeworkEnabled !== 0 && cls.homeworkEnabled !== '0');
           _setCtVisible(cls.contactEnabled !== 0 && cls.contactEnabled !== '0');
+          _applyMenus(cls.menusEnabled);
           return;
         }
       }catch(e){}
@@ -41343,6 +41757,7 @@ async function _checkHomeworkVisibility(){
     } else {
       _setHwVisible(!(ci.class.homeworkEnabled === 0 || ci.class.homeworkEnabled === '0'));
       _setCtVisible(!(ci.class.contactEnabled === 0 || ci.class.contactEnabled === '0'));
+      _applyMenus(ci.class.menusEnabled);
     }
   }catch(e){
     // エラー時は何もしない（デフォルト表示のまま）
@@ -42436,6 +42851,77 @@ async function hsEditEntrySave(dayKey){
 }
 // ─────────────────────────────────────────────────────
 
+// 成果物写真の処理（複数枚対応）
+var _hsPhotoAnalysisResult = '';
+var _hsPhotoFiles = [];
+
+function hsPhotosSelected(input) {
+  var files = input.files;
+  if (!files || !files.length) return;
+  var statusEl = document.getElementById('hsPhotoStatus');
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (file.size > 5 * 1024 * 1024) { alert('写真のサイズが大きすぎます（5MBまで）：' + file.name); continue; }
+    if (_hsPhotoFiles.length >= 5) { alert('写真は最大5枚までです'); break; }
+    _hsPhotoFiles.push(file);
+    hsAddPhotoPreview(file, _hsPhotoFiles.length - 1);
+  }
+  input.value = '';
+  if (statusEl) statusEl.textContent = _hsPhotoFiles.length ? '📎 ' + _hsPhotoFiles.length + '枚セット済み' : '';
+  // 最初の1枚だけAI分析（教師用）
+  if (_hsPhotoFiles.length > 0 && !_hsPhotoAnalysisResult) {
+    var sess = hsGetSession();
+    var dayKey = sess ? sess.dayKey : hsGetDayKey830(new Date());
+    var fd = new FormData();
+    fd.append('photo', _hsPhotoFiles[0]);
+    fd.append('dayKey', dayKey);
+    fetch('/api/homework/analyze-photo', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(j) { if (j.ok && j.analysis) _hsPhotoAnalysisResult = j.analysis; })
+      .catch(function(e) { console.warn('[photo-analysis]', e); });
+  }
+}
+
+function hsAddPhotoPreview(file, idx) {
+  var list = document.getElementById('hsPhotoPreviewList');
+  if (!list) return;
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative; display:inline-block;';
+  wrap.id = 'hsPhotoWrap_' + idx;
+  var img = document.createElement('img');
+  img.style.cssText = 'max-width:80px; max-height:60px; border-radius:6px; border:1px solid #ccc; object-fit:cover;';
+  var reader = new FileReader();
+  reader.onload = function(e) { img.src = e.target.result; };
+  reader.readAsDataURL(file);
+  var btn = document.createElement('button');
+  btn.type = 'button'; btn.textContent = '×';
+  btn.style.cssText = 'position:absolute; top:-4px; right:-4px; background:#ef4444; color:#fff; border:none; border-radius:50%; width:16px; height:16px; font-size:10px; cursor:pointer; line-height:1;';
+  btn.onclick = function() { hsPhotoRemove(idx); };
+  wrap.appendChild(img); wrap.appendChild(btn);
+  list.appendChild(wrap);
+}
+
+function hsPhotoRemove(idx) {
+  _hsPhotoFiles.splice(idx, 1);
+  _hsPhotoAnalysisResult = '';
+  var list = document.getElementById('hsPhotoPreviewList');
+  if (list) list.innerHTML = '';
+  for (var i = 0; i < _hsPhotoFiles.length; i++) hsAddPhotoPreview(_hsPhotoFiles[i], i);
+  var statusEl = document.getElementById('hsPhotoStatus');
+  if (statusEl) statusEl.textContent = _hsPhotoFiles.length ? '📎 ' + _hsPhotoFiles.length + '枚セット済み' : '';
+}
+
+function hsPhotoClear() {
+  _hsPhotoFiles = [];
+  _hsPhotoAnalysisResult = '';
+  var input = document.getElementById('hsPhotoInput');
+  if (input) input.value = '';
+  var list = document.getElementById('hsPhotoPreviewList');
+  if (list) list.innerHTML = '';
+  var statusEl = document.getElementById('hsPhotoStatus');
+  if (statusEl) statusEl.textContent = '';
+}
+
 async function hsSubmitAndExport(){
   const btn = document.getElementById('hsExportBtn');
   if (btn) { btn.disabled = true; btn.textContent = '提出中...'; }
@@ -42526,6 +43012,7 @@ async function hsSubmitAndExport(){
         restDay: entry.restDay, streakAfter: entry.streakAfter,
         rewardKind: reward.kind, rewardCoins: reward.coins || 0, rewardShards: reward.shards || 0,
         bonusCoins: bonus.coins || 0, bonusShards: bonus.shards || 0,
+        workPhotoAnalysis: _hsPhotoAnalysisResult || '',
       };
       const r = await apiJson('/api/homework/submit', {
         method: 'POST',
@@ -42534,6 +43021,8 @@ async function hsSubmitAndExport(){
       });
       entry.dbSubmitted = true;
       try { entry.dbId = r.id || null; } catch(e) {}
+      // 写真をクリア
+      hsPhotoClear();
     } catch(e) {
       // 提出失敗時はローカル保存のみ
       console.warn('[homework] DB submit failed:', e);
@@ -43042,13 +43531,14 @@ document.addEventListener('click', (ev)=>{
     margin-bottom:0;
   }
   .hs-col{ display:flex; flex-direction:column; gap:12px; height:100%; }
-  .hs-timeBox{ flex:0 0 155px; }
-  .hs-weatherBox{ flex:1 1 auto; }
-  .hs-sigBox{ flex:1 1 auto; }
+  .hs-timeBox{ flex:1 1 0%; min-height:0; }
+  .hs-weatherBox{ flex:1 1 0%; min-height:0; }
+  .hs-sigBox{ flex:1 1 0%; min-height:0; }
   .hs-subLabel{
-    position:absolute; left:12px; top:12px;
+    position:absolute; left:8px; top:8px; right:8px;
     background:#bcdcff; color:#0b2b1f;
-    padding:4px 10px; border-radius:3px; font-weight:700; font-size:12px;
+    padding:3px 8px; border-radius:3px; font-weight:700; font-size:11px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   .hs-sigTa{
     width:100%; height:100%; resize:none;
@@ -46761,12 +47251,15 @@ function _pickBank(bank) {
   const p = bank[_ri(0, bank.length - 1)];
   const options = [p.correct, ...p.wrongs].sort(() => Math.random() - 0.5);
   const ans = options.indexOf(p.correct);
-  return { q: p.q, ans: ans, options: options, inputType: 'mcq' };
+  // 選択肢表示用：カッコ補足を除去して長さヒントを消す
+  const _strip = s => (s||'').replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').trim();
+  const displayOptions = options.map(o => _strip(o));
+  return { q: p.q, ans: ans, options: displayOptions, fullOptions: options, inputType: 'mcq' };
 }
 
 // 漢字読みクイズ用ヘルパー: _kqR(漢字, 正しい読み, [不正解の読み...])
 function _kqR(kanji, correct, wrongs) {
-  return { q: '「' + kanji + '」の読みは？', correct: correct, wrongs: wrongs };
+  return { kanji: kanji, reading: correct, wrongR: wrongs };
 }
 
 // === CURRICULUM ===
@@ -49712,7 +50205,11 @@ env6:[
 {q:'🌍 里山（さとやま）の役割は？',correct:'生物多様性・資源供給・文化継承',wrongs:['何もない','人間の邪魔','不要な土地']},
 {q:'🌍 ラムサール条約とは何？',correct:'湿地を守る国際条約',wrongs:['森林保全','動物保護','海の条約']},
 {q:'🌍 環境アセスメントの目的は？',correct:'開発が環境に与える影響を調査する',wrongs:['工事を禁止','環境を作る','費用計算']}
-],
+]
+};
+// === 国語クイズバンク ===
+const _JP={
+k1:[_kqR('山','やま',['かわ','もり','うみ']),_kqR('川','かわ',['やま','うみ','いけ']),_kqR('森','もり',['はやし','やま','むら']),_kqR('花','はな',['くさ','き','もり']),_kqR('犬','いぬ',['ねこ','うま','とり']),_kqR('空','そら',['うみ','つき','ほし']),_kqR('雨','あめ',['ゆき','かぜ','くも']),_kqR('虫','むし',['とり','さかな','いぬ']),_kqR('石','いし',['すな','つち','いわ']),_kqR('糸','いと',['はり','ぬの','かみ']),_kqR('貝','かい',['さかな','えび','かに']),_kqR('字','じ',['え','ほん','かみ']),_kqR('耳','みみ',['め','はな','くち']),_kqR('手','て',['あし','ゆび','かた']),_kqR('足','あし',['て','ゆび','ひざ']),_kqR('目','め',['みみ','はな','くち']),_kqR('口','くち',['め','はな','みみ']),_kqR('赤','あか',['あお','しろ','きいろ']),_kqR('青','あお',['あか','しろ','みどり']),_kqR('白','しろ',['くろ','あか','あお'])],
 k2:[_kqR('読','よむ',['かく','はなす','きく']),_kqR('書','かく',['よむ','はなす','おしえる']),_kqR('話','はなす',['きく','よむ','うたう']),_kqR('聞','きく',['はなす','みる','よむ']),_kqR('教','おしえる',['ならう','まなぶ','あそぶ']),_kqR('歌','うた',['おどり','がっき','おと']),_kqR('雲','くも',['あめ','ゆき','かぜ']),_kqR('電','でん',['かみなり','ひかり','おと']),_kqR('馬','うま',['うし','いぬ','ねこ']),_kqR('鳥','とり',['さかな','むし','うま']),_kqR('黒','くろ',['しろ','あか','あお']),_kqR('強','つよい',['よわい','おおきい','はやい']),_kqR('弱','よわい',['つよい','ちいさい','おそい']),_kqR('遠','とおい',['ちかい','たかい','ながい']),_kqR('近','ちかい',['とおい','ひくい','みじかい']),_kqR('新','あたらしい',['ふるい','おおきい','ちいさい']),_kqR('古','ふるい',['あたらしい','わかい','たかい']),_kqR('長','ながい',['みじかい','たかい','ひくい']),_kqR('高','たかい',['ひくい','ながい','おもい']),_kqR('太','ふとい',['ほそい','ながい','みじかい'])],
 k3:[_kqR('意','い',['し','ち','き']),_kqR('島','しま',['うみ','やま','かわ']),_kqR('港','みなと',['えき','くうこう','まち']),_kqR('暗','くらい',['あかるい','あつい','さむい']),_kqR('悲','かなしい',['うれしい','たのしい','こわい']),_kqR('集','あつまる',['ちる','ならぶ','はしる']),_kqR('落','おちる',['あがる','のぼる','とぶ']),_kqR('進','すすむ',['もどる','さがる','とまる']),_kqR('送','おくる',['もらう','わたす','うける']),_kqR('開','ひらく',['しめる','あける','とじる']),_kqR('起','おきる',['ねる','とまる','すわる']),_kqR('寒','さむい',['あつい','すずしい','あたたかい']),_kqR('暑','あつい',['さむい','つめたい','すずしい']),_kqR('感','かんじる',['おもう','きく','みる']),_kqR('重','おもい',['かるい','やわらかい','つめたい']),_kqR('軽','かるい',['おもい','かたい','おおきい']),_kqR('問','とう',['こたえる','きく','よむ']),_kqR('答','こたえる',['とう','よむ','かく']),_kqR('始','はじめる',['おわる','やめる','とまる']),_kqR('終','おわる',['はじめる','つづける','すすむ'])],
 k4:[_kqR('愛','あい',['ゆう','しん','せい']),_kqR('案','あん',['けい','さく','もん']),_kqR('英','えい',['えらい','はな','すぐれる']),_kqR('塩','しお',['さとう','す','しょうゆ']),_kqR('億','おく',['まん','せん','ちょう']),_kqR('果','か',['くだもの','はな','たね']),_kqR('観','かん',['みる','きく','さわる']),_kqR('関','かん',['せき','もん','かべ']),_kqR('議','ぎ',['ろん','かい','あん']),_kqR('求','きゅう',['もとめる','さがす','ほしい']),_kqR('漁','ぎょ',['りょう','さかな','うみ']),_kqR('機','き',['はた','うつわ','くるま']),_kqR('競','きょう',['きそう','あらそう','くらべる']),_kqR('極','きょく',['はし','さき','おわり']),_kqR('芸','げい',['わざ','おどり','うた']),_kqR('記','き',['しるす','かく','よむ']),_kqR('残','のこる',['きえる','なくなる','うつる']),_kqR('選','えらぶ',['えらんだ','きめる','あつめる']),_kqR('信','しん',['まかせる','うたがう','しる']),_kqR('節','せつ',['ふし','きせつ','ぶん'])],
@@ -51026,6 +51523,186 @@ async function _checkAnnouncementBadge(){
 <!-- screen-contact は lbm-main 内（line ~4284付近）に移動済み -->
 
 <script>
+// ===== 質問チャット機能（生徒側） =====
+function _utcToJST(utcStr){
+  if(!utcStr) return {date:'',time:''};
+  var d = new Date(utcStr.replace(' ','T')+'Z');
+  var jp = new Date(d.getTime() + 9*60*60*1000);
+  var mm = String(jp.getUTCMonth()+1).padStart(2,'0');
+  var dd = String(jp.getUTCDate()).padStart(2,'0');
+  var hh = String(jp.getUTCHours()).padStart(2,'0');
+  var mi = String(jp.getUTCMinutes()).padStart(2,'0');
+  return {date: jp.getUTCFullYear()+'-'+mm+'-'+dd, time: hh+':'+mi};
+}
+function openStudentMail(){
+  var mailBtn = document.getElementById('btn-mail');
+  if(mailBtn && mailBtn.style.display === 'none') return;
+  try{ trySetMode('mail'); }catch(e){}
+}
+
+async function _loadStudentMail(){
+  var wrap = document.getElementById('studentMailList');
+  if(!wrap) return;
+  wrap.innerHTML = '<p class="text-sm text-slate-400 text-center py-4">読み込み中...</p>';
+  try{
+    var data = await apiJson('/api/student/messages');
+    var list = data.messages || [];
+    if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-8">まだメッセージはありません</p>'; return; }
+    wrap.innerHTML='';
+    var prevDate = '';
+    list.slice().reverse().forEach(function(m){
+      var isFromMe = m.senderRole === 'student';
+      var jst = _utcToJST(m.createdAt);
+      var dt = jst.date;
+      if(dt !== prevDate){
+        var dateDiv = document.createElement('div');
+        dateDiv.className = 'text-center my-2';
+        dateDiv.innerHTML = '<span class="bg-black/10 text-slate-600 text-[10px] rounded-full px-3 py-0.5">' + _escH(dt) + '</span>';
+        wrap.appendChild(dateDiv);
+        prevDate = dt;
+      }
+      var row = document.createElement('div');
+      row.className = 'flex ' + (isFromMe ? 'justify-end' : 'justify-start') + ' mb-1';
+      var bubble = document.createElement('div');
+      bubble.className = 'max-w-[75%] relative';
+      var nameTag = '';
+      if(!isFromMe){ nameTag = '<div class="text-[10px] text-slate-500 mb-0.5 ml-1">先生</div>'; }
+      var time = _escH(jst.time);
+      var readMark = '';
+      if(isFromMe && m.readAt){ readMark = '<span class="text-[10px] text-purple-500">既読</span> '; }
+      var timeHtml = '<div class="flex items-end gap-1 mt-0.5 ' + (isFromMe ? 'justify-end mr-1' : 'ml-1') + '"><span class="text-[10px] text-slate-400">' + readMark + time + '</span></div>';
+      var msgDiv = document.createElement('div');
+      if(isFromMe){
+        msgDiv.className = 'rounded-2xl rounded-br-sm px-3 py-2 text-sm shadow-sm';
+        msgDiv.style.cssText = 'background:#c7a4ff;color:#1a1a2e;';
+      } else {
+        msgDiv.className = 'rounded-2xl rounded-bl-sm px-3 py-2 text-sm shadow-sm bg-white';
+      }
+      if(m.image){ var img=document.createElement("img"); img.src=m.image; img.className="rounded-lg max-w-full max-h-[200px] mb-1 cursor-pointer"; img.onclick=function(){window.open(m.image,"_blank");}; msgDiv.appendChild(img); }
+      if(m.body && m.body!=="(画像)"){ var txt=document.createElement("span"); txt.textContent=m.body; msgDiv.appendChild(txt); } else if(!m.image){ msgDiv.textContent=m.body; }
+      bubble.insertAdjacentHTML("beforeend", nameTag);
+      bubble.appendChild(msgDiv);
+      bubble.insertAdjacentHTML("beforeend", timeHtml);
+      if(!isFromMe && !m.readAt){
+        var newBadge = document.createElement('span');
+        newBadge.className = 'absolute -top-1 -left-1 bg-red-500 text-white text-[8px] rounded-full px-1 font-bold';
+        newBadge.textContent = 'NEW';
+        bubble.appendChild(newBadge);
+        msgDiv.onclick = (function(mid){ return async function(){
+          await apiJson('/api/student/message/'+mid+'/read',{method:'POST'});
+          _loadStudentMail();
+          _checkMailBadge();
+        }; })(m.id);
+        msgDiv.style.cursor = 'pointer';
+      }
+      row.appendChild(bubble);
+      wrap.appendChild(row);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }catch(e){ wrap.innerHTML='<p class="text-sm text-red-500 text-center">読み込みエラー</p>'; }
+}
+async function _loadStudentMailSilent(){
+  var wrap = document.getElementById('studentMailList');
+  if(!wrap) return;
+  try{
+    var data = await apiJson('/api/student/messages');
+    var list = data.messages || [];
+    if(!list.length) return;
+    var atBottom = (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight) < 50;
+    var oldCount = wrap.children.length;
+    var newCount = list.length;
+    if(newCount === oldCount) return;
+    _loadStudentMail();
+    if(atBottom) setTimeout(function(){ wrap.scrollTop = wrap.scrollHeight; }, 100);
+  }catch(e){}
+}
+var _studentImageData = null;
+function handleStudentImage(input){
+  var file = input.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var canvas = document.createElement("canvas");
+      var maxW = 800, w = img.width, h = img.height;
+      if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      _studentImageData = canvas.toDataURL("image/jpeg", 0.6);
+      document.getElementById("studentImageThumb").src = _studentImageData;
+      document.getElementById("studentImagePreview").classList.remove("hidden");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = "";
+}
+function clearStudentImage(){ _studentImageData = null; document.getElementById("studentImagePreview").classList.add("hidden"); }
+async function sendStudentMail(){
+  var body = document.getElementById('studentMailBody').value.trim();
+  var msg = document.getElementById('studentMailMsg');
+  if(!body && !_studentImageData){ msg.textContent='メッセージを入力してね'; msg.className='text-xs text-center text-red-600'; return; }
+  try{
+    await apiJson('/api/student/message',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({body:body||'(画像)',image:_studentImageData||undefined})});
+    msg.textContent='送信しました！'; msg.className='text-xs text-center text-green-600';
+    document.getElementById('studentMailBody').value=''; clearStudentImage();
+    _loadStudentMail();
+  }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-xs text-center text-red-600'; }
+}
+
+function _escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function _checkMailBadge(){
+  try{
+    var data = await apiJson('/api/student/messages/unread-count');
+    var cnt = data.count || 0;
+    var b1 = document.getElementById('headerMailBadge');
+    var b2 = document.getElementById('mobile-btn-mail');
+    if(b1){ if(cnt>0){ b1.textContent=cnt; b1.classList.remove('hidden'); }else{ b1.classList.add('hidden'); } }
+  }catch(e){}
+}
+
+// screen-mail & contact のモード切替フック（自動更新付き）
+var _studentMailPollTimer = null;
+var _studentContactPollTimer = null;
+(function(){
+  var origSetMode = window.trySetMode;
+  if(!origSetMode) return;
+  window.trySetMode = function(mode){
+    origSetMode(mode);
+    if(mode === 'mail'){
+      _loadStudentMail();
+      if(_studentMailPollTimer) clearInterval(_studentMailPollTimer);
+      _studentMailPollTimer = setInterval(function(){ _loadStudentMailSilent(); }, 5000);
+    } else {
+      if(_studentMailPollTimer){ clearInterval(_studentMailPollTimer); _studentMailPollTimer = null; }
+    }
+    if(mode === 'contact'){
+      _loadStudentContactNotes();
+      if(_studentContactPollTimer) clearInterval(_studentContactPollTimer);
+      _studentContactPollTimer = setInterval(function(){ _loadStudentContactNotesSilent(); }, 10000);
+    } else {
+      if(_studentContactPollTimer){ clearInterval(_studentContactPollTimer); _studentContactPollTimer = null; }
+    }
+  };
+})();
+
+// 起動時にクラス参加チェック→質問チャット表示制御
+async function _checkMailVisibility(){
+  try{
+    var ci = await apiJson('/api/student/class-info');
+    if(ci && ci.class){
+      var b1 = document.getElementById('btn-mail');
+      var b2 = document.getElementById('mobile-btn-mail');
+      if(b1) b1.style.display='flex';
+      if(b2) b2.style.display='';
+      _checkMailBadge();
+    }
+  }catch(e){}
+}
+setTimeout(_checkMailVisibility, 3000);
+</script>
+<script>
 // ===== 連絡帳機能（生徒側） =====
 function openContactNotes(){ try{ trySetMode('contact'); }catch(e){} }
 function closeContactNotes(){ try{ trySetMode('status'); }catch(e){} }
@@ -51091,7 +51768,10 @@ async function _loadStudentContactNotes(){
                 try{
                   var coinEl = document.getElementById('coinCount');
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
-                  if(window.player) player.coins = (player.coins||0) + res.reward;
+                  if(window.player) {
+                    player.coins = (player.coins||0) + res.reward;
+                    player.newCoins = (player.newCoins||0) + res.reward;
+                  }
                 }catch(e){}
               } else {
                 btn.textContent = '✅ 確認済み';
@@ -51121,6 +51801,21 @@ async function _loadStudentContactNotes(){
   }catch(e){
     wrap.innerHTML = '<p class="text-sm text-red-500">読み込みエラー</p>';
   }
+}
+
+// 連絡帳サイレント更新
+async function _loadStudentContactNotesSilent(){
+  var wrap = document.getElementById('contactNoteList');
+  if(!wrap) return;
+  try{
+    var data = await apiJson('/api/student/contact-notes');
+    var list = data.notes || [];
+    if(!list.length) return;
+    var oldCount = wrap.children.length;
+    var newCount = list.length;
+    if(newCount === oldCount) return;
+    _loadStudentContactNotes();
+  }catch(e){}
 }
 
 // 未読連絡帳バッジチェック
