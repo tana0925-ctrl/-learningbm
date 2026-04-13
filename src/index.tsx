@@ -55,6 +55,53 @@ function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
 
 // -------------------- utils --------------------
 
+// Gemini API キーローテーション（交互使用＋429フェイルオーバー）
+let _geminiKeyIndex = 0
+function getGeminiKeys(env: any): string[] {
+  const keys: string[] = []
+  if (env.GEMINI_API_KEY) keys.push(env.GEMINI_API_KEY)
+  if (env.GEMINI_API_KEY_2) keys.push(env.GEMINI_API_KEY_2)
+  return keys
+}
+
+async function callGemini(env: any, body: any, model = 'gemini-2.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {
+  const keys = getGeminiKeys(env)
+  if (!keys.length) return { ok: false, text: '', source: 'no_key' }
+
+  // ラウンドロビン: リクエストごとに交互に使う
+  const startIdx = _geminiKeyIndex % keys.length
+  _geminiKeyIndex++
+
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const keyIdx = (startIdx + attempt) % keys.length
+    const key = keys[keyIdx]
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        const json: any = await res.json()
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        return { ok: true, text, source: 'gemini_key' + (keyIdx + 1) }
+      }
+      if (res.status === 429) {
+        console.log(`Gemini key${keyIdx + 1} got 429, trying next key...`)
+        continue // 次のキーを試す
+      }
+      // 429以外のエラーはそのまま失敗
+      console.error(`Gemini key${keyIdx + 1} error: ${res.status}`)
+      return { ok: false, text: '', source: 'gemini_error_' + res.status }
+    } catch (e: any) {
+      console.error(`Gemini key${keyIdx + 1} fetch error:`, e?.message || e)
+      continue
+    }
+  }
+  return { ok: false, text: '', source: 'all_keys_exhausted' }
+}
+
 function jsonError(c: any, status: number, message: string) {
   return c.json({ ok: false, error: message }, status)
 }
@@ -165,6 +212,16 @@ app.use('*', async (c, next) => {
     // If admin already exists in DB, do NOT override password using Secrets.
   }
 
+  return next()
+})
+
+// -------------------- DB migration (add columns if missing) --------------------
+let _dbMigrated = false
+app.use('*', async (c, next) => {
+  if (!_dbMigrated) {
+    _dbMigrated = true
+    try { await c.env.DB.exec(`ALTER TABLE homework_submissions ADD COLUMN work_photo_key TEXT DEFAULT ''`) } catch (_) {}
+  }
   return next()
 })
 
@@ -491,6 +548,8 @@ app.post('/api/student/results', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   if (!rateLimit(`results:${u.id}`, 30, 60)) return jsonError(c, 429, 'too_many_requests')
+  // 最終アクティブ日時を更新（fire-and-forget）
+  c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(u.id).run().catch(() => {})
 
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
@@ -1059,6 +1118,38 @@ app.post('/api/teacher/class', async (c) => {
 })
 
 // クラス一覧
+// 先生の担当クラスの全児童（CSV書き出し用）
+app.get('/api/teacher/all-students', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const res = await c.env.DB.prepare(`
+    SELECT DISTINCT u.id as userId, u.login_id as loginId, u.name, u.grade, u.class_name as className
+    FROM users u
+    JOIN class_members cm ON cm.user_id = u.id
+    JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    WHERE u.role = 'student'
+    ORDER BY u.grade, u.class_name, u.login_id
+  `).bind(u.id).all<any>()
+  return c.json({ ok: true, students: res.results })
+})
+
+// 先生の担当クラスの全児童の名前をクラウドから消去（匿名化）
+app.post('/api/teacher/anonymize-names', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => ({}))
+  if (body?.confirm !== 'YES_ANONYMIZE') return jsonError(c, 400, 'confirm_required')
+  // 担当クラスの児童のnameを login_id に置き換える（空にはしない、表示識別のため）
+  const res = await c.env.DB.prepare(`
+    UPDATE users SET name = login_id
+    WHERE role = 'student' AND id IN (
+      SELECT DISTINCT cm.user_id FROM class_members cm
+      JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+    )
+  `).bind(u.id).run()
+  return c.json({ ok: true, updated: res.meta?.changes || 0 })
+})
+
 app.get('/api/teacher/classes', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -1079,7 +1170,7 @@ app.get('/api/teacher/class/:classId/members', async (c) => {
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class not found')
   const rows = await c.env.DB.prepare(
-    'SELECT u.id as userId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
+    'SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
   ).bind(classId).all<any>()
   return c.json({ ok: true, members: rows.results })
 })
@@ -1189,7 +1280,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
   if (!cls) return jsonError(c, 404, 'class_not_found')
 
   const members = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.grade, p.state_json as stateJson
+    SELECT u.id, u.login_id as loginId, u.name, u.grade, p.state_json as stateJson
     FROM class_members cm
     JOIN users u ON u.id = cm.user_id
     LEFT JOIN progress p ON p.user_id = cm.user_id
@@ -1229,7 +1320,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
       }
     })
 
-    studentData.push({ id: m.id, name: m.name || '', grade: m.grade || '', byUnit, bySubject, learnStreak })
+    studentData.push({ id: m.id, loginId: m.loginId || '', name: m.name || '', grade: m.grade || '', byUnit, bySubject, learnStreak })
   }
 
   const unitKeys: string[] = []
@@ -1252,7 +1343,7 @@ app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
     ok: true, class: cls, unitSummary,
     unitInfo: Object.fromEntries(allUnits),
     students: studentData.map((s: any) => ({
-      id: s.id, name: s.name, grade: s.grade, learnStreak: s.learnStreak,
+      id: s.id, loginId: s.loginId, name: s.name, grade: s.grade, learnStreak: s.learnStreak,
       bySubject: Object.fromEntries(
         Object.entries(s.bySubject).map(([k, v]: [string, any]) => [k, {
           total: v.total || 0, correct: v.correct || 0,
@@ -1394,15 +1485,328 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     '',
     '日本語で、箇条書きではなく教師に語りかけるような文章で回答してください。'
   ].join('\n')
+  // Gemini APIで分析
   try {
-    const aiResult = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 1024
+    let analysisText = ''
+    const gRes = await callGemini(c.env, {
+      system_instruction: { parts: [{ text: 'あなたは小学校の教師を支援する教育AIアシスタントです。データに基づいて具体的・実践的な分析をしてください。日本語で回答してください。' }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
     })
-    return c.json({ ok: true, analysis: aiResult.response || aiResult.result || '' })
+    if (gRes.ok) {
+      analysisText = gRes.text
+    }
+    // フォールバック
+    if (!analysisText) {
+      const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1024
+      })
+      analysisText = aiResult.response || aiResult.result || ''
+    }
+    return c.json({ ok: true, analysis: analysisText })
   } catch (e: any) {
     return c.json({ ok: false, error: e.message || 'AI error' }, 500)
   }
+})
+
+// 個人カルテAPI: 児童1人の詳細分析
+app.get('/api/teacher/student-karte', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const studentId = c.req.query('studentId')
+  if (!studentId) return jsonError(c, 400, 'studentId required')
+
+  // 権限チェック: この先生のクラスの児童か
+  const member = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT u.id, u.name FROM users u WHERE u.id=?`).bind(studentId).first<any>()
+    : await c.env.DB.prepare(`
+        SELECT u.id, u.name FROM users u
+        JOIN class_members cm ON cm.user_id = u.id
+        JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+        WHERE u.id = ?
+      `).bind(u.id, studentId).first<any>()
+  if (!member) return jsonError(c, 404, 'student_not_found')
+
+  // 過去60日分の提出データ
+  let submissions: any = { results: [] }
+  try {
+    submissions = await c.env.DB.prepare(`
+      SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve, work_photo_analysis, submitted_at
+      FROM homework_submissions WHERE user_id=? ORDER BY day_key DESC LIMIT 60
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 教科別成績（全期間）
+  let subjectResults: any = { results: [] }
+  try {
+    subjectResults = await c.env.DB.prepare(`
+      SELECT unit, week_key, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      FROM learning_results WHERE user_id=? GROUP BY unit, week_key ORDER BY week_key DESC
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 計画修正履歴
+  let revisions: any = { results: [] }
+  try {
+    revisions = await c.env.DB.prepare(`
+      SELECT week_key, revision_number, reason, created_at FROM plan_revisions WHERE user_id=? ORDER BY created_at DESC LIMIT 20
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 週間計画
+  let plans: any = { results: [] }
+  try {
+    plans = await c.env.DB.prepare(`
+      SELECT week_key, plans_json, revision_count, plan_approved FROM student_weekly_plans WHERE user_id=? ORDER BY week_key DESC LIMIT 8
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  // 構造化振り返り
+  let reflections: any = { results: [] }
+  try {
+    reflections = await c.env.DB.prepare(`
+      SELECT week_key, concentration, good_point, improve_point, next_action FROM structured_reflections WHERE user_id=? ORDER BY week_key DESC LIMIT 8
+    `).bind(studentId).all<any>()
+  } catch {}
+
+  const subs = submissions.results || []
+  // 統計計算
+  const totalDays = subs.length
+  const avgMin = totalDays ? Math.round(subs.reduce((a: number, s: any) => a + (s.minutes || 0), 0) / totalDays) : 0
+  const weathers = subs.map((s: any) => s.end_weather).filter(Boolean)
+  const sunRate = weathers.length ? Math.round(weathers.filter((w: string) => w === 'sun').length / weathers.length * 100) : 0
+
+  // 週ごとの提出数・学習時間の推移
+  const weeklyStats: Record<string, { count: number, totalMin: number }> = {}
+  for (const s of subs) {
+    const wk = s.day_key ? s.day_key.slice(0, 7) : 'unknown'
+    if (!weeklyStats[wk]) weeklyStats[wk] = { count: 0, totalMin: 0 }
+    weeklyStats[wk].count++
+    weeklyStats[wk].totalMin += (s.minutes || 0)
+  }
+
+  // 教科別の得意/苦手
+  const subjectMap: Record<string, { total: number, correct: number }> = {}
+  for (const r of (subjectResults.results || [])) {
+    if (!subjectMap[r.unit]) subjectMap[r.unit] = { total: 0, correct: 0 }
+    subjectMap[r.unit].total += r.total
+    subjectMap[r.unit].correct += r.correct_count
+  }
+  const subjectAnalysis = Object.entries(subjectMap).map(([unit, v]) => ({
+    unit, total: v.total, correct: v.correct, rate: v.total ? Math.round(v.correct / v.total * 100) : 0
+  })).sort((a, b) => b.total - a.total)
+
+  // Gemini AIで個人分析
+  let aiAdvice = ''
+  if (totalDays > 0) {
+    try {
+      const recentSubs = subs.slice(0, 15).map((s: any) =>
+        `[${s.day_key}] ${s.todo||''}(${s.minutes||0}分) 天気:${s.end_weather||'?'} めあて:${s.aim||'-'} 振返り:${s.weather_reason||'-'}${s.work_photo_analysis ? ' 📷:'+s.work_photo_analysis : ''}`
+      ).join('\n')
+      const subjectTxt = subjectAnalysis.map(s => `${s.unit}: 正答率${s.rate}%(${s.total}問)`).join(', ')
+      const revTxt = (revisions.results || []).slice(0, 5).map((r: any) => `[${r.week_key}] ${r.reason || '理由なし'}`).join(', ')
+      const refTxt = (reflections.results || []).slice(0, 3).map((r: any) => `[${r.week_key}] 集中${r.concentration} 良:${r.good_point||'-'} 改:${r.improve_point||'-'} 次:${r.next_action||'-'}`).join('\n')
+
+      const kartePrompt = `以下は「${member.name}」さん（小学生）の学習データです。担任の先生への報告として分析してください。
+
+＜基本統計＞
+提出回数: ${totalDays}回 / 平均学習時間: ${avgMin}分 / 満足度(☀️率): ${sunRate}%
+
+＜教科別成績＞
+${subjectTxt || 'データなし'}
+
+＜直近の学習記録＞
+${recentSubs || 'データなし'}
+
+＜計画修正履歴＞
+${revTxt || 'なし'}
+
+＜構造化振り返り＞
+${refTxt || 'なし'}
+
+以下の4つの観点で分析してください（各100文字程度）：
+1. 📊 学習の傾向: 学習時間・提出頻度・教科の偏りなど
+2. 💪 強みと成長: この子の良いところ、伸びているところ
+3. 🔍 気になる点: 支援が必要そうなところ、注意すべき変化
+4. 💬 おすすめの声かけ: 具体的な声かけ例を2-3個
+
+必ずJSON形式で返答:
+{"trend":"...","strength":"...","concern":"...","advice":"..."}`
+
+      const gRes = await callGemini(c.env, {
+        contents: [{ role: 'user', parts: [{ text: kartePrompt }] }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 1024 },
+      })
+      if (gRes.ok) {
+        const rawText = gRes.text
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          aiAdvice = jsonMatch[0]
+        }
+      }
+    } catch (e: any) {
+      console.error('Karte AI error:', e?.message || e)
+    }
+  }
+
+  return c.json({
+    ok: true,
+    student: { id: member.id, name: member.name },
+    stats: { totalDays, avgMin, sunRate, weeklyStats },
+    subjects: subjectAnalysis,
+    recentSubmissions: subs.slice(0, 20),
+    revisions: revisions.results || [],
+    plans: plans.results || [],
+    reflections: reflections.results || [],
+    aiAdvice,
+  })
+})
+
+// 週報レポートAPI: クラス全体の1週間まとめ
+app.get('/api/teacher/weekly-report', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+  const prevWeekKey = getPrevWeekKey(weekKey)
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  // 児童一覧
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
+  `).bind(classId).all<any>()
+  const memberList = members.results || []
+
+  // 今週の提出データ
+  let thisWeekHW: any = { results: [] }
+  try {
+    thisWeekHW = await c.env.DB.prepare(`
+      SELECT hs.user_id, hs.day_key, hs.minutes, hs.end_weather, hs.todo, hs.aim, hs.weather_reason, hs.work_photo_analysis
+      FROM homework_submissions hs JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? ORDER BY hs.day_key
+    `).bind(classId, weekKey).all<any>()
+  } catch {}
+
+  // 先週の提出データ（比較用）
+  let prevWeekHW: any = { results: [] }
+  try {
+    prevWeekHW = await c.env.DB.prepare(`
+      SELECT hs.user_id, COUNT(*) as cnt, SUM(hs.minutes) as totalMin
+      FROM homework_submissions hs JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? GROUP BY hs.user_id
+    `).bind(classId, prevWeekKey).all<any>()
+  } catch {}
+
+  // 教科別成績
+  let thisResults: any = { results: [] }
+  try {
+    thisResults = await c.env.DB.prepare(`
+      SELECT lr.user_id, lr.unit, COUNT(*) as total, SUM(CASE WHEN lr.correct=1 THEN 1 ELSE 0 END) as correct_count
+      FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id=?
+      WHERE lr.week_key=? GROUP BY lr.user_id, lr.unit
+    `).bind(classId, weekKey).all<any>()
+  } catch {}
+
+  // 計画データ
+  let plansData: any = { results: [] }
+  try {
+    plansData = await c.env.DB.prepare(`
+      SELECT user_id, revision_count FROM student_weekly_plans WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
+    `).bind(weekKey, classId).all<any>()
+  } catch {}
+
+  // データ集約
+  const hwList = thisWeekHW.results || []
+  const prevMap: Record<string, any> = {}
+  for (const r of (prevWeekHW.results || [])) prevMap[r.user_id] = r
+
+  const studentSummaries = memberList.map((m: any) => {
+    const myHW = hwList.filter((h: any) => h.user_id === m.id)
+    const prevW = prevMap[m.id]
+    const myResults = (thisResults.results || []).filter((r: any) => r.user_id === m.id)
+    const myPlan = (plansData.results || []).find((p: any) => p.user_id === m.id)
+    const totalMin = myHW.reduce((a: number, h: any) => a + (h.minutes || 0), 0)
+    const weathers = myHW.map((h: any) => h.end_weather).filter(Boolean)
+    const sunRate = weathers.length ? Math.round(weathers.filter((w: string) => w === 'sun').length / weathers.length * 100) : 0
+    const subjects = myResults.map((r: any) => `${r.unit}:${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%`).join(',')
+    return {
+      userId: m.id,
+      loginId: m.loginId,
+      name: m.name,
+      thisWeek: { count: myHW.length, totalMin, sunRate },
+      prevWeek: prevW ? { count: prevW.cnt, totalMin: prevW.totalMin } : null,
+      subjects,
+      revisions: myPlan?.revision_count || 0,
+    }
+  })
+
+  // クラス全体統計
+  const classStats = {
+    totalStudents: memberList.length,
+    submittedStudents: new Set(hwList.map((h: any) => h.user_id)).size,
+    totalSubmissions: hwList.length,
+    avgMinPerStudent: memberList.length ? Math.round(hwList.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / memberList.length) : 0,
+    avgSunRate: (() => {
+      const allW = hwList.map((h: any) => h.end_weather).filter(Boolean)
+      return allW.length ? Math.round(allW.filter((w: string) => w === 'sun').length / allW.length * 100) : 0
+    })(),
+  }
+
+  // Gemini AIで週報生成
+  let reportText = ''
+  try {
+    const studentLines = studentSummaries.map((s, i) => {
+      let line = `${i+1}. ${s.name}: 提出${s.thisWeek.count}回(${s.thisWeek.totalMin}分) 満足度${s.thisWeek.sunRate}%`
+      if (s.prevWeek) line += ` [先週:${s.prevWeek.count}回/${s.prevWeek.totalMin}分]`
+      if (s.subjects) line += ` 教科:${s.subjects}`
+      if (s.revisions > 0) line += ` 計画修正${s.revisions}回`
+      return line
+    }).join('\n')
+
+    const reportPrompt = `あなたは小学校の担任教師の週報作成を手伝うAIアシスタントです。
+以下のデータから「${cls.name}」クラスの週報（${weekKey}）を作成してください。
+
+＜クラス統計＞
+在籍: ${classStats.totalStudents}人 / 提出者: ${classStats.submittedStudents}人 / 総提出: ${classStats.totalSubmissions}回
+1人あたり平均学習時間: ${classStats.avgMinPerStudent}分 / クラス全体の満足度: ${classStats.avgSunRate}%
+
+＜児童別データ＞
+${studentLines}
+
+以下の構成で週報を作成してください：
+1. 📊 今週の概況（クラス全体の提出率・学習時間・先週との比較）
+2. ⭐ 今週のMVP（特に頑張った児童3人と理由）
+3. 🔍 気になる児童（未提出・学習時間減少・満足度低下の児童）
+4. 📈 教科別の傾向（正答率が低い教科、よく取り組まれている教科）
+5. 💡 来週に向けて（教師へのアドバイス・声かけのポイント）
+
+温かく前向きなトーンで、先生が保護者や管理職に共有できるクオリティで書いてください。`
+
+    const gRes = await callGemini(c.env, {
+      contents: [{ role: 'user', parts: [{ text: reportPrompt }] }],
+      generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
+    })
+    if (gRes.ok) {
+      reportText = gRes.text
+    }
+  } catch (e: any) {
+    console.error('Weekly report AI error:', e?.message || e)
+  }
+
+  return c.json({
+    ok: true,
+    weekKey,
+    className: cls.name,
+    classStats,
+    studentSummaries,
+    reportText,
+  })
 })
 
 // -------------------- API: student (クラス参加) --------------------
@@ -1545,6 +1949,8 @@ function genHwId() {
 app.post('/api/homework/submit', async (c) => {
   const u = c.get('user')
   if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  // 最終アクティブ日時を更新（fire-and-forget）
+  c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(u.id).run().catch(() => {})
   const body = await c.req.json<any>().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
 
@@ -1599,51 +2005,169 @@ app.post('/api/homework/submit', async (c) => {
 
 // 生徒：成果物写真をAIで分析してテキスト化→DB保存
 app.post('/api/homework/analyze-photo', async (c) => {
-  const u = c.get('user')
-  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
-
-  const formData = await c.req.formData().catch(() => null)
-  if (!formData) return jsonError(c, 400, 'invalid_form_data')
-
-  const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
-  if (!dayKey) return jsonError(c, 400, 'day_key_required')
-
-  const photo = formData.get('photo') as File | null
-  if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
-  if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
-
-  const imageBytes = new Uint8Array(await photo.arrayBuffer())
-
-  let analysisText = ''
   try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'この画像は小学生の家庭学習の成果物です。何が写っているか、どんな学習をしたか、丁寧さや量、特徴を日本語で100文字以内で簡潔に説明してください。' },
-          { type: 'image', image: [...imageBytes] }
-        ]
-      }],
-      max_tokens: 300,
-    })
-    analysisText = String(aiRes.response || '').trim().slice(0, 500)
+    const u = c.get('user')
+    if (!u) return jsonError(c, 403, 'forbidden')
+
+    const formData = await c.req.formData().catch(() => null)
+    if (!formData) return jsonError(c, 400, 'invalid_form_data')
+
+    const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
+    if (!dayKey) return jsonError(c, 400, 'day_key_required')
+
+    const photo = formData.get('photo') as File | null
+    if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
+    if (photo.size > 5 * 1024 * 1024) return jsonError(c, 400, 'photo_too_large_max_5mb')
+
+    let analysisText = ''
+    const imageBytes = new Uint8Array(await photo.arrayBuffer())
+    const mimeType = photo.type || 'image/jpeg'
+
+    // R2に写真を保存（R2バインディングがある場合のみ）
+    const ext = mimeType === 'image/png' ? 'png' : 'jpg'
+    const photoKey = `photos/${u.id}/${dayKey}.${ext}`
+    try {
+      if (c.env.PHOTOS) {
+        await c.env.PHOTOS.put(photoKey, imageBytes, {
+          httpMetadata: { contentType: mimeType },
+        })
+      }
+      // DBにキーを記録
+      const existing0 = await c.env.DB.prepare(
+        `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+      ).bind(u.id, dayKey).first<any>()
+      if (existing0) {
+        await c.env.DB.prepare(
+          `UPDATE homework_submissions SET work_photo_key=? WHERE id=?`
+        ).bind(photoKey, existing0.id).run()
+      }
+    } catch (r2err: any) {
+      console.error('R2 photo save error:', r2err?.message || r2err)
+    }
+
+    try {
+      let binary = ''
+      for (let i = 0; i < imageBytes.length; i += 8192) {
+        binary += String.fromCharCode(...imageBytes.subarray(i, Math.min(i + 8192, imageBytes.length)))
+      }
+      const base64 = btoa(binary)
+
+      const photoPrompt = `あなたは小学校の先生です。児童が提出した家庭学習の写真を見て、内容を分析してください。
+
+80〜120文字で簡潔に書いてください:
+- 教科・学習内容（何の勉強か）
+- 学習の量や丁寧さ
+- 良い点を1つ
+
+温かい言葉で。名前や挨拶は不要。`
+
+      // Gemini 2.5 Flash で画像分析
+      let geminiDone = false
+      try {
+        const gRes = await callGemini(c.env, {
+          contents: [{ role: 'user', parts: [
+            { inline_data: { mime_type: mimeType, data: base64 } },
+            { text: photoPrompt }
+          ] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+        })
+        if (gRes.ok) {
+          const text = gRes.text
+          if (text.trim()) {
+            analysisText = text.trim().slice(0, 500)
+            geminiDone = true
+          }
+        }
+      } catch (ge: any) {
+        console.error('Gemini photo analysis error:', ge?.message || ge)
+      }
+
+      // フォールバック: Cloudflare AI (Gemma 4 26B)
+      if (!geminiDone) {
+        try {
+          const dataUri = `data:${mimeType};base64,${base64}`
+          const aiRes: any = await c.env.AI.run('@cf/google/gemma-4-26b-a4b-it', {
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: dataUri } },
+                { type: 'text', text: photoPrompt }
+              ]
+            }],
+            max_tokens: 300,
+          })
+          analysisText = String(aiRes.response || '').trim().slice(0, 500)
+        } catch (cfErr: any) {
+          console.error('CF AI photo fallback error:', cfErr?.message || cfErr)
+        }
+      }
+    } catch (e: any) {
+      console.error('AI photo analysis error:', e)
+      analysisText = ''
+    }
+
+    // AI分析が失敗してもOKを返す（写真自体は提出時に保存される）
+    if (analysisText) {
+      try {
+        const existing = await c.env.DB.prepare(
+          `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+        ).bind(u.id, dayKey).first<any>()
+        if (existing) {
+          await c.env.DB.prepare(
+            `UPDATE homework_submissions SET work_photo_analysis=? WHERE id=?`
+          ).bind(analysisText, existing.id).run()
+        }
+      } catch (_) {}
+    }
+
+    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText })
   } catch (e: any) {
-    return jsonError(c, 500, 'ai_analysis_failed')
+    console.error('analyze-photo error:', e)
+    return c.json({ ok: true, analysis: '', saved: false })
+  }
+})
+
+// 写真を取得（先生 or 本人のみ）
+app.get('/api/photo/:userId/:dayKey', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 403, 'forbidden')
+  const targetUserId = c.req.param('userId')
+  const dayKey = c.req.param('dayKey')
+
+  // 本人 or 先生のみ
+  if (u.role === 'student' && u.id !== targetUserId) return jsonError(c, 403, 'forbidden')
+  if (u.role === 'teacher') {
+    const isMine = await c.env.DB.prepare(
+      `SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1`
+    ).bind(u.id, targetUserId).first<any>()
+    if (!isMine) return jsonError(c, 403, 'forbidden')
   }
 
-  if (!analysisText) analysisText = '（画像の分析結果を取得できませんでした）'
+  // DBからキー取得 or フォールバックでキー推測
+  const row = await c.env.DB.prepare(
+    `SELECT work_photo_key FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
+  ).bind(targetUserId, dayKey).first<any>()
 
-  const existing = await c.env.DB.prepare(
-    `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
-  ).bind(u.id, dayKey).first<any>()
-
-  if (existing) {
-    await c.env.DB.prepare(
-      `UPDATE homework_submissions SET work_photo_analysis=? WHERE id=?`
-    ).bind(analysisText, existing.id).run()
+  let photoKey = row?.work_photo_key || ''
+  if (!photoKey) {
+    // 旧データ用フォールバック：jpgとpngを試す
+    photoKey = `photos/${targetUserId}/${dayKey}.jpg`
   }
 
-  return c.json({ ok: true, analysis: analysisText, saved: !!existing })
+  if (!c.env.PHOTOS) return jsonError(c, 404, 'photo_storage_not_configured')
+  try {
+    let obj = await c.env.PHOTOS.get(photoKey)
+    if (!obj && photoKey.endsWith('.jpg')) {
+      obj = await c.env.PHOTOS.get(photoKey.replace('.jpg', '.png'))
+    }
+    if (!obj) return jsonError(c, 404, 'photo_not_found')
+    const headers = new Headers()
+    headers.set('Content-Type', obj.httpMetadata?.contentType || 'image/jpeg')
+    headers.set('Cache-Control', 'private, max-age=3600')
+    return new Response(obj.body, { headers })
+  } catch (e: any) {
+    return jsonError(c, 500, 'photo_error')
+  }
 })
 
 // 生徒：提出済みシートの内容を修正して再提出（報酬変更なし）
@@ -1739,7 +2263,8 @@ app.get('/api/teacher/homework', async (c) => {
            hs.weekly_plan as weeklyPlan, hs.weekly_reflection as weeklyReflection,
            hs.self_study_plan as selfStudyPlan,
            hs.work_photo_analysis as workPhotoAnalysis,
-           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+           hs.work_photo_key as workPhotoKey,
+           u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
     JOIN class_members cm ON cm.user_id = hs.user_id
@@ -1814,64 +2339,125 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
   for (const uid of userIds) {
     try {
       const hist = await c.env.DB.prepare(`
-        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment
+        SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve, work_photo_analysis
         FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
-        ORDER BY day_key DESC LIMIT 3
+        ORDER BY day_key DESC LIMIT 30
       `).bind(uid).all<any>()
       historyMap[uid] = hist.results || []
     } catch { historyMap[uid] = [] }
   }
 
+  // Gemini API で一括コメント生成
   const lines = subs.results.map((s: any, i: number) => {
     const hist = historyMap[s.user_id] || []
-    const histText = hist.length
-      ? hist.map((h: any) => `  [${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 先生:${h.teacher_comment||'なし'}`).join('\n')
-      : '  なし'
+    const subjects = hist.map((h: any) => h.todo).filter(Boolean)
+    const uniqueSubjects = [...new Set(subjects)].slice(0, 5)
+    const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
+    const totalDays = hist.length
+    // 天気（学びの満足度）の傾向
+    const weathers = hist.map((h: any) => h.end_weather).filter(Boolean)
+    const sunCount = weathers.filter((w: string) => w === 'sun').length
+    // 学習時間の推移（最近5回 vs それ以前）
+    const recent5 = hist.slice(0, 5)
+    const older = hist.slice(5)
+    const recent5Avg = recent5.length ? Math.round(recent5.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / recent5.length) : 0
+    const olderAvg = older.length ? Math.round(older.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / older.length) : 0
+    const trend = recent5Avg > olderAvg + 5 ? '↑増加傾向' : recent5Avg < olderAvg - 5 ? '↓減少傾向' : '→安定'
+    // 直近の記録（詳細）
+    const recentHist = hist.slice(0, 10).map((h: any) =>
+      `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} めあて:${h.aim||'-'} 振り返り:${h.weather_reason||'-'}${h.work_photo_analysis ? ' 📷:'+h.work_photo_analysis : ''}${h.teacher_comment ? ' 先生:'+h.teacher_comment : ''}`
+    ).join('\n    ')
     const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
     return `${i+1}. 【${s.name}】(${s.day_key})
+  ＜今日の学習＞
   やったこと: ${s.todo || '未記入'}
   なんで: ${s.why || '未記入'}
   めあて: ${s.aim || '未記入'}
   学習時間: ${s.minutes || 0}分
-  振り返り: ${s.weather_reason || '未記入'}
+  振り返り(天気): ${s.end_weather || '?'} 理由: ${s.weather_reason || '未記入'}
   次どうする: ${s.next_improve || '未記入'}${photoLine}
-  過去の記録:
-${histText}`
+  ＜過去の傾向（${totalDays}回分）＞
+  平均学習時間: ${avgMin}分 / 最近の傾向: ${trend}（直近5回平均${recent5Avg}分 vs 以前${olderAvg}分）
+  よくやる教科: ${uniqueSubjects.join('・') || 'データなし'}
+  学びの天気☀️率: ${weathers.length ? Math.round(sunCount/weathers.length*100) : 0}%
+  ＜直近の記録＞
+    ${recentHist || 'まだ記録なし'}`
   }).join('\n\n')
 
-  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認め、過去の記録も参考にして個別最適な内容にしてください。
-「成果物の様子」がある場合は、ノートの丁寧さや学習内容の具体的な様子もコメントに反映してください。
-必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
-他のテキストは一切不要です。
+  const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
+【ルール】
+- 児童の「今日の振り返り」と「過去30回分の振り返り・傾向」を読む
+- 各児童への温かく具体的な先生コメントを40文字以内で考える
+- 以下の観点を踏まえて、その子だけに向けた個別最適なコメントにする:
+  ・賞賛: 今日の頑張り、継続している努力、成長を具体的に褒める
+  ・アドバイス: めあてや振り返りの内容から、次につながるヒントを一言添える
+  ・成長の気づき: 過去と比べて学習時間が増えた、新しい教科に挑戦した等
+- 過去の先生コメントと重複しない新鮮な内容にする
+- 過去データがまだない児童には、今日の取り組みだけを褒める
+- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+【返答形式】
+{"comments":["コメント1","コメント2","コメント3",...]}
+貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
-=== 児童の振り返り ===
-${lines}`
+  // Gemini API → 失敗時は Cloudflare Workers AI にフォールバック
+  const geminiKey = c.env.GEMINI_API_KEY || ''
+  let parsed: string[] = []
+  let aiSource = 'gemini'
 
-  try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2000,
-    })
-    const text = (aiRes.response || '').trim()
-    let parsed: string[] = []
+  if (geminiKey) {
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const obj = JSON.parse(jsonMatch[0])
-        parsed = obj.comments || []
+      const resp = await callGemini(c.env, {
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: lines }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+      })
+      if (resp.ok) {
+        const text = resp.text
+        if (text) {
+          try {
+            const jsonMatch = text.match(/\{[\s\S]*\}/)
+            if (jsonMatch) parsed = JSON.parse(jsonMatch[0]).comments || []
+          } catch {
+            parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+          }
+        }
+      } else {
+        console.warn('[Gemini] API error - falling back to Cloudflare AI')
+        aiSource = 'cloudflare-fallback'
       }
-    } catch {
-      parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    } catch (e: any) {
+      console.warn('[Gemini] Error:', e.message, '- falling back to Cloudflare AI')
+      aiSource = 'cloudflare-fallback'
     }
-
-    const comments = subs.results.map((s: any, i: number) => ({
-      id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').slice(0, 50)
-    }))
-    return c.json({ ok: true, comments })
-  } catch (e: any) {
-    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
+  } else {
+    aiSource = 'cloudflare-no-key'
   }
+
+  // フォールバック: Cloudflare Workers AI（1児童ずつ個別生成）
+  if (!parsed.length && aiSource !== 'gemini') {
+    for (const s of subs.results) {
+      const hist = historyMap[s.user_id] || []
+      const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
+      let ud = `学習: ${s.todo || '未記入'}, ${s.minutes || 0}分(平均${avgMin}分), 振り返り: ${s.weather_reason || '未記入'}`
+      if (s.work_photo_analysis) ud += `, 成果物: ${s.work_photo_analysis}`
+      try {
+        const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          messages: [
+            { role: 'system', content: 'あなたは小学校の先生です。児童の家庭学習に対するコメントを1つだけ出力。30文字以内。温かく褒める。名前不要。コメントだけ出力。' },
+            { role: 'user', content: ud }
+          ],
+          max_tokens: 80,
+        })
+        let t = (aiRes.response || '').trim().replace(/^["「『【]+|["」』】]+$/g, '').replace(/^\d+[\.\)]\s*/, '').replace(/^コメント[:：]\s*/,'').trim()
+        parsed.push(t.slice(0, 60))
+      } catch { parsed.push('') }
+    }
+  }
+
+  const comments = subs.results.map((s: any, i: number) => ({
+    id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
+  }))
+  return c.json({ ok: true, comments, _source: aiSource })
 })
 
 // -------------------- API: 先生メニュー (class weekly menu) --------------------
@@ -1916,6 +2502,7 @@ app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
   const kanjiPage = String(body.kanjiPage || '').slice(0, 100)
   const keisanPage = String(body.keisanPage || '').slice(0, 100)
   const otherTasks = String(body.otherTasks || '').slice(0, 500)
+  const tests = String(body.tests || '').slice(0, 500)
   // 有効な曜日（デフォルト: 月〜金）
   const validDays = ['mon','tue','wed','thu','fri']
   const activeDays = Array.isArray(body.activeDays)
@@ -1954,28 +2541,37 @@ app.get('/api/teacher/class/:classId/weekly-menu', async (c) => {
   return c.json({ ok: true, menu: row || null, weekKey })
 })
 
-// 生徒（または管理者）：自分のクラスの今週の先生メニューを取得
+// 生徒（または管理者・教師）：自分のクラスの今週の先生メニューを取得
 app.get('/api/student/weekly-menu', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
-  // admin/teacher も閲覧可能（ゲーム画面確認用）
 
   const weekKey = c.req.query('weekKey') || getWeekKey()
+  const classIdParam = c.req.query('classId') || ''
 
-  const row = await c.env.DB.prepare(`
-    SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
-           cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
-           cwm.active_days as activeDays
-    FROM class_weekly_menu cwm
-    JOIN class_members cm ON cm.class_id = cwm.class_id
-    WHERE cm.user_id = ? AND cwm.week_key = ?
-    LIMIT 1
-  `).bind(u.id, weekKey).first<any>()
-
-  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
-  if (!row) {
-    const prevWk = getPrevWeekKey(weekKey)
-    const prevRow = await c.env.DB.prepare(`
+  // 生徒はclass_members経由、teacher/adminはclasses経由（またはclassIdパラメータ）で検索
+  let row: any = null
+  if (u.role === 'teacher' || u.role === 'admin') {
+    if (classIdParam) {
+      row = await c.env.DB.prepare(`
+        SELECT kanji_page as kanjiPage, keisan_page as keisanPage,
+               other_tasks as otherTasks, tests, week_key as weekKey, active_days as activeDays
+        FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1
+      `).bind(classIdParam, weekKey).first<any>()
+    } else {
+      // classId未指定時は教師の最初のクラスを使用
+      row = await c.env.DB.prepare(`
+        SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+               cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+               cwm.active_days as activeDays
+        FROM class_weekly_menu cwm
+        JOIN classes cls ON cls.id = cwm.class_id
+        WHERE cls.teacher_id = ? AND cwm.week_key = ?
+        LIMIT 1
+      `).bind(u.id, weekKey).first<any>()
+    }
+  } else {
+    row = await c.env.DB.prepare(`
       SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
              cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
              cwm.active_days as activeDays
@@ -1983,7 +2579,42 @@ app.get('/api/student/weekly-menu', async (c) => {
       JOIN class_members cm ON cm.class_id = cwm.class_id
       WHERE cm.user_id = ? AND cwm.week_key = ?
       LIMIT 1
-    `).bind(u.id, prevWk).first<any>()
+    `).bind(u.id, weekKey).first<any>()
+  }
+
+  // 今週のメニューが未配信の場合、前週のメニューをフォールバックで返す
+  if (!row) {
+    const prevWk = getPrevWeekKey(weekKey)
+    let prevRow: any = null
+    if (u.role === 'teacher' || u.role === 'admin') {
+      if (classIdParam) {
+        prevRow = await c.env.DB.prepare(`
+          SELECT kanji_page as kanjiPage, keisan_page as keisanPage,
+                 other_tasks as otherTasks, tests, week_key as weekKey, active_days as activeDays
+          FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1
+        `).bind(classIdParam, prevWk).first<any>()
+      } else {
+        prevRow = await c.env.DB.prepare(`
+          SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+                 cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+                 cwm.active_days as activeDays
+          FROM class_weekly_menu cwm
+          JOIN classes cls ON cls.id = cwm.class_id
+          WHERE cls.teacher_id = ? AND cwm.week_key = ?
+          LIMIT 1
+        `).bind(u.id, prevWk).first<any>()
+      }
+    } else {
+      prevRow = await c.env.DB.prepare(`
+        SELECT cwm.kanji_page as kanjiPage, cwm.keisan_page as keisanPage,
+               cwm.other_tasks as otherTasks, cwm.tests as tests, cwm.week_key as weekKey,
+               cwm.active_days as activeDays
+        FROM class_weekly_menu cwm
+        JOIN class_members cm ON cm.class_id = cwm.class_id
+        WHERE cm.user_id = ? AND cwm.week_key = ?
+        LIMIT 1
+      `).bind(u.id, prevWk).first<any>()
+    }
     return c.json({ ok: true, menu: prevRow || null, weekKey, published: false, fallbackWeek: prevRow ? prevWk : null })
   }
 
@@ -2230,7 +2861,7 @@ function generateFeedback(data: {
   if (data.selfRegScore >= 10) msgs.push('🏆 自己調整スコアが' + data.selfRegScore + '点！自分の学びをしっかりコントロールできてるね！')
 
   // デフォルト
-  if (msgs.length === 0) msgs.push('🌟 今週も家庭学羒をがんばろう！少しずつで大丈夫だよ！')
+  if (msgs.length === 0) msgs.push('🌟 今週も家庭学習をがんばろう！少しずつで大丈夫だよ！')
 
   return msgs.slice(0, 4) // 最大4つに絞る
 }
@@ -2252,7 +2883,7 @@ app.get('/api/teacher/class-analytics', async (c) => {
 
   // 児童一覧
   const members = await c.env.DB.prepare(`
-    SELECT u.id, u.name, u.grade, u.class_name as className
+    SELECT u.id, u.login_id as loginId, u.name, u.grade, u.class_name as className
     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
     ORDER BY u.grade, u.class_name, u.name
   `).bind(classId).all<any>()
@@ -2305,21 +2936,21 @@ app.get('/api/teacher/class-analytics', async (c) => {
     thisHwByUser[r.user_id].totalMin += (r.minutes || 0)
   }
 
-  const alerts: { userId: string, name: string, type: string, detail: string }[] = []
+  const alerts: { userId: string, loginId: string, name: string, type: string, detail: string }[] = []
   for (const m of (members.results || [])) {
     const thisW = thisHwByUser[m.id]
     const prevW = prevHwMap[m.id]
     // 提出が減った
     if (prevW && prevW.cnt >= 3 && (!thisW || thisW.cnt <= 1)) {
-      alerts.push({ userId: m.id, name: m.name, type: 'submission_drop', detail: '先週'+prevW.cnt+'回→今週'+(thisW?.cnt||0)+'回に減少' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'submission_drop', detail: '先週'+prevW.cnt+'回→今週'+(thisW?.cnt||0)+'回に減少' })
     }
     // 学習時間が大幅減
     if (prevW && prevW.totalMin >= 60 && thisW && thisW.totalMin < prevW.totalMin * 0.5) {
-      alerts.push({ userId: m.id, name: m.name, type: 'time_drop', detail: '学習時間が先週の半分以下' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'time_drop', detail: '学習時間が先週の半分以下' })
     }
     // 今週ゼロ提出
     if (!thisW && (members.results || []).length > 0) {
-      alerts.push({ userId: m.id, name: m.name, type: 'no_submission', detail: '今週まだ提出なし' })
+      alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'no_submission', detail: '今週まだ提出なし' })
     }
   }
 
@@ -2355,8 +2986,10 @@ app.get('/api/teacher/auto-feedback', async (c) => {
 
   const feedbackList: { userId: string, name: string, messages: string[] }[] = []
 
+  // 各児童のデータを収集
+  const studentDataList: { userId: string, name: string, thisHW: any, prevHW: any, streak: number, thisResults: any[], prevResults: any[], revisionCount: number }[] = []
+
   for (const m of (members.results || [])) {
-    // 各児童のデータを取得
     let thisHW: any = { cnt: 0, totalMin: 0 }
     let prevHW: any = { cnt: 0, totalMin: 0 }
     try { thisHW = await c.env.DB.prepare(`
@@ -2384,18 +3017,99 @@ app.get('/api/teacher/auto-feedback', async (c) => {
       SELECT revision_count FROM student_weekly_plans WHERE user_id=? AND week_key=?
     `).bind(m.id, weekKey).first<any>() } catch {}
 
-    const msgs = generateFeedback({
+    // 過去30日分の提出データも取得
+    let recentHistory: any = { results: [] }
+    try { recentHistory = await c.env.DB.prepare(`
+      SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim, next_improve
+      FROM homework_submissions WHERE user_id=? AND returned_at IS NOT NULL
+      ORDER BY day_key DESC LIMIT 30
+    `).bind(m.id).all<any>() } catch {}
+
+    studentDataList.push({
+      userId: m.id, name: m.name,
+      thisHW, prevHW,
       streak: streakRow?.streak || 0,
-      thisWeekMin: thisHW?.totalMin || 0, prevWeekMin: prevHW?.totalMin || 0,
-      thisWeekCount: thisHW?.cnt || 0,
-      thisWeekResults: thisResults.results || [], prevWeekResults: prevResults.results || [],
-      selfRegScore: 0, revisionCount: planRow?.revision_count || 0,
+      thisResults: thisResults.results || [],
+      prevResults: prevResults.results || [],
+      revisionCount: planRow?.revision_count || 0,
     })
 
-    feedbackList.push({ userId: m.id, name: m.name, messages: msgs })
+    // Gemini用のデータに過去履歴も含める
+    ;(studentDataList[studentDataList.length - 1] as any).recentHistory = recentHistory.results || []
   }
 
-  return c.json({ ok: true, feedbackList, weekKey })
+  // Gemini APIで一括フィードバック生成
+  let geminiSuccess = false
+  const geminiKey = (c.env as any).GEMINI_API_KEY
+  if (geminiKey && studentDataList.length > 0) {
+    try {
+      const lines = studentDataList.map((s, i) => {
+        const thisR = s.thisResults.map((r: any) => `${r.unit}:正答率${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%(${r.total}問)`).join(', ')
+        const prevR = s.prevResults.map((r: any) => `${r.unit}:正答率${r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0}%(${r.total}問)`).join(', ')
+        const history = ((s as any).recentHistory || []).slice(0, 5).map((h: any) =>
+          `${h.day_key}: ${h.todo || ''}(${h.minutes}分) 天気:${h.end_weather || '?'} めあて:${h.aim || ''} 次:${h.next_improve || ''}`
+        ).join(' / ')
+        return `${i + 1}. 【${s.name}】
+＜今週＞ 提出${s.thisHW?.cnt || 0}回, 合計${s.thisHW?.totalMin || 0}分
+＜先週＞ 提出${s.prevHW?.cnt || 0}回, 合計${s.prevHW?.totalMin || 0}分
+連続提出: ${s.streak}日
+計画見直し回数: ${s.revisionCount}回
+今週の教科別: ${thisR || 'なし'}
+先週の教科別: ${prevR || 'なし'}
+直近の記録: ${history || 'なし'}`
+      }).join('\n\n')
+
+      const systemPrompt = `あなたは小学校の担任の先生の代わりに、週次フィードバックを書くアシスタントです。
+【ルール】
+- 各児童の今週と先週のデータ、連続提出日数、教科別成績、直近の記録を読む
+- 各児童に対して、1〜4個の温かくて具体的なフィードバックメッセージを生成する
+- 賞賛・アドバイス・成長の気づきを踏まえた個別最適なメッセージにする
+- 各メッセージは絵文字1つ＋50文字以内
+- 先週との比較で具体的な変化に言及する
+- データがない児童には「今週もがんばろう！」系の励ましを1つだけ
+- 必ずJSON形式だけで返答: {"feedback":[["メッセージ1","メッセージ2"],["メッセージ1"],...]}
+  （外側の配列は児童順、内側の配列は各児童のメッセージ群）`
+
+      const gRes = await callGemini(c.env, {
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: `以下の児童データに基づいて週次フィードバックを生成してください。\n\n${lines}` }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+      })
+
+      if (gRes.ok) {
+        const rawText = gRes.text
+        const jsonMatch = rawText.match(/\{[\s\S]*"feedback"[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          if (parsed.feedback && Array.isArray(parsed.feedback) && parsed.feedback.length === studentDataList.length) {
+            for (let i = 0; i < studentDataList.length; i++) {
+              const msgs = Array.isArray(parsed.feedback[i]) ? parsed.feedback[i].filter((m: any) => typeof m === 'string' && m.length > 0) : []
+              feedbackList.push({ userId: studentDataList[i].userId, name: studentDataList[i].name, messages: msgs.length > 0 ? msgs : ['🌟 今週もがんばろう！'] })
+            }
+            geminiSuccess = true
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('Gemini weekly feedback error:', e?.message || e)
+    }
+  }
+
+  // フォールバック: ルールベースのgenerateFeedback
+  if (!geminiSuccess) {
+    for (const s of studentDataList) {
+      const msgs = generateFeedback({
+        streak: s.streak,
+        thisWeekMin: s.thisHW?.totalMin || 0, prevWeekMin: s.prevHW?.totalMin || 0,
+        thisWeekCount: s.thisHW?.cnt || 0,
+        thisWeekResults: s.thisResults, prevWeekResults: s.prevResults,
+        selfRegScore: 0, revisionCount: s.revisionCount,
+      })
+      feedbackList.push({ userId: s.userId, name: s.name, messages: msgs })
+    }
+  }
+
+  return c.json({ ok: true, feedbackList, weekKey, aiSource: geminiSuccess ? 'gemini' : 'rule' })
 })
 
 // 先生：特定の生徒の計画修正履歴を取得
@@ -2433,7 +3147,7 @@ app.get('/api/teacher/weekly-plans', async (c) => {
            swp.plan_approved as planApproved, swp.plan_approved_at as planApprovedAt,
            swp.reflection_comment as reflectionComment, swp.reflection_returned_at as reflectionReturnedAt,
            swp.revision_count as revisionCount,
-           u.id as userId, u.name as studentName, u.grade, u.class_name as className
+           u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM student_weekly_plans swp
     JOIN users u ON u.id = swp.user_id
     JOIN class_members cm ON cm.user_id = swp.user_id
@@ -2498,6 +3212,106 @@ app.post('/api/teacher/weekly-plan/:id/return-reflection', async (c) => {
   return c.json({ ok: true, coins, shards })
 })
 
+// AI計画チェック：生徒の週間計画を評価し問題点をフラグ
+app.post('/api/teacher/ai-plan-check', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body?.classId) return jsonError(c, 400, 'classId required')
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  const weekKey = body.weekKey || getWeekKey()
+  const plans = await c.env.DB.prepare(`
+    SELECT swp.id, swp.plans_json, swp.revision_count, swp.plan_approved,
+           u.id as userId, u.name, u.grade, u.class_name
+    FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id AND cm.class_id = ?
+    JOIN users u ON u.id = swp.user_id
+    WHERE swp.week_key = ?
+    ORDER BY u.name
+  `).bind(body.classId, weekKey).all<any>()
+
+  if (!plans.results?.length) return c.json({ ok: true, results: [], message: 'まだ計画が提出されていません' })
+
+  const dayLabels = ['月', '火', '水', '木', '金']
+  const lines = plans.results.map((p: any, i: number) => {
+    let parsed: any = {}
+    try { parsed = JSON.parse(p.plans_json || '{}') } catch (_) {}
+    const keys = Object.keys(parsed).filter((k: string) => k !== '_modified')
+    const dayPlans = keys.slice(0, 5).map((k: string, di: number) => {
+      const val = parsed[k]
+      const text = typeof val === 'object' ? (val.free || '') : (val || '')
+      return `${dayLabels[di] || '?'}：${text || '（空欄）'}`
+    }).join('　/　')
+    return `${i + 1}. 【${p.name}】${dayPlans}${p.revision_count > 0 ? `　（${p.revision_count}回修正済）` : ''}`
+  }).join('\n')
+
+  const prompt = `あなたは小学校の先生のアシスタントです。以下は児童が提出した今週の家庭学習計画です。
+
+各児童の計画を評価し、以下の観点で問題がある場合にフラグを立ててください：
+- 「勉強する」「がんばる」など具体性がない曖昧な計画
+- 毎日同じ内容でバリエーションがない
+- 空欄が多い（やる気の低下の可能性）
+- 非現実的な量や内容
+- 教科の偏り（例：毎日算数だけ）
+
+必ず以下のJSON形式だけで返答してください：
+{"results":[{"name":"児童名","level":"ok|caution|warning","comment":"短い評価コメント（20文字以内）"},...]}"
+
+level の意味：
+- "ok" = 問題なし（具体的で良い計画）
+- "caution" = 少し気になる点あり（声かけ推奨）
+- "warning" = 要注意（計画の立て直しが必要）
+
+【児童の計画一覧】
+${lines}`
+
+  try {
+    const gemResult = await callGemini(c.env, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+    })
+
+    if (gemResult.ok) {
+      let parsed: any = null
+      try {
+        const jsonMatch = gemResult.text.match(/\{[\s\S]*\}/)
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
+      } catch (_) {}
+      if (parsed?.results) {
+        return c.json({ ok: true, results: parsed.results, source: gemResult.source })
+      }
+    }
+
+    // Gemini失敗時：ルールベースの簡易チェック
+    const ruleResults = plans.results.map((p: any) => {
+      let parsed: any = {}
+      try { parsed = JSON.parse(p.plans_json || '{}') } catch (_) {}
+      const keys = Object.keys(parsed).filter((k: string) => k !== '_modified')
+      const texts = keys.slice(0, 5).map((k: string) => {
+        const val = parsed[k]
+        return typeof val === 'object' ? (val.free || '') : (val || '')
+      })
+      const emptyCount = texts.filter((t: string) => !t.trim()).length
+      const vague = texts.filter((t: string) => /^(勉強|がんばる|べんきょう|頑張る|やる)$/i.test(t.trim())).length
+      const unique = new Set(texts.filter((t: string) => t.trim())).size
+
+      let level = 'ok', comment = '問題なし'
+      if (emptyCount >= 3) { level = 'warning'; comment = '空欄が多い（' + emptyCount + '日分）' }
+      else if (vague >= 2) { level = 'caution'; comment = '具体性が不足' }
+      else if (unique <= 1 && emptyCount < 3) { level = 'caution'; comment = '毎日同じ内容' }
+      return { name: p.name, level, comment }
+    })
+    return c.json({ ok: true, results: ruleResults, source: 'rule-based' })
+  } catch (e: any) {
+    return jsonError(c, 500, 'ai_error: ' + (e.message || ''))
+  }
+})
+
 // AIで一括コメント生成（週の振り返り）
 app.post('/api/teacher/weekly-ai-comments', async (c) => {
   const u = c.get('user')
@@ -2525,37 +3339,40 @@ app.post('/api/teacher/weekly-ai-comments', async (c) => {
     `${i+1}. 【${p.name}】\n  振り返り: ${p.weekly_reflection || '未記入'}`
   ).join('\n\n')
 
-  const prompt = `あなたは小学校の担任の先生のアシスタントです。以下の児童たちの1週間の家庭学習の振り返りを読んで、各児童への温かく具体的なコメントを30文字以内で考えてください。
-その子の頑張りや成長を認める内容にしてください。
-必ずJSON形式のみで返答してください: {"comments":["\u30b3\u30e1\u30f3\u30c81","\u30b3\u30e1\u30f3\u30c82",...]}
-他のテキストは一切不要です。
-
-=== 児童の振り返り ===
-${lines}`
+  const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
+【ルール】
+- 児童の1週間の振り返りを読む
+- 各児童への温かく具体的な先生コメントを30文字以内で考える
+- その子の成長や努力を踏まえた内容にする
+- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+【返答形式】
+{"comments":["コメント1","コメント2","コメント3",...]}
+貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
 
   try {
-    const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2000,
+    const resp = await callGemini(c.env, {
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: lines }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
     })
-    const text = (aiRes.response || '').trim()
+    if (!resp.ok) return jsonError(c, 500, 'Gemini API error')
+
+    const text = resp.text
+
     let parsed: string[] = []
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const obj = JSON.parse(jsonMatch[0])
-        parsed = obj.comments || []
-      }
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]).comments || []
     } catch {
       parsed = text.split('\n').filter((l: string) => l.match(/^\d+[\.\)]/)).map((l: string) => l.replace(/^\d+[\.\)]\s*/, '').trim())
     }
 
     const comments = plans.results.map((p: any, i: number) => ({
-      id: p.id, name: p.name, comment: (parsed[i] || '').slice(0, 50)
+      id: p.id, name: p.name, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
     }))
     return c.json({ ok: true, comments })
   } catch (e: any) {
-    return jsonError(c, 500, 'AI error: ' + (e.message || String(e)))
+    return jsonError(c, 500, 'Gemini API error: ' + (e.message || String(e)))
   }
 })
 
@@ -3659,7 +4476,7 @@ app.get('/api/teacher/contact-note/:id/reads', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const noteId = c.req.param('id')
   const res = await c.env.DB.prepare(
-    `SELECT cnr.user_id as userId, cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed, u.name as studentName
+    `SELECT cnr.user_id as userId, cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed, u.login_id as loginId, u.name as studentName
      FROM contact_note_reads cnr JOIN users u ON u.id = cnr.user_id
      WHERE cnr.note_id = ? ORDER BY cnr.read_at ASC`
   ).bind(noteId).all<any>()
@@ -3797,8 +4614,10 @@ app.get('/signup', (c) => {
       <h1 class="text-xl font-bold mb-4">児童 新規登録</h1>
       <div class="space-y-3">
         <div>
-          <label class="text-sm font-bold text-gray-700 mb-1 block">名前</label>
-          <input id="name" class="w-full border p-2 rounded" placeholder="例：山田 太郎"/>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">ニックネーム</label>
+          <input id="name" class="w-full border p-2 rounded" placeholder="例：ひろ、たろう、りんご"/>
+          <p class="text-xs text-red-600 mt-1">⚠️ 本名（フルネーム）は書かないでください</p>
+          <p class="text-xs text-gray-500 mt-0.5">好きなニックネームでOK！あとから変更もできます</p>
         </div>
         <div class="flex gap-2">
           <div class="flex-1">
@@ -3833,8 +4652,8 @@ app.get('/signup', (c) => {
         loginId_too_short: 'ログインIDは3文字以上にしてください',
         loginId_taken: 'このログインIDはすでに使われています',
         password_too_short: 'パスワードは6文字以上にしてください',
-        name_required: '名前を入力してください',
-        name_inappropriate: 'その名前は使えません',
+        name_required: 'ニックネームを入力してください',
+        name_inappropriate: 'そのニックネームは使えません',
         grade_invalid: '学年を選択してください',
         invalid_json: '入力内容に問題があります',
       };
@@ -3848,7 +4667,13 @@ app.get('/signup', (c) => {
           password: document.getElementById('password').value,
         };
         // クライアント側バリデーション
-        if(!payload.name){ msg.textContent='名前を入力してください'; msg.className='text-sm text-red-600'; return; }
+        if(!payload.name){ msg.textContent='ニックネームを入力してください'; msg.className='text-sm text-red-600'; return; }
+        // 本名っぽい入力（漢字2文字以上が連続）を警告
+        if(/[\u4e00-\u9fa5]{2,}\s*[\u4e00-\u9fa5]{2,}/.test(payload.name)){
+          if(!confirm('本名（フルネーム）のように見えます。\\n本当にこれをニックネームにしますか？\\n\\n※ プライバシー保護のため、ニックネームの使用をおすすめします。')){
+            return;
+          }
+        }
         if(!gradeVal){ msg.textContent='学年を選択してください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.loginId || payload.loginId.length < 3){ msg.textContent='ログインIDは3文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
         if(!payload.password || payload.password.length < 6){ msg.textContent='パスワードは6文字以上にしてください'; msg.className='text-sm text-red-600'; return; }
@@ -4540,9 +5365,7 @@ app.get('/teacher', (c) => {
         <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
-        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 学習分析</button>
-
-        <button id="tabClassAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('classAnalytics')">🔍 クラス分析</button>
+        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
       </div>
 
@@ -4551,33 +5374,137 @@ app.get('/teacher', (c) => {
         <div id="classList" class="space-y-4"></div>
       </div>
 
-      <!-- 学習分析タブ -->
+      <!-- 分析タブ（統合） -->
       <div id="tabPaneAnalytics" class="hidden space-y-3">
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white">
-              <option value="">クラスを選択...</option>
-            </select>
-            <button onclick="loadUnitAnalytics()" class="bg-purple-600 text-white rounded px-3 py-2 text-sm font-bold">📊 分析を表示</button>
-            <span class="text-xs text-slate-400">※5問以上やった単元を表示します</span>
+        <!-- サブタブナビ -->
+        <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
+          <button id="anSubTab_subject" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-purple-500 text-white" onclick="switchAnalyticsSubTab('subject')">
+            <span class="bg-white text-purple-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 教科の成績
+          </button>
+          <button id="anSubTab_homework" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('homework')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 家庭学習
+          </button>
+          <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> AI分析
+          </button>
+        </div>
+        <!-- 共通クラス選択 -->
+        <div class="bg-white rounded-xl shadow p-3 flex gap-2 items-center flex-wrap">
+          <span class="text-sm font-bold text-slate-600">クラス:</span>
+          <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+        </div>
+
+        <!-- サブタブ①: 教科の成績 -->
+        <div id="anPane_subject" class="space-y-3">
+          <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div class="font-bold text-sm text-purple-800">📊 教科別・単元別の正解率</div>
+              <button onclick="loadUnitAnalytics()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析を表示</button>
+            </div>
+            <div id="analyticsContent"><p class="text-xs text-slate-400">クラスを選んで「分析を表示」を押してください</p></div>
           </div>
-          <div id="analyticsContent"></div>
+          <!-- 非アクティブ生徒の警告 -->
+          <div id="inactiveStudentsCard" class="bg-orange-50 border border-orange-200 rounded-xl p-4 hidden">
+            <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
+            <p class="text-xs text-slate-400 mb-2">7日以上ログインがありません</p>
+            <div id="inactiveStudentsList" class="space-y-1 text-sm"></div>
+          </div>
+          <!-- 最近の活動ログ -->
+          <div id="recentActivityCard" class="bg-white rounded-xl shadow p-4 hidden">
+            <h3 class="font-bold text-slate-700 mb-2">📋 最近の活動ログ</h3>
+            <div id="recentActivityLog" class="space-y-1 text-sm max-h-96 overflow-y-auto"></div>
+          </div>
         </div>
-        <!-- 非アクティブ生徒の警告 -->
-        <div id="inactiveStudentsCard" class="bg-white rounded-xl shadow p-4 hidden">
-          <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
-          <p class="text-xs text-slate-400 mb-2">7日以上ログインがありません</p>
-          <div id="inactiveStudentsList" class="space-y-1 text-sm"></div>
+
+        <!-- サブタブ②: 家庭学習 -->
+        <div id="anPane_homework" class="hidden space-y-3">
+          <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-indigo-800">📝 今週の家庭学習ダッシュボード</div>
+              <button onclick="loadClassAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析</button>
+            </div>
+            <div id="classAnalyticsContent" class="space-y-3">
+              <p class="text-xs text-slate-400">「分析」を押してください</p>
+            </div>
+          </div>
         </div>
-        <!-- 最近の活動ログ -->
-        <div id="recentActivityCard" class="bg-white rounded-xl shadow p-4 hidden">
-          <h3 class="font-bold text-slate-700 mb-2">📋 最近の活動ログ</h3>
-          <div id="recentActivityLog" class="space-y-1 text-sm max-h-96 overflow-y-auto"></div>
+
+        <!-- サブタブ③: AI分析 -->
+        <div id="anPane_ai" class="hidden space-y-3">
+          <!-- AIクラス分析 -->
+          <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
+              <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
+            </div>
+            <p class="text-xs text-purple-600">教科の成績＋家庭学習＋自己調整のデータをAIが総合的に分析し、声かけアドバイスを生成します。</p>
+            <div id="aiAnalysisContent" class="text-sm text-slate-600">
+              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押してください</p>
+            </div>
+          </div>
+
+          <!-- 週報レポート -->
+          <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-green-800">📋 週報レポート</div>
+              <button onclick="loadWeeklyReport()" class="bg-green-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-green-700" id="btnWeeklyReport">📝 週報を生成</button>
+            </div>
+            <p class="text-xs text-green-600">今週の学習状況をまとめた週報をAIが自動生成します。管理職や保護者への報告にも使えます。</p>
+            <div id="weeklyReportContent" class="text-sm text-slate-600">
+              <p class="text-xs text-slate-400">クラスを選んで「週報を生成」を押してください</p>
+            </div>
+          </div>
+
+          <!-- 個人カルテ -->
+          <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-amber-800">👤 個人カルテ</div>
+            </div>
+            <p class="text-xs text-amber-600">児童の名前をクリックすると、AIによる個人分析が表示されます。</p>
+            <div id="karteStudentList" class="flex flex-wrap gap-2">
+              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」または「週報を生成」を押すと、ここに児童一覧が表示されます</p>
+            </div>
+          </div>
+
+          <!-- 提出ヒートマップ -->
+          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <div class="font-bold text-sm text-slate-700">🗓️ 提出ヒートマップ（今週）</div>
+            <div id="heatmapContent" class="overflow-x-auto">
+              <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 個人カルテ詳細パネル（オーバーレイ） -->
+        <div id="studentKartePanel" class="hidden bg-white rounded-xl shadow-lg p-4 space-y-3 border-2 border-purple-300">
+          <div class="flex items-center justify-between">
+            <div class="font-bold text-lg text-purple-800" id="karteStudentName"></div>
+            <button onclick="document.getElementById('studentKartePanel').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-xl font-bold">✕</button>
+          </div>
+          <div id="karteContent"></div>
         </div>
       </div>
 
       <!-- 家庭学習提出一覧タブ -->
       <div id="tabPaneHomework" class="hidden space-y-3">
+        <!-- ステップ風サブタブナビゲーション -->
+        <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
+          <button id="hwSubTab_menu" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-green-500 text-white" onclick="switchHomeworkSubTab('menu')">
+            <span class="bg-white text-green-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 先生メニュー
+          </button>
+          <button id="hwSubTab_plan" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('plan')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 今週の計画
+          </button>
+          <button id="hwSubTab_daily" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('daily')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 毎日の振り返り
+          </button>
+          <button id="hwSubTab_weekly" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('weekly')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> 今週の振り返り
+          </button>
+        </div>
+
+        <!-- サブタブ①: 先生メニュー -->
+        <div id="hwPane_menu" class="space-y-3">
         <!-- 先生メニュー（週の課題設定） -->
         <div class="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
           <div class="font-bold text-sm text-green-800">📋 先生メニュー（今週の課題）</div>
@@ -4621,12 +5548,37 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        <!-- 名簿管理（プライバシー保護） -->
+        <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3">
+          <div class="font-bold text-sm text-rose-800">🔒 名簿管理（プライバシー保護）</div>
+          <div class="text-xs text-rose-700 leading-relaxed">
+            児童の実名をクラウドに保存せず、先生のPCの中だけで管理する仕組みです。<br>
+            ① 「名簿CSVダウンロード」で現在の児童リストを取得 → ②必要なら実名に編集 → ③「名簿CSVアップロード」で先生のブラウザに保存。<br>
+            <span class="font-bold">④最後に「クラウド側の名前を空にする」を押すと完全匿名化されます。</span>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <button onclick="downloadStudentCSV()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📥 ① 現在の名簿をCSVダウンロード</button>
+            <label class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90 cursor-pointer">
+              📤 ③ 名簿CSVアップロード
+              <input type="file" accept=".csv" onchange="uploadStudentCSV(event)" class="hidden"/>
+            </label>
+            <button onclick="anonymizeCloudNames()" class="bg-red-700 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔒 ④ クラウド側の名前を空にする</button>
+            <button onclick="clearStudentCSV()" class="bg-slate-400 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🗑 名簿リセット（このブラウザのみ）</button>
+          </div>
+          <div id="csvStatusMsg" class="text-xs text-rose-700 font-bold"></div>
+        </div>
+
+        </div>
+        <!-- サブタブ②: 今週の計画 -->
+        <div id="hwPane_plan" class="hidden space-y-3">
         <!-- 生徒の今週の計画 -->
         <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画</div>
             <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
+            <button onclick="aiPlanCheck()" class="bg-red-500 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90" id="aiPlanCheckBtn">🤖 AI計画チェック</button>
           </div>
+          <div id="aiPlanCheckResult" class="hidden bg-white border border-red-200 rounded-lg p-2 space-y-1"></div>
           <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
@@ -4656,6 +5608,9 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        </div>
+        <!-- サブタブ③: 毎日の振り返り -->
+        <div id="hwPane_daily" class="hidden space-y-3">
         <!-- アプリ内AIコメント生成パネル -->
         <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
           <div class="font-bold text-sm text-emerald-800">🤖 AIで一括コメント生成</div>
@@ -4700,7 +5655,26 @@ app.get('/teacher', (c) => {
           <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
           </div>
         </details>
-        {/* 自動フィードバック（週間） */}
+        <!-- 毎日の宿題一覧（日次返却） -->
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
+              <option value="">すべて</option>
+              <option value="unreturned">未返却</option>
+              <option value="returned">返却済み</option>
+            </select>
+            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
+            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
+            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
+          </div>
+          <div id="hwList" class="space-y-3 text-sm"></div>
+        </div>
+        </div>
+
+        <!-- サブタブ④: 今週の振り返り -->
+        <div id="hwPane_weekly" class="hidden space-y-3">
+        <!-- 自動フィードバック（週間） -->
         <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="font-bold text-sm text-yellow-800">💡 今週の自動フィードバック</div>
@@ -4716,50 +5690,11 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
           </div>
         </div>
-
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
-            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
-              <option value="">すべて</option>
-              <option value="unreturned">未返却</option>
-              <option value="returned">返却済み</option>
-            </select>
-            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
-            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
-            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
-          </div>
-          <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
       </div>
 
 
-      <!-- クラス分析タブ -->
-      <div id="tabPaneClassAnalytics" class="hidden space-y-3">
-        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-indigo-800">🔍 クラス分析ダッシュボード</div>
-            <div class="flex gap-2 items-center">
-              <select id="caClassFilter" class="border p-1.5 rounded text-sm bg-white">
-                <option value="">クラスを選択...</option>
-              </select>
-              <button onclick="loadClassAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📊 分析</button>
-            </div>
-          </div>
-          <div id="classAnalyticsContent" class="space-y-3">
-            <p class="text-xs text-slate-400">クラスを選んで「分析」を押してください</p>
-          </div>
-        </div>
-        <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3 mt-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
-            <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
-          </div>
-          <div id="aiAnalysisContent" class="text-sm text-slate-600">
-            <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押すと、AIが学習データを分析します</p>
-          </div>
-        </div>
-      </div>
+      <!-- (クラス分析は分析タブに統合済み) -->
 
       <!-- 連絡帳タブ -->
       <div id="tabPaneContact" class="hidden space-y-3">
@@ -4825,8 +5760,129 @@ app.get('/teacher', (c) => {
 
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+      // ===== 名簿マッピング（localStorage）=====
+      function getStudentNameMap(){
+        try { return JSON.parse(localStorage.getItem('studentNameMap') || '{}'); } catch(_) { return {}; }
+      }
+      function setStudentNameMap(map){
+        try { localStorage.setItem('studentNameMap', JSON.stringify(map||{})); } catch(_) {}
+      }
+      function resolveStudentName(loginId, fallback){
+        var map = getStudentNameMap();
+        if(loginId && map[loginId]) return map[loginId];
+        return fallback || loginId || '';
+      }
+      async function downloadStudentCSV(){
+        try {
+          var data = await api('/api/teacher/all-students');
+          var rows = [['ログインID','実名','学年','クラス']];
+          var map = getStudentNameMap();
+          (data.students || []).forEach(function(s){
+            var realName = map[s.loginId] || s.name || '';
+            rows.push([s.loginId, realName, s.grade || '', s.className || '']);
+          });
+          var csv = rows.map(function(r){
+            return r.map(function(c){ return '"' + String(c).replace(/"/g,'""') + '"'; }).join(',');
+          }).join('\n');
+          var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = '名簿_' + new Date().toISOString().slice(0,10) + '.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '✅ 名簿CSVをダウンロードしました（' + ((data.students||[]).length) + '名）';
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      function parseCSV(text){
+        // シンプルなCSVパーサ（ダブルクォート対応）
+        var rows = [];
+        var row = [];
+        var cur = '';
+        var inQuote = false;
+        for(var i=0; i<text.length; i++){
+          var ch = text[i];
+          if(inQuote){
+            if(ch === '"'){
+              if(text[i+1] === '"'){ cur += '"'; i++; }
+              else { inQuote = false; }
+            } else { cur += ch; }
+          } else {
+            if(ch === '"'){ inQuote = true; }
+            else if(ch === ','){ row.push(cur); cur = ''; }
+            else if(ch === '\n' || ch === '\r'){
+              if(ch === '\r' && text[i+1] === '\n') i++;
+              row.push(cur); cur = '';
+              rows.push(row); row = [];
+            } else { cur += ch; }
+          }
+        }
+        if(cur !== '' || row.length > 0){ row.push(cur); rows.push(row); }
+        return rows;
+      }
+      async function uploadStudentCSV(ev){
+        try {
+          var file = ev.target.files[0];
+          if(!file) return;
+          var text = await file.text();
+          // BOM除去
+          if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+          var rows = parseCSV(text);
+          if(rows.length < 2){ alert('CSVにデータがありません'); return; }
+          var header = rows[0].map(function(h){ return String(h).trim(); });
+          var idxLogin = header.indexOf('ログインID');
+          var idxName = header.indexOf('実名');
+          if(idxLogin < 0) idxLogin = 0;
+          if(idxName < 0) idxName = 1;
+          var map = {};
+          var count = 0;
+          for(var i=1; i<rows.length; i++){
+            var r = rows[i];
+            if(!r || r.length === 0) continue;
+            var loginId = String(r[idxLogin]||'').trim();
+            var realName = String(r[idxName]||'').trim();
+            if(loginId && realName){ map[loginId] = realName; count++; }
+          }
+          setStudentNameMap(map);
+          ev.target.value = '';
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '✅ 名簿を読み込みました（' + count + '名）。このブラウザにのみ保存されます。';
+          // 画面を更新
+          if(typeof loadClasses === 'function') loadClasses();
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      async function anonymizeCloudNames(){
+        if(!confirm('【最終確認】\nクラウド側に保存されている児童の名前をすべて空にします。\n（ログインIDと同じ値に置き換わります）\n\n※ 先生のブラウザの名簿CSVがあれば、これまで通り実名で表示されます。\n※ この操作は取り消せません。\n\n続けますか？')) return;
+        if(!confirm('もう一度確認します。\n本当にクラウド側の名前をすべて匿名化しますか？')) return;
+        try {
+          var r = await api('/api/teacher/anonymize-names', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ confirm: 'YES_ANONYMIZE' })
+          });
+          var msg = document.getElementById('csvStatusMsg');
+          if(msg) msg.textContent = '🔒 匿名化完了（' + (r.updated||0) + '名の名前を空にしました）';
+          alert('匿名化しました。');
+          if(typeof loadClasses === 'function') loadClasses();
+        } catch(e){
+          alert('エラー: ' + String(e.message||e));
+        }
+      }
+      function clearStudentCSV(){
+        if(!confirm('このブラウザに保存されている名簿マッピングを削除します。\n（クラウド側のデータには影響しません）\nよろしいですか？')) return;
+        setStudentNameMap({});
+        var msg = document.getElementById('csvStatusMsg');
+        if(msg) msg.textContent = '🗑 名簿マッピングを削除しました';
+        if(typeof loadClasses === 'function') loadClasses();
+      }
+
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','classAnalytics','mail'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','mail'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -4834,11 +5890,36 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework') { loadHomework(); loadWeeklyMenu(); }
-        if(tab === 'analytics') { var aId = document.getElementById('activityClassFilter').value; if(aId) loadActivitySummary(); }
+        if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
+        if(tab === 'analytics') { initAnalyticsFilters(); switchAnalyticsSubTab('subject'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
+      }
+
+      // --- 家庭学習サブタブ切り替え ---
+      function switchHomeworkSubTab(sub){
+        const tabs = ['menu','plan','daily','weekly'];
+        const colors = {menu:'green',plan:'blue',daily:'emerald',weekly:'yellow'};
+        tabs.forEach(function(t){
+          var pane = document.getElementById('hwPane_' + t);
+          if(pane) pane.classList.toggle('hidden', sub !== t);
+          var btn = document.getElementById('hwSubTab_' + t);
+          if(!btn) return;
+          var c = colors[t] || 'slate';
+          if(sub === t){
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-'+c+'-500 text-white';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-white text-'+c+'-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          } else {
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          }
+        });
+        if(sub === 'daily') loadHomework();
+        if(sub === 'plan') loadStudentPlans();
+        if(sub === 'weekly'){ initNewTabFilters(); }
       }
 
       // --- アクティビティ（今日の学習状況）---
@@ -4969,7 +6050,7 @@ app.get('/teacher', (c) => {
           +'</tr></thead><tbody>';
         students.forEach((s,i)=>{
           const row = '<tr class="'+(i%2===0?'':'bg-slate-50')+'">'
-            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'">'+escH(s.name)+'</td>'
+            +'<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'"><a href="javascript:void(0)" onclick="showStudentKarte(&#39;'+escH(s.id)+'&#39;,&#39;'+escH(resolveStudentName(s.loginId, s.name))+'&#39;)" class="text-purple-600 hover:underline cursor-pointer">'+escH(resolveStudentName(s.loginId, s.name))+'</a></td>'
             +'<td class="border px-2 py-1 text-center">'+(s.learnStreak>0?'🔥'+s.learnStreak:'−')+'</td>'
             +['math','jp','soc','science'].map(subj=>{
               const d = s.bySubject[subj];
@@ -4984,6 +6065,122 @@ app.get('/teacher', (c) => {
         html += '<p class="text-xs text-slate-400 mt-1">括弧内は解答数。5問未満は「−」表示。</p></div>';
 
         wrap.innerHTML = html;
+      }
+
+      // --- 分析サブタブ切り替え ---
+      function switchAnalyticsSubTab(sub){
+        var tabs = ['subject','homework','ai'];
+        var colors = {subject:'purple',homework:'indigo',ai:'purple'};
+        tabs.forEach(function(t){
+          var pane = document.getElementById('anPane_' + t);
+          if(pane) pane.classList.toggle('hidden', sub !== t);
+          var btn = document.getElementById('anSubTab_' + t);
+          if(!btn) return;
+          var c = colors[t] || 'slate';
+          if(sub === t){
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-'+c+'-500 text-white';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-white text-'+c+'-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          } else {
+            btn.className = 'flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100';
+            var num = btn.querySelector('span');
+            if(num) num.className = 'bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black';
+          }
+        });
+      }
+
+      async function initAnalyticsFilters(){
+        try{
+          var cdata = await api('/api/teacher/classes');
+          var classes = (cdata && cdata.classes) || [];
+          var el = document.getElementById('analyticsClassFilter');
+          if(el && el.options.length <= 1){
+            el.innerHTML = '';
+            classes.forEach(function(cls){
+              var opt = document.createElement('option');
+              opt.value = cls.id;
+              opt.textContent = cls.name;
+              el.appendChild(opt);
+            });
+          }
+        }catch(_){}
+      }
+
+      // --- 個人カルテ ---
+      async function showStudentKarte(studentId, studentName){
+        var panel = document.getElementById('studentKartePanel');
+        var content = document.getElementById('karteContent');
+        document.getElementById('karteStudentName').textContent = studentName + ' さんのカルテ';
+        panel.classList.remove('hidden');
+        content.innerHTML = '<p class="text-slate-400 text-sm animate-pulse">読み込み中...</p>';
+        var classId = document.getElementById('analyticsClassFilter').value;
+        try{
+          var weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
+          var unitData = await api('/api/teacher/class/' + encodeURIComponent(classId) + '/unit-analytics');
+          var caData = await api('/api/teacher/class-analytics?classId=' + encodeURIComponent(classId) + '&weekKey=' + encodeURIComponent(weekKey));
+          var student = (unitData.students||[]).find(function(s){ return s.id === studentId; });
+          var hwAll = (caData.homework||[]).filter(function(h){ return h.user_id === studentId; });
+          var plan = (caData.plans||[]).find(function(p){ return p.user_id === studentId; });
+          var ref = (caData.reflections||[]).find(function(r){ return r.user_id === studentId; });
+          var subjName = {math:'算数', jp:'国語', soc:'社会', science:'理科'};
+          var html = '';
+
+          // 教科別成績
+          html += '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">';
+          ['math','jp','soc','science'].forEach(function(subj){
+            var d = student && student.bySubject[subj];
+            if(!d || d.total < 5){
+              html += '<div class="rounded-lg border p-2 text-center"><div class="text-xs text-slate-400">'+(subjName[subj]||subj)+'</div><div class="text-lg font-bold text-slate-300">−</div></div>';
+            } else {
+              var c = d.acc>=80?'text-green-600':d.acc>=60?'text-yellow-600':'text-red-600';
+              html += '<div class="rounded-lg border p-2 text-center"><div class="text-xs font-bold text-slate-500">'+(subjName[subj]||subj)+'</div><div class="text-xl font-black '+c+'">'+d.acc+'%</div><div class="text-[10px] text-slate-400">'+d.total+'問</div></div>';
+            }
+          });
+          html += '</div>';
+
+          // 連続学習
+          if(student && student.learnStreak > 0){
+            html += '<div class="bg-orange-50 border border-orange-200 rounded-lg p-2 mb-3 text-sm">🔥 連続学習 <b>'+student.learnStreak+'日</b></div>';
+          }
+
+          // 家庭学習状況
+          html += '<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 space-y-1">';
+          html += '<div class="font-bold text-xs text-blue-800">📝 今週の家庭学習</div>';
+          if(hwAll.length > 0){
+            var totalMin = hwAll.reduce(function(s,h){ return s + (h.minutes||0); }, 0);
+            html += '<div class="text-sm">提出 <b>'+hwAll.length+'回</b> / 合計 <b>'+totalMin+'分</b></div>';
+            html += '<div class="flex gap-1 flex-wrap">';
+            hwAll.forEach(function(h){
+              html += '<span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">'+escH(h.subject||'')+(h.minutes?(' '+h.minutes+'分'):'')+'</span>';
+            });
+            html += '</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">今週の提出はまだありません</div>';
+          }
+          html += '</div>';
+
+          // 計画・ふりかえり
+          html += '<div class="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1">';
+          html += '<div class="font-bold text-xs text-purple-800">🔄 自己調整</div>';
+          if(plan){
+            html += '<div class="text-xs"><b>計画:</b> '+escH(plan.plan_text||plan.goal_text||'(内容なし)')+'</div>';
+            if(plan.revision_count > 0) html += '<div class="text-xs text-orange-600">🔄 計画修正 '+plan.revision_count+'回</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">計画の提出なし</div>';
+          }
+          if(ref){
+            html += '<div class="text-xs"><b>ふりかえり:</b> '+escH(ref.reflection_text||'(内容なし)')+'</div>';
+            if(ref.concentration) html += '<div class="text-xs">集中度: '+('★'.repeat(ref.concentration))+'</div>';
+          } else {
+            html += '<div class="text-xs text-slate-400">ふりかえりなし</div>';
+          }
+          html += '</div>';
+
+          content.innerHTML = html;
+          panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }catch(e){
+          content.innerHTML = '<p class="text-red-500 text-sm">読み込みエラー: '+escH(String(e.message||e))+'</p>';
+        }
       }
 
       document.getElementById('logout').onclick = async () => {
@@ -5017,24 +6214,28 @@ app.get('/teacher', (c) => {
         wrap.innerHTML='';
         if(!data.classes.length){ wrap.innerHTML='<p class="text-sm text-slate-400 bg-white rounded-xl shadow p-4">クラスはまだありません。上から作成してください。</p>'; return; }
 
-        // クラスフィルター選択肢を更新
+        // クラスフィルター選択肢を更新（全セレクトで最初のクラスを自動選択）
+        const defaultClassId = data.classes.length > 0 ? data.classes[0].id : '';
         const sel = document.getElementById('hwClassFilter');
         sel.innerHTML = '<option value="">全クラス</option>';
         data.classes.forEach(c => { sel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+        if(defaultClassId) sel.value = defaultClassId;
         // 学習分析タブのクラスフィルターも更新
         const analyticsSel = document.getElementById('analyticsClassFilter');
         if(analyticsSel){
-          analyticsSel.innerHTML = '<option value="">クラスを選択...</option>';
+          analyticsSel.innerHTML = '';
           data.classes.forEach(c => { analyticsSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+          if(defaultClassId) analyticsSel.value = defaultClassId;
         }
         // アクティビティ（今日の学習状況）のクラスフィルターも更新
         const actSel = document.getElementById('activityClassFilter');
         if(actSel){
           const prevVal = actSel.value;
-          actSel.innerHTML = '<option value="">クラスを選択...</option>';
+          actSel.innerHTML = '';
           data.classes.forEach(c => { actSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
-          if(data.classes.length === 1){ actSel.value = data.classes[0].id; loadActivitySummary(); }
-          else if(prevVal){ actSel.value = prevVal; }
+          if(prevVal){ actSel.value = prevVal; }
+          else if(defaultClassId){ actSel.value = defaultClassId; }
+          loadActivitySummary();
         }
 
         for(const cls of data.classes){
@@ -5318,11 +6519,12 @@ app.get('/teacher', (c) => {
             const approvedBadge = p.planApproved
               ? '<span class="bg-green-100 text-green-700 text-xs px-1.5 rounded font-bold">✅ 承認済(+300coin+5かけら)</span>'
               : '';
+            const __pName = resolveStudentName(p.loginId, p.studentName);
             const revBadge = (p.revisionCount && p.revisionCount > 0)
-              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(p.studentName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
+              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(__pName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
               : '';
             let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
-              + '<div class="font-bold text-sm">'+escH(p.studentName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
+              + '<div class="font-bold text-sm">'+escH(__pName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
               + '<div class="text-[10px] text-slate-400">'+new Date(p.updatedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'
               + '</div>';
 
@@ -5357,7 +6559,7 @@ app.get('/teacher', (c) => {
               if(p.reflectionReturnedAt){
                 html += '<div class="text-emerald-700 bg-emerald-50 rounded p-1 border border-emerald-200">💬 '+escH(p.reflectionComment)+' <span class="text-[10px] text-slate-400">(返却済+300coin+5かけら)</span></div>';
               } else {
-                window._weeklyRefData.push({ id: p.id, name: p.studentName, reflection: reflection });
+                window._weeklyRefData.push({ id: p.id, name: __pName, reflection: reflection });
                 html += '<div class="flex items-center gap-1">'
                   + '<textarea id="refComment_'+p.id+'" class="flex-1 border rounded p-1.5 text-xs" rows="1" placeholder="コメント（一括AIも可）"></textarea>'
                   + '<button class="bg-orange-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="returnReflection('+p.id+',this)">返却</button>'
@@ -5429,6 +6631,62 @@ app.get('/teacher', (c) => {
         await loadStudentPlans();
       }
 
+      async function aiPlanCheck(){
+        var btn = document.getElementById('aiPlanCheckBtn');
+        var wrap = document.getElementById('aiPlanCheckResult');
+        if(!wrap) return;
+        var classId = document.getElementById('hwClassFilter') ? document.getElementById('hwClassFilter').value : '';
+        if(!classId){ alert('クラスを選択してください'); return; }
+        btn.disabled = true; btn.textContent = '🤖 チェック中...';
+        wrap.classList.remove('hidden');
+        wrap.innerHTML = '<p class="text-xs text-slate-400">AIが計画を分析しています...</p>';
+        try{
+          var wk = getWeekKeyLocal();
+          var res = await api('/api/teacher/ai-plan-check', {
+            method:'POST', headers:{'content-type':'application/json'},
+            body: JSON.stringify({classId: classId, weekKey: wk})
+          });
+          var results = res.results || [];
+          if(!results.length){
+            wrap.innerHTML = '<p class="text-xs text-slate-400">計画がまだ提出されていません</p>';
+            return;
+          }
+          var warnCount = results.filter(function(r){ return r.level === 'warning'; }).length;
+          var cautionCount = results.filter(function(r){ return r.level === 'caution'; }).length;
+          var okCount = results.filter(function(r){ return r.level === 'ok'; }).length;
+
+          var html = '<div class="flex items-center gap-2 flex-wrap mb-1">'
+            + '<span class="font-bold text-sm text-red-700">🤖 AI計画チェック結果</span>'
+            + '<span class="text-xs bg-green-100 text-green-700 px-1.5 rounded font-bold">' + okCount + '人OK</span>'
+            + (cautionCount ? '<span class="text-xs bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold">' + cautionCount + '人注意</span>' : '')
+            + (warnCount ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 rounded font-bold">' + warnCount + '人要注意</span>' : '')
+            + '<span class="text-[10px] text-slate-400">(' + (res.source || 'AI') + ')</span>'
+            + '</div>';
+
+          // 要注意と注意を先に表示
+          var sorted = results.slice().sort(function(a,b){
+            var order = {warning:0, caution:1, ok:2};
+            return (order[a.level]||2) - (order[b.level]||2);
+          });
+          for(var i = 0; i < sorted.length; i++){
+            var r = sorted[i];
+            var bgClass = r.level === 'warning' ? 'bg-red-50 border-red-300' : r.level === 'caution' ? 'bg-yellow-50 border-yellow-300' : 'bg-green-50 border-green-200';
+            var icon = r.level === 'warning' ? '🚨' : r.level === 'caution' ? '⚠️' : '✅';
+            var textClass = r.level === 'warning' ? 'text-red-700' : r.level === 'caution' ? 'text-yellow-700' : 'text-green-700';
+            html += '<div class="flex items-center gap-2 px-2 py-1 rounded border ' + bgClass + ' text-xs">'
+              + '<span>' + icon + '</span>'
+              + '<span class="font-bold">' + escH(r.name) + '</span>'
+              + '<span class="' + textClass + '">' + escH(r.comment) + '</span>'
+              + '</div>';
+          }
+          wrap.innerHTML = html;
+        }catch(e){
+          wrap.innerHTML = '<p class="text-xs text-red-600">エラー: ' + escH(String(e.message||e)) + '</p>';
+        }finally{
+          btn.disabled = false; btn.textContent = '🤖 AI計画チェック';
+        }
+      }
+
       async function approvePlan(planId, btn){
         btn.disabled = true;
         try{
@@ -5482,15 +6740,9 @@ wrap.innerHTML = '';
                 const card = document.createElement('div');
                 card.className = 'border rounded-lg p-2 bg-white space-y-1 mb-2';
                 const hdr = document.createElement('div');
-                hdr.className = 'font-bold text-sm text-slate-700 mb-1';
+                hdr.className = 'font-bold text-sm text-slate-700';
                 hdr.textContent = item.name;
                 card.appendChild(hdr);
-                for(const msg of item.messages){
-                  const d = document.createElement('div');
-                  d.className = 'text-xs text-yellow-800 bg-yellow-50 px-1.5 py-0.5 rounded';
-                  d.textContent = msg;
-                  card.appendChild(d);
-                }
                 const ta = document.createElement('textarea');
                 ta.id = 'fbMsg_' + item.userId;
                 ta.className = 'w-full border rounded p-1.5 text-xs mt-1';
@@ -5525,7 +6777,7 @@ wrap.innerHTML = '';
       async function loadClassAnalytics(){
         const wrap = document.getElementById('classAnalyticsContent');
         if(!wrap) return;
-        const classId = document.getElementById('caClassFilter')?.value;
+        const classId = document.getElementById('analyticsClassFilter')?.value;
         if(!classId){ alert('クラスを選択してください'); return; }
         wrap.innerHTML='<p class="text-slate-400">分析中...</p>';
         try{
@@ -5539,7 +6791,7 @@ wrap.innerHTML = '';
             html += '<div class="font-bold text-sm text-red-800">⚠️ 気になる児童 ('+alerts.length+'人)</div>';
             for(const a of alerts){
               const icon = a.type==='no_submission' ? '🔴' : a.type==='submission_drop' ? '🟡' : '🟠';
-              html += '<div class="text-xs text-red-700">'+icon+' <b>'+escH(a.name)+'</b>: '+escH(a.detail)+'</div>';
+              html += '<div class="text-xs text-red-700">'+icon+' <b>'+escH(resolveStudentName(a.loginId, a.name))+'</b>: '+escH(a.detail)+'</div>';
             }
             html += '</div>';
           } else {
@@ -5569,7 +6821,7 @@ wrap.innerHTML = '';
             const barW = Math.min(100, hw.cnt * 20); // 5回=100%
             const color = hw.cnt >= 4 ? 'bg-emerald-500' : hw.cnt >= 2 ? 'bg-yellow-500' : hw.cnt > 0 ? 'bg-orange-400' : 'bg-red-300';
             html += '<div class="flex items-center gap-1 text-[11px]">';
-            html += '<div class="w-16 truncate text-slate-600">'+escH(m.name)+'</div>';
+            html += '<div class="w-16 truncate text-slate-600">'+escH(resolveStudentName(m.loginId, m.name))+'</div>';
             html += '<div class="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden"><div class="h-full rounded-full '+color+'" style="width:'+barW+'%"></div></div>';
             html += '<div class="w-10 text-right text-slate-500">'+hw.cnt+'回</div>';
             html += '<div class="w-14 text-right text-slate-400">'+(hw.totalMin||0)+'分</div>';
@@ -5605,7 +6857,7 @@ wrap.innerHTML = '';
             if(r) badges.push('<span class="bg-purple-100 text-purple-700 px-1 rounded text-[9px]">💭ふりかえり</span>');
             if(r && r.concentration) badges.push('<span class="bg-yellow-100 text-yellow-700 px-1 rounded text-[9px]">集中'+('★'.repeat(r.concentration))+'</span>');
             html += '<div class="flex items-center gap-1 text-[11px]">';
-            html += '<div class="w-16 truncate text-slate-600">'+escH(m.name)+'</div>';
+            html += '<div class="w-16 truncate text-slate-600">'+escH(resolveStudentName(m.loginId, m.name))+'</div>';
             html += '<div class="flex gap-0.5 flex-wrap">'+(badges.length > 0 ? badges.join(' ') : '<span class="text-slate-300 text-[9px]">—</span>')+'</div>';
             html += '</div>';
           }
@@ -5617,21 +6869,195 @@ wrap.innerHTML = '';
         }
       }
 
+      // 週報レポート生成（loadAIAnalysisは上で再定義済み）
+      async function loadWeeklyReport(){
+        const classId = document.getElementById('analyticsClassFilter').value;
+        if(!classId){ document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
+        const btn = document.getElementById('btnWeeklyReport');
+        btn.disabled = true; btn.textContent = '生成中...';
+        document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-green-500 animate-pulse">📝 週報を作成しています...</p>';
+        try {
+          const weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
+          const res = await fetch('/api/teacher/weekly-report?classId=' + classId + '&weekKey=' + weekKey);
+          const data = await res.json();
+          if(data.ok){
+            // 統計カード
+            const s = data.classStats || {};
+            let html = '<div class="grid grid-cols-2 gap-2 mb-3">';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-blue-600">'+s.submittedStudents+'/'+s.totalStudents+'</div><div class="text-[10px] text-slate-500">提出者数</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-green-600">'+s.totalSubmissions+'</div><div class="text-[10px] text-slate-500">総提出回数</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-purple-600">'+s.avgMinPerStudent+'分</div><div class="text-[10px] text-slate-500">1人あたり平均</div></div>';
+            html += '<div class="bg-white rounded-lg p-2 text-center border"><div class="text-lg font-black text-amber-600">'+s.avgSunRate+'%</div><div class="text-[10px] text-slate-500">満足度(☀️率)</div></div>';
+            html += '</div>';
+            // AI週報本文
+            if(data.reportText){
+              const formatted = data.reportText.split(String.fromCharCode(10)).join('<br>');
+              html += '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">'+formatted+'</div>';
+            }
+            document.getElementById('weeklyReportContent').innerHTML = html;
+            // 児童一覧を個人カルテエリアに表示
+            updateKarteStudentList(data.studentSummaries || [], classId);
+          } else {
+            document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">生成に失敗: '+(data.error||'unknown')+'</p>';
+          }
+        } catch(e) {
+          document.getElementById('weeklyReportContent').innerHTML='<p class="text-xs text-red-500">エラー: '+e.message+'</p>';
+        } finally {
+          btn.disabled = false; btn.textContent = '📝 週報を生成';
+        }
+      }
+
+      // 個人カルテの児童一覧を更新
+      function updateKarteStudentList(students, classId){
+        const wrap = document.getElementById('karteStudentList');
+        if(!wrap) return;
+        if(!students.length){ wrap.innerHTML='<p class="text-xs text-slate-400">児童データがありません</p>'; return; }
+        wrap.innerHTML = '';
+        // ヒートマップ用データも保持
+        window._lastStudentSummaries = students;
+        window._lastAnalyticsClassId = classId;
+        for(const s of students){
+          const btn = document.createElement('button');
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition';
+          const __n = resolveStudentName(s.loginId, s.name);
+          btn.textContent = '👤 ' + __n;
+          btn.onclick = (function(name){ return function(){ openStudentKarte(s.userId || s.name, name); }; })(__n);
+          wrap.appendChild(btn);
+        }
+        // ヒートマップも描画
+        renderHeatmap(students);
+      }
+
+      // 提出ヒートマップ描画
+      function renderHeatmap(students){
+        const wrap = document.getElementById('heatmapContent');
+        if(!wrap) return;
+        const days = ['月','火','水','木','金'];
+        let html = '<table class="w-full text-xs"><thead><tr><th class="text-left p-1 text-slate-500">名前</th>';
+        days.forEach(function(d){ html += '<th class="p-1 text-center text-slate-500">'+d+'</th>'; });
+        html += '</tr></thead><tbody>';
+        for(const s of students){
+          html += '<tr>';
+          var __hName = resolveStudentName(s.loginId, s.name);
+          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(__hName)+'&#39;)">' + escH(__hName) + '</td>';
+          const cnt = s.thisWeek ? s.thisWeek.count : 0;
+          // 曜日ごとの提出は簡易表示（提出回数に応じて色分け）
+          for(let d=0; d<5; d++){
+            const submitted = d < cnt;
+            const color = submitted ? 'bg-green-400' : 'bg-slate-100';
+            html += '<td class="p-1 text-center"><div class="w-6 h-6 rounded '+color+' mx-auto flex items-center justify-center">'+(submitted?'✓':'')+'</div></td>';
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+        wrap.innerHTML = html;
+      }
+
+      // 個人カルテを開く
+      async function openStudentKarte(studentId, studentName){
+        const panel = document.getElementById('studentKartePanel');
+        const nameEl = document.getElementById('karteStudentName');
+        const contentEl = document.getElementById('karteContent');
+        panel.classList.remove('hidden');
+        nameEl.textContent = '👤 ' + studentName + ' のカルテ';
+        contentEl.innerHTML = '<p class="text-xs text-purple-500 animate-pulse">🤖 AIが分析中...</p>';
+        // スクロール
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        try {
+          const res = await fetch('/api/teacher/student-karte?studentId=' + encodeURIComponent(studentId));
+          const data = await res.json();
+          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-xs">取得エラー</p>'; return; }
+          let html = '';
+          // 基本統計
+          const st = data.stats || {};
+          html += '<div class="grid grid-cols-3 gap-2 mb-3">';
+          html += '<div class="bg-blue-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-blue-600">'+st.totalDays+'</div><div class="text-[10px] text-slate-500">提出回数</div></div>';
+          html += '<div class="bg-green-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-green-600">'+st.avgMin+'分</div><div class="text-[10px] text-slate-500">平均学習時間</div></div>';
+          html += '<div class="bg-amber-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-amber-600">'+st.sunRate+'%</div><div class="text-[10px] text-slate-500">満足度</div></div>';
+          html += '</div>';
+          // 教科別成績
+          if(data.subjects && data.subjects.length > 0){
+            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">📊 教科別成績</div><div class="space-y-1">';
+            for(const sub of data.subjects){
+              const w = Math.max(sub.rate, 5);
+              const color = sub.rate >= 80 ? 'bg-green-400' : sub.rate >= 60 ? 'bg-yellow-400' : 'bg-red-400';
+              html += '<div class="flex items-center gap-2"><span class="text-xs w-16 text-slate-600 font-bold truncate">'+escH(sub.unit)+'</span>';
+              html += '<div class="flex-1 bg-slate-100 rounded-full h-4"><div class="'+color+' rounded-full h-4 text-[10px] text-white flex items-center justify-center font-bold" style="width:'+w+'%">'+sub.rate+'%</div></div>';
+              html += '<span class="text-[10px] text-slate-400">'+sub.total+'問</span></div>';
+            }
+            html += '</div></div>';
+          }
+          // 計画修正履歴
+          if(data.revisions && data.revisions.length > 0){
+            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">🔄 計画修正履歴</div><div class="space-y-1">';
+            for(const r of data.revisions.slice(0, 5)){
+              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="font-bold text-slate-500">['+escH(r.week_key)+']</span> '+escH(r.reason || '理由なし')+'</div>';
+            }
+            html += '</div></div>';
+          }
+          // AI分析
+          if(data.aiAdvice){
+            try{
+              const advice = JSON.parse(data.aiAdvice);
+              html += '<div class="space-y-2">';
+              if(advice.trend) html += '<div class="bg-blue-50 rounded-lg p-2.5 border border-blue-200"><div class="font-bold text-xs text-blue-700 mb-1">📊 学習の傾向</div><div class="text-xs text-slate-700">'+escH(advice.trend)+'</div></div>';
+              if(advice.strength) html += '<div class="bg-green-50 rounded-lg p-2.5 border border-green-200"><div class="font-bold text-xs text-green-700 mb-1">💪 強みと成長</div><div class="text-xs text-slate-700">'+escH(advice.strength)+'</div></div>';
+              if(advice.concern) html += '<div class="bg-orange-50 rounded-lg p-2.5 border border-orange-200"><div class="font-bold text-xs text-orange-700 mb-1">🔍 気になる点</div><div class="text-xs text-slate-700">'+escH(advice.concern)+'</div></div>';
+              if(advice.advice) html += '<div class="bg-purple-50 rounded-lg p-2.5 border border-purple-200"><div class="font-bold text-xs text-purple-700 mb-1">💬 おすすめの声かけ</div><div class="text-xs text-slate-700">'+escH(advice.advice)+'</div></div>';
+              html += '</div>';
+            }catch(_){
+              html += '<div class="bg-purple-50 rounded-lg p-2.5 border text-xs text-slate-700">'+escH(data.aiAdvice)+'</div>';
+            }
+          }
+          // 直近の学習記録
+          if(data.recentSubmissions && data.recentSubmissions.length > 0){
+            html += '<div class="mt-3"><div class="font-bold text-xs text-slate-600 mb-1">📝 直近の学習記録</div><div class="space-y-1 max-h-48 overflow-y-auto">';
+            for(const s of data.recentSubmissions.slice(0, 10)){
+              const wIcon = s.end_weather === 'sun' ? '☀️' : s.end_weather === 'cloud' ? '☁️' : s.end_weather === 'rain' ? '🌧️' : '❓';
+              html += '<div class="text-xs bg-white rounded p-1.5 border flex items-center gap-1">';
+              html += '<span class="font-bold text-slate-500">'+escH(s.day_key||'')+'</span> ';
+              html += wIcon+' ';
+              html += '<span class="text-slate-600">'+escH(s.todo||'')+'</span> ';
+              html += '<span class="text-slate-400">('+( s.minutes||0)+'分)</span>';
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+          contentEl.innerHTML = html;
+        } catch(e) {
+          contentEl.innerHTML = '<p class="text-red-500 text-xs">エラー: '+e.message+'</p>';
+        }
+      }
+
+      // AIクラス分析（Gemini対応＋児童リスト・ヒートマップ連動）
       async function loadAIAnalysis(){
-        const classId = document.getElementById('caClassFilter').value;
+        const classId = document.getElementById('analyticsClassFilter').value;
         if(!classId){ document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
         const btn = document.getElementById('btnAIAnalysis');
         btn.disabled = true; btn.textContent = '分析中...';
-        document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-purple-500 animate-pulse">🤖 AIがデータを分析しています。少々お待ちください（数秒～10秒）...</p>';
+        document.getElementById('aiAnalysisContent').innerHTML='<p class="text-xs text-purple-500 animate-pulse">🤖 AIがデータを分析しています...</p>';
         try {
           const weekKey = typeof getWeekKeyLocal === 'function' ? getWeekKeyLocal() : '';
-          const res = await fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey);
-          const data = await res.json();
+          // AI分析と同時にclass-analyticsも取得して児童一覧・ヒートマップに使う
+          const [aiRes, caRes] = await Promise.all([
+            fetch('/api/teacher/class-ai-analysis?classId=' + classId + '&weekKey=' + weekKey),
+            fetch('/api/teacher/class-analytics?classId=' + classId + '&weekKey=' + weekKey).then(r=>r.json()).catch(()=>null)
+          ]);
+          const data = await aiRes.json();
           if(data.ok && data.analysis){
-            const formatted = data.analysis.replace(/\\n/g, '<br>');
+            const formatted = data.analysis.split(String.fromCharCode(10)).join('<br>');
             document.getElementById('aiAnalysisContent').innerHTML = '<div class="bg-white rounded-lg p-3 text-sm leading-relaxed text-slate-700 border">' + formatted + '</div>';
           } else {
-            document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗しました: ' + (data.error || 'unknown') + '</p>';
+            document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">分析に失敗: ' + (data.error || 'unknown') + '</p>';
+          }
+          // 児童一覧更新
+          if(caRes && caRes.ok && caRes.members){
+            const studentList = caRes.members.map(function(m){
+              const hwByUser = {};
+              (caRes.homework || []).forEach(function(h){ if(h.user_id===m.id){ if(!hwByUser[m.id]) hwByUser[m.id]={count:0}; hwByUser[m.id].count++; } });
+              return { userId: m.id, name: m.name, thisWeek: { count: hwByUser[m.id] ? hwByUser[m.id].count : 0, totalMin: 0, sunRate: 0 } };
+            });
+            updateKarteStudentList(studentList, classId);
           }
         } catch(e) {
           document.getElementById('aiAnalysisContent').innerHTML = '<p class="text-xs text-red-500">エラー: ' + e.message + '</p>';
@@ -5639,12 +7065,13 @@ wrap.innerHTML = '';
           btn.disabled = false; btn.textContent = '✨ AIで分析';
         }
       }
-      // フィルヿー初睛化市���況スコア分布
+
+      // フィルター初期化
       async function initNewTabFilters(){
         try{
           const cdata = await api('/api/teacher/classes');
           const classes= (cdata && cdata.classes) || [];
-          ['fbClassFilter','caClassFilter'].forEach(function(filterId){
+          ['fbClassFilter'].forEach(function(filterId){
             const el = document.getElementById(filterId);
             if(el && el.options.length <= 1){
               el.innerHTML = '';
@@ -5681,7 +7108,8 @@ wrap.innerHTML = '';
           card.className='border rounded-xl p-3 space-y-2 ' + (returned ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300');
           card.dataset.hwId = s.id;
           card.dataset.hwUserId = s.userId||'';
-          card.dataset.hwName = s.studentName||'';
+          const __sName = resolveStudentName(s.loginId, s.studentName);
+          card.dataset.hwName = __sName||'';
           card.dataset.hwDayKey = s.dayKey||'';
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
@@ -5692,7 +7120,7 @@ wrap.innerHTML = '';
             : '<span class="bg-red-100 text-red-600 text-xs px-1 rounded font-bold">未返却</span>';
 
           card.innerHTML = '<div class="flex items-center justify-between flex-wrap gap-1">'
-            + '<div class="font-bold">' + escH(s.studentName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
+            + '<div class="font-bold">' + escH(__sName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
             + '<div class="flex gap-1 items-center text-xs">' + returnedBadge + physicalBadge + '<span class="text-slate-400">'+escH(s.dayKey)+'</span></div>'
             + '</div>'
             + '<div class="text-xs space-y-0.5 text-slate-700">'
@@ -5706,6 +7134,7 @@ wrap.innerHTML = '';
             + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
             + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物（AI分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
+            + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
             + '</div>';
 
           if(!returned){
@@ -5779,7 +7208,7 @@ wrap.innerHTML = '';
           for(var si=0;si<all.length;si++){ if(all[si].id===id){ sub=all[si]; break; } }
           if(!sub) continue;
           var w = {sun:'☀晴れ',cloud:'☁くもり',rain:'☂あめ'}[sub.endWeather]||'';
-          var today = idx+'. 【'+sub.studentName+'】（'+sub.dayKey+'）';
+          var today = idx+'. 【'+resolveStudentName(sub.loginId, sub.studentName)+'】（'+sub.dayKey+'）';
           today += '\\n  やったこと: '+(sub.todo||'―');
           today += '\\n  なんで: '+(sub.why||'―');
           today += '\\n  めあて: '+(sub.aim||'―');
@@ -5852,6 +7281,7 @@ wrap.innerHTML = '';
         msg.textContent='AIがコメントを生成しています…少しお待ちください';
         try{
           var r = await api('/api/teacher/homework-ai-comments',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId})});
+          console.log('[AI-COMMENT-RESPONSE]', JSON.stringify(r));
           if(!r.comments || !r.comments.length){ msg.textContent='未返却の提出がありません'; return; }
           var filled = 0;
           for(var i=0;i<r.comments.length;i++){
@@ -6029,10 +7459,11 @@ wrap.innerHTML = '';
             var preview = lastMsg ? lastMsg.body.slice(0,30) : 'メッセージなし';
             var time = lastMsg ? _utcToJST(lastMsg.createdAt).time : '';
             card.className = 'flex items-center gap-3 bg-white rounded-xl p-3 shadow-sm cursor-pointer hover:bg-slate-50 border' + (unread ? ' border-orange-300' : ' border-slate-100');
-            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(m.name.slice(0,1))+'</div>'
-              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(m.name)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
+            var __mName = resolveStudentName(m.loginId, m.name);
+            card.innerHTML = '<div class="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">'+escH(__mName.slice(0,1))+'</div>'
+              + '<div class="flex-1 min-w-0"><div class="flex justify-between items-center"><span class="font-bold text-sm">'+escH(__mName)+'</span><span class="text-[10px] text-slate-400">'+escH(time)+'</span></div><div class="text-xs text-slate-500 truncate">'+escH(preview)+'</div></div>'
               + (unread ? '<span class="bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold">'+unread+'</span>' : '');
-            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:m.name});
+            card.onclick = (function(s){ return function(){ openMailChat(s.userId, s.name); }; })({userId:m.userId,name:__mName});
             wrap.appendChild(card);
           });
         }catch(e){ wrap.innerHTML='<p class="text-red-500 text-sm">読み込みエラー</p>'; }
@@ -6065,6 +7496,13 @@ wrap.innerHTML = '';
           var data = await api('/api/teacher/messages?classId='+encodeURIComponent(_mailCurrentClass)+'&studentId='+encodeURIComponent(_mailCurrentStudent));
           var list = data.messages || [];
           if(!list.length){ wrap.innerHTML='<p class="text-sm text-slate-400 text-center py-4">まだメッセージはありません</p>'; return; }
+          // 生徒からの未読メッセージを自動で既読にする
+          var unreadIds = [];
+          list.forEach(function(m){ if(m.senderRole==='student' && !m.readAt) unreadIds.push(m.id); });
+          if(unreadIds.length > 0){
+            Promise.all(unreadIds.map(function(mid){ return api('/api/teacher/message/'+mid+'/read',{method:'POST'}); }))
+              .then(function(){ if(!silent) loadMailChat(true); });
+          }
           wrap.innerHTML='';
           var prevDate='';
           list.slice().reverse().forEach(function(m){
@@ -6233,7 +7671,7 @@ wrap.innerHTML = '';
           data.reads.forEach(function(r){
             var reward = r.rewardClaimed ? '<span class="text-green-600">💰</span>' : '<span class="text-slate-400">-</span>';
             html += '<div class="flex gap-2 items-center">'
-              + '<span>'+escH(r.studentName)+'</span>'
+              + '<span>'+escH(resolveStudentName(r.loginId, r.studentName))+'</span>'
               + '<span class="text-xs text-slate-400">'+escH((r.readAt||'').slice(0,16))+'</span>'
               + reward + '</div>';
           });
