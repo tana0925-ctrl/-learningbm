@@ -1374,7 +1374,7 @@ app.get('/api/teacher/class/:classId/activity', async (c) => {
 
   // クラスメンバー取得
   const members = await c.env.DB.prepare(
-    `SELECT u.id, u.name, u.last_login_at as lastLoginAt
+    `SELECT u.id, u.login_id as loginId, u.name, u.last_login_at as lastLoginAt
      FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ?`
   ).bind(classId).all<any>()
 
@@ -1406,7 +1406,7 @@ app.get('/api/teacher/class/:classId/activity', async (c) => {
     if (!m.lastLoginAt) return true
     const last = new Date(m.lastLoginAt + 'Z')
     return (Date.now() - last.getTime()) > 7 * 86400000
-  }).map((m: any) => ({ id: m.id, name: m.name, lastLoginAt: m.lastLoginAt }))
+  }).map((m: any) => ({ id: m.id, loginId: m.loginId, name: m.name, lastLoginAt: m.lastLoginAt }))
 
   return c.json({
     ok: true, class: cls,
@@ -5948,7 +5948,7 @@ app.get('/teacher', (c) => {
           inactiveList.innerHTML = data.inactive.map(function(st){
             var lastTxt = st.lastLoginAt ? fmtLoginT(st.lastLoginAt) : '一度もログインなし';
             return '<div class="flex items-center justify-between border rounded px-3 py-1.5">'
-              +'<span class="font-bold">'+escH(st.name)+'</span>'
+              +'<span class="font-bold">'+escH(resolveStudentName(st.loginId, st.name))+'</span>'
               +'<span class="text-xs text-slate-400">最終: '+lastTxt+'</span></div>';
           }).join('');
         } else {
@@ -5968,7 +5968,7 @@ app.get('/teacher', (c) => {
             var mark = r.isCorrect ? '<span class="text-green-600 font-bold">○</span>' : '<span class="text-red-500 font-bold">×</span>';
             return '<div class="flex items-center gap-2 border-b py-1 text-xs">'
               +'<span class="text-slate-400 w-32 shrink-0">'+dt+'</span>'
-              +'<span class="font-bold w-20 shrink-0">'+escH(r.name)+'</span>'
+              +'<span class="font-bold w-20 shrink-0">'+escH(resolveStudentName(r.loginId, r.name))+'</span>'
               +'<span class="text-slate-500 w-16 shrink-0">'+escH(unitLabel)+'</span>'
               +mark
               +(r.timeMs ? '<span class="text-slate-400 ml-1">'+Math.round(r.timeMs/1000)+'秒</span>' : '')
@@ -6403,7 +6403,7 @@ app.get('/teacher', (c) => {
             rd.members.forEach((m,i)=>{
               html += '<tr class="'+(i%2===0?'bg-white':'bg-slate-50')+'">'
                 +'<td class="border px-2 py-1 text-center font-bold">'+(i+1)+'</td>'
-                +'<td class="border px-2 py-1">'+escH(m.name||m.id)+'</td>'
+                +'<td class="border px-2 py-1">'+escH(resolveStudentName(m.loginId, m.name||m.id))+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.totalLevel||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.monsterCount||0)+'</td>'
                 +'<td class="border px-2 py-1 text-right">'+(m.correctCount||0)+'</td></tr>';
@@ -6675,7 +6675,7 @@ app.get('/teacher', (c) => {
             var textClass = r.level === 'warning' ? 'text-red-700' : r.level === 'caution' ? 'text-yellow-700' : 'text-green-700';
             html += '<div class="flex items-center gap-2 px-2 py-1 rounded border ' + bgClass + ' text-xs">'
               + '<span>' + icon + '</span>'
-              + '<span class="font-bold">' + escH(r.name) + '</span>'
+              + '<span class="font-bold">' + escH(resolveStudentName(r.name, r.name)) + '</span>'
               + '<span class="' + textClass + '">' + escH(r.comment) + '</span>'
               + '</div>';
           }
