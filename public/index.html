@@ -43056,6 +43056,7 @@ async function hsSubmitAndExport(){
         rewardKind: reward.kind, rewardCoins: reward.coins || 0, rewardShards: reward.shards || 0,
         bonusCoins: bonus.coins || 0, bonusShards: bonus.shards || 0,
         workPhotoAnalysis: _hsPhotoAnalysisResult || '',
+        parentComment: parentComment || '',
       };
       const r = await apiJson('/api/homework/submit', {
         method: 'POST',
