@@ -4651,7 +4651,7 @@ function formatYMD(d){
               <div class="hs-nextQ">次、どうすると学びの天気が良くなる？（晴れの人は、どうしたら晴れのままでできる？）</div>
               <textarea id="hsNextImprove" class="hs-nextText" data-maxfs="15" data-minfs="8" placeholder="例：やり方を変える／先に計画を立てる など"></textarea>
               <div id="hsLockOverlay" class="hs-lock hidden">
-                <div id="hsLockMsg">30分たつまで、ここは入力できません。</div>
+                <div id="hsLockMsg"></div>
               </div>
             </div>
             <div class="hs-col">
@@ -4674,7 +4674,7 @@ function formatYMD(d){
                 <div class="text-xs text-orange-800 mb-2">今週1週間を振り返って書こう！</div>
                 <textarea id="hsWeeklyReflection" class="hs-ta smallpad" data-maxfs="14" data-minfs="8" style="min-height:60px;" placeholder="今週がんばったこと、できるようになったこと、来週がんばりたいこと など"></textarea>
                 <div id="hsWeeklyRefLock" class="hs-lock hidden">
-                  <div>30分たつまで、ここは入力できません。</div>
+                  <div></div>
                 </div>
               </div>
             </div>
@@ -42067,11 +42067,8 @@ function hsResetTodayDraft(){
 }
 
 function hsComputeUnlockState(sess){
-  if (!sess || !sess.started) return { unlocked:false, remainMs: 30*60*1000 };
-  const elapsed = hsGetElapsedMs(sess);
-  const remain = (30*60*1000) - elapsed;
-  const unlocked = remain <= 0;
-  return { unlocked, remainMs: remain };
+  // 30分制限を撤廃：常にunlocked
+  return { unlocked: true, remainMs: 0 };
 }
 
 function hsRender(light){
@@ -42221,14 +42218,14 @@ function hsRender(light){
     const timerEl = document.getElementById("hsTimer");
     if (timerEl){
       if (sess && sess.started && !unlocked){
-        timerEl.textContent = `残り ${hsMsToMMSS(remainMs)}（30分で振り返り解放）`;
+        timerEl.textContent = `経過 ${hsMsToMMSS(30*60*1000 - remainMs)}`;
       }else if (sess && sess.started && unlocked){
         const mins = Math.round(hsGetElapsedMs(sess)/60000);
-        timerEl.textContent = `30分経過！振り返りを書けます（経過：${mins}分）`;
+        timerEl.textContent = `経過：${mins}分`;
       }else if (submitted){
         timerEl.textContent = `提出済み（内容を修正して再提出できます）`;
       }else{
-        timerEl.textContent = `スタートするとタイマー開始（30分で振り返り解放）`;
+        timerEl.textContent = `スタートするとタイマー開始`;
       }
     }
 
@@ -42252,7 +42249,7 @@ function hsRender(light){
     }
     if (lockMsg){
       if (sess && sess.started && !unlocked){
-        lockMsg.textContent = "30分たつまで、ここは入力できません。";
+        lockMsg.textContent = "";
       }else{
         lockMsg.textContent = "";
       }
