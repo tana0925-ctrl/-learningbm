@@ -1975,8 +1975,8 @@ app.post('/api/homework/submit', async (c) => {
       (id, user_id, day_key, submitted_at, todo, why, aim, minutes, end_weather,
        weather_reason, next_improve, rest_day, streak_after,
        reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id,
-       self_study_plan, weekly_plan, weekly_reflection, work_photo_analysis)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       self_study_plan, weekly_plan, weekly_reflection, work_photo_analysis, parent_comment)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).bind(
     id, u.id, dayKey, Date.now(),
     String(body.todo || '').slice(0, 500),
@@ -1997,7 +1997,8 @@ app.post('/api/homework/submit', async (c) => {
     String(body.selfStudyPlan || '').slice(0, 500),
     String(body.weeklyPlan || '').slice(0, 1000),
     String(body.weeklyReflection || '').slice(0, 1000),
-    String(body.workPhotoAnalysis || '').slice(0, 500)
+    String(body.workPhotoAnalysis || '').slice(0, 500),
+    String(body.parentComment || '').slice(0, 500)
   ).run()
 
   return c.json({ ok: true, id })
@@ -2264,6 +2265,7 @@ app.get('/api/teacher/homework', async (c) => {
            hs.self_study_plan as selfStudyPlan,
            hs.work_photo_analysis as workPhotoAnalysis,
            hs.work_photo_key as workPhotoKey,
+           hs.parent_comment as parentComment,
            u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM homework_submissions hs
     JOIN users u ON u.id = hs.user_id
@@ -7133,6 +7135,7 @@ wrap.innerHTML = '';
             + (s.selfStudyPlan ? '<div class="mt-1 p-1.5 bg-blue-50 rounded border border-blue-200"><b>📖 自主学習：</b>'+escH(s.selfStudyPlan)+'</div>' : '')
             + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
+            + (s.parentComment ? '<div class="mt-1 p-1.5 bg-pink-50 rounded border border-pink-200"><b>🏠 サポーターから：</b>'+escH(s.parentComment)+'</div>' : '')
             + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物（AI分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
             + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
             + '</div>';
