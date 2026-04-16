@@ -7106,7 +7106,7 @@ wrap.innerHTML = '';
         var cards = document.querySelectorAll('#hwList [data-hw-day-key]');
         cards.forEach(function(c){
           if(!_hwDateFilter){ c.classList.remove('hidden'); return; }
-          c.classList.toggle('hidden', c.dataset.hwDateGroup !== _hwDateFilter);
+          c.classList.toggle('hidden', c.dataset.hwDayKey !== _hwDateFilter);
         });
       }
 
@@ -7139,8 +7139,10 @@ wrap.innerHTML = '';
             var submittedIds = new Set(todaySubs.map(function(s){ return s.userId; }));
             var unreturned = todaySubs.filter(function(s){ return !s.returnedAt; }).length;
             if(summaryBar){
+              var sumParts = todayKey.split('-');
+              var sumLabel = parseInt(sumParts[1])+'/'+parseInt(sumParts[2]);
               summaryBar.innerHTML = '<div class="flex gap-4 items-center flex-wrap">'
-                + '<span class="font-bold text-blue-700">📊 今日 ('+escH(todayKey)+')</span>'
+                + '<span class="font-bold text-blue-700">📊 今日 ('+sumLabel+')</span>'
                 + '<span>提出 <b class="text-lg text-emerald-700">'+submittedIds.size+'</b> / '+members.length+'人</span>'
                 + '<span>未返却 <b class="text-lg '+(unreturned>0?'text-red-600':'text-slate-400')+'">'+unreturned+'</b>件</span>'
                 + '</div>';
@@ -7173,15 +7175,21 @@ wrap.innerHTML = '';
         });
         if(dateTabs && list.length > 0){
           dateTabs.innerHTML = '';
-          [{label:'すべて ('+list.length+')', filter:''},
-           {label:'今日 ('+dayCounts.today+')', filter:'today'},
-           {label:'昨日 ('+dayCounts.yesterday+')', filter:'yesterday'},
-           {label:'それ以前 ('+dayCounts.older+')', filter:'older'}
-          ].forEach(function(tab){
+          // 日付ごとに集計
+          var dayMap = {};
+          list.forEach(function(s){ dayMap[s.dayKey] = (dayMap[s.dayKey]||0) + 1; });
+          var dayKeys = Object.keys(dayMap).sort().reverse(); // 新しい順
+          var dayTabs = [{label:'すべて ('+list.length+')', filter:''}];
+          dayKeys.forEach(function(dk){
+            var parts = dk.split('-');
+            var label = parseInt(parts[1])+'/'+parseInt(parts[2]) + ' ('+dayMap[dk]+')';
+            dayTabs.push({label:label, filter:dk});
+          });
+          dayTabs.forEach(function(tab){
             var btn = document.createElement('button');
             btn.textContent = tab.label;
             btn.dataset.filter = tab.filter;
-            btn.className = tab.filter === _hwDateFilter
+            btn.className = String(tab.filter) === String(_hwDateFilter)
               ? 'px-3 py-1 rounded-full text-sm font-bold bg-emerald-600 text-white shadow'
               : 'px-3 py-1 rounded-full text-sm bg-slate-100 text-slate-600 hover:bg-slate-200';
             btn.onclick = function(){ hwSetDateFilter(tab.filter); };
@@ -7204,7 +7212,7 @@ wrap.innerHTML = '';
           card.dataset.hwName = __sName||'';
           card.dataset.hwDayKey = s.dayKey||'';
           card.dataset.hwDateGroup = s.dayKey === todayKey ? 'today' : s.dayKey === yesterdayKey ? 'yesterday' : 'older';
-          if(_hwDateFilter && card.dataset.hwDateGroup !== _hwDateFilter) card.classList.add('hidden');
+          if(_hwDateFilter && (s.dayKey||'') !== _hwDateFilter) card.classList.add('hidden');
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
             ? '<span class="bg-yellow-200 text-yellow-800 text-xs px-1 rounded">成果物あり⭐</span>'
