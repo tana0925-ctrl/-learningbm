@@ -5670,6 +5670,12 @@ app.get('/teacher', (c) => {
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
             <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
           </div>
+          <!-- サマリーバー -->
+          <div id="hwSummaryBar" class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-emerald-50 rounded-lg border border-blue-200 text-sm"></div>
+          <!-- 未提出者リスト -->
+          <div id="hwUnsubmittedList" class="hidden mb-3 p-3 bg-orange-50 rounded-lg border border-orange-200 text-sm"></div>
+          <!-- 日付タブ -->
+          <div id="hwDateTabs" class="flex gap-1 mb-3 flex-wrap hidden"></div>
           <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
         </div>
@@ -7090,6 +7096,20 @@ wrap.innerHTML = '';
       // 初期化時にフィルターを設定
       setTimeout(initNewTabFilters, 500);
 
+      var _hwDateFilter = ''; // '' = all, 'today', 'yesterday', 'older'
+      function hwSetDateFilter(f){ _hwDateFilter = f; hwApplyDateFilter(); }
+      function hwApplyDateFilter(){
+        var tabs = document.querySelectorAll('#hwDateTabs button');
+        tabs.forEach(function(t){ t.className = t.dataset.filter === _hwDateFilter
+          ? 'px-3 py-1 rounded-full text-sm font-bold bg-emerald-600 text-white shadow'
+          : 'px-3 py-1 rounded-full text-sm bg-slate-100 text-slate-600 hover:bg-slate-200'; });
+        var cards = document.querySelectorAll('#hwList [data-hw-day-key]');
+        cards.forEach(function(c){
+          if(!_hwDateFilter){ c.classList.remove('hidden'); return; }
+          c.classList.toggle('hidden', c.dataset.hwDateGroup !== _hwDateFilter);
+        });
+      }
+
       async function loadHomework(){
         const wrap = document.getElementById('hwList');
         wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
@@ -7100,6 +7120,76 @@ wrap.innerHTML = '';
         try{ data = await api('/api/teacher/homework'+qs); }
         catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; return; }
         let list = data.submissions || [];
+
+        // --- 日付グループ計算 ---
+        var now = new Date();
+        if(now.getHours() < 4) now.setDate(now.getDate()-1);
+        var todayKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+        var yd = new Date(now); yd.setDate(yd.getDate()-1);
+        var yesterdayKey = yd.getFullYear()+'-'+String(yd.getMonth()+1).padStart(2,'0')+'-'+String(yd.getDate()).padStart(2,'0');
+
+        // --- サマリー & 未提出者 ---
+        var summaryBar = document.getElementById('hwSummaryBar');
+        var unsubList = document.getElementById('hwUnsubmittedList');
+        if(classId){
+          try{
+            var mData = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/members');
+            var members = (mData && mData.members) || [];
+            var todaySubs = list.filter(function(s){ return s.dayKey === todayKey; });
+            var submittedIds = new Set(todaySubs.map(function(s){ return s.userId; }));
+            var unreturned = todaySubs.filter(function(s){ return !s.returnedAt; }).length;
+            if(summaryBar){
+              summaryBar.innerHTML = '<div class="flex gap-4 items-center flex-wrap">'
+                + '<span class="font-bold text-blue-700">📊 今日 ('+escH(todayKey)+')</span>'
+                + '<span>提出 <b class="text-lg text-emerald-700">'+submittedIds.size+'</b> / '+members.length+'人</span>'
+                + '<span>未返却 <b class="text-lg '+(unreturned>0?'text-red-600':'text-slate-400')+'">'+unreturned+'</b>件</span>'
+                + '</div>';
+              summaryBar.classList.remove('hidden');
+            }
+            var unsubMembers = members.filter(function(m){ return !submittedIds.has(m.userId); });
+            if(unsubList){
+              if(unsubMembers.length > 0 && unsubMembers.length < members.length){
+                var names = unsubMembers.map(function(m){ return escH(resolveStudentName(m.loginId, m.name)); }).join('、');
+                unsubList.innerHTML = '<span class="font-bold text-orange-700">📋 今日の未提出 ('+unsubMembers.length+'人)：</span> '+names;
+                unsubList.classList.remove('hidden');
+              } else if(unsubMembers.length === 0){
+                unsubList.innerHTML = '<span class="font-bold text-emerald-700">🎉 全員提出済み！</span>';
+                unsubList.classList.remove('hidden');
+              } else { unsubList.classList.add('hidden'); }
+            }
+          }catch(e){ /* ignore */ }
+        } else {
+          if(summaryBar) summaryBar.classList.add('hidden');
+          if(unsubList) unsubList.classList.add('hidden');
+        }
+
+        // --- 日付タブ ---
+        var dateTabs = document.getElementById('hwDateTabs');
+        var dayCounts = {today:0, yesterday:0, older:0};
+        list.forEach(function(s){
+          if(s.dayKey === todayKey) dayCounts.today++;
+          else if(s.dayKey === yesterdayKey) dayCounts.yesterday++;
+          else dayCounts.older++;
+        });
+        if(dateTabs && list.length > 0){
+          dateTabs.innerHTML = '';
+          [{label:'すべて ('+list.length+')', filter:''},
+           {label:'今日 ('+dayCounts.today+')', filter:'today'},
+           {label:'昨日 ('+dayCounts.yesterday+')', filter:'yesterday'},
+           {label:'それ以前 ('+dayCounts.older+')', filter:'older'}
+          ].forEach(function(tab){
+            var btn = document.createElement('button');
+            btn.textContent = tab.label;
+            btn.dataset.filter = tab.filter;
+            btn.className = tab.filter === _hwDateFilter
+              ? 'px-3 py-1 rounded-full text-sm font-bold bg-emerald-600 text-white shadow'
+              : 'px-3 py-1 rounded-full text-sm bg-slate-100 text-slate-600 hover:bg-slate-200';
+            btn.onclick = function(){ hwSetDateFilter(tab.filter); };
+            dateTabs.appendChild(btn);
+          });
+          dateTabs.classList.remove('hidden');
+        } else if(dateTabs){ dateTabs.classList.add('hidden'); }
+
         if(status === 'unreturned') list = list.filter(s => !s.returnedAt);
         if(status === 'returned')   list = list.filter(s => !!s.returnedAt);
         if(!list.length){ wrap.innerHTML='<p class="text-slate-400">提出がありません</p>'; return; }
@@ -7113,6 +7203,8 @@ wrap.innerHTML = '';
           const __sName = resolveStudentName(s.loginId, s.studentName);
           card.dataset.hwName = __sName||'';
           card.dataset.hwDayKey = s.dayKey||'';
+          card.dataset.hwDateGroup = s.dayKey === todayKey ? 'today' : s.dayKey === yesterdayKey ? 'yesterday' : 'older';
+          if(_hwDateFilter && card.dataset.hwDateGroup !== _hwDateFilter) card.classList.add('hidden');
           const weatherEmoji = {sun:'☀️', cloud:'☁️', rain:'🌧️'}[s.endWeather] || '😊';
           const physicalBadge = s.hasPhysical
             ? '<span class="bg-yellow-200 text-yellow-800 text-xs px-1 rounded">成果物あり⭐</span>'
