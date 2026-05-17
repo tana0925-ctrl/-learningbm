@@ -20,6 +20,18 @@ jobs:
         run: python3 scripts/inject-rt.py
       - name: Build
         run: npm run build
+      - name: Push GEMINI_API_KEY to Pages secrets
+        run: echo -n "$GEMINI_API_KEY" | npx wrangler pages secret put GEMINI_API_KEY --project-name=learning-bm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Push GEMINI_API_KEY_2 to Pages secrets
+        run: echo -n "$GEMINI_API_KEY_2" | npx wrangler pages secret put GEMINI_API_KEY_2 --project-name=learning-bm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       - name: Deploy to Cloudflare Pages
         run: npx wrangler pages deploy dist --project-name=learning-bm --commit-message="Deploy $(git rev-parse --short HEAD)"
         env:
