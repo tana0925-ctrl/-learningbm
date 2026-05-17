@@ -2024,16 +2024,17 @@ app.post('/api/homework/analyze-photo', async (c) => {
     const imageBytes = new Uint8Array(await photo.arrayBuffer())
     const mimeType = photo.type || 'image/jpeg'
 
-    // R2に写真を保存（R2バインディングがある場合のみ）
+    // D1のhomework_photosテーブルにBLOBとして写真を保存（R2の代わり）
     const ext = mimeType === 'image/png' ? 'png' : 'jpg'
-    const photoKey = `photos/${u.id}/${dayKey}.${ext}`
+    const photoKey = `photos/${u.id}/${dayKey}.${ext}` // work_photo_key用マーカー（teacher dashboardの<img>表示条件）
     try {
-      if (c.env.PHOTOS) {
-        await c.env.PHOTOS.put(photoKey, imageBytes, {
-          httpMetadata: { contentType: mimeType },
-        })
-      }
-      // DBにキーを記録
+      await c.env.DB.prepare(
+        `INSERT INTO homework_photos (user_id, day_key, mime_type, bytes, byte_size)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, day_key) DO UPDATE SET
+           mime_type=excluded.mime_type, bytes=excluded.bytes, byte_size=excluded.byte_size, created_at=datetime('now')`
+      ).bind(u.id, dayKey, mimeType, imageBytes, imageBytes.length).run()
+      // homework_submissions にもキーマーカーを記録
       const existing0 = await c.env.DB.prepare(
         `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
       ).bind(u.id, dayKey).first<any>()
@@ -2042,8 +2043,8 @@ app.post('/api/homework/analyze-photo', async (c) => {
           `UPDATE homework_submissions SET work_photo_key=? WHERE id=?`
         ).bind(photoKey, existing0.id).run()
       }
-    } catch (r2err: any) {
-      console.error('R2 photo save error:', r2err?.message || r2err)
+    } catch (dbErr: any) {
+      console.error('D1 photo save error:', dbErr?.message || dbErr)
     }
 
     try {
@@ -2144,29 +2145,18 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     if (!isMine) return jsonError(c, 403, 'forbidden')
   }
 
-  // DBからキー取得 or フォールバックでキー推測
-  const row = await c.env.DB.prepare(
-    `SELECT work_photo_key FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
-  ).bind(targetUserId, dayKey).first<any>()
-
-  let photoKey = row?.work_photo_key || ''
-  if (!photoKey) {
-    // 旧データ用フォールバック：jpgとpngを試す
-    photoKey = `photos/${targetUserId}/${dayKey}.jpg`
-  }
-
-  if (!c.env.PHOTOS) return jsonError(c, 404, 'photo_storage_not_configured')
+  // D1のhomework_photosからBLOBを取得（R2の代わり）
   try {
-    let obj = await c.env.PHOTOS.get(photoKey)
-    if (!obj && photoKey.endsWith('.jpg')) {
-      obj = await c.env.PHOTOS.get(photoKey.replace('.jpg', '.png'))
-    }
-    if (!obj) return jsonError(c, 404, 'photo_not_found')
+    const row = await c.env.DB.prepare(
+      `SELECT mime_type, bytes FROM homework_photos WHERE user_id=? AND day_key=? LIMIT 1`
+    ).bind(targetUserId, dayKey).first<any>()
+    if (!row?.bytes) return jsonError(c, 404, 'photo_not_found')
     const headers = new Headers()
-    headers.set('Content-Type', obj.httpMetadata?.contentType || 'image/jpeg')
+    headers.set('Content-Type', row.mime_type || 'image/jpeg')
     headers.set('Cache-Control', 'private, max-age=3600')
-    return new Response(obj.body, { headers })
+    return new Response(row.bytes as ArrayBuffer, { headers })
   } catch (e: any) {
+    console.error('photo fetch error:', e?.message || e)
     return jsonError(c, 500, 'photo_error')
   }
 })
