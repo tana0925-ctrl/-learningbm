@@ -11,10 +11,8 @@
     "binding": "AI"
   },
 
-  "vars": {
-    "GEMINI_API_KEY": "AIzaSyD9DpZU8xiqVj6SzwVOfQMQ0I54Rzh-g3U",
-    "GEMINI_API_KEY_2": "AIzaSyDEH5LZgRvt_tnILWrh9iCGkKt8qrzLWmQ"
-  },
+  // GEMINI_API_KEY と GEMINI_API_KEY_2 は GitHub Actions の secrets から
+  // デプロイ時に wrangler pages secret put で注入される（.github/workflows/deploy.yml）
 
   "d1_databases": [
     {
