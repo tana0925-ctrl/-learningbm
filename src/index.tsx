@@ -2345,9 +2345,10 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
   if (!body?.classId) return jsonError(c, 400, 'classId required')
 
   const cls = u.role === 'admin'
-    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
-    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
+    ? await c.env.DB.prepare('SELECT id, teacher_id FROM classes WHERE id=? LIMIT 1').bind(body.classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, teacher_id FROM classes WHERE id=? AND teacher_id=?').bind(body.classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
+  const teacherId = cls.teacher_id || u.id
 
   const subs = await c.env.DB.prepare(`
     SELECT hs.id, hs.user_id, hs.todo, hs.why, hs.aim, hs.minutes, hs.end_weather,
@@ -2412,23 +2413,42 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     ${recentHist || 'まだ記録なし'}`
   }).join('\n\n')
 
-  const systemPrompt = `あなたは小学校の担任の先生として、児童一人ひとりの家庭学習にコメントを書きます。
+  // この先生（teacherId）の過去コメントをランダムに最大15件取得 → AIに口調を学習させる Few-shot examples
+  let styleExamples = ''
+  try {
+    const ex = await c.env.DB.prepare(`
+      SELECT DISTINCT TRIM(teacher_comment) AS comment
+      FROM homework_submissions
+      WHERE teacher_id = ?
+        AND teacher_comment IS NOT NULL
+        AND LENGTH(TRIM(teacher_comment)) BETWEEN 5 AND 100
+      ORDER BY RANDOM() LIMIT 15
+    `).bind(teacherId).all<any>()
+    if (ex.results?.length) {
+      styleExamples = ex.results.map((r: any) => '- 「' + r.comment + '」').join('\n')
+    }
+  } catch (e: any) {
+    console.warn('[homework-ai-comments] style examples fetch error:', e?.message || e)
+  }
 
-【書き方のルール】
-- 長さ: 30〜60文字（短すぎず長すぎず、一文〜二文）
-- 文体: 子どもに語りかける口調
-  ・低学年(1-2年): ひらがな多め、敬体「〜ね」「〜だね」、やさしく短く
-  ・中学年(3-4年): 短く励ます、具体例を1つ
-  ・高学年(5-6年): 対等に近い「〜だね」「〜してみよう」、学習内容に踏み込む
-- 必ずその児童の具体的な行動や記述に触れる（「公式集を見て関数を復習」など固有の言葉を引用）
-- 過去30回分の傾向と比べて「変化」「継続」「挑戦」のどれかに必ず一つ言及する
-- 1コメントに1メッセージ。詰め込まない
+  const examplesBlock = styleExamples
+    ? `\n【この先生の実際のコメント例 — 必ずこの口調・テンポ・語尾を真似してください】\n${styleExamples}\n`
+    : ''
+
+  const systemPrompt = `あなたは小学校の担任の先生として、児童一人ひとりの家庭学習にコメントを書きます。
+${examplesBlock}
+【絶対に守るルール】
+- 上記の実例と**同じ口調・語尾・テンポ・文末記号（！や〜ね、句点）**で書く
+- 1〜2文、20〜50文字
+- 児童が書いた**具体的な言葉を1つ以上引用**する（例：「公式集」「スマホ遠ざけた」「机を片付けた」など）
+- 児童の発達段階に合わせる（低学年=ひらがな多め、高学年=学習内容に踏み込む）
 
 【絶対にやらないこと】
-- 「すごいね」「がんばったね」「えらいね」だけで終わらせる
-- 児童の記述に触れない一般論
+- 「〜ましょう」「〜してみよう」など指導的・命令調の語尾
+- 「次の授業で」「先生は」のような学校目線の言い回し
+- 「すごい」「がんばったね」「えらいね」だけで終わる中身のないコメント
 - 過去の先生コメントと同じ語尾・同じ褒め方を繰り返す
-- 命令調・上から目線
+- 児童の記述に触れない一般論
 
 【観察のヒント】
 - めあてと振り返りに一貫性があるか
