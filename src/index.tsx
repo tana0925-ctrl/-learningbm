@@ -2325,7 +2325,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 
   const subs = await c.env.DB.prepare(`
     SELECT hs.id, hs.user_id, hs.todo, hs.why, hs.aim, hs.minutes, hs.end_weather,
-           hs.weather_reason, hs.next_improve, hs.weekly_reflection, hs.day_key, u.name,
+           hs.weather_reason, hs.next_improve, hs.weekly_reflection, hs.day_key, u.name, u.grade,
            hs.work_photo_analysis
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id = ?
@@ -2370,7 +2370,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
       `[${h.day_key}] ${h.todo||''}(${h.minutes||0}分) 天気:${h.end_weather||'?'} めあて:${h.aim||'-'} 振り返り:${h.weather_reason||'-'}${h.work_photo_analysis ? ' 📷:'+h.work_photo_analysis : ''}${h.teacher_comment ? ' 先生:'+h.teacher_comment : ''}`
     ).join('\n    ')
     const photoLine = s.work_photo_analysis ? `\n  成果物の様子: ${s.work_photo_analysis}` : ''
-    return `${i+1}. 【${s.name}】(${s.day_key})
+    return `${i+1}. 【${s.name}】${s.grade ? s.grade + '年生 ' : ''}(${s.day_key})
   ＜今日の学習＞
   やったこと: ${s.todo || '未記入'}
   なんで: ${s.why || '未記入'}
@@ -2386,20 +2386,33 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     ${recentHist || 'まだ記録なし'}`
   }).join('\n\n')
 
-  const systemPrompt = `あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
-【ルール】
-- 児童の「今日の振り返り」と「過去30回分の振り返り・傾向」を読む
-- 各児童への温かく具体的な先生コメントを40文字以内で考える
-- 以下の観点を踏まえて、その子だけに向けた個別最適なコメントにする:
-  ・賞賛: 今日の頑張り、継続している努力、成長を具体的に褒める
-  ・アドバイス: めあてや振り返りの内容から、次につながるヒントを一言添える
-  ・成長の気づき: 過去と比べて学習時間が増えた、新しい教科に挑戦した等
-- 過去の先生コメントと重複しない新鮮な内容にする
-- 過去データがまだない児童には、今日の取り組みだけを褒める
-- 必ずJSON形式だけで返答する（他のテキストは一切不要）
+  const systemPrompt = `あなたは小学校の担任の先生として、児童一人ひとりの家庭学習にコメントを書きます。
+
+【書き方のルール】
+- 長さ: 30〜60文字（短すぎず長すぎず、一文〜二文）
+- 文体: 子どもに語りかける口調
+  ・低学年(1-2年): ひらがな多め、敬体「〜ね」「〜だね」、やさしく短く
+  ・中学年(3-4年): 短く励ます、具体例を1つ
+  ・高学年(5-6年): 対等に近い「〜だね」「〜してみよう」、学習内容に踏み込む
+- 必ずその児童の具体的な行動や記述に触れる（「公式集を見て関数を復習」など固有の言葉を引用）
+- 過去30回分の傾向と比べて「変化」「継続」「挑戦」のどれかに必ず一つ言及する
+- 1コメントに1メッセージ。詰め込まない
+
+【絶対にやらないこと】
+- 「すごいね」「がんばったね」「えらいね」だけで終わらせる
+- 児童の記述に触れない一般論
+- 過去の先生コメントと同じ語尾・同じ褒め方を繰り返す
+- 命令調・上から目線
+
+【観察のヒント】
+- めあてと振り返りに一貫性があるか
+- 自己評価の天気☀️🌤️☁️🌧️と振り返り内容にギャップがあれば、優しく寄り添う
+- 学習時間の増減・新しい教科への挑戦は積極的に拾う
+- 振り返りに「できなかった」「むずかしかった」が出てきたら、否定せず次の一歩を示す
+
 【返答形式】
-{"comments":["コメント1","コメント2","コメント3",...]}
-貼り付けられたテキストを読んだら、上記形式で即座に返答してください。`
+{"comments":["コメント1","コメント2",...]}
+必ずこのJSONだけ。説明文・前置き・コードブロック不要。`
 
   // Gemini API → 失敗時は Cloudflare Workers AI にフォールバック
   const geminiKey = c.env.GEMINI_API_KEY || ''
@@ -2411,7 +2424,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
       const resp = await callGemini(c.env, {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: lines }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+        generationConfig: { temperature: 0.9, maxOutputTokens: 3000 }
       })
       if (resp.ok) {
         const text = resp.text
@@ -2440,12 +2453,12 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
     for (const s of subs.results) {
       const hist = historyMap[s.user_id] || []
       const avgMin = hist.length ? Math.round(hist.reduce((a: number, h: any) => a + (h.minutes || 0), 0) / hist.length) : 0
-      let ud = `学習: ${s.todo || '未記入'}, ${s.minutes || 0}分(平均${avgMin}分), 振り返り: ${s.weather_reason || '未記入'}`
+      let ud = `${s.grade ? s.grade + '年生 / ' : ''}学習: ${s.todo || '未記入'}, ${s.minutes || 0}分(平均${avgMin}分), 振り返り: ${s.weather_reason || '未記入'}`
       if (s.work_photo_analysis) ud += `, 成果物: ${s.work_photo_analysis}`
       try {
         const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
           messages: [
-            { role: 'system', content: 'あなたは小学校の先生です。児童の家庭学習に対するコメントを1つだけ出力。30文字以内。温かく褒める。名前不要。コメントだけ出力。' },
+            { role: 'system', content: 'あなたは小学校の担任の先生です。児童の家庭学習に温かく具体的なコメントを1つだけ出力。30〜50文字。児童の記述（やったこと・めあて・振り返り）に必ず触れる。「すごいね」「がんばったね」だけのコメントはNG。名前不要。コメントだけ出力。' },
             { role: 'user', content: ud }
           ],
           max_tokens: 80,
