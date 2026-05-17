@@ -2122,6 +2122,8 @@ app.post('/api/homework/analyze-photo', async (c) => {
       } catch (_) {}
     }
 
+    // Lazy cleanup: 180日経過した写真をバックグラウンドで削除
+    try { (c as any).executionCtx?.waitUntil?.(cleanupOldPhotos(c)) } catch {}
     return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText })
   } catch (e: any) {
     console.error('analyze-photo error:', e)
@@ -2159,6 +2161,40 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     console.error('photo fetch error:', e?.message || e)
     return jsonError(c, 500, 'photo_error')
   }
+})
+
+// ----- 写真クリーンアップ: 180日経過したBLOBを削除（AI分析テキストは残す） -----
+async function cleanupOldPhotos(c: any) {
+  try {
+    // work_photo_keyマーカーを先にクリア（壊れた画像アイコンを防ぐ）
+    await c.env.DB.prepare(
+      `UPDATE homework_submissions SET work_photo_key=''
+       WHERE work_photo_key != ''
+       AND user_id || '/' || day_key IN (
+         SELECT user_id || '/' || day_key FROM homework_photos
+         WHERE created_at < datetime('now', '-180 days')
+       )`
+    ).run()
+    const result = await c.env.DB.prepare(
+      `DELETE FROM homework_photos WHERE created_at < datetime('now', '-180 days')`
+    ).run()
+    if (result.meta?.changes) {
+      console.log('[cleanupOldPhotos] deleted ' + result.meta.changes + ' photos older than 180 days')
+    }
+  } catch (e: any) {
+    console.error('[cleanupOldPhotos] error:', e?.message || e)
+  }
+}
+
+// 教師・管理者から手動でクリーンアップ実行
+app.post('/api/admin/cleanup-old-photos', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 403, 'forbidden')
+  await cleanupOldPhotos(c)
+  const stats = await c.env.DB.prepare(
+    `SELECT COUNT(*) as count, COALESCE(SUM(byte_size),0) as totalBytes FROM homework_photos`
+  ).first<any>()
+  return c.json({ ok: true, remaining: { count: stats?.count || 0, totalBytes: stats?.totalBytes || 0 } })
 })
 
 // 生徒：提出済みシートの内容を修正して再提出（報酬変更なし）
