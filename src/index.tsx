@@ -5582,6 +5582,7 @@ app.get('/teacher', (c) => {
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
+        <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">🎯 ミッション</button>
       </div>
 
       <!-- クラス一覧タブ -->
@@ -5917,6 +5918,32 @@ app.get('/teacher', (c) => {
 
       <!-- (クラス分析は分析タブに統合済み) -->
 
+      <!-- ミッションタブ -->
+      <div id="tabPaneMissions" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">🎯 クラス共同ミッションを作る</h3>
+          <p class="text-xs text-slate-500 mb-2">クラス全員の正解数を合計して目標に挑戦！達成すると全員がコイン＋かけらをもらえます。</p>
+          <div class="space-y-2">
+            <select id="cmClassFilter" class="border p-2 rounded text-sm bg-white w-full" onchange="loadClassMissions()"></select>
+            <input id="cmTitle" type="text" placeholder="ミッション名（例：みんなで1000問正解！）" class="w-full border p-2 rounded text-sm"/>
+            <div class="flex gap-2">
+              <div class="flex-1"><label class="text-xs font-bold text-gray-600">目標正解数</label><input id="cmGoal" type="number" value="1000" min="1" class="w-full border p-2 rounded text-sm"/></div>
+              <div class="flex-1"><label class="text-xs font-bold text-gray-600">締切（任意）</label><input id="cmEnd" type="date" class="w-full border p-2 rounded text-sm"/></div>
+            </div>
+            <div class="flex gap-2">
+              <div class="flex-1"><label class="text-xs font-bold text-gray-600">ごほうび：コイン</label><input id="cmCoins" type="number" value="500" min="0" class="w-full border p-2 rounded text-sm"/></div>
+              <div class="flex-1"><label class="text-xs font-bold text-gray-600">ごほうび：かけら</label><input id="cmShards" type="number" value="5" min="0" class="w-full border p-2 rounded text-sm"/></div>
+            </div>
+            <button onclick="sendClassMission()" class="bg-purple-600 hover:bg-purple-700 text-white rounded px-4 py-2 font-bold text-sm">🎯 ミッション開始</button>
+            <p id="cmMsg" class="text-sm"></p>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-3">ミッション一覧・進捗</h3>
+          <div id="cmList"></div>
+        </div>
+      </div>
+
       <!-- 連絡帳タブ -->
       <div id="tabPaneContact" class="hidden space-y-3">
         <div class="bg-white rounded-xl shadow p-4">
@@ -6103,7 +6130,7 @@ app.get('/teacher', (c) => {
       }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','mail'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','mail','missions'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -6115,6 +6142,7 @@ app.get('/teacher', (c) => {
         if(tab === 'analytics') { initAnalyticsFilters(); switchAnalyticsSubTab('subject'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
+        if(tab === 'missions') loadClassMissions();
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
       }
 
@@ -7899,6 +7927,65 @@ wrap.innerHTML = '';
       }
 
       // ===== 連絡帳機能 =====
+      async function loadClassMissions(){
+        try{
+          var clsData = await api('/api/teacher/classes');
+          var sel = document.getElementById('cmClassFilter');
+          if(sel && !sel.options.length){
+            (clsData.classes||[]).forEach(function(c,i){ sel.innerHTML += '<option value="'+escH(c.id)+'"'+(i===0?' selected':'')+'>'+escH(c.name)+'</option>'; });
+          }
+        }catch(e){}
+        var wrap = document.getElementById('cmList');
+        wrap.innerHTML = '<p class="text-slate-400 text-xs">読み込み中...</p>';
+        try{
+          var classId = document.getElementById('cmClassFilter').value||'';
+          var data = await api('/api/teacher/class-missions?classId='+encodeURIComponent(classId));
+          wrap.innerHTML = '';
+          if(!data.missions.length){ wrap.innerHTML='<p class="text-xs text-slate-400">まだミッションがありません</p>'; return; }
+          for(var i=0;i<data.missions.length;i++){
+            var m = data.missions[i];
+            var pct = Math.min(100, Math.round(m.progress / m.goalCorrect * 100));
+            var card = document.createElement('div');
+            card.className = 'border rounded-lg p-3 mb-2 ' + (m.achieved ? 'bg-green-50 border-green-300' : 'bg-purple-50 border-purple-200');
+            card.innerHTML = '<div class="flex items-center justify-between mb-1">'
+              + '<div class="font-bold text-sm">'+escH(m.title)+(m.achieved?' <span class="text-green-600">✅達成！</span>':'')+'</div>'
+              + '<button class="text-xs text-red-400 hover:text-red-600" onclick="deleteClassMission(&#39;'+escH(m.id)+'&#39;)">削除</button>'
+              + '</div>'
+              + '<div class="text-xs text-slate-600 mb-1">クラス全員で <b>'+m.progress+'</b> / '+m.goalCorrect+' 問正解（'+pct+'%）</div>'
+              + '<div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden"><div class="h-3 '+(m.achieved?'bg-green-500':'bg-purple-500')+'" style="width:'+pct+'%"></div></div>'
+              + '<div class="text-xs text-slate-500 mt-1">ごほうび: 💰'+m.rewardCoins+'コイン / 🔹'+m.rewardShards+'かけら'+(m.endAt?' ・締切 '+escH(String(m.endAt).slice(0,10)):'')+'</div>';
+            wrap.appendChild(card);
+          }
+        }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
+      }
+
+      async function sendClassMission(){
+        var msg = document.getElementById('cmMsg');
+        msg.textContent=''; msg.className='text-sm';
+        var classId = document.getElementById('cmClassFilter').value;
+        var title = document.getElementById('cmTitle').value.trim() || 'クラスミッション';
+        var goal = parseInt(document.getElementById('cmGoal').value) || 0;
+        var coins = parseInt(document.getElementById('cmCoins').value) || 0;
+        var shards = parseInt(document.getElementById('cmShards').value) || 0;
+        var endAt = document.getElementById('cmEnd').value || null;
+        if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
+        if(goal < 1){ msg.textContent='目標正解数を入力してください'; msg.className='text-sm text-red-600'; return; }
+        try{
+          await api('/api/teacher/class-mission',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,title:title,goalCorrect:goal,rewardCoins:coins,rewardShards:shards,endAt:endAt})});
+          msg.textContent='ミッションを開始しました！'; msg.className='text-sm text-green-700';
+          document.getElementById('cmTitle').value='';
+          loadClassMissions();
+        }catch(e){ msg.textContent='エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
+      }
+
+      async function deleteClassMission(id){
+        if(!confirm('このミッションを削除しますか？')) return;
+        try{
+          await api('/api/teacher/class-mission/'+id,{method:'DELETE'});
+          loadClassMissions();
+        }catch(e){ alert('削除エラー: '+String(e.message||e)); }
+      }
+
       async function loadContactNotes(){
         // クラスセレクター更新
         try{
