@@ -4594,6 +4594,30 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
     reward = note.reward_coins || 5
     rewardClaimed = 1
   }
+  // ★ コインをサーバー側で progress.state_json に直接加算（クライアント保存ミスでも消えないように）
+  if (reward > 0) {
+    let coinApplyOk = false
+    try {
+      const prog = await c.env.DB.prepare(`SELECT state_json FROM progress WHERE user_id=?`).bind(u.id).first<any>()
+      if (prog?.state_json) {
+        const state = JSON.parse(prog.state_json)
+        state.coins = (Number(state.coins) || 0) + reward
+        await c.env.DB.prepare(
+          `UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`
+        ).bind(JSON.stringify(state), u.id).run()
+        coinApplyOk = true
+      } else {
+        // progressがまだ無い児童はクライアント側加算に任せる（従来動作）
+        coinApplyOk = true
+      }
+    } catch (e: any) {
+      console.error('[contact-note/read] coin apply error:', e?.message || e)
+    }
+    if (!coinApplyOk) {
+      // コイン加算に失敗 → 既読記録を残さずリトライ可能にする（コインを失わせない）
+      return jsonError(c, 500, 'coin_apply_failed')
+    }
+  }
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO contact_note_reads (user_id, note_id, reward_claimed) VALUES (?,?,?)`
   ).bind(u.id, noteId, rewardClaimed).run()
