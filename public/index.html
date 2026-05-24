@@ -3820,6 +3820,18 @@ function formatYMD(d){
     <div class="mt-1">今日の達成：<span class="font-black" id="dailyMissionProgress">0/5</span> <span id="dailyMissionClaimed" class="ml-2 font-black text-green-600"></span></div>
   </div>
 </div>
+<div id="classMissionCard" class="rounded-2xl border-2 border-purple-300 p-4 hidden" style="background: linear-gradient(135deg, #faf5ff, #f3e8ff);">
+  <div class="flex items-center justify-between">
+    <div class="font-black text-purple-800 flex items-center gap-2"><span>🎯</span><span id="cmTitleLabel">クラスミッション</span></div>
+    <div class="text-xs font-bold" id="cmBadge"></div>
+  </div>
+  <div class="mt-2 text-sm text-gray-700">
+    <div>クラス全員で <span class="font-black" id="cmProgressText">0 / 0</span> 問正解</div>
+    <div class="mt-1 w-full bg-purple-100 rounded-full h-3 overflow-hidden"><div id="cmBar" class="h-3 bg-purple-500" style="width:0%"></div></div>
+    <div class="mt-1 text-xs text-gray-600" id="cmRewardText"></div>
+  </div>
+  <button id="cmClaimBtn" class="hidden mt-2 w-full bg-green-500 hover:bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-black" onclick="claimClassMission()">🎉 みんなで達成！受け取る</button>
+</div>
 
 <div class="grid grid-cols-1 gap-3">
 <!-- Learning -->
@@ -13756,6 +13768,7 @@ if (mode === 'battle') {
                 try{ renderStatusLearningAnalysis(); }catch(e){}
                 try { updateStatusView(); } catch(e) { try{ updateMyHomeView(); }catch(_e){} }
                 try{ updateDailyMissionUI(); }catch(e){}
+                try{ updateClassMissionUI(); }catch(e){}
             } else if (mode === 'egg_select') {
                 const s = document.getElementById('screen-egg-select');
                 if(s){ s.classList.remove('hidden'); s.classList.add('flex'); }
@@ -14265,6 +14278,59 @@ function _dailyModeList(){
     // Daily mission applies ONLY to today's random 5 trainings.
     return _getTodayDailyTargets();
 }
+var __classMissionId = null;
+async function updateClassMissionUI(){
+  var card = document.getElementById('classMissionCard');
+  if(!card) return;
+  try{
+    var res = await apiJson('/api/student/class-mission', {method:'GET'});
+    var m = res && res.mission;
+    if(!m){ card.classList.add('hidden'); __classMissionId = null; return; }
+    __classMissionId = m.id;
+    card.classList.remove('hidden');
+    document.getElementById('cmTitleLabel').textContent = m.title || 'クラスミッション';
+    var pct = Math.min(100, Math.round(m.progress / m.goalCorrect * 100));
+    document.getElementById('cmProgressText').textContent = m.progress + ' / ' + m.goalCorrect;
+    document.getElementById('cmBar').style.width = pct + '%';
+    document.getElementById('cmRewardText').textContent = 'ごほうび: 💰' + m.rewardCoins + 'コイン / 🔹' + m.rewardShards + 'かけら';
+    var badge = document.getElementById('cmBadge');
+    var btn = document.getElementById('cmClaimBtn');
+    if(m.claimed){
+      badge.textContent = '✅ 受け取り済み'; badge.className = 'text-xs font-bold text-green-600';
+      btn.classList.add('hidden');
+    } else if(m.achieved){
+      badge.textContent = '🎉 達成！'; badge.className = 'text-xs font-bold text-green-600';
+      btn.classList.remove('hidden');
+    } else {
+      badge.textContent = pct + '%'; badge.className = 'text-xs font-bold text-purple-600';
+      btn.classList.add('hidden');
+    }
+  }catch(e){ card.classList.add('hidden'); }
+}
+
+async function claimClassMission(){
+  if(!__classMissionId) return;
+  var btn = document.getElementById('cmClaimBtn');
+  btn.disabled = true; btn.textContent = '受け取り中...';
+  try{
+    var res = await apiJson('/api/student/class-mission/' + __classMissionId + '/claim', {method:'POST'});
+    if(res && (res.rewardCoins || res.rewardShards)){
+      try{
+        player.coins = (player.coins||0) + (res.rewardCoins||0);
+        if(res.rewardShards && window.labAddShards) labAddShards(res.rewardShards);
+        if(window.updatePlayerDisplay) updatePlayerDisplay();
+      }catch(e){}
+      btn.textContent = '🎉 ' + (res.rewardCoins||0) + 'コイン＋' + (res.rewardShards||0) + 'かけら GET！';
+      btn.className = 'mt-2 w-full bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-black';
+    } else {
+      btn.textContent = '✅ 受け取り済み';
+      btn.className = 'mt-2 w-full bg-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm font-black';
+    }
+  }catch(e){
+    btn.textContent = 'エラー'; btn.disabled = false;
+  }
+}
+
 function updateDailyMissionUI(){
   try{
     const modeNow = (typeof trainingMode !== 'undefined') ? trainingMode : '';
