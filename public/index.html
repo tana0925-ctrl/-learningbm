@@ -4571,8 +4571,8 @@ function formatYMD(d){
                 <div id="hsDayTypeLabel" class="text-xs px-2 py-0.5 rounded-full font-bold"></div>
               </div>
               <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-                <span>連続 <b id="hsStreak" class="text-slate-700">0</b>日</span>
-                <span>ボーナスまで <b id="hsToBonus" class="text-slate-700">5</b>日</span>
+                <span id="hsStreakWrap">🔥 連続 <b id="hsStreak" class="text-orange-600 text-base">0</b>日</span>
+                <span id="hsNextMilestone" class="text-orange-500 font-bold"></span>
                 <span id="hsTimer" class="text-slate-600">-</span>
               </div>
               <div id="hsTodayInfo" class="text-[11px] text-slate-400 mt-1"></div>
@@ -42153,7 +42153,10 @@ function hsRender(light){
     const dayKeyForView = submitted ? todayKey : (sess ? sess.dayKey : todayKey);
 
     const streak = hsCalcRequiredStreak(logs, todayKey);
-    const toBonus = (streak % 5 === 0) ? 5 : (5 - (streak % 5));
+    // 次のマイルストーンを計算
+    const _msDays = [3, 5, 7, 10, 14, 21, 30];
+    const _nextMs = _msDays.find(d => d > streak);
+    const _toNext = _nextMs ? (_nextMs - streak) : ((streak > 30) ? (5 - ((streak - 30) % 5) || 5) : 0);
 
     const todayInfo = document.getElementById('hsTodayInfo');
     if (todayInfo){
@@ -42161,9 +42164,23 @@ function hsRender(light){
       todayInfo.innerText = `${dayKeyForView} の家庭学習 ${restLabel}`;
     }
     const streakEl = document.getElementById('hsStreak');
-    if (streakEl) streakEl.innerText = String(streak || 0);
-    const toBonusEl = document.getElementById('hsToBonus');
-    if (toBonusEl) toBonusEl.innerText = String(toBonus || 5);
+    if (streakEl) {
+      streakEl.innerText = String(streak || 0);
+      if (streak >= 7) streakEl.className = 'text-red-500 text-base font-black';
+      else if (streak >= 3) streakEl.className = 'text-orange-600 text-base font-black';
+      else streakEl.className = 'text-slate-700';
+    }
+    const streakWrap = document.getElementById('hsStreakWrap');
+    if (streakWrap) {
+      const fires = streak >= 14 ? '🔥🔥🔥' : streak >= 7 ? '🔥🔥' : streak >= 1 ? '🔥' : '';
+      streakWrap.innerHTML = fires + ' 連続 <b id="hsStreak" class="' + (streak >= 7 ? 'text-red-500 text-base font-black' : streak >= 3 ? 'text-orange-600 text-base font-black' : 'text-slate-700') + '">' + streak + '</b>日';
+    }
+    const nextMsEl = document.getElementById('hsNextMilestone');
+    if (nextMsEl) {
+      if (_toNext > 0 && _nextMs) nextMsEl.textContent = 'あと' + _toNext + '日で' + _nextMs + '日ボーナス！';
+      else if (streak >= 30) nextMsEl.textContent = '🏆 大記録！' + streak + '日連続！';
+      else nextMsEl.textContent = '';
+    }
 
     // 日付表示
     const mdw = document.getElementById("hsMDW");
@@ -43065,8 +43082,16 @@ async function hsSubmitAndExport(){
     if (!rest){
       const tmp = [{ dayKey, restDay:false }, ...logs];
       streakAfter = hsCalcRequiredStreak(tmp, dayKey);
-      if (streakAfter % 5 === 0){
-        bonus = { coins: 100, shards: 3 };
+      // 段階的ストリークボーナス
+      const _milestones = [
+        [30, 1000, 20], [21, 700, 15], [14, 500, 10],
+        [10, 300, 7], [7, 200, 5], [5, 100, 3], [3, 50, 1]
+      ];
+      const _ms = _milestones.find(m => m[0] === streakAfter);
+      if (_ms) {
+        bonus = { coins: _ms[1], shards: _ms[2] };
+      } else if (streakAfter > 30 && streakAfter % 5 === 0) {
+        bonus = { coins: 500, shards: 10 };
       }
     }
 
@@ -43128,6 +43153,8 @@ async function hsSubmitAndExport(){
       });
       entry.dbSubmitted = true;
       try { entry.dbId = r.id || null; } catch(e) {}
+      // 提出即コイン：サーバーで付与済み → クライアントにも即反映
+      hsGrantRewards(reward, bonus);
       // 写真をクリア
       hsPhotoClear();
     } catch(e) {
@@ -43151,10 +43178,17 @@ async function hsSubmitAndExport(){
     hsCheckReturned();
     hsRender();
 
-    // 提出完了メッセージ
+    // 提出完了メッセージ（即コイン）
     const msgEl = document.getElementById('hsRewardMsg');
     if (msgEl) {
-      msgEl.textContent = '✅ 先生に提出しました！返却されたら報酬を受け取れます。';
+      const rc = (reward.coins || 0) + (bonus.coins || 0);
+      const rs = (reward.shards || 0) + (bonus.shards || 0);
+      const rewardText = rc > 0 && rs > 0 ? 'コイン' + rc + '枚＋かけら' + rs + '個'
+        : rc > 0 ? 'コイン' + rc + '枚' : 'かけら' + rs + '個';
+      const streakText = streakAfter >= 3 ? ' 🔥' + streakAfter + '日連続！' : '';
+      msgEl.textContent = rest
+        ? '✅ おやすみを記録しました！'
+        : '✅ 提出完了！' + rewardText + 'ゲット！' + streakText;
       msgEl.className = 'text-sm font-bold text-emerald-700 ml-2';
     }
 
@@ -43229,17 +43263,12 @@ function hsRenderReturnNotice(pendingList) {
   if (!pendingList || !pendingList.length) { notice.innerHTML = ''; notice.style.display = 'none'; return; }
   notice.style.display = '';
   let html = '<div class="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 mb-3 space-y-2">';
-  html += '<div class="font-bold text-emerald-700 text-sm">🎁 先生から返却されました！報酬を受け取ろう！</div>';
+  html += '<div class="font-bold text-emerald-700 text-sm">🎁 先生から返却＆ボーナスコインが届きました！</div>';
   for (const s of pendingList) {
-    const rate = s.hasPhysical ? 1.0 : 0.5;
-    const coins = Math.floor(((s.rewardCoins || 0) + (s.bonusCoins || 0)) * rate);
-    const shards = Math.floor(((s.rewardShards || 0) + (s.bonusShards || 0)) * rate);
-    const rewardText = s.rewardKind === 'coin'
-      ? `コイン ${coins} 枚` + (shards > 0 ? ` ＋ かけら ${shards}` : '')
-      : `かけら ${shards} 個` + (coins > 0 ? ` ＋ コイン ${coins}` : '');
+    const bonusCoins = 150 + (s.hasPhysical ? 100 : 0);
     const physical = s.hasPhysical
-      ? '<span class="text-xs bg-yellow-200 text-yellow-800 px-1 rounded ml-1">成果物あり⭐</span>'
-      : '<span class="text-xs bg-slate-200 text-slate-500 px-1 rounded ml-1">シートのみ</span>';
+      ? '<span class="text-xs bg-yellow-200 text-yellow-800 px-1 rounded ml-1">成果物あり⭐ +100</span>'
+      : '';
     const comment = s.teacherComment ? `<div class="text-xs text-emerald-600 mt-1">💬 ${escHtml(s.teacherComment)}</div>` : '';
     html += `<div class="bg-white rounded-lg p-2 border border-emerald-200">
       <div class="text-xs font-bold text-slate-600">${escHtml(s.dayKey)} の家庭学習${physical}</div>
