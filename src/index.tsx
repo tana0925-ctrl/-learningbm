@@ -2421,7 +2421,7 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
       FROM homework_submissions
       WHERE teacher_id = ?
         AND teacher_comment IS NOT NULL
-        AND LENGTH(TRIM(teacher_comment)) BETWEEN 5 AND 100
+        AND LENGTH(TRIM(teacher_comment)) BETWEEN 15 AND 200
       ORDER BY RANDOM() LIMIT 15
     `).bind(teacherId).all<any>()
     if (ex.results?.length) {
@@ -2439,22 +2439,29 @@ app.post('/api/teacher/homework-ai-comments', async (c) => {
 ${examplesBlock}
 【絶対に守るルール】
 - 上記の実例と**同じ口調・語尾・テンポ・文末記号（！や〜ね、句点）**で書く
-- 1〜2文、20〜50文字
-- 児童が書いた**具体的な言葉を1つ以上引用**する（例：「公式集」「スマホ遠ざけた」「机を片付けた」など）
+- 2〜3文、40〜100文字程度（内容が濃いほど良い）
+- 児童が書いた**具体的な言葉を必ず引用**する（例：「公式集を使った」「スマホ遠ざけた」「机を片付けた」など）
+- 過去の傾向データ（学習時間の変化、天気率、よくやる教科）にも触れる
 - 児童の発達段階に合わせる（低学年=ひらがな多め、高学年=学習内容に踏み込む）
+
+【コメントの作り方】
+1. まず児童の記述から**一番印象的な部分**を見つけて触れる
+2. 次に**過去との比較**（学習時間が増えた、新しい教科に挑戦した、連続提出が続いてる等）を加える
+3. 最後に**応援や共感**で締める（ただし「がんばったね」だけで終わらない）
 
 【絶対にやらないこと】
 - 「〜ましょう」「〜してみよう」など指導的・命令調の語尾
 - 「次の授業で」「先生は」のような学校目線の言い回し
 - 「すごい」「がんばったね」「えらいね」だけで終わる中身のないコメント
-- 過去の先生コメントと同じ語尾・同じ褒め方を繰り返す
+- 全員に似たような文面を書く（一人ひとり違う内容にする）
 - 児童の記述に触れない一般論
 
 【観察のヒント】
-- めあてと振り返りに一貫性があるか
+- めあてと振り返りに一貫性があるか → あれば「めあて通りにできたんだね」と認める
 - 自己評価の天気☀️🌤️☁️🌧️と振り返り内容にギャップがあれば、優しく寄り添う
 - 学習時間の増減・新しい教科への挑戦は積極的に拾う
-- 振り返りに「できなかった」「むずかしかった」が出てきたら、否定せず次の一歩を示す
+- 振り返りに「できなかった」「むずかしかった」が出てきたら、否定せず「そこに気づけるのがすごい」と返す
+- 成果物の写真分析がある場合は、その内容にも具体的に触れる
 
 【返答形式】
 {"comments":["コメント1","コメント2",...]}
@@ -2470,7 +2477,7 @@ ${examplesBlock}
       const resp = await callGemini(c.env, {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: lines }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 3000 }
+        generationConfig: { temperature: 0.85, maxOutputTokens: 5000 }
       })
       if (resp.ok) {
         const text = resp.text
@@ -2504,19 +2511,19 @@ ${examplesBlock}
       try {
         const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
           messages: [
-            { role: 'system', content: 'あなたは小学校の担任の先生です。児童の家庭学習に温かく具体的なコメントを1つだけ出力。30〜50文字。児童の記述（やったこと・めあて・振り返り）に必ず触れる。「すごいね」「がんばったね」だけのコメントはNG。名前不要。コメントだけ出力。' },
+            { role: 'system', content: 'あなたは小学校の担任の先生です。児童の家庭学習に温かく具体的なコメントを1つだけ出力。50〜100文字。児童が書いた「やったこと」「めあて」「振り返り」の具体的な言葉を引用して触れる。学習時間の変化にも言及する。「すごいね」「がんばったね」だけのコメントは絶対NG。名前不要。コメントだけ出力。' },
             { role: 'user', content: ud }
           ],
-          max_tokens: 80,
+          max_tokens: 150,
         })
         let t = (aiRes.response || '').trim().replace(/^["「『【]+|["」』】]+$/g, '').replace(/^\d+[\.\)]\s*/, '').replace(/^コメント[:：]\s*/,'').trim()
-        parsed.push(t.slice(0, 60))
+        parsed.push(t.slice(0, 120))
       } catch { parsed.push('') }
     }
   }
 
   const comments = subs.results.map((s: any, i: number) => ({
-    id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 60)
+    id: s.id, name: s.name, dayKey: s.day_key, comment: (parsed[i] || '').replace(/^["「]+|["」]+$/g, '').slice(0, 120)
   }))
   return c.json({ ok: true, comments, _source: aiSource })
 })
