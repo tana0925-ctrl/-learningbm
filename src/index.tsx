@@ -2001,7 +2001,14 @@ app.post('/api/homework/submit', async (c) => {
     String(body.parentComment || '').slice(0, 500)
   ).run()
 
-  return c.json({ ok: true, id })
+  // ── 提出即コイン：クライアント側で即付与するため、サーバーはclaimed済みにマーク ──
+  // （実際のコイン付与はクライアントのhsGrantRewardsで行う。
+  //   progress.state_jsonは二重付与防止のため触らない）
+  try {
+    await c.env.DB.prepare(`UPDATE homework_submissions SET reward_claimed=1, reward_claimed_at=? WHERE id=?`).bind(Date.now(), id).run()
+  } catch (e) { console.error('instant reward mark error:', e) }
+
+  return c.json({ ok: true, id, instantReward: true })
 })
 
 // 生徒：成果物写真をAIで分析してテキスト化→DB保存
@@ -2333,6 +2340,22 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
     Date.now(),
     hwId
   ).run()
+
+  // ── 先生ボーナス：返却時に自動でコインを付与 ──
+  const TEACHER_BONUS = 150
+  const PHYSICAL_BONUS = 100  // 成果物ありなら追加
+  try {
+    const sub = await c.env.DB.prepare(`SELECT user_id FROM homework_submissions WHERE id=?`).bind(hwId).first<any>()
+    if (sub?.user_id) {
+      const bonusAmount = TEACHER_BONUS + (body.hasPhysical ? PHYSICAL_BONUS : 0)
+      const prog = await c.env.DB.prepare(`SELECT state_json FROM progress WHERE user_id=?`).bind(sub.user_id).first<any>()
+      if (prog?.state_json) {
+        const state = JSON.parse(prog.state_json)
+        state.coins = (Number(state.coins) || 0) + bonusAmount
+        await c.env.DB.prepare(`UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`).bind(JSON.stringify(state), sub.user_id).run()
+      }
+    }
+  } catch (e) { console.error('teacher bonus error:', e) }
 
   return c.json({ ok: true })
 })
