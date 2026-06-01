@@ -4700,12 +4700,32 @@ app.get('/api/student/class-mission', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
   if (!cm) return c.json({ ok: true, mission: null })
-  const m = await c.env.DB.prepare(
+
+  // まず進行中のミッションを探す
+  let m = await c.env.DB.prepare(
     `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
             start_at AS startAt, end_at AS endAt
      FROM class_missions WHERE class_id=? AND (end_at IS NULL OR end_at >= datetime('now'))
      ORDER BY created_at DESC LIMIT 1`
   ).bind(cm.class_id).first<any>()
+
+  // 進行中がなければ、締切済みでも達成済み＆未受取のミッションを探す（報酬受け取り猶予）
+  if (!m) {
+    const latest = await c.env.DB.prepare(
+      `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
+              start_at AS startAt, end_at AS endAt
+       FROM class_missions WHERE class_id=?
+       ORDER BY created_at DESC LIMIT 1`
+    ).bind(cm.class_id).first<any>()
+    if (latest) {
+      const prog = await countMissionProgress(c, cm.class_id, latest.startAt, latest.endAt)
+      const alreadyClaimed = await c.env.DB.prepare(`SELECT 1 FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1`).bind(latest.id, u.id).first<any>()
+      if (prog >= latest.goalCorrect && !alreadyClaimed) {
+        m = latest // 達成済み＆未受取 → 表示する
+      }
+    }
+  }
+
   if (!m) return c.json({ ok: true, mission: null })
   const progress = await countMissionProgress(c, cm.class_id, m.startAt, m.endAt)
   const claimed = await c.env.DB.prepare(`SELECT 1 FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1`).bind(m.id, u.id).first<any>()
