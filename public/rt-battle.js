@@ -22,18 +22,18 @@
     div.id = '_rtPanel';
     div.style.cssText = 'position:fixed;top:8px;right:8px;z-index:99999;background:#0f172a;border:2px solid #3b82f6;border-radius:14px;padding:14px 16px;min-width:250px;max-width:290px;color:#f1f5f9;font-family:system-ui,sans-serif;font-size:13px;box-shadow:0 4px 24px rgba(0,0,0,.6);display:none';
     div.innerHTML =
-      '<div style="font-weight:700;font-size:14px;color:#60a5fa;margin-bottom:8px">\u26a1 RT\u5bfe\u6226</div>' +
+      '<div style="font-weight:700;font-size:14px;color:#60a5fa;margin-bottom:8px">⚡ RT対戦</div>' +
       '<div id="_rtMsg" style="color:#94a3b8;font-size:12px;margin-bottom:6px"></div>' +
       '<div id="_rtRoomRow" style="display:none;margin-bottom:8px">' +
-        '<span style="color:#94a3b8;font-size:11px">\u30eb\u30fc\u30e0ID: </span>' +
+        '<span style="color:#94a3b8;font-size:11px">ルームID: </span>' +
         '<span id="_rtRoomId" style="color:#fbbf24;font-weight:700;font-size:17px;letter-spacing:3px"></span>' +
-        '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById(\'_rtRoomId\').textContent)" style="background:#1e40af;color:#fff;border:none;border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;margin-left:4px">\u30b3\u30d4\u30fc</button>' +
+        '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById(\'_rtRoomId\').textContent)" style="background:#1e40af;color:#fff;border:none;border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;margin-left:4px">コピー</button>' +
       '</div>' +
       '<div id="_rtHpBox" style="display:none">' +
         '<div id="_rtModeLabel" style="font-size:10px;color:#94a3b8;margin-bottom:4px;text-align:center"></div>' +
         '<div style="margin-bottom:7px">' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
-            '<span id="_rtMyLbl" style="font-size:11px;color:#4ade80;font-weight:600">\u81ea\u5206</span>' +
+            '<span id="_rtMyLbl" style="font-size:11px;color:#4ade80;font-weight:600">自分</span>' +
             '<span id="_rtMyVal" style="font-size:11px;color:#4ade80">100/100</span>' +
           '</div>' +
           '<div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden;position:relative">' +
@@ -43,7 +43,7 @@
         '</div>' +
         '<div style="margin-bottom:10px;position:relative">' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
-            '<span id="_rtOppLbl" style="font-size:11px;color:#f87171;font-weight:600">\u76f8\u624b</span>' +
+            '<span id="_rtOppLbl" style="font-size:11px;color:#f87171;font-weight:600">相手</span>' +
             '<span id="_rtOppVal" style="font-size:11px;color:#f87171">100/100</span>' +
           '</div>' +
           '<div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden;position:relative">' +
@@ -60,7 +60,7 @@
         '</div>' +
       '</div>' +
       '<div id="_rtWin" style="display:none;font-size:22px;text-align:center;font-weight:700;padding:8px 0"></div>' +
-      '<button onclick="window.rtLeave()" id="_rtLeaveBtn" style="display:none;margin-top:8px;background:#7f1d1d;color:#fff;border:none;border-radius:7px;padding:4px 12px;font-size:11px;cursor:pointer">\u9000\u51fa</button>';
+      '<button onclick="window.rtLeave()" id="_rtLeaveBtn" style="display:none;margin-top:8px;background:#7f1d1d;color:#fff;border:none;border-radius:7px;padding:4px 12px;font-size:11px;cursor:pointer">退出</button>';
     document.body.appendChild(div);
   }
 
@@ -145,8 +145,8 @@
 
       const myN  = _rt.role === 'host' ? room.hostName  : room.guestName;
       const oppN = _rt.role === 'host' ? room.guestName : room.hostName;
-      if (el('_rtMyLbl'))  el('_rtMyLbl').textContent  = '\u81ea\u5206: ' + myN;
-      if (el('_rtOppLbl')) el('_rtOppLbl').textContent = '\u76f8\u624b: ' + (oppN || '\u5f85\u6a5f\u4e2d...');
+      if (el('_rtMyLbl'))  el('_rtMyLbl').textContent  = '自分: ' + myN;
+      if (el('_rtOppLbl')) el('_rtOppLbl').textContent = '相手: ' + (oppN || '待機中...');
 
       for (const ev of (d.events || [])) {
         if (ev.id > _rt.lastEventId) _rt.lastEventId = ev.id;
@@ -156,13 +156,13 @@
         // ジムバトルモード: 城HPの追跡
         if (myHpDiff > 0) {
           flashMyBar();
-          showAttackNotif('\u2694\ufe0f \u81ea\u5206\u306e\u57ce\u304c\u653b\u6483\u3055\u308c\u305f\uff01', '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#f87171');
-          addLog('\u81ea\u5206\u306e\u57ce: -' + myHpDiff + 'HP');
+          showAttackNotif('⚔️ 自分の城が攻撃された！', '−' + myHpDiff + ' ダメージ！', '#f87171');
+          addLog('自分の城: -' + myHpDiff + 'HP');
         }
         if (oppHpDiff > 0) {
           flashOppBar();
-          showAttackNotif('\u2694\ufe0f \u76f8\u624b\u306e\u57ce\u3082\u653b\u6483\u3055\u308c\u305f\uff01', '\u2212' + oppHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#fbbf24');
-          addLog('\u76f8\u624b\u306e\u57ce: -' + oppHpDiff + 'HP');
+          showAttackNotif('⚔️ 相手の城も攻撃された！', '−' + oppHpDiff + ' ダメージ！', '#fbbf24');
+          addLog('相手の城: -' + oppHpDiff + 'HP');
         }
       } else {
         // 野生/友達対戦モード: モンスターHP追跡
@@ -171,16 +171,16 @@
           const dmgEvs = (d.events || []).filter(e => e.event_type === 'damage');
           const latest = dmgEvs[dmgEvs.length - 1];
           const meta = parseMeta(latest?.meta_json);
-          const name  = meta.attackerName  || '\u76f8\u624b';
-          const emoji = meta.attackerEmoji || '\u2694\ufe0f';
-          const move  = meta.moveName      || '\u3053\u3046\u3052\u304d';
-          showAttackNotif(emoji + ' ' + name + ' \u306e ' + move + '\uff01', '\u2212' + myHpDiff + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#f87171');
-          addLog('\u76f8\u624b: ' + (emoji||'') + name + ' \u2192 -' + myHpDiff + 'HP');
+          const name  = meta.attackerName  || '相手';
+          const emoji = meta.attackerEmoji || '⚔️';
+          const move  = meta.moveName      || 'こうげき';
+          showAttackNotif(emoji + ' ' + name + ' の ' + move + '！', '−' + myHpDiff + ' ダメージ！', '#f87171');
+          addLog('相手: ' + (emoji||'') + name + ' → -' + myHpDiff + 'HP');
         }
         for (const ev of (d.events || [])) {
           if (ev.event_type === 'faint') {
             const meta = parseMeta(ev.meta_json);
-            addLog((meta.attackerName || '\u30e2\u30f3\u30b9\u30bf\u30fc') + ' \u304c\u5012\u308c\u305f\uff01');
+            addLog((meta.attackerName || 'モンスター') + ' が倒れた！');
           }
         }
       }
@@ -203,24 +203,24 @@
       updateHpBars();
 
       if (room.status === 'waiting') {
-        setMsg('\u76f8\u624b\u306e\u53c2\u52a0\u3092\u5f85\u3063\u3066\u3044\u307e\u3059...');
+        setMsg('相手の参加を待っています...');
       } else if (room.status === 'playing') {
         if (_rt.status !== 'playing') {
           _rt.status = 'playing';
-          const modeStr = _rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb'  : _rt.mode === 'egg' ? '\u30bf\u30de\u30b4\u30d0\u30c8\u30eb': '\u53cb\u9054\u5bfe\u6226';
-          setMsg('\u2694\ufe0f \u30d0\u30c8\u30eb\u4e2d\uff01 [' + modeStr + ']');
-          setModeLabel(_rt.mode === 'gym' ? '\u30b8\u30e0\u30d0\u30c8\u30eb\u30e2\u30fc\u30c9 \ud83c\udff0' : '\u53cb\u9054\u5bfe\u6226\u30e2\u30fc\u30c9 \ud83e\udd0e');
+          const modeStr = _rt.mode === 'gym' ? 'ジムバトル'  : _rt.mode === 'egg' ? 'タマゴバトル': '友達対戦';
+          setMsg('⚔️ バトル中！ [' + modeStr + ']');
+          setModeLabel(_rt.mode === 'gym' ? 'ジムバトルモード 🏰' : '友達対戦モード 🤎');
           if (el('_rtHpBox')) el('_rtHpBox').style.display = 'block';
-          addLog('\u30d0\u30c8\u30eb\u30b9\u30bf\u30fc\u30c8\uff01 [' + modeStr + ']');
-        if (_rt.mode === 'egg') { setTimeout(function(){ hookEggBattle(_rt.role || 'host'); }, 800); }
+          addLog('バトルスタート！ [' + modeStr + ']');
+          if (_rt.mode === 'egg') { setTimeout(function(){ hookEggBattle(_rt.role || 'host'); }, 800); }
         }
       } else if (room.status === 'finished' && room.winner) {
         rtStopPoll(); gymStopPoll();
         _rt.status = 'finished';
         const win = room.winner === _rt.role;
         const we = el('_rtWin');
-        if (we) { we.style.display = 'block'; we.textContent = win ? '\ud83c\udfc6 \u52dd\u5229\uff01\uff01' : '\ud83d\udc80 \u6557\u5317...'; we.style.color = win ? '#4ade80' : '#f87171'; }
-        addLog(win ? '\u52dd\u5229\uff01' : '\u6557\u5317...');
+        if (we) { we.style.display = 'block'; we.textContent = win ? '🏆 勝利！！' : '💀 敗北...'; we.style.color = win ? '#4ade80' : '#f87171'; }
+        addLog(win ? '勝利！' : '敗北...');
         setMsg('');
       }
     } catch (e) { /* ignore */ }
@@ -241,7 +241,7 @@
       if (_rt.lastCastleHp !== null && curHp < _rt.lastCastleHp) {
         const delta = _rt.lastCastleHp - curHp;
         const dmgPct = Math.max(1, Math.round(delta / maxHp * 100));
-        window.rtSendSelfDamage(dmgPct, { attackerName: '\u6575\u30e6\u30cb\u30c3\u30c8', attackerEmoji: '\u2694\ufe0f', moveName: '\u57ce\u653b\u6483' });
+        window.rtSendSelfDamage(dmgPct, { attackerName: '敵ユニット', attackerEmoji: '⚔️', moveName: '城攻撃' });
       }
       _rt.lastCastleHp = curHp;
     } catch(e) {}
@@ -261,10 +261,10 @@
     }
     // 引数あり = 明示的な呼び出し（後方互換）
     try {
-      panelShow(); setMsg('\u30eb\u30fc\u30e0\u4f5c\u6210\u4e2d...');
+      panelShow(); setMsg('ルーム作成中...');
       const r = await fetch('/api/rt/create', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name || '\u30d7\u30ec\u30a4\u30e4\u30fc', party: party || [], area: area || 'rounding', battleType: battleType || 'normal', code: code })
+        body: JSON.stringify({ name: name || 'プレイヤー', party: party || [], area: area || 'rounding', battleType: battleType || 'normal', code: code })
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'create failed');
@@ -274,10 +274,10 @@
       if (el('_rtRoomRow')) el('_rtRoomRow').style.display = 'block';
       if (el('_rtRoomId'))  el('_rtRoomId').textContent = d.roomId;
       if (el('_rtLeaveBtn')) el('_rtLeaveBtn').style.display = 'inline-block';
-      setMsg('\u30eb\u30fc\u30e0ID\u3092\u76f8\u624b\u306b\u4f1d\u3048\u3066START\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044');
+      setMsg('ルームIDを相手に伝えてSTARTを押してください');
       rtStartPoll();
       return d.roomId;
-    } catch (e) { setMsg('\u30a8\u30e9\u30fc: ' + e.message); return null; }
+    } catch (e) { setMsg('エラー: ' + e.message); return null; }
   };
 
   window.rtJoinRoom = async function (roomId, name, party) {
@@ -288,20 +288,20 @@
       return;
     }
     try {
-      panelShow(); setMsg('\u53c2\u52a0\u4e2d...');
+      panelShow(); setMsg('参加中...');
       const r = await fetch('/api/rt/join/' + roomId.toUpperCase(), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name || '\u30d7\u30ec\u30a4\u30e4\u30fc', party: party || [] })
+        body: JSON.stringify({ name: name || 'プレイヤー', party: party || [] })
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'join failed');
       _rt.roomId = roomId.toUpperCase(); _rt.role = 'guest'; _rt.status = 'waiting';
       _rt.lastEventId = 0; _rt.myHp = 100; _rt.oppHp = 100;
       if (el('_rtLeaveBtn')) el('_rtLeaveBtn').style.display = 'inline-block';
-      setMsg('\u53c2\u52a0OK\uff01\u30d0\u30c8\u30eb\u958b\u59cb\u3092\u5f85\u3063\u3066\u3044\u307e\u3059...');
+      setMsg('参加OK！バトル開始を待っています...');
       rtStartPoll();
       return true;
-    } catch (e) { setMsg('\u30a8\u30e9\u30fc: ' + e.message); return false; }
+    } catch (e) { setMsg('エラー: ' + e.message); return false; }
   };
 
   window.rtSendDamage = async function (damage, monsterId, meta) {
@@ -355,7 +355,7 @@
           _rt.lastEventId = 0; _rt.myHp = 100; _rt.oppHp = 100;
           _rt._modeSet = false;  // 次の poll でサーバーから battleType を取得
           panelShow();
-          setMsg('RT\u5bfe\u6226: ' + (role === 'host' ? '\u30eb\u30fc\u30e0\u4f5c\u6210\u6e08' : '\u53c2\u52a0\u6e08'));
+          setMsg('RT対戦: ' + (role === 'host' ? 'ルーム作成済' : '参加済'));
           rtStartPoll();
         }
       }
@@ -374,10 +374,10 @@
         _rt.dmgPending = true;
         const info = getMyMonsterInfo();
         showAttackNotif(
-          (info.emoji || '\u2694\ufe0f') + ' ' + (info.name || '\u81ea\u5206') + ' \u306e ' + (info.moveName || '\u3053\u3046\u3052\u304d') + '\uff01',
-          '\u2212' + dmg + ' \u30c0\u30e1\u30fc\u30b8\uff01', '#4ade80'
+          (info.emoji || '⚔️') + ' ' + (info.name || '自分') + ' の ' + (info.moveName || 'こうげき') + '！',
+          '−' + dmg + ' ダメージ！', '#4ade80'
         );
-        addLog('\u81ea\u5206: ' + (info.emoji||'') + (info.name||'?') + ' \u2192 -' + dmg + 'HP');
+        addLog('自分: ' + (info.emoji||'') + (info.name||'?') + ' → -' + dmg + 'HP');
         window.rtSendDamage(dmg, 0, { attackerName: info.name, attackerEmoji: info.emoji, moveName: info.moveName });
         setTimeout(() => { _rt.dmgPending = false; }, 1000);
       }
@@ -394,7 +394,7 @@
     const orig = window.startBattleSequence;
     window.startBattleSequence = async function () {
       if (_rt.roomId && (_rt.status === 'waiting' || _rt.status === 'idle')) {
-                var _isEgg = _rt.mode === 'egg';
+        var _isEgg = _rt.mode === 'egg';
         if (!_isEgg) _rt.mode = 'wild';
         await window.rtSendReady();
         if (_isEgg) { setTimeout(function(){ if(window.EggBattle&&typeof window.EggBattle.start==='function'){window.EggBattle.start();window.EggBattle.startCountdown&&window.EggBattle.startCountdown();hookEggBattle(_rt.role||'host');} },300); return; }
@@ -420,7 +420,7 @@
         if (_rt.status === 'waiting') await window.rtSendReady();
         gymStopPoll();
         _rt.gymPollTimer = setInterval(gymPollCastle, 800);
-        addLog('\u30b8\u30e0\u30d0\u30c8\u30eb\u958b\u59cb\uff01');
+        addLog('ジムバトル開始！');
       }
       return origStart.apply(this, arguments);
     };
@@ -443,11 +443,11 @@
             if (curHp < _rt.lastCastleHp) {
               const delta = _rt.lastCastleHp - curHp;
               const dmgPct = Math.max(1, Math.round(delta / Number(ws.playerCastleHpMax || 600) * 100));
-              window.rtSendSelfDamage(dmgPct, { attackerName: '\u6575\u30e6\u30cb\u30c3\u30c8', attackerEmoji: '\u2694\ufe0f', moveName: '\u6700\u7d42\u653b\u6483' });
+              window.rtSendSelfDamage(dmgPct, { attackerName: '敵ユニット', attackerEmoji: '⚔️', moveName: '最終攻撃' });
             }
           }
         } catch(e) {}
-        addLog('\u30b8\u30e0\u30d0\u30c8\u30eb\u7d42\u4e86');
+        addLog('ジムバトル終了');
       }
       _rt.mode = 'wild';
       return origStop.apply(this, arguments);
@@ -463,8 +463,8 @@
     hookGameRoomCreate._hooked = true;
     // 旧来の observer/ボタンフックは不要（ラップ方式に移行）
   }
-  // ===== タマゴバトル VS Mode =====
 
+  // ===== タマゴバトル VS Mode =====
   function hookEggBattle(role) {
     var eb = window.EggBattle;
     if (!eb || !eb.active || !eb.state) {
@@ -579,7 +579,40 @@
     }).catch(function(){});
   }
 
+  function applyTeacherDashboardLink() {
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.user || d.user.role !== 'teacher') return;
 
+        function inject() {
+          if (document.getElementById('_teacherDashboardBtn')) return;
+          var candidates = Array.prototype.slice.call(document.querySelectorAll('button, a'));
+          var logoutBtn = candidates.find(function (node) {
+            return ((node.textContent || '').trim() === 'ログアウト');
+          });
+          if (!logoutBtn || !logoutBtn.parentElement) return;
+
+          var btn = document.createElement('a');
+          btn.id = '_teacherDashboardBtn';
+          btn.href = '/teacher';
+          btn.textContent = '教師用ダッシュボードへ';
+          btn.style.cssText = 'display:inline-block;text-decoration:none;background:#dcfce7;color:#166534;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;margin-right:8px;';
+
+          if (logoutBtn.parentElement.firstChild === logoutBtn) {
+            logoutBtn.parentElement.insertBefore(btn, logoutBtn);
+          } else {
+            logoutBtn.parentElement.insertBefore(btn, logoutBtn);
+          }
+        }
+
+        inject();
+        setTimeout(inject, 800);
+        setTimeout(inject, 2000);
+        setTimeout(inject, 4000);
+      })
+      .catch(function () {});
+  }
 
   // ===== Init =====
   function init() {
@@ -588,10 +621,12 @@
     hookStartBattle();
     hookWarBattle();
     hookStopWar();
-    hookGameRoomCreate();  }
+    hookGameRoomCreate();
+    applyTeacherDashboardLink();
+  }
 
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); } else { init(); }
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate();}, 1500);
-  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate();}, 4000);
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate(); applyTeacherDashboardLink(); }, 1500);
+  setTimeout(() => { hookCalcDamage(); hookStartBattle(); hookWarBattle(); hookStopWar(); hookGameRoomCreate(); applyTeacherDashboardLink(); }, 4000);
   console.log('[RT Battle System v3] loaded');
 })();
