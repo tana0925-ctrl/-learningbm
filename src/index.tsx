@@ -4728,7 +4728,11 @@ app.delete('/api/teacher/class-mission/:id', async (c) => {
 app.get('/api/student/class-mission', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+  // 生徒はclass_members、教師はclasses.teacher_idで所属クラスを取得
+  let cm = await c.env.DB.prepare(`SELECT class_id FROM class_members WHERE user_id=? LIMIT 1`).bind(u.id).first<any>()
+  if (!cm && (u.role === 'teacher' || u.role === 'admin')) {
+    cm = await c.env.DB.prepare(`SELECT id AS class_id FROM classes WHERE teacher_id=? LIMIT 1`).bind(u.id).first<any>()
+  }
   if (!cm) return c.json({ ok: true, mission: null })
 
   // まず進行中のミッションを探す
@@ -4773,7 +4777,11 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
     `SELECT class_id, goal_correct, reward_coins, reward_shards, start_at, end_at FROM class_missions WHERE id=? LIMIT 1`
   ).bind(missionId).first<any>()
   if (!m) return jsonError(c, 404, 'mission_not_found')
-  const member = await c.env.DB.prepare(`SELECT 1 FROM class_members WHERE class_id=? AND user_id=? LIMIT 1`).bind(m.class_id, u.id).first<any>()
+  // 生徒はclass_members、教師はclasses.teacher_idで所属を確認
+  let member = await c.env.DB.prepare(`SELECT 1 FROM class_members WHERE class_id=? AND user_id=? LIMIT 1`).bind(m.class_id, u.id).first<any>()
+  if (!member && (u.role === 'teacher' || u.role === 'admin')) {
+    member = await c.env.DB.prepare(`SELECT 1 FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(m.class_id, u.id).first<any>()
+  }
   if (!member) return jsonError(c, 403, 'not_class_member')
   const progress = await countMissionProgress(c, m.class_id, m.start_at, m.end_at)
   if (progress < m.goal_correct) return jsonError(c, 400, 'not_achieved')
