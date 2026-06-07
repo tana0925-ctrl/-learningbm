@@ -10130,6 +10130,7 @@ function calculateNextExp(level) {
            INIT & SAVE SYSTEM
            ========================================= */
         function initGame() {
+        try{ _fetchFestStatus(); }catch(e){}
         // loadData中はsaveDataを禁止するフラグ（initGame先頭で宣言してTDZを回避）
         let _loadingData = false;
     // --- Friend Wild Battle: 出題エリア（野生バトル形式のみ） ---
@@ -26113,11 +26114,17 @@ const FRACTION_FEST = {
   shardsPerDrop:  (typeof DECIMAL_FEST !== 'undefined') ? DECIMAL_FEST.shardsPerDrop  : 1,
 };
 
-function _isFractionFestActive(){
+var _festStatusFromServer = { fraction_fest_active: false, decimal_fest_active: false };
+async function _fetchFestStatus(){
   try{
-    const today = (typeof _localDateKey === 'function') ? _localDateKey() : (new Date()).toISOString().slice(0,10);
-    return (!FRACTION_FEST.start || today >= FRACTION_FEST.start) && (!FRACTION_FEST.end || today <= FRACTION_FEST.end);
-  }catch(e){ return false; }
+    var resp = await fetch('/api/fest/status');
+    var data = await resp.json();
+    if(data.ok) _festStatusFromServer = data;
+  }catch(e){}
+}
+
+function _isFractionFestActive(){
+  return !!window._festStatusFromServer && !!window._festStatusFromServer.fraction_fest_active;
 }
 
 function _fractionFestDayKey(){
@@ -26144,10 +26151,7 @@ function _ensureFractionFestState(){
 }
 
 function _isDecimalFestActive(){
-  try{
-    const today = (typeof _localDateKey === 'function') ? _localDateKey() : (new Date()).toISOString().slice(0,10);
-    return (!DECIMAL_FEST.start || today >= DECIMAL_FEST.start) && (!DECIMAL_FEST.end || today <= DECIMAL_FEST.end);
-  }catch(e){ return false; }
+  return !!window._festStatusFromServer && !!window._festStatusFromServer.decimal_fest_active;
 }
 
 function _decimalFestDayKey(){
