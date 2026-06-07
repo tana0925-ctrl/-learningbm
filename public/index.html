@@ -14313,7 +14313,7 @@ function _dailyModeList(){
     return _getTodayDailyTargets();
 }
 var __classMissionId = null;
-async function updateClassMissionUI(){
+async function __disabled_updateClassMissionUI(){
   var card = document.getElementById('classMissionCard');
   if(!card) return;
   try{
@@ -14342,7 +14342,7 @@ async function updateClassMissionUI(){
   }catch(e){ card.classList.add('hidden'); }
 }
 
-async function claimClassMission(){
+async function __disabled_claimClassMission(){
   if(!__classMissionId) return;
   var btn = document.getElementById('cmClaimBtn');
   btn.disabled = true; btn.textContent = '受け取り中...';
