@@ -10169,28 +10169,6 @@ function calculateNextExp(level) {
                 ids.forEach(id => { if (!Number.isNaN(id)) tryEvolveById(id); });
             } catch (e) {}
 
-// コインシステムへの移行処理（初回のみ）
-            if (!player.migratedToNewCoinSystem) {
-                // コインに旧コイン残高をコピー
-                player.newCoins = player.coins || 0;
-                player.migratedToNewCoinSystem = true;
-                // 旧コイン監視用の日付と基準値を保存
-                player.oldCoinDailyDate = getTodayYMD();
-                player.oldCoinDailyStart = player.coins || 0;
-                saveData();
-            }
-
-            // 救済処理：旧コインが加算されていたのにnewCoinsに反映されていなかった場合の修正
-            if (player.migratedToNewCoinSystem && !player.coinSyncV2) {
-                // newCoinsがcoinsより少ない場合、coinsの値で上書き（旧報酬がnewCoinsに加算されていなかったバグ対策）
-                const oldC = Number(player.coins || 0);
-                const newC = Number(player.newCoins || 0);
-                if (oldC > newC) {
-                    player.newCoins = oldC;
-                }
-                player.coinSyncV2 = true;
-                saveData();
-            }
 
             // usedSecretQrNoncesが未定義なら初期化
             if (!player.usedSecretQrNonces) {
@@ -12471,7 +12449,7 @@ function isSantaSeason(d = new Date()) {
                 if (localStorage.getItem(XMAS_GIFT_KEY) === '1') return;
 
                 localStorage.setItem(XMAS_GIFT_KEY, '1');
-                player.newCoins = (player.newCoins || 0) + 3000;
+                player.coins = (player.coins || 0) + 3000;
                 saveData();
                 alert("🎄メリークリスマス！\n3000コイン プレゼント！");
             } catch (e) {}
@@ -12492,7 +12470,7 @@ function isSantaSeason(d = new Date()) {
                 if (localStorage.getItem(key) === '1') return;
 
                 localStorage.setItem(key, '1');
-                player.newCoins = (player.newCoins || 0) + 3000;
+                player.coins = (player.coins || 0) + 3000;
                 saveData();
                 alert("🎍あけましておめでとう！\nお年玉 3000コインプレゼント！");
             } catch (e) {}
@@ -13568,7 +13546,7 @@ function grantOcha(){
             document.getElementById('headerNameDisplay').innerText = player.name;
             document.getElementById('herbCount').innerText = player.herbs;
             // Display new coin balance instead of old coins
-            document.getElementById('coinCount').innerText = player.newCoins || 0;
+            document.getElementById('coinCount').innerText = player.coins || 0;
             document.getElementById('gymTicketCount').innerText = player.gymTickets || 0;
             try { document.getElementById('ballCount').innerText = player.balls || 0; } catch(e) {}
             try{ if(typeof updateUpgradePanel==='function') updateUpgradePanel(); }catch(e){}
@@ -13576,7 +13554,7 @@ function grantOcha(){
             try { document.getElementById('battleBallCount').innerText = player.balls || 0; } catch(e) {}
             document.getElementById('trainingHerbCount').innerText = player.herbs;
             // Display new coin balance in training context
-            document.getElementById('trainingCoinCount').innerText = player.newCoins || 0;
+            document.getElementById('trainingCoinCount').innerText = player.coins || 0;
             updatePlayTimeStatus();
         }
 
@@ -15415,7 +15393,7 @@ function checkReviewAnswer(){
         var m = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
         if(m==='rounding'||m==='long-division'||m==='area') rc = 100;
         else if(m==='kuku'||m==='conjunction') rc = 10;
-        player.newCoins = (player.newCoins||0) + rc;
+        player.coins = (player.coins||0) + rc;
         _reviewTotalCoins += rc;
         _reviewCorrectCount = 0;
         rewardTxt = '💰 ' + rc + 'コインゲット！';
@@ -15431,12 +15409,12 @@ function checkReviewAnswer(){
           var m2 = _reviewCurrentItem ? _reviewCurrentItem.mode : '';
           if(m2==='rounding'||m2==='long-division'||m2==='area') cc = 15;
           else if(m2==='kuku') cc = 1;
-          player.newCoins = (player.newCoins||0) + cc;
+          player.coins = (player.coins||0) + cc;
           _reviewTotalCoins += cc;
           rewardTxt += '💰 ' + cc + 'コインゲット！';
         }
       }
-      try{ document.getElementById('trainingCoinCount').innerText = player.newCoins||0; }catch(e){}
+      try{ document.getElementById('trainingCoinCount').innerText = player.coins||0; }catch(e){}
       try{ saveData(); }catch(e){}
     }
     if(txtEl) txtEl.innerHTML = (isOk ? 'せいかい！' : 'ちがうよ…') + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
@@ -15684,7 +15662,7 @@ function updateMyHomeView(){
 
     if(levelEl) levelEl.innerText = player.level ?? '-';
     if(coinsEl) coinsEl.innerText = (player.coins ?? '-');
-    if(newCoinsEl) newCoinsEl.innerText = (player.newCoins ?? 0);
+    if(newCoinsEl) newCoinsEl.innerText = (player.coins ?? 0);
     if(ticketsEl) ticketsEl.innerText = (player.gymTickets ?? 0);
 
     const owned = player.monsters ? Object.keys(player.monsters).length : (player.pokedex ? player.pokedex.length : 0);
@@ -15868,7 +15846,7 @@ function updateMyHomeView(){
         const last = new Date(M.lastPlayAt||Date.now());
         const created = new Date(M.createdAt||Date.now());
         const herbs = player.herbs ?? 0;
-        const newCoins = player.newCoins ?? 0;
+        const newCoins = player.coins ?? 0;
         const defeatsCount = player.defeats ? Object.keys(player.defeats).length : 0;
         const tired = (typeof getIsTired==='function') ? (getIsTired() ? '😪 つかれ' : '🙂 元気') : '-';
         miscEl.innerHTML = `
@@ -15932,13 +15910,13 @@ function updateTrainingMenu() {
 
         function pullGacha(type) {
             const cost = type === 'normal' ? 300 : 1000;
-            if ((player.newCoins || 0) < cost) {
+            if ((player.coins || 0) < cost) {
                 alert("コインが足りません！\n修行でコインを集めよう！");
                 return;
             }
             if (!confirm(`${cost}コインを使ってガチャを引きますか？`)) return;
 
-            player.newCoins = (player.newCoins || 0) - cost;
+            player.coins = (player.coins || 0) - cost;
             const result = rollGacha(type);
             applyGachaResultData(result);
             saveData();
@@ -15960,14 +15938,14 @@ function updateTrainingMenu() {
             const singleCost = type === 'normal' ? 300 : 1000;
             const cost = Math.floor(singleCost * 10 * 0.95); // 5%オフ
             
-            if ((player.newCoins || 0) < cost) {
-                alert(`コインが足りません！\n必要: ${cost}コイン\n所持: ${player.newCoins || 0}コイン`);
+            if ((player.coins || 0) < cost) {
+                alert(`コインが足りません！\n必要: ${cost}コイン\n所持: ${player.coins || 0}コイン`);
                 return;
             }
             
             if (!confirm(`${cost}コインを使って10連ガチャを引きますか？\n（${singleCost * 10}コインが${cost}コインに！5%オフ）`)) return;
 
-            player.newCoins = (player.newCoins || 0) - cost;
+            player.coins = (player.coins || 0) - cost;
             
             // 10回分の結果を配列に格納
             const results = [];
@@ -16145,7 +16123,7 @@ if (id === 'castle_ticket') return (player.castleTickets || 0);
             };
 
             const htmlParts = SHOP_ITEMS.map(item => {
-                const disabled = (player.newCoins || 0) < item.price;
+                const disabled = (player.coins || 0) < item.price;
                 const btnClass = disabled
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     : 'bg-white hover:bg-yellow-50';
@@ -16211,14 +16189,14 @@ if (item.id === 'gym_ticket' || item.id === 'egg_ticket') {
         return;
     }
 }
-if ((player.newCoins || 0) < item.price) {
+if ((player.coins || 0) < item.price) {
                 alert("コインが足りません！\n修行で稼ごう！");
                 return;
             }
 
             if (!confirm(`${item.name} を ${item.price} コインで購入しますか？`)) return;
 
-            player.newCoins = (player.newCoins || 0) - item.price;
+            player.coins = (player.coins || 0) - item.price;
 
             if (item.id === 'herb') {
                 player.herbs = (player.herbs || 0) + 1;
@@ -26709,7 +26687,7 @@ function handleCorrectAnswer() {
                         st.correct = Math.min((Number(st.correct||0) || 0) + 1, 5);
                         if(st.correct >= 5){
                             st.claimed = true;
-                            player.newCoins = (player.newCoins || 0) + 100;
+                            player.coins = (player.coins || 0) + 100;
                             dailyMissionAwarded = true;
                         }
                     }
@@ -26783,7 +26761,7 @@ function handleCorrectAnswer() {
                     player.trainingProgress[trainingMode].nextBonusAt *= 2;
                 }
 
-                player.newCoins = (player.newCoins || 0) + 1000;
+                player.coins = (player.coins || 0) + 1000;
                 alert(`👑 免許皆伝！\n${bonusCount}問正解ボーナス 1000コインを獲得！`);
             }
 
@@ -26854,13 +26832,13 @@ function handleCorrectAnswer() {
                 rareChanceStack = 0;
                 lastRareWinCombo = trainingCombo;
                 if (trainingMode === 'rounding' || trainingMode === 'long-division' || trainingMode === 'area') {
-                    player.newCoins = (player.newCoins || 0) + 100;
+                    player.coins = (player.coins || 0) + 100;
                     msg += ' <span class="text-yellow-400 font-bold block text-lg animate-bounce">100コインゲット！</span>';
                 } else if (trainingMode === 'kuku' || trainingMode === 'conjunction') {
-                    player.newCoins = (player.newCoins || 0) + 10;
+                    player.coins = (player.coins || 0) + 10;
                     msg += ' <span class="text-yellow-400 font-bold block text-lg animate-bounce">10コインゲット！</span>';
                 } else {
-                    player.newCoins = (player.newCoins || 0) + 50;
+                    player.coins = (player.coins || 0) + 50;
                     msg += ' <span class="text-yellow-400 font-bold block text-lg animate-bounce">50コインゲット！</span>';
                 }
             } else {
@@ -26874,13 +26852,13 @@ function handleCorrectAnswer() {
                 // Independent Check 2: Coins (10% × 倍率)
                 if (Math.random() < 0.1 * _rewardRate) {
                     if (trainingMode === 'rounding' || trainingMode === 'long-division' || trainingMode === 'area') {
-                        player.newCoins = (player.newCoins || 0) + 15;
+                        player.coins = (player.coins || 0) + 15;
                         msg += ' <span class="text-yellow-500 block text-sm">15コインゲット！</span>';
                     } else if (trainingMode === 'kuku') {
-                        player.newCoins = (player.newCoins || 0) + 1;
+                        player.coins = (player.coins || 0) + 1;
                         msg += ' <span class="text-yellow-500 block text-sm">1コインゲット！</span>';
                     } else {
-                        player.newCoins = (player.newCoins || 0) + 8;
+                        player.coins = (player.coins || 0) + 8;
                         msg += ' <span class="text-yellow-500 block text-sm">8コインゲット！</span>';
                     }
                 }
@@ -29432,7 +29410,7 @@ function closeDetail() {
             if (code.startsWith("6340")) {
                 const amount = parseInt(code.substring(4));
                 if (!isNaN(amount) && amount > 0) {
-                    player.newCoins = Math.max(0, (player.newCoins || 0) - amount);
+                    player.coins = Math.max(0, (player.coins || 0) - amount);
                     saveData();
                     updatePlayerDisplay();
                     alert(`管理者コマンド: コインを ${amount}枚 減らしました。`);
@@ -29529,8 +29507,8 @@ function closeDetail() {
             const btns = document.getElementById('bakerButtons');
             const closeBtn = document.getElementById('bakerCloseBtn');
 
-            if ((player.newCoins || 0) >= 3000) {
-                player.newCoins = (player.newCoins || 0) - 3000;
+            if ((player.coins || 0) >= 3000) {
+                player.coins = (player.coins || 0) - 3000;
                 const mId = 300;
                 const m = getMonster(mId);
                 let resultText = "";
@@ -34000,7 +33978,7 @@ if (hit) {
                     const FRIEND_3V3_REWARD_CHANCE = 0.20; // ←必要ならここを変更（例: 0.10 で10%）
                     let rewardText = "今回は何も手に入らなかった…";
                     if (Math.random() < FRIEND_3V3_REWARD_CHANCE) {
-                        player.newCoins = (player.newCoins || 0) + 300;
+                        player.coins = (player.coins || 0) + 300;
                         rewardText = "300コインを手に入れた！";
                         saveData();
                         updatePlayerDisplay();
@@ -35441,7 +35419,6 @@ function checkOldCoinFraud() {
         function applyOldCoinFraudPenalty() {
             // 旧コインの急増が検知された場合：コインだけをリセット（キャラ削除・使用停止はしない）
             player.coins = 0;
-            player.newCoins = 0;
 
             // 永久ロックはしない（今回の仕様：解除）
             player.coinBanned = false;
@@ -35845,7 +35822,7 @@ function checkOldCoinFraud() {
                 return false;
             }
             player.dailySecretCodeCoins = newTotal;
-            player.newCoins = (player.newCoins || 0) + amount;
+            player.coins = (player.coins || 0) + amount;
             saveData();
             updatePlayerDisplay();
             return true;
@@ -39434,7 +39411,7 @@ function dealDamage(att, def){
       if(win){
         // coins
         const gain = 30 + Math.min(70, Math.floor(warState.elapsed/2));
-        player.newCoins = (player.newCoins||0) + gain;
+        player.coins = (player.coins||0) + gain;
         // メダルはフェス中の問題のみで入手（攻略モードでは出ない）
         let __warMedalId = null;
         // 秘伝の書ドロップ（攻略モード）- 完全ランダム版
@@ -41640,7 +41617,6 @@ function hsGrantRewards(reward, bonus){
 
     if (coins > 0){
       player.coins = Number(player.coins || 0) + coins;
-      player.newCoins = Number(player.newCoins || 0) + coins;
       try{
         if (typeof player.oldCoinDailyStart !== 'undefined') player.oldCoinDailyStart = player.coins || 0;
         if (typeof getTodayYMD === 'function') player.oldCoinDailyDate = getTodayYMD();
@@ -51940,7 +51916,6 @@ async function _loadStudentContactNotes(){
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
                   if(window.player) {
                     player.coins = (player.coins||0) + res.reward;
-                    player.newCoins = (player.newCoins||0) + res.reward;
                   }
                 }catch(e){}
               } else {
