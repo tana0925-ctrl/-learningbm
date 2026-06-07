@@ -950,6 +950,40 @@ app.put('/api/admin/settings', async (c) => {
   return c.json({ ok: true })
 })
 
+// -------------------- API: fest status (public for logged-in users) --------------------
+
+app.get('/api/fest/status', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT key, value FROM admin_settings WHERE key IN ('fraction_fest_active','decimal_fest_active')`
+    ).all<any>()
+    const result: Record<string, boolean> = { fraction_fest_active: false, decimal_fest_active: false }
+    for (const r of rows.results) {
+      result[r.key] = r.value === '1'
+    }
+    return c.json({ ok: true, ...result })
+  } catch(e) {
+    return c.json({ ok: true, fraction_fest_active: false, decimal_fest_active: false })
+  }
+})
+
+app.put('/api/admin/fest-toggle', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body || !body.fest) return jsonError(c, 400, 'invalid_json')
+  const key = body.fest === 'fraction' ? 'fraction_fest_active' : body.fest === 'decimal' ? 'decimal_fest_active' : null
+  if (!key) return jsonError(c, 400, 'invalid_fest')
+  const active = body.active ? '1' : '0'
+  await c.env.DB.prepare(
+    `INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+  ).bind(key, active).run()
+  return c.json({ ok: true, [key]: body.active ? true : false })
+})
+
 // -------------------- API: admin - grade management --------------------
 
 app.put('/api/admin/user-grade', async (c) => {
@@ -5611,6 +5645,16 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
+      <!-- イベント管理 -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-bold mb-3">🎉 イベント管理</h2>
+        <div class="flex flex-wrap gap-3" id="festToggles">
+          <button id="festFractionBtn" onclick="toggleFest('fraction')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">🍰 分数フェス OFF</button>
+          <button id="festDecimalBtn" onclick="toggleFest('decimal')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">💧 小数フェス OFF</button>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">ONにすると生徒の修行画面にフェス表示が出て、かけらがドロップするようになります。</p>
+      </div>
+
       <!-- クラス作成 -->
       <div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-bold mb-3">クラス作成</h2>
@@ -6063,6 +6107,51 @@ app.get('/teacher', (c) => {
         if(!r.ok) throw new Error(j.error || 'error');
         return j;
       }
+
+      // ===== フェストグル =====
+      var _festState = { fraction_fest_active: false, decimal_fest_active: false };
+      async function loadFestStatus(){
+        try{
+          var d = await api('/api/fest/status');
+          _festState = { fraction_fest_active: !!d.fraction_fest_active, decimal_fest_active: !!d.decimal_fest_active };
+        }catch(e){}
+        updateFestButtons();
+      }
+      function updateFestButtons(){
+        var fb = document.getElementById('festFractionBtn');
+        var db = document.getElementById('festDecimalBtn');
+        if(fb){
+          if(_festState.fraction_fest_active){
+            fb.className='px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-teal-100 text-teal-700 border-teal-400 shadow';
+            fb.textContent='🍰 分数フェス ON';
+          } else {
+            fb.className='px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300';
+            fb.textContent='🍰 分数フェス OFF';
+          }
+        }
+        if(db){
+          if(_festState.decimal_fest_active){
+            db.className='px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-sky-100 text-sky-700 border-sky-400 shadow';
+            db.textContent='💧 小数フェス ON';
+          } else {
+            db.className='px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300';
+            db.textContent='💧 小数フェス OFF';
+          }
+        }
+      }
+      async function toggleFest(type){
+        var key = type === 'fraction' ? 'fraction_fest_active' : 'decimal_fest_active';
+        var newVal = !_festState[key];
+        try{
+          await api('/api/admin/fest-toggle',{
+            method:'PUT', headers:{'content-type':'application/json'},
+            body: JSON.stringify({fest: type, active: newVal})
+          });
+          _festState[key] = newVal;
+          updateFestButtons();
+        }catch(e){ alert('エラー: ' + String(e.message||e)); }
+      }
+      loadFestStatus();
 
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
