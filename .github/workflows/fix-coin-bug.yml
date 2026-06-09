@@ -1,0 +1,16 @@
+name: Fix coin bug
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply fix
+        run: |
+          python3 -c 'c=open("public/index.html").read();open("public/index.html","w").write(c.replace("player.coins = (player.coins||0) + res.reward","player.newCoins = (player.newCoins||0) + res.reward"))'
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git diff --exit-code public/index.html || (git add public/index.html && git commit -m "fix: coinbug" && git push)
