@@ -3857,6 +3857,7 @@ window.claimClassMission=async function(){
   try{var res=await apiJson('/api/student/class-mission/'+__classMissionId+'/claim',{method:'POST'});
   if(res&&(res.rewardCoins||res.rewardShards)){
   try{player.coins=(player.coins||0)+(res.rewardCoins||0);
+  try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}
   if(res.rewardShards&&window.labAddShards)labAddShards(res.rewardShards);
   if(window.updatePlayerDisplay)updatePlayerDisplay();}catch(e){}
   btn.textContent=(res.rewardCoins||0)+'コイン＋'+(res.rewardShards||0)+'かけら GET！';
@@ -51931,7 +51932,8 @@ async function _loadStudentContactNotes(){
                   var coinEl = document.getElementById('coinCount');
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
                   if(window.player) {
-                    player.newCoins = (player.newCoins||0) + res.reward;
+                    player.coins = (player.coins||0) + res.reward;
+                    try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}
                   }
                 }catch(e){}
               } else {
