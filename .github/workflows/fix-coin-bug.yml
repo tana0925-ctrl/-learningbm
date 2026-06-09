@@ -10,7 +10,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply fix
         run: |
-          python3 -c 'c=open("public/index.html").read();open("public/index.html","w").write(c.replace("player.coins = (player.coins||0) + res.reward","player.newCoins = (player.newCoins||0) + res.reward"))'
+          python3 << 'PYEOF'
+          import sys
+          c = open('public/index.html').read()
+          old1 = 'if(window.player) {\n                    player.newCoins = (player.newCoins||0) + res.reward;\n                  }'
+          new1 = 'if(window.player) {\n                    player.coins = (player.coins||0) + res.reward;\n                    try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}\n                  }'
+          c2 = c.replace(old1, new1, 1)
+          print('Fix1:', c2 != c)
+          old2 = '  try{player.coins=(player.coins||0)+(res.rewardCoins||0);\n  if(res.rewardShards&&window.labAddShards)labAddShards(res.rewardShards);'
+          new2 = '  try{player.coins=(player.coins||0)+(res.rewardCoins||0);\n  try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}\n  if(res.rewardShards&&window.labAddShards)labAddShards(res.rewardShards);'
+          c3 = c2.replace(old2, new2, 1)
+          print('Fix2:', c3 != c2)
+          if c3 == c:
+            print('ERROR: no changes')
+            sys.exit(1)
+          open('public/index.html', 'w').write(c3)
+          print('Done.')
+          PYEOF
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
-          git diff --exit-code public/index.html || (git add public/index.html && git commit -m "fix: coinbug" && git push)
+          git diff --exit-code public/index.html || (git add public/index.html && git commit -m "fix: coin fraud false positive in claimClassMission and contact note" && git push)
