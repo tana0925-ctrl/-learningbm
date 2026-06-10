@@ -3089,6 +3089,115 @@ app.get('/api/teacher/class-analytics', async (c) => {
   })
 })
 
+// ======== 提出状況ダッシュボード ========
+app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.param('classId')
+  const weekKey = c.req.query('weekKey') || getWeekKey()
+
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+
+  // 児童一覧
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.login_id as loginId, u.name
+    FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
+    ORDER BY u.name
+  `).bind(classId).all<any>()
+
+  // 今週の毎日の振り返り（日別）
+  let dailySubs: any = { results: [] }
+  try {
+    dailySubs = await c.env.DB.prepare(`
+      SELECT hs.user_id, hs.day_key, hs.minutes, hs.end_weather, hs.returned_at, hs.teacher_comment
+      FROM homework_submissions hs
+      JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? ORDER BY hs.day_key
+    `).bind(classId, weekKey).all<any>()
+  } catch {}
+
+  // 先週の提出データ（比較用）
+  const prevWeekKey = getPrevWeekKey(weekKey)
+  let prevSubs: any = { results: [] }
+  try {
+    prevSubs = await c.env.DB.prepare(`
+      SELECT hs.user_id, COUNT(*) as cnt
+      FROM homework_submissions hs
+      JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
+      WHERE hs.week_key=? GROUP BY hs.user_id
+    `).bind(classId, prevWeekKey).all<any>()
+  } catch {}
+
+  // 今週の計画
+  let plans: any = { results: [] }
+  try {
+    plans = await c.env.DB.prepare(`
+      SELECT user_id, revision_count, plan_approved, updated_at
+      FROM student_weekly_plans
+      WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
+    `).bind(weekKey, classId).all<any>()
+  } catch {}
+
+  // 今週の振り返り（構造化）
+  let reflections: any = { results: [] }
+  try {
+    reflections = await c.env.DB.prepare(`
+      SELECT user_id, concentration, created_at
+      FROM structured_reflections
+      WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
+    `).bind(weekKey, classId).all<any>()
+  } catch {}
+
+  // 家庭学習がある曜日
+  let menu: any = null
+  try {
+    menu = await c.env.DB.prepare(
+      'SELECT active_days FROM class_weekly_menu WHERE class_id=? AND week_key=? LIMIT 1'
+    ).bind(classId, weekKey).first<any>()
+  } catch {}
+
+  // JST基準の今日
+  const jstNow = new Date(Date.now() + 9 * 3600000)
+  const todayKey = jstNow.toISOString().split('T')[0]
+
+  // 今週の月〜金の日付を計算
+  const activeDaysStr = menu?.active_days || 'mon,tue,wed,thu,fri'
+  const activeDays = activeDaysStr.split(',').map((d: string) => d.trim())
+  const dayOfWeekNow = jstNow.getUTCDay() // 0=Sun
+  const mondayOffset = (dayOfWeekNow === 0 ? -6 : 1 - dayOfWeekNow)
+  const monday = new Date(jstNow)
+  monday.setUTCDate(monday.getUTCDate() + mondayOffset)
+  const weekDays: { date: string; dayName: string; label: string; isActive: boolean; isPast: boolean }[] = []
+  const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri']
+  const dayLabels = ['月', '火', '水', '木', '金']
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(monday)
+    d.setUTCDate(d.getUTCDate() + i)
+    const dateStr = d.toISOString().split('T')[0]
+    weekDays.push({
+      date: dateStr,
+      dayName: dayNames[i],
+      label: dayLabels[i],
+      isActive: activeDays.includes(dayNames[i]),
+      isPast: dateStr <= todayKey,
+    })
+  }
+
+  return c.json({
+    ok: true, weekKey, todayKey,
+    className: cls.name,
+    members: members.results,
+    dailySubmissions: dailySubs.results,
+    prevWeekSubmissions: prevSubs.results,
+    plans: plans.results,
+    reflections: reflections.results,
+    weekDays, activeDays,
+  })
+})
+
 // 先生：自動フィードバック候補の一括生成
 app.get('/api/teacher/auto-feedback', async (c) => {
   const u = c.get('user')
@@ -5845,6 +5954,23 @@ app.get('/teacher', (c) => {
           <button id="hwSubTab_weekly" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('weekly')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> 今週の振り返り
           </button>
+          <button id="hwSubTab_dashboard" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('dashboard')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">📊</span> 提出状況
+          </button>
+        </div>
+
+        <!-- サブタブ: 提出状況ダッシュボード -->
+        <div id="hwPane_dashboard" class="hidden space-y-3">
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="flex gap-2 mb-3 flex-wrap items-center">
+              <select id="dashClassFilter" class="border p-2 rounded text-sm bg-white font-bold"></select>
+              <button onclick="loadSubmissionDashboard()" class="bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📊 提出状況を表示</button>
+              <span id="dashWeekLabel" class="text-xs text-slate-500 ml-auto"></span>
+            </div>
+            <div id="dashboardContent">
+              <p class="text-xs text-slate-400">クラスを選んで「提出状況を表示」を押してください</p>
+            </div>
+          </div>
         </div>
 
         <!-- サブタブ①: 先生メニュー -->
@@ -6321,8 +6447,8 @@ app.get('/teacher', (c) => {
 
       // --- 家庭学習サブタブ切り替え ---
       function switchHomeworkSubTab(sub){
-        const tabs = ['menu','plan','daily','weekly'];
-        const colors = {menu:'green',plan:'blue',daily:'emerald',weekly:'yellow'};
+        const tabs = ['dashboard','menu','plan','daily','weekly'];
+        const colors = {dashboard:'indigo',menu:'green',plan:'blue',daily:'emerald',weekly:'yellow'};
         tabs.forEach(function(t){
           var pane = document.getElementById('hwPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -6342,6 +6468,7 @@ app.get('/teacher', (c) => {
         if(sub === 'daily') loadHomework();
         if(sub === 'plan') loadStudentPlans();
         if(sub === 'weekly'){ initNewTabFilters(); }
+        if(sub === 'dashboard') loadSubmissionDashboard();
       }
 
       // --- アクティビティ（今日の学習状況）---
@@ -6648,6 +6775,13 @@ app.get('/teacher', (c) => {
           analyticsSel.innerHTML = '';
           data.classes.forEach(c => { analyticsSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
           if(defaultClassId) analyticsSel.value = defaultClassId;
+        }
+        // 提出状況ダッシュボードのクラスフィルターも更新
+        const dashSel = document.getElementById('dashClassFilter');
+        if(dashSel){
+          dashSel.innerHTML = '';
+          data.classes.forEach(c => { dashSel.innerHTML += '<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>'; });
+          if(defaultClassId) dashSel.value = defaultClassId;
         }
         // アクティビティ（今日の学習状況）のクラスフィルターも更新
         const actSel = document.getElementById('activityClassFilter');
@@ -7288,6 +7422,277 @@ wrap.innerHTML = '';
           wrap.innerHTML = html;
         }catch(e){
           wrap.innerHTML='<p class="text-red-600">エラー: '+escH(String(e.message||e))+'</p>';
+        }
+      }
+
+      // ===== 提出状況ダッシュボード =====
+      async function loadSubmissionDashboard(){
+        const wrap = document.getElementById('dashboardContent');
+        if(!wrap) return;
+        const classId = document.getElementById('dashClassFilter')?.value;
+        if(!classId){ alert('クラスを選択してください'); return; }
+        wrap.innerHTML='<p class="text-indigo-500 text-sm animate-pulse">📊 提出状況を取得中...</p>';
+        try{
+          const wk = getWeekKeyLocal();
+          const data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/submission-dashboard?weekKey='+encodeURIComponent(wk));
+          const members = data.members || [];
+          const daily = data.dailySubmissions || [];
+          const prevSubs = data.prevWeekSubmissions || [];
+          const plans = data.plans || [];
+          const reflections = data.reflections || [];
+          const weekDays = data.weekDays || [];
+          const todayKey = data.todayKey || '';
+          const weekKey = data.weekKey || wk;
+
+          // ヘルパー: user_idで日別提出をマップ化
+          const dailyByUser = {};
+          for(const d of daily){
+            if(!dailyByUser[d.user_id]) dailyByUser[d.user_id] = {};
+            dailyByUser[d.user_id][d.day_key] = d;
+          }
+          // 先週提出マップ
+          const prevByUser = {};
+          for(const p of prevSubs) prevByUser[p.user_id] = p.cnt || 0;
+          // 計画マップ
+          const planByUser = {};
+          for(const p of plans) planByUser[p.user_id] = p;
+          // 振り返りマップ
+          const refByUser = {};
+          for(const r of reflections) refByUser[r.user_id] = r;
+
+          // 過去の曜日だけフィルタ (isActive && isPast)
+          const pastActiveDays = weekDays.filter(function(d){ return d.isActive && d.isPast; });
+          const activeDayDates = pastActiveDays.map(function(d){ return d.date; });
+
+          // ===== 集計 =====
+          // 今日の提出
+          const todaySubmitters = daily.filter(function(d){ return d.day_key === todayKey; });
+          const todayRate = members.length > 0 ? Math.round(todaySubmitters.length / members.length * 100) : 0;
+          // 今日の未提出者
+          const todaySubmitterIds = {};
+          for(const s of todaySubmitters) todaySubmitterIds[s.user_id] = true;
+          const todayMissing = members.filter(function(m){ return !todaySubmitterIds[m.id]; });
+          // 週の各日ごと提出数
+          const totalPossible = members.length * activeDayDates.length;
+          const totalActual = daily.filter(function(d){ return activeDayDates.indexOf(d.day_key) >= 0; }).length;
+          const weekDailyRate = totalPossible > 0 ? Math.round(totalActual / totalPossible * 100) : 0;
+          // 計画提出率
+          const planCount = plans.length;
+          const planRate = members.length > 0 ? Math.round(planCount / members.length * 100) : 0;
+          const planMissing = members.filter(function(m){ return !planByUser[m.id]; });
+          // 振り返り提出率
+          const refCount = reflections.length;
+          const refRate = members.length > 0 ? Math.round(refCount / members.length * 100) : 0;
+          const refMissing = members.filter(function(m){ return !refByUser[m.id]; });
+          // 先週比
+          const prevTotal = 0; for(var uid in prevByUser) prevTotal += prevByUser[uid];
+          var prevTotalVal = 0; for(var uid2 in prevByUser) prevTotalVal += prevByUser[uid2];
+          const weekDiff = totalActual - prevTotalVal;
+          const weekDiffLabel = weekDiff > 0 ? '+'+weekDiff : String(weekDiff);
+
+          // 週ラベル
+          var dashWeekEl = document.getElementById('dashWeekLabel');
+          if(dashWeekEl) dashWeekEl.textContent = '📅 ' + weekKey + '（' + escH(data.className||'') + '）';
+
+          var html = '';
+
+          // ====== サマリーカード ======
+          html += '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">';
+          // 今日の提出率
+          var todayColor = todayRate >= 80 ? 'text-emerald-600' : todayRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+          html += '<div class="bg-white rounded-xl border-2 border-indigo-100 p-3 text-center">';
+          html += '<div class="text-3xl font-black '+todayColor+'">'+todayRate+'<span class="text-lg">%</span></div>';
+          html += '<div class="text-[10px] text-slate-500 font-bold">📝 今日の振り返り提出率</div>';
+          html += '<div class="text-[10px] text-slate-400">'+todaySubmitters.length+'/'+members.length+'人</div>';
+          html += '</div>';
+          // 今週の日別提出率
+          var weekDailyColor = weekDailyRate >= 80 ? 'text-emerald-600' : weekDailyRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+          html += '<div class="bg-white rounded-xl border-2 border-blue-100 p-3 text-center">';
+          html += '<div class="text-3xl font-black '+weekDailyColor+'">'+weekDailyRate+'<span class="text-lg">%</span></div>';
+          html += '<div class="text-[10px] text-slate-500 font-bold">📊 今週の日別提出率</div>';
+          html += '<div class="text-[10px] text-slate-400">'+totalActual+'/'+totalPossible+'件</div>';
+          html += '</div>';
+          // 計画提出率
+          var planColor = planRate >= 80 ? 'text-emerald-600' : planRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+          html += '<div class="bg-white rounded-xl border-2 border-purple-100 p-3 text-center">';
+          html += '<div class="text-3xl font-black '+planColor+'">'+planRate+'<span class="text-lg">%</span></div>';
+          html += '<div class="text-[10px] text-slate-500 font-bold">📋 今週の計画提出率</div>';
+          html += '<div class="text-[10px] text-slate-400">'+planCount+'/'+members.length+'人</div>';
+          html += '</div>';
+          // 振り返り提出率
+          var refColor = refRate >= 80 ? 'text-emerald-600' : refRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+          html += '<div class="bg-white rounded-xl border-2 border-orange-100 p-3 text-center">';
+          html += '<div class="text-3xl font-black '+refColor+'">'+refRate+'<span class="text-lg">%</span></div>';
+          html += '<div class="text-[10px] text-slate-500 font-bold">💭 週の振り返り提出率</div>';
+          html += '<div class="text-[10px] text-slate-400">'+refCount+'/'+members.length+'人</div>';
+          html += '</div>';
+          html += '</div>';
+
+          // ====== 先週比カード ======
+          html += '<div class="bg-gradient-to-r '+(weekDiff>=0?'from-green-50 to-emerald-50 border-green-200':'from-red-50 to-orange-50 border-red-200')+' border rounded-xl p-3 mb-4 flex items-center gap-3">';
+          html += '<div class="text-2xl">'+(weekDiff>=0?'📈':'📉')+'</div>';
+          html += '<div><div class="font-bold text-sm '+(weekDiff>=0?'text-green-700':'text-red-700')+'">先週比: '+weekDiffLabel+'件</div>';
+          html += '<div class="text-[10px] text-slate-500">今週 '+totalActual+'件 / 先週 '+prevTotalVal+'件（日別提出数の合計）</div>';
+          html += '</div></div>';
+
+          // ====== 未提出者アラート ======
+          if(todayMissing.length > 0){
+            html += '<div class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">';
+            html += '<div class="font-bold text-sm text-red-700 mb-2">🔴 今日の振り返り未提出者（'+todayMissing.length+'人）</div>';
+            html += '<div class="flex flex-wrap gap-1">';
+            for(var ti=0;ti<todayMissing.length;ti++){
+              var tm = todayMissing[ti];
+              html += '<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(tm.loginId, tm.name))+'</span>';
+            }
+            html += '</div></div>';
+          }
+          if(planMissing.length > 0){
+            html += '<div class="bg-purple-50 border border-purple-200 rounded-xl p-3 mb-4">';
+            html += '<div class="font-bold text-sm text-purple-700 mb-2">📋 計画未提出者（'+planMissing.length+'人）</div>';
+            html += '<div class="flex flex-wrap gap-1">';
+            for(var pi=0;pi<planMissing.length;pi++){
+              var pm = planMissing[pi];
+              html += '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(pm.loginId, pm.name))+'</span>';
+            }
+            html += '</div></div>';
+          }
+          if(refMissing.length > 0){
+            html += '<div class="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4">';
+            html += '<div class="font-bold text-sm text-orange-700 mb-2">💭 週の振り返り未提出者（'+refMissing.length+'人）</div>';
+            html += '<div class="flex flex-wrap gap-1">';
+            for(var ri=0;ri<refMissing.length;ri++){
+              var rm = refMissing[ri];
+              html += '<span class="bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(rm.loginId, rm.name))+'</span>';
+            }
+            html += '</div></div>';
+          }
+
+          // ====== 日別提出マトリックス ======
+          html += '<div class="bg-white rounded-xl border p-3 mb-4 overflow-x-auto">';
+          html += '<div class="font-bold text-sm text-slate-700 mb-2">📅 日別提出マトリックス</div>';
+          html += '<table class="w-full text-xs border-collapse">';
+          html += '<thead><tr><th class="text-left p-1.5 text-slate-500 border-b sticky left-0 bg-white z-10 min-w-[80px]">児童名</th>';
+          for(var wi=0;wi<weekDays.length;wi++){
+            var wd = weekDays[wi];
+            var thClass = wd.date === todayKey ? 'bg-indigo-50 text-indigo-700 font-black' : 'text-slate-500';
+            var activeLabel = wd.isActive ? '' : '<br><span class="text-[8px] text-slate-300">(休)</span>';
+            html += '<th class="p-1.5 text-center border-b '+thClass+'">'+wd.label+activeLabel+'</th>';
+          }
+          html += '<th class="p-1.5 text-center border-b text-slate-500">計画</th>';
+          html += '<th class="p-1.5 text-center border-b text-slate-500">振返り</th>';
+          html += '<th class="p-1.5 text-center border-b text-slate-500">提出数</th>';
+          html += '</tr></thead><tbody>';
+
+          for(var mi=0;mi<members.length;mi++){
+            var m = members[mi];
+            var userDays = dailyByUser[m.id] || {};
+            var userSubmitCount = 0;
+            html += '<tr class="'+(mi%2===0?'bg-white':'bg-slate-50')+' hover:bg-indigo-50">';
+            html += '<td class="p-1.5 font-bold text-slate-700 border-b whitespace-nowrap sticky left-0 '+(mi%2===0?'bg-white':'bg-slate-50')+'">'+escH(resolveStudentName(m.loginId, m.name))+'</td>';
+            for(var di=0;di<weekDays.length;di++){
+              var day = weekDays[di];
+              var sub = userDays[day.date];
+              var cellHtml = '';
+              var cellClass = 'p-1.5 text-center border-b ';
+              if(day.date === todayKey) cellClass += 'bg-indigo-50 ';
+              if(!day.isActive){
+                cellHtml = '<span class="text-slate-200">-</span>';
+                cellClass += 'bg-slate-50 ';
+              } else if(sub){
+                userSubmitCount++;
+                var wIcon = sub.end_weather==='sun'?'☀️':sub.end_weather==='cloud'?'☁️':sub.end_weather==='rain'?'🌧️':'✅';
+                var retIcon = sub.returned_at ? '<span class="text-[8px] text-green-500">✓返</span>' : (sub.teacher_comment ? '<span class="text-[8px] text-blue-500">💬</span>' : '');
+                cellHtml = '<div class="leading-tight">'+wIcon+'<div class="text-[9px] text-slate-400">'+( sub.minutes||0)+'分</div>'+retIcon+'</div>';
+                cellClass += 'bg-green-50 ';
+              } else if(day.isPast){
+                cellHtml = '<span class="text-red-400 font-bold">✗</span>';
+                cellClass += 'bg-red-50 ';
+              } else {
+                cellHtml = '<span class="text-slate-200">-</span>';
+              }
+              html += '<td class="'+cellClass+'">'+cellHtml+'</td>';
+            }
+            // 計画
+            var plan = planByUser[m.id];
+            if(plan){
+              var approvedBadge = plan.plan_approved ? '✅' : '📝';
+              var revBadge = plan.revision_count > 0 ? '<div class="text-[8px] text-orange-500">修正'+plan.revision_count+'回</div>' : '';
+              html += '<td class="p-1.5 text-center border-b bg-blue-50">'+approvedBadge+revBadge+'</td>';
+            } else {
+              html += '<td class="p-1.5 text-center border-b bg-red-50"><span class="text-red-400 font-bold">✗</span></td>';
+            }
+            // 振り返り
+            var ref = refByUser[m.id];
+            if(ref){
+              var concBadge = ref.concentration ? '★'.repeat(Math.min(ref.concentration,5)) : '✅';
+              html += '<td class="p-1.5 text-center border-b bg-purple-50"><span class="text-[10px]">'+concBadge+'</span></td>';
+            } else {
+              html += '<td class="p-1.5 text-center border-b bg-red-50"><span class="text-red-400 font-bold">✗</span></td>';
+            }
+            // 提出数
+            var submitBarW = activeDayDates.length > 0 ? Math.round(userSubmitCount / activeDayDates.length * 100) : 0;
+            var submitColor = submitBarW >= 80 ? 'bg-emerald-400' : submitBarW >= 50 ? 'bg-yellow-400' : 'bg-red-400';
+            html += '<td class="p-1.5 border-b"><div class="flex items-center gap-1"><div class="w-12 bg-slate-100 rounded-full h-3 overflow-hidden"><div class="'+submitColor+' h-full rounded-full" style="width:'+submitBarW+'%"></div></div><span class="text-[10px] font-bold text-slate-600">'+userSubmitCount+'/'+activeDayDates.length+'</span></div></td>';
+            html += '</tr>';
+          }
+          html += '</tbody></table></div>';
+
+          // ====== 返却状況 ======
+          var returnedCount = 0;
+          var unreturned = [];
+          for(var si=0;si<daily.length;si++){
+            if(daily[si].day_key === todayKey){
+              if(daily[si].returned_at) returnedCount++;
+              else unreturned.push(daily[si]);
+            }
+          }
+          if(todaySubmitters.length > 0){
+            html += '<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">';
+            html += '<div class="font-bold text-sm text-blue-700 mb-1">🔄 今日の返却状況</div>';
+            html += '<div class="flex gap-4 items-center">';
+            html += '<div class="text-lg font-black text-blue-600">'+returnedCount+'/'+todaySubmitters.length+'</div>';
+            html += '<div class="text-xs text-slate-500">返却済み</div>';
+            if(unreturned.length > 0){
+              html += '<div class="text-xs text-orange-600 font-bold">未返却: '+unreturned.length+'件</div>';
+            } else {
+              html += '<div class="text-xs text-green-600 font-bold">✅ 全件返却済み</div>';
+            }
+            html += '</div></div>';
+          }
+
+          // ====== 個人別サマリー(折りたたみ) ======
+          html += '<details class="bg-white rounded-xl border p-3">';
+          html += '<summary class="font-bold text-sm text-slate-700 cursor-pointer">👤 個人別サマリー（クリックで展開）</summary>';
+          html += '<div class="mt-3 space-y-2">';
+          for(var si2=0;si2<members.length;si2++){
+            var student = members[si2];
+            var sName = resolveStudentName(student.loginId, student.name);
+            var sDays = dailyByUser[student.id] || {};
+            var sCount = 0;
+            var sTotalMin = 0;
+            for(var dk in sDays){ sCount++; sTotalMin += (sDays[dk].minutes||0); }
+            var sPlan = planByUser[student.id];
+            var sRef = refByUser[student.id];
+            var sPrev = prevByUser[student.id] || 0;
+            var sDiff = sCount - sPrev;
+            var diffIcon = sDiff > 0 ? '📈+'+sDiff : sDiff < 0 ? '📉'+sDiff : '→';
+            var statusBadges = [];
+            if(!sPlan) statusBadges.push('<span class="bg-red-100 text-red-700 px-1 rounded text-[9px]">計画✗</span>');
+            if(!sRef) statusBadges.push('<span class="bg-orange-100 text-orange-700 px-1 rounded text-[9px]">振返り✗</span>');
+            if(sCount === 0 && activeDayDates.length > 0) statusBadges.push('<span class="bg-red-200 text-red-800 px-1 rounded text-[9px] font-bold">未提出</span>');
+            html += '<div class="flex items-center gap-2 text-xs p-2 rounded-lg '+(sCount===0&&activeDayDates.length>0?'bg-red-50 border border-red-200':'bg-slate-50 border')+'">';
+            html += '<div class="font-bold text-slate-700 w-20 truncate">'+escH(sName)+'</div>';
+            html += '<div class="text-slate-500">提出'+sCount+'回</div>';
+            html += '<div class="text-slate-500">計'+sTotalMin+'分</div>';
+            html += '<div class="text-slate-400">'+diffIcon+'</div>';
+            html += '<div class="flex gap-0.5 flex-wrap">'+statusBadges.join('')+'</div>';
+            html += '</div>';
+          }
+          html += '</div></details>';
+
+          wrap.innerHTML = html;
+        }catch(e){
+          wrap.innerHTML='<p class="text-red-600 text-sm">エラー: '+escH(String(e.message||e))+'</p>';
         }
       }
 
