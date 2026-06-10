@@ -5078,11 +5078,22 @@ app.get('/admin', (c) => {
 
       <div class="bg-white rounded-xl shadow p-6">
         <h2 class="font-bold mb-2">児童一覧</h2>
-        <div class="flex flex-wrap gap-2 mb-2 text-sm">
-          <input id="filterGrade" class="border p-2 rounded" placeholder="学年" />
-          <button id="filterBtn" class="bg-slate-700 text-white rounded px-3">絞り込み</button>
-          <button id="reloadBtn" class="bg-slate-200 rounded px-3">更新</button>
+        <div class="flex flex-wrap gap-2 mb-2 text-sm items-center">
+          <input id="filterGrade" class="border p-2 rounded w-16" placeholder="学年" />
+          <select id="sortOrder" class="border p-2 rounded" onchange="renderUsers(true)">
+            <option value="default">名前順（デフォルト）</option>
+            <option value="login_asc">ログイン古い順</option>
+            <option value="login_desc">ログイン新しい順</option>
+            <option value="nologin">未ログイン優先</option>
+          </select>
+          <label class="flex items-center gap-1 cursor-pointer bg-red-50 border border-red-200 rounded px-2 py-1">
+            <input type="checkbox" id="filterInactive" onchange="renderUsers(true)" />
+            <span class="text-red-600 font-bold">2ヶ月未活動のみ</span>
+          </label>
+          <button id="filterBtn" class="bg-slate-700 text-white rounded px-3 py-2">絞り込み</button>
+          <button id="reloadBtn" class="bg-slate-200 rounded px-3 py-2">更新</button>
         </div>
+        <div id="userCount" class="text-xs text-gray-500 mb-1"></div>
         <div id="users" class="space-y-2 text-sm"></div>
       </div>
 
@@ -5320,67 +5331,82 @@ app.get('/admin', (c) => {
         }
       }
 
-      async function renderUsers(){
+      var _cachedUsers = [];
+      async function renderUsers(useCache){
         const grade = document.getElementById('filterGrade').value.trim();
-        const qs = new URLSearchParams();
-        if(grade) qs.set('grade', grade);
-        const u = await api('/api/admin/users?' + qs.toString());
+        if(!useCache){
+          const qs = new URLSearchParams();
+          if(grade) qs.set('grade', grade);
+          const u = await api('/api/admin/users?' + qs.toString());
+          _cachedUsers = u.users || [];
+        }
+        var users = _cachedUsers.slice();
+
+        // --- フィルター: 2ヶ月未活動のみ ---
+        var filterInactive = document.getElementById('filterInactive').checked;
+        var now = Date.now();
+        var twoMonthsMs = 60 * 24 * 60 * 60 * 1000; // 60日
+        if(filterInactive){
+          users = users.filter(function(x){
+            if(!x.lastLoginAt) return true; // 未ログイン = 未活動
+            var d = new Date(x.lastLoginAt + 'Z');
+            return (now - d.getTime()) > twoMonthsMs;
+          });
+        }
+
+        // --- ソート ---
+        var sort = document.getElementById('sortOrder').value;
+        if(sort === 'login_asc'){
+          users.sort(function(a,b){
+            if(!a.lastLoginAt && !b.lastLoginAt) return 0;
+            if(!a.lastLoginAt) return -1;
+            if(!b.lastLoginAt) return 1;
+            return a.lastLoginAt < b.lastLoginAt ? -1 : 1;
+          });
+        } else if(sort === 'login_desc'){
+          users.sort(function(a,b){
+            if(!a.lastLoginAt && !b.lastLoginAt) return 0;
+            if(!a.lastLoginAt) return 1;
+            if(!b.lastLoginAt) return -1;
+            return a.lastLoginAt > b.lastLoginAt ? -1 : 1;
+          });
+        } else if(sort === 'nologin'){
+          users.sort(function(a,b){
+            var aNo = !a.lastLoginAt ? 0 : 1;
+            var bNo = !b.lastLoginAt ? 0 : 1;
+            if(aNo !== bNo) return aNo - bNo;
+            return (a.name||'').localeCompare(b.name||'');
+          });
+        }
+        // default は API のまま（名前順）
+
         const wrap = document.getElementById('users');
+        const countEl = document.getElementById('userCount');
         wrap.innerHTML='';
-        if(!u.users.length){ wrap.textContent='該当なし'; return; }
-        for(const x of u.users){
+        countEl.textContent = '表示: ' + users.length + '件' + (_cachedUsers.length !== users.length ? ' / 全' + _cachedUsers.length + '件' : '');
+        if(!users.length){ wrap.textContent='該当なし'; return; }
+        for(const x of users){
+          // 未活動判定
+          var isInactive = false;
+          var inactiveLabel = '';
+          if(!x.lastLoginAt){
+            isInactive = true; inactiveLabel = '⚠ 未ログイン';
+          } else {
+            var lastD = new Date(x.lastLoginAt + 'Z');
+            var daysSince = Math.floor((now - lastD.getTime()) / (24*60*60*1000));
+            if(daysSince >= 60){
+              isInactive = true; inactiveLabel = '⚠ ' + daysSince + '日間未活動';
+            }
+          }
+
           const div = document.createElement('div');
-          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
+          div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2'
+            + (isInactive ? ' bg-red-50 border-red-300' : '');
           const left = document.createElement('div');
           left.innerHTML = x.grade + '年 / ' + x.name + '（' + x.loginId + '）' + (x.isActive? '' : ' <span class="text-red-500">[停止/未承認]</span>')
-            + ' <span class="text-xs text-blue-600">最終ログイン: ' + fmtLogin(x.lastLoginAt) + '</span>';
+            + ' <span class="text-xs text-blue-600">最終ログイン: ' + fmtLogin(x.lastLoginAt) + '</span>'
+            + (isInactive ? ' <span class="text-xs font-bold text-red-600 ml-1">' + inactiveLabel + '</span>' : '');
           div.appendChild(left);
-          const right = document.createElement('div');
-          right.className='flex gap-2 flex-wrap';
-
-          const gradeBtn = document.createElement('button');
-          gradeBtn.className='bg-indigo-600 text-white rounded px-3 py-1';
-          gradeBtn.textContent='学年変更';
-          gradeBtn.onclick = async ()=>{
-            const g = prompt(x.name + ' の学年を入力（1〜6）', x.grade);
-            if(!g) return;
-            const n = Number(g);
-            if(!Number.isInteger(n)||n<1||n>6){ alert('1〜6の数字を入力してください'); return; }
-            await api('/api/admin/user-grade',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({userId:x.id,grade:n})});
-            await loadAll();
-          };
-          right.appendChild(gradeBtn);
-
-          const toggle = document.createElement('button');
-          toggle.className = x.isActive ? 'bg-amber-600 text-white rounded px-3 py-1' : 'bg-blue-600 text-white rounded px-3 py-1';
-          toggle.textContent = x.isActive ? '停止' : '再開';
-          toggle.onclick = async ()=>{
-            if(x.isActive){ const reason=prompt('停止理由(任意)'); await api('/api/admin/disable/'+x.id,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason})}); }
-            else { await api('/api/admin/approve/'+x.id,{method:'POST'}); }
-            await loadAll();
-          };
-          right.appendChild(toggle);
-
-          const reset = document.createElement('button');
-          reset.className='bg-slate-800 text-white rounded px-3 py-1';
-          reset.textContent='PWリセット';
-          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
-          right.appendChild(reset);
-
-          const del = document.createElement('button');
-          del.className='bg-red-600 text-white rounded px-3 py-1';
-          del.textContent='削除';
-          del.onclick = async ()=>{
-            if(!confirm(x.name+'（'+x.loginId+'）のアカウントを完全に削除しますか？\\n学習記録もすべて削除されます。この操作は取り消せません。')) return;
-            await api('/api/admin/delete/'+x.id,{method:'DELETE'});
-            await loadAll();
-          };
-          right.appendChild(del);
-
-          div.appendChild(right);
-          wrap.appendChild(div);
-        }
-      }
 
 // ========== クラス管理 ==========
       let currentClassId = null;
