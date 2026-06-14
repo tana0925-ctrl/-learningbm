@@ -3043,11 +3043,12 @@ app.get('/api/teacher/class-analytics', async (c) => {
     WHERE swp.week_key=?
   `).bind(classId, weekKey).all<any>()
 
+  // 振り返りデータ: student_weekly_plansのplans_json内にreflectionが含まれるものを取得
   const refData = await c.env.DB.prepare(`
-    SELECT sr.user_id, sr.concentration, sr.good_point, sr.improve_point, sr.next_action
-    FROM structured_reflections sr
-    JOIN class_members cm ON cm.user_id = sr.user_id AND cm.class_id=?
-    WHERE sr.week_key=?
+    SELECT swp.user_id, swp.plans_json
+    FROM student_weekly_plans swp
+    JOIN class_members cm ON cm.user_id = swp.user_id AND cm.class_id=?
+    WHERE swp.week_key=? AND swp.plans_json LIKE '%"reflection"%'
   `).bind(classId, weekKey).all<any>()
 
   // 「気になる児童」アラート生成
@@ -3141,13 +3142,14 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
     `).bind(weekKey, classId).all<any>()
   } catch {}
 
-  // 今週の振り返り（構造化）
+  // 今週の振り返り: student_weekly_plansのplans_json内にreflectionが含まれるもの
   let reflections: any = { results: [] }
   try {
     reflections = await c.env.DB.prepare(`
-      SELECT user_id, concentration, created_at
-      FROM structured_reflections
+      SELECT user_id, plans_json
+      FROM student_weekly_plans
       WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
+      AND plans_json LIKE '%"reflection"%'
     `).bind(weekKey, classId).all<any>()
   } catch {}
 
