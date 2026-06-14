@@ -3132,6 +3132,13 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
     ORDER BY u.name
   `).bind(classId).all<any>()
 
+  // 週の月曜日〜日曜日の日付範囲を計算
+  const monday = getMondayFromWeekKey(weekKey)
+  const sunday = new Date(monday)
+  sunday.setUTCDate(monday.getUTCDate() + 6)
+  const mondayStr = monday.toISOString().split('T')[0]
+  const sundayStr = sunday.toISOString().split('T')[0]
+
   // 今週の毎日の振り返り（日別）
   let dailySubs: any = { results: [] }
   try {
@@ -3139,20 +3146,25 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
       SELECT hs.user_id, hs.day_key, hs.minutes, hs.end_weather, hs.returned_at, hs.teacher_comment
       FROM homework_submissions hs
       JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
-      WHERE hs.week_key=? ORDER BY hs.day_key
-    `).bind(classId, weekKey).all<any>()
+      WHERE hs.day_key >= ? AND hs.day_key <= ? ORDER BY hs.day_key
+    `).bind(classId, mondayStr, sundayStr).all<any>()
   } catch {}
 
   // 先週の提出データ（比較用）
   const prevWeekKey = getPrevWeekKey(weekKey)
+  const prevMonday = getMondayFromWeekKey(prevWeekKey)
+  const prevSunday = new Date(prevMonday)
+  prevSunday.setUTCDate(prevMonday.getUTCDate() + 6)
+  const prevMondayStr = prevMonday.toISOString().split('T')[0]
+  const prevSundayStr = prevSunday.toISOString().split('T')[0]
   let prevSubs: any = { results: [] }
   try {
     prevSubs = await c.env.DB.prepare(`
       SELECT hs.user_id, COUNT(*) as cnt
       FROM homework_submissions hs
       JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
-      WHERE hs.week_key=? GROUP BY hs.user_id
-    `).bind(classId, prevWeekKey).all<any>()
+      WHERE hs.day_key >= ? AND hs.day_key <= ? GROUP BY hs.user_id
+    `).bind(classId, prevMondayStr, prevSundayStr).all<any>()
   } catch {}
 
   // 今週の計画
@@ -3186,12 +3198,17 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
 
   // JST基準の今日
   const jstNow = new Date(Date.now() + 9 * 3600000)
-  const todayKey = jstNow.toISOString().split('T')[0]
+  const realToday = jstNow.toISOString().split('T')[0]
+  const fridayDate = new Date(monday)
+  fridayDate.setUTCDate(monday.getUTCDate() + 4)
+  const fridayStr = fridayDate.toISOString().split('T')[0]
+  // 過去の週を見ているときは、todayKeyをその週の金曜日にする
+  const todayKey = realToday > fridayStr ? fridayStr : realToday
 
   // 指定週の月〜金の日付を計算（weekKeyから算出）
   const activeDaysStr = menu?.active_days || 'mon,tue,wed,thu,fri'
   const activeDays = activeDaysStr.split(',').map((d: string) => d.trim())
-  const monday = getMondayFromWeekKey(weekKey)
+  // monday is already computed above
   const weekDays: { date: string; dayName: string; label: string; isActive: boolean; isPast: boolean }[] = []
   const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri']
   const dayLabels = ['月', '火', '水', '木', '金']
