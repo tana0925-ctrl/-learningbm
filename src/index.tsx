@@ -1697,6 +1697,133 @@ ${refTxt || 'なし'}
   })
 })
 
+// 個人全期間分析API
+app.get('/api/teacher/student-full-analysis', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const studentId = c.req.query('studentId')
+  if (!studentId) return jsonError(c, 400, 'studentId required')
+
+  const member = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT u.id, u.name, u.login_id FROM users u WHERE u.id=?`).bind(studentId).first<any>()
+    : await c.env.DB.prepare(`
+        SELECT u.id, u.name, u.login_id FROM users u
+        JOIN class_members cm ON cm.user_id = u.id
+        JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+        WHERE u.id = ?
+      `).bind(u.id, studentId).first<any>()
+  if (!member) return jsonError(c, 404, 'student_not_found')
+
+  const [submissions, subjectResults, plans, reflections, revisions] = await Promise.all([
+    c.env.DB.prepare(`
+      SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim,
+             next_improve, submitted_at, returned_at, streak_after, rest_day, has_physical
+      FROM homework_submissions WHERE user_id=? ORDER BY day_key DESC
+    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare(`
+      SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      FROM learning_results WHERE user_id=? GROUP BY unit ORDER BY total DESC
+    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare(`
+      SELECT week_key, plans_json, revision_count, plan_approved, plan_reward_coins,
+             reflection_comment, reflection_returned_at, reflection_reward_coins
+      FROM student_weekly_plans WHERE user_id=? ORDER BY week_key DESC
+    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare(`
+      SELECT week_key, concentration, good_point, improve_point, next_action, free_text, created_at
+      FROM structured_reflections WHERE user_id=? ORDER BY week_key DESC
+    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare(`
+      SELECT week_key, revision_number, reason, created_at
+      FROM plan_revisions WHERE user_id=? ORDER BY created_at DESC
+    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+  ])
+
+  const subs = submissions.results || []
+  const totalSubmissions = subs.length
+  const firstDate = subs.length > 0 ? subs[subs.length - 1].day_key : null
+  const lastDate = subs.length > 0 ? subs[0].day_key : null
+  const totalMinutes = subs.reduce((a: number, s: any) => a + (s.minutes || 0), 0)
+  const avgMinutes = totalSubmissions > 0 ? Math.round(totalMinutes / totalSubmissions) : 0
+  const weathers = subs.map((s: any) => s.end_weather).filter(Boolean)
+  const sunCount = weathers.filter((w: string) => w === 'sun').length
+  const cloudCount = weathers.filter((w: string) => w === 'cloud').length
+  const rainCount = weathers.filter((w: string) => w === 'rain').length
+  const sunRate = weathers.length ? Math.round(sunCount / weathers.length * 100) : 0
+
+  // ストリーク計算
+  const dayKeys = [...new Set(subs.map((s: any) => s.day_key).filter(Boolean))].sort()
+  let currentStreak = 0
+  let maxStreak = 0
+  const streaksList: { start: string, end: string, length: number }[] = []
+  if (dayKeys.length > 0) {
+    let sStart = dayKeys[0], sLen = 1, prev = dayKeys[0]
+    for (let i = 1; i < dayKeys.length; i++) {
+      const diff = Math.round((new Date(dayKeys[i]).getTime() - new Date(prev).getTime()) / 86400000)
+      if (diff === 1) { sLen++ }
+      else if (diff > 1) {
+        streaksList.push({ start: sStart, end: prev, length: sLen })
+        if (sLen > maxStreak) maxStreak = sLen
+        sStart = dayKeys[i]; sLen = 1
+      }
+      prev = dayKeys[i]
+    }
+    streaksList.push({ start: sStart, end: prev, length: sLen })
+    if (sLen > maxStreak) maxStreak = sLen
+    const daysSinceLast = Math.round((Date.now() - new Date(dayKeys[dayKeys.length - 1]).getTime()) / 86400000)
+    if (daysSinceLast <= 1) currentStreak = streaksList[streaksList.length - 1].length
+  }
+
+  // 月別トレンド
+  const mMap: Record<string, { count: number, totalMin: number, sun: number, weatherTotal: number }> = {}
+  for (const s of subs) {
+    if (!s.day_key) continue
+    const m = s.day_key.slice(0, 7)
+    if (!mMap[m]) mMap[m] = { count: 0, totalMin: 0, sun: 0, weatherTotal: 0 }
+    mMap[m].count++
+    mMap[m].totalMin += (s.minutes || 0)
+    if (s.end_weather) { mMap[m].weatherTotal++; if (s.end_weather === 'sun') mMap[m].sun++ }
+  }
+  const monthlyTrends = Object.entries(mMap)
+    .map(([month, v]) => ({ month, count: v.count, avgMin: v.count ? Math.round(v.totalMin / v.count) : 0, sunRate: v.weatherTotal ? Math.round(v.sun / v.weatherTotal * 100) : 0 }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+
+  // カレンダー
+  const calendar: Record<string, { minutes: number, weather: string }> = {}
+  for (const s of subs) {
+    if (s.day_key) calendar[s.day_key] = { minutes: s.minutes || 0, weather: s.end_weather || '' }
+  }
+
+  // 教科分析
+  const subjectAnalysis = (subjectResults.results || []).map((r: any) => ({
+    unit: r.unit, total: r.total, correct: r.correct_count, rate: r.total ? Math.round(r.correct_count / r.total * 100) : 0
+  }))
+
+  const allPlans = plans.results || []
+  const approvedPlans = allPlans.filter((p: any) => p.plan_approved)
+  const allRefs = reflections.results || []
+  const returnedSubs = subs.filter((s: any) => s.returned_at)
+
+  return c.json({
+    ok: true,
+    student: { id: member.id, name: member.name, loginId: member.login_id },
+    overview: {
+      totalSubmissions, firstDate, lastDate, totalMinutes, avgMinutes,
+      sunRate, sunCount, cloudCount, rainCount, currentStreak, maxStreak,
+      returnRate: totalSubmissions > 0 ? Math.round(returnedSubs.length / totalSubmissions * 100) : 0,
+      planCompletionRate: allPlans.length > 0 ? Math.round(approvedPlans.length / allPlans.length * 100) : 0,
+      totalPlans: allPlans.length, totalReflections: allRefs.length,
+      totalRevisions: (revisions.results || []).length,
+    },
+    monthlyTrends, calendar, subjects: subjectAnalysis,
+    streaks: streaksList.sort((a, b) => b.length - a.length).slice(0, 10),
+    plans: allPlans.map((p: any) => ({ weekKey: p.week_key, revisionCount: p.revision_count || 0, approved: !!p.plan_approved })),
+    reflections: allRefs.map((r: any) => ({ weekKey: r.week_key, concentration: r.concentration, goodPoint: r.good_point, improvePoint: r.improve_point, nextAction: r.next_action })),
+    revisions: (revisions.results || []).slice(0, 30),
+    recentSubmissions: subs.slice(0, 15),
+  })
+})
+
 // 週報レポートAPI: クラス全体の1週間まとめ
 app.get('/api/teacher/weekly-report', async (c) => {
   const u = c.get('user')
@@ -5975,6 +6102,19 @@ app.get('/teacher', (c) => {
           </div>
           <div id="karteContent"></div>
         </div>
+
+        <!-- 個人全期間分析オーバーレイ -->
+        <div id="studentFullAnalysisOverlay" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);overflow-y:auto;">
+          <div style="max-width:800px;margin:20px auto;background:white;border-radius:16px;padding:20px;min-height:calc(100vh - 40px);">
+            <div class="flex items-center justify-between mb-4">
+              <div class="font-bold text-xl text-indigo-800" id="fullAnalysisStudentName"></div>
+              <button onclick="closeStudentFullAnalysis()" class="bg-slate-200 hover:bg-slate-300 rounded-full w-8 h-8 flex items-center justify-center text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            <div id="fullAnalysisContent">
+              <p class="text-indigo-500 animate-pulse text-sm">📊 データを取得中...</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 家庭学習提出一覧タブ -->
@@ -7721,7 +7861,9 @@ wrap.innerHTML = '';
             var userDays = dailyByUser[m.id] || {};
             var userSubmitCount = 0;
             html += '<tr class="'+(mi%2===0?'bg-white':'bg-slate-50')+' hover:bg-indigo-50">';
-            html += '<td class="p-1.5 font-bold text-slate-700 border-b whitespace-nowrap sticky left-0 '+(mi%2===0?'bg-white':'bg-slate-50')+'">'+escH(resolveStudentName(m.loginId, m.name))+'</td>';
+            html += '<td class="p-1.5 font-bold text-slate-700 border-b whitespace-nowrap sticky left-0 '+(mi%2===0?'bg-white':'bg-slate-50')+'">';
+            html += '<span class="cursor-pointer hover:text-indigo-600 hover:underline" onclick="openStudentFullAnalysis(&#39;'+escH(m.id)+'&#39;,&#39;'+escH(resolveStudentName(m.loginId, m.name))+'&#39;)">'+escH(resolveStudentName(m.loginId, m.name))+'</span>';
+            html += '</td>';
             for(var di=0;di<weekDays.length;di++){
               var day = weekDays[di];
               var sub = userDays[day.date];
@@ -7814,11 +7956,12 @@ wrap.innerHTML = '';
             if(!sRef) statusBadges.push('<span class="bg-orange-100 text-orange-700 px-1 rounded text-[9px]">振返り✗</span>');
             if(sCount === 0 && activeDayDates.length > 0) statusBadges.push('<span class="bg-red-200 text-red-800 px-1 rounded text-[9px] font-bold">未提出</span>');
             html += '<div class="flex items-center gap-2 text-xs p-2 rounded-lg '+(sCount===0&&activeDayDates.length>0?'bg-red-50 border border-red-200':'bg-slate-50 border')+'">';
-            html += '<div class="font-bold text-slate-700 w-20 truncate">'+escH(sName)+'</div>';
+            html += '<div class="font-bold text-slate-700 w-20 truncate cursor-pointer hover:text-indigo-600" onclick="openStudentFullAnalysis(&#39;'+escH(student.id)+'&#39;,&#39;'+escH(sName)+'&#39;)">'+escH(sName)+'</div>';
             html += '<div class="text-slate-500">提出'+sCount+'回</div>';
             html += '<div class="text-slate-500">計'+sTotalMin+'分</div>';
             html += '<div class="text-slate-400">'+diffIcon+'</div>';
             html += '<div class="flex gap-0.5 flex-wrap">'+statusBadges.join('')+'</div>';
+            html += '<button onclick="openStudentFullAnalysis(&#39;'+escH(student.id)+'&#39;,&#39;'+escH(sName)+'&#39;)" class="text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold hover:bg-indigo-200 ml-auto">📊詳細</button>';
             html += '</div>';
           }
           html += '</div></details>';
@@ -7878,10 +8021,10 @@ wrap.innerHTML = '';
         window._lastAnalyticsClassId = classId;
         for(const s of students){
           const btn = document.createElement('button');
-          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition';
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition';
           const __n = resolveStudentName(s.loginId, s.name);
-          btn.textContent = '👤 ' + __n;
-          btn.onclick = (function(name){ return function(){ openStudentKarte(s.userId || s.name, name); }; })(__n);
+          btn.textContent = '📊 ' + __n;
+          btn.onclick = (function(id, name){ return function(){ openStudentFullAnalysis(id, name); }; })(s.userId || s.name, __n);
           wrap.appendChild(btn);
         }
         // ヒートマップも描画
@@ -7899,7 +8042,7 @@ wrap.innerHTML = '';
         for(const s of students){
           html += '<tr>';
           var __hName = resolveStudentName(s.loginId, s.name);
-          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-purple-600" onclick="openStudentKarte(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(__hName)+'&#39;)">' + escH(__hName) + '</td>';
+          html += '<td class="p-1 font-bold text-slate-700 whitespace-nowrap cursor-pointer hover:text-indigo-600" onclick="openStudentFullAnalysis(&#39;'+escH(s.userId||s.name)+'&#39;,&#39;'+escH(__hName)+'&#39;)">' + escH(__hName) + '</td>';
           const cnt = s.thisWeek ? s.thisWeek.count : 0;
           // 曜日ごとの提出は簡易表示（提出回数に応じて色分け）
           for(let d=0; d<5; d++){
@@ -7988,6 +8131,271 @@ wrap.innerHTML = '';
           contentEl.innerHTML = '<p class="text-red-500 text-xs">エラー: '+e.message+'</p>';
         }
       }
+
+            // åäººå¨æéåæãéã
+      async function openStudentFullAnalysis(studentId, studentName){
+        var overlay = document.getElementById('studentFullAnalysisOverlay');
+        var nameEl = document.getElementById('fullAnalysisStudentName');
+        var contentEl = document.getElementById('fullAnalysisContent');
+        overlay.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        nameEl.textContent = 'ð ' + studentName + ' ã®åäººåæ';
+        contentEl.innerHTML = '<p class="text-indigo-500 animate-pulse text-sm">ð å¨æéã®ãã¼ã¿ãåå¾ä¸­...</p>';
+        overlay.scrollTop = 0;
+        try {
+          var res = await fetch('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(studentId));
+          var data = await res.json();
+          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-sm">ãã¼ã¿ã®åå¾ã«å¤±æãã¾ãã</p>'; return; }
+          var html = '';
+          var ov = data.overview || {};
+
+          // === æ¦è¦çµ±è¨ã«ã¼ã ===
+          html += '<div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">';
+          html += _faStatCard('ð', ov.totalSubmissions, 'æåºåæ°', 'blue');
+          html += _faStatCard('â±ï¸', ov.avgMinutes+'å', 'å¹³åå­¦ç¿æé', 'green');
+          html += _faStatCard('âï¸', ov.sunRate+'%', 'æºè¶³åº¦', 'amber');
+          html += _faStatCard('ð¥', ov.currentStreak+'æ¥', 'ç¾å¨ã®é£ç¶', 'red');
+          html += _faStatCard('ð', ov.maxStreak+'æ¥', 'æé·é£ç¶', 'purple');
+          html += _faStatCard('ð', ov.totalPlans, 'è¨ç»æåºæ°', 'indigo');
+          html += '</div>';
+
+          // æéæå ±
+          if(ov.firstDate){
+            html += '<div class="bg-slate-50 rounded-lg p-2 mb-4 text-xs text-slate-500 flex gap-4 flex-wrap">';
+            html += '<span>ð åå: '+escH(ov.firstDate)+'</span>';
+            html += '<span>ð æçµ: '+escH(ov.lastDate)+'</span>';
+            html += '<span>â±ï¸ åè¨: '+ov.totalMinutes+'å ('+Math.round(ov.totalMinutes/60)+'æé)</span>';
+            html += '<span>ð è¿å´ç: '+ov.returnRate+'%</span>';
+            html += '<span>â è¨ç»æ¿èªç: '+ov.planCompletionRate+'%</span>';
+            html += '</div>';
+          }
+
+          // === æå¥æåºæ¨ç§» ===
+          if(data.monthlyTrends && data.monthlyTrends.length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð æå¥æåºåæ°ã®æ¨ç§»</div>';
+            var maxCount = Math.max.apply(null, data.monthlyTrends.map(function(t){return t.count;}));
+            html += '<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height:140px">';
+            for(var ti=0; ti<data.monthlyTrends.length; ti++){
+              var t = data.monthlyTrends[ti];
+              var hPct = maxCount > 0 ? Math.max(Math.round(t.count / maxCount * 100), 5) : 5;
+              var barColor = t.sunRate >= 70 ? 'bg-green-400' : t.sunRate >= 40 ? 'bg-yellow-400' : 'bg-blue-400';
+              html += '<div class="flex flex-col items-center justify-end min-w-[36px]" style="height:100%">';
+              html += '<div class="text-[9px] text-slate-500 mb-1">'+t.count+'</div>';
+              html += '<div class="w-7 '+barColor+' rounded-t" style="height:'+hPct+'%"></div>';
+              html += '<div class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">'+t.month.slice(5)+'æ</div>';
+              html += '</div>';
+            }
+            html += '</div>';
+            html += '<div class="flex gap-3 mt-2 text-[9px] text-slate-400"><span>ð¢ æºè¶³åº¦70%+ ð¡ 40-69% ðµ 39%ä»¥ä¸</span></div>';
+            html += '</div>';
+          }
+
+          // === æåºã«ã¬ã³ãã¼ï¼ç´è¿6ã¶æï¼ ===
+          if(data.calendar && Object.keys(data.calendar).length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ðï¸ æåºã«ã¬ã³ãã¼ï¼ç´è¿6ã¶æï¼</div>';
+            html += _renderFullCalendar(data.calendar);
+            html += '</div>';
+          }
+
+          // === å­¦ç¿æºè¶³åº¦ã®åå¸ ===
+          html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+          html += '<div class="font-bold text-sm text-slate-700 mb-3">ð¤ï¸ å­¦ç¿æºè¶³åº¦ã®åå¸</div>';
+          var totalW = (ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0);
+          if(totalW > 0){
+            var sunW = Math.round(ov.sunCount/totalW*100);
+            var cloudW = Math.round(ov.cloudCount/totalW*100);
+            var rainW = Math.round(ov.rainCount/totalW*100);
+            html += '<div class="flex items-center gap-2 mb-2">';
+            html += '<div class="flex-1 h-6 rounded-full overflow-hidden flex">';
+            if(sunW>0) html += '<div class="bg-amber-400 h-full" style="width:'+sunW+'%"></div>';
+            if(cloudW>0) html += '<div class="bg-slate-300 h-full" style="width:'+cloudW+'%"></div>';
+            if(rainW>0) html += '<div class="bg-blue-400 h-full" style="width:'+rainW+'%"></div>';
+            html += '</div></div>';
+            html += '<div class="flex gap-4 text-xs text-slate-600">';
+            html += '<span>âï¸ '+ov.sunCount+'å ('+sunW+'%)</span>';
+            html += '<span>âï¸ '+ov.cloudCount+'å ('+cloudW+'%)</span>';
+            html += '<span>ð§ï¸ '+ov.rainCount+'å ('+rainW+'%)</span>';
+            html += '</div>';
+          } else {
+            html += '<p class="text-xs text-slate-400">ãã¼ã¿ãªã</p>';
+          }
+          html += '</div>';
+
+          // === æç§å¥æç¸¾ ===
+          if(data.subjects && data.subjects.length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð æç§å¥æç¸¾</div>';
+            html += '<div class="space-y-2">';
+            for(var si=0; si<data.subjects.length; si++){
+              var sub = data.subjects[si];
+              var sColor = sub.rate >= 80 ? 'bg-green-400' : sub.rate >= 60 ? 'bg-yellow-400' : 'bg-red-400';
+              html += '<div class="flex items-center gap-2">';
+              html += '<span class="text-xs w-20 text-slate-600 font-bold truncate">'+escH(sub.unit)+'</span>';
+              html += '<div class="flex-1 bg-slate-100 rounded-full h-5"><div class="'+sColor+' rounded-full h-5 text-[10px] text-white flex items-center justify-center font-bold" style="width:'+Math.max(sub.rate,5)+'%">'+sub.rate+'%</div></div>';
+              html += '<span class="text-[10px] text-slate-400 w-12 text-right">'+sub.total+'å</span>';
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+
+          // === é£ç¶æåºè¨é² ===
+          if(data.streaks && data.streaks.length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð¥ é£ç¶æåºè¨é² TOP5</div>';
+            html += '<div class="space-y-1">';
+            var medals = ['ð¥','ð¥','ð¥','4ï¸â£','5ï¸â£'];
+            for(var ski=0; ski<Math.min(data.streaks.length,5); ski++){
+              var sk = data.streaks[ski];
+              html += '<div class="flex items-center gap-2 text-xs bg-slate-50 rounded-lg p-2">';
+              html += '<span class="text-base">'+(medals[ski]||'')+'</span>';
+              html += '<span class="font-black text-indigo-600 text-lg">'+sk.length+'æ¥</span>';
+              html += '<span class="text-slate-400">'+escH(sk.start)+' â '+escH(sk.end)+'</span>';
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+
+          // === è¨ç»ã»æ¯ãè¿ãå±¥æ­´ ===
+          if((data.plans && data.plans.length > 0)||(data.reflections && data.reflections.length > 0)){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð è¨ç»ã»æ¯ãè¿ãå±¥æ­´</div>';
+            var allWeeks = {};
+            if(data.plans) for(var pi=0;pi<data.plans.length;pi++) allWeeks[data.plans[pi].weekKey]=true;
+            if(data.reflections) for(var ri=0;ri<data.reflections.length;ri++) allWeeks[data.reflections[ri].weekKey]=true;
+            var sortedWeeks = Object.keys(allWeeks).sort().reverse();
+            html += '<div class="space-y-1 max-h-64 overflow-y-auto">';
+            for(var wi=0; wi<sortedWeeks.length; wi++){
+              var wk = sortedWeeks[wi];
+              var plan = null; var ref = null;
+              if(data.plans) for(var pj=0;pj<data.plans.length;pj++){ if(data.plans[pj].weekKey===wk){plan=data.plans[pj];break;} }
+              if(data.reflections) for(var rj=0;rj<data.reflections.length;rj++){ if(data.reflections[rj].weekKey===wk){ref=data.reflections[rj];break;} }
+              html += '<div class="flex items-center gap-2 text-xs p-2 bg-slate-50 rounded-lg border flex-wrap">';
+              html += '<span class="font-bold text-slate-500 w-20">'+escH(wk)+'</span>';
+              if(plan){
+                html += plan.approved ? '<span class="bg-green-100 text-green-700 px-1.5 rounded text-[9px]">âæ¿èª</span>' : '<span class="bg-yellow-100 text-yellow-700 px-1.5 rounded text-[9px]">ðæåº</span>';
+                if(plan.revisionCount>0) html += '<span class="bg-orange-100 text-orange-700 px-1 rounded text-[9px]">ä¿®æ­£'+plan.revisionCount+'å</span>';
+              } else {
+                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">è¨ç»â</span>';
+              }
+              if(ref){
+                var stars = '';
+                for(var ci=0;ci<Math.min(ref.concentration||0,3);ci++) stars+='â';
+                html += '<span class="bg-purple-100 text-purple-700 px-1.5 rounded text-[9px]">æ¯è¿ã éä¸­'+stars+'</span>';
+              } else {
+                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">æ¯è¿ãâ</span>';
+              }
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+
+          // === ç´è¿ã®å­¦ç¿è¨é² ===
+          if(data.recentSubmissions && data.recentSubmissions.length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð ç´è¿ã®å­¦ç¿è¨é²</div>';
+            html += '<div class="space-y-1 max-h-64 overflow-y-auto">';
+            for(var rsi=0; rsi<data.recentSubmissions.length; rsi++){
+              var rs = data.recentSubmissions[rsi];
+              var wIcon = rs.end_weather==='sun'?'âï¸':rs.end_weather==='cloud'?'âï¸':rs.end_weather==='rain'?'ð§ï¸':'â';
+              var retBadge = rs.returned_at ? '<span class="text-[8px] text-green-500 ml-1">âè¿å´</span>' : '';
+              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border flex items-center gap-1">';
+              html += '<span class="font-bold text-slate-500">'+escH(rs.day_key||'')+'</span> ';
+              html += wIcon+' ';
+              html += '<span class="text-slate-600 flex-1 truncate">'+escH(rs.todo||'')+'</span> ';
+              html += '<span class="text-slate-400">('+( rs.minutes||0)+'å)</span>';
+              html += retBadge;
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+
+          // === AIã«ã«ããã¿ã³ ===
+          html += '<div class="text-center mt-4">';
+          html += '<button onclick="closeStudentFullAnalysis();openStudentKarte(&#39;'+escH(studentId)+'&#39;,&#39;'+escH(studentName)+'&#39;)" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-700">ð¤ AIã«ã«ããè¡¨ç¤º</button>';
+          html += '</div>';
+
+          contentEl.innerHTML = html;
+        } catch(e) {
+          contentEl.innerHTML = '<p class="text-red-500 text-sm">ã¨ã©ã¼: '+escH(String(e.message||e))+'</p>';
+        }
+      }
+
+      function _faStatCard(icon, value, label, color){
+        return '<div class="bg-'+color+'-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-'+color+'-600">'+icon+' '+value+'</div><div class="text-[9px] text-slate-500">'+label+'</div></div>';
+      }
+
+      function closeStudentFullAnalysis(){
+        document.getElementById('studentFullAnalysisOverlay').classList.add('hidden');
+        document.body.style.overflow = '';
+      }
+
+      function _renderFullCalendar(calendar){
+        var today = new Date();
+        var startDate = new Date(today);
+        startDate.setMonth(startDate.getMonth() - 5);
+        startDate.setDate(1);
+        var html = '<div class="overflow-x-auto"><div class="inline-flex gap-[2px]">';
+        var d = new Date(startDate);
+        var weekData = [];
+        var curWeek = [];
+        var lastWeekNum = -1;
+        while(d <= today){
+          var key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+          var dow = (d.getDay()+6)%7;
+          var weekNum = Math.floor((d.getTime()-startDate.getTime())/(7*86400000));
+          if(weekNum !== lastWeekNum && curWeek.length > 0){
+            weekData.push(curWeek);
+            curWeek = [];
+          }
+          lastWeekNum = weekNum;
+          curWeek.push({date:key, dow:dow, data:calendar[key]||null});
+          d.setDate(d.getDate()+1);
+        }
+        if(curWeek.length > 0) weekData.push(curWeek);
+        for(var wi=0; wi<weekData.length; wi++){
+          var week = weekData[wi];
+          html += '<div class="flex flex-col gap-[2px]">';
+          var firstDow = week[0].dow;
+          for(var fi=0;fi<firstDow;fi++) html += '<div class="w-3 h-3"></div>';
+          for(var di=0;di<week.length;di++){
+            var day = week[di];
+            var color = 'bg-slate-100';
+            var title = day.date+': æªæåº';
+            if(day.data){
+              var min = day.data.minutes||0;
+              if(min>=60) color='bg-green-600';
+              else if(min>=40) color='bg-green-500';
+              else if(min>=20) color='bg-green-400';
+              else color='bg-green-300';
+              var wName = day.data.weather==='sun'?'âï¸':day.data.weather==='cloud'?'âï¸':'ð§ï¸';
+              title = day.date+': '+min+'å '+wName;
+            }
+            html += '<div class="w-3 h-3 rounded-sm '+color+'" title="'+escH(title)+'"></div>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        // æã©ãã«
+        html += '<div class="flex gap-1 mt-1 text-[8px] text-slate-400 pl-1">';
+        var shownMonths = {};
+        var d2 = new Date(startDate);
+        while(d2 <= today){
+          var mKey = d2.getFullYear()+'-'+String(d2.getMonth()+1).padStart(2,'0');
+          if(!shownMonths[mKey]){
+            shownMonths[mKey] = true;
+            html += '<span class="mr-4">'+(d2.getMonth()+1)+'æ</span>';
+          }
+          d2.setMonth(d2.getMonth()+1);
+        }
+        html += '</div>';
+        html += '<div class="flex items-center gap-1 mt-1 text-[9px] text-slate-400">';
+        html += '<span>å°</span><div class="w-3 h-3 rounded-sm bg-slate-100"></div><div class="w-3 h-3 rounded-sm bg-green-300"></div><div class="w-3 h-3 rounded-sm bg-green-400"></div><div class="w-3 h-3 rounded-sm bg-green-500"></div><div class="w-3 h-3 rounded-sm bg-green-600"></div><span>å¤(60å+)</span>';
+        html += '</div></div>';
+        return html;
+      }
+
 
       // AIクラス分析（Gemini対応＋児童リスト・ヒートマップ連動）
       async function loadAIAnalysis(){
