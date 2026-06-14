@@ -2606,6 +2606,29 @@ function getPrevWeekKey(weekKey) {
   return y + '-W' + String(w).padStart(2, '0');
 }
 
+function getNextWeekKey(weekKey) {
+  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return weekKey;
+  let y = parseInt(m[1]), w = parseInt(m[2]);
+  w++;
+  if (w > 52) { y++; w = 1; }
+  return y + '-W' + String(w).padStart(2, '0');
+}
+
+// weekKeyから月曜日のDateを取得
+function getMondayFromWeekKey(weekKey: string): Date {
+  const m = weekKey.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return new Date();
+  const year = parseInt(m[1]);
+  const week = parseInt(m[2]);
+  // ISO: 1月4日は必ずW01に含まれる
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const dayOfWeek = jan4.getUTCDay() || 7; // 月=1 ... 日=7
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1 + (week - 1) * 7);
+  return monday;
+}
+
 
 // 教師：今週の先生メニューを設定
 app.post('/api/teacher/class/:classId/weekly-menu', async (c) => {
@@ -3165,13 +3188,10 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
   const jstNow = new Date(Date.now() + 9 * 3600000)
   const todayKey = jstNow.toISOString().split('T')[0]
 
-  // 今週の月〜金の日付を計算
+  // 指定週の月〜金の日付を計算（weekKeyから算出）
   const activeDaysStr = menu?.active_days || 'mon,tue,wed,thu,fri'
   const activeDays = activeDaysStr.split(',').map((d: string) => d.trim())
-  const dayOfWeekNow = jstNow.getUTCDay() // 0=Sun
-  const mondayOffset = (dayOfWeekNow === 0 ? -6 : 1 - dayOfWeekNow)
-  const monday = new Date(jstNow)
-  monday.setUTCDate(monday.getUTCDate() + mondayOffset)
+  const monday = getMondayFromWeekKey(weekKey)
   const weekDays: { date: string; dayName: string; label: string; isActive: boolean; isPast: boolean }[] = []
   const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri']
   const dayLabels = ['月', '火', '水', '木', '金']
@@ -5969,6 +5989,13 @@ app.get('/teacher', (c) => {
               <button onclick="loadSubmissionDashboard()" class="bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📊 提出状況を表示</button>
               <span id="dashWeekLabel" class="text-xs text-slate-500 ml-auto"></span>
             </div>
+            <!-- 週ナビゲーション -->
+            <div id="dashWeekNav" class="hidden flex items-center gap-2 mb-3 flex-wrap bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2">
+              <button onclick="dashWeekPrev()" class="bg-white border border-indigo-200 rounded-lg px-3 py-1.5 text-sm font-bold text-indigo-600 hover:bg-indigo-100 shadow-sm">◀ 前の週</button>
+              <select id="dashWeekSelector" onchange="dashWeekJump(this.value)" class="border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-bold bg-white text-indigo-700 max-w-[180px]"></select>
+              <button onclick="dashWeekNext()" class="bg-white border border-indigo-200 rounded-lg px-3 py-1.5 text-sm font-bold text-indigo-600 hover:bg-indigo-100 shadow-sm">次の週 ▶</button>
+              <button onclick="dashWeekToday()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold shadow hover:opacity-90 ml-auto">📅 今週</button>
+            </div>
             <div id="dashboardContent">
               <p class="text-xs text-slate-400">クラスを選んで「提出状況を表示」を押してください</p>
             </div>
@@ -7428,14 +7455,101 @@ wrap.innerHTML = '';
       }
 
       // ===== 提出状況ダッシュボード =====
-      async function loadSubmissionDashboard(){
+      var _dashCurrentWeek = '';
+      var _dashWeekOptions = [];
+
+      // 週キーヘルパー
+      function _dashPrevWeek(wk){
+        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        if(!m) return wk;
+        var y = parseInt(m[1]), w = parseInt(m[2]);
+        w--; if(w<1){y--; w=52;}
+        return y+'-W'+String(w).padStart(2,'0');
+      }
+      function _dashNextWeek(wk){
+        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        if(!m) return wk;
+        var y = parseInt(m[1]), w = parseInt(m[2]);
+        w++; if(w>52){y++; w=1;}
+        return y+'-W'+String(w).padStart(2,'0');
+      }
+      // weekKeyから月曜日の日付文字列を取得
+      function _weekKeyToMonday(wk){
+        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        if(!m) return '';
+        var year = parseInt(m[1]), week = parseInt(m[2]);
+        var jan4 = new Date(Date.UTC(year,0,4));
+        var dow = jan4.getUTCDay() || 7;
+        var mon = new Date(jan4);
+        mon.setUTCDate(jan4.getUTCDate() - dow + 1 + (week-1)*7);
+        var fri = new Date(mon);
+        fri.setUTCDate(mon.getUTCDate()+4);
+        return (mon.getUTCMonth()+1)+'/'+mon.getUTCDate()+'~'+(fri.getUTCMonth()+1)+'/'+fri.getUTCDate();
+      }
+
+      function _initWeekSelector(){
+        var sel = document.getElementById('dashWeekSelector');
+        if(!sel) return;
+        var cur = getWeekKeyLocal();
+        var options = [];
+        var wk = cur;
+        for(var i=0; i<52; i++){
+          options.push(wk);
+          wk = _dashPrevWeek(wk);
+        }
+        _dashWeekOptions = options;
+        sel.innerHTML = '';
+        for(var j=0; j<options.length; j++){
+          var o = document.createElement('option');
+          o.value = options[j];
+          var label = options[j] + ' (' + _weekKeyToMonday(options[j]) + ')';
+          if(j===0) label += ' <- now';
+          o.textContent = label;
+          sel.appendChild(o);
+        }
+        if(!_dashCurrentWeek) _dashCurrentWeek = cur;
+        sel.value = _dashCurrentWeek;
+        document.getElementById('dashWeekNav').classList.remove('hidden');
+      }
+
+      function dashWeekPrev(){
+        _dashCurrentWeek = _dashPrevWeek(_dashCurrentWeek || getWeekKeyLocal());
+        var sel = document.getElementById('dashWeekSelector');
+        if(sel) sel.value = _dashCurrentWeek;
+        loadSubmissionDashboard(_dashCurrentWeek);
+      }
+      function dashWeekNext(){
+        var cur = getWeekKeyLocal();
+        var next = _dashNextWeek(_dashCurrentWeek || cur);
+        if(next > cur) return;
+        _dashCurrentWeek = next;
+        var sel = document.getElementById('dashWeekSelector');
+        if(sel) sel.value = _dashCurrentWeek;
+        loadSubmissionDashboard(_dashCurrentWeek);
+      }
+      function dashWeekJump(wk){
+        _dashCurrentWeek = wk;
+        loadSubmissionDashboard(wk);
+      }
+      function dashWeekToday(){
+        _dashCurrentWeek = getWeekKeyLocal();
+        var sel = document.getElementById('dashWeekSelector');
+        if(sel) sel.value = _dashCurrentWeek;
+        loadSubmissionDashboard(_dashCurrentWeek);
+      }
+
+      async function loadSubmissionDashboard(selectedWeek){
         const wrap = document.getElementById('dashboardContent');
         if(!wrap) return;
         const classId = document.getElementById('dashClassFilter')?.value;
         if(!classId){ alert('クラスを選択してください'); return; }
         wrap.innerHTML='<p class="text-indigo-500 text-sm animate-pulse">📊 提出状況を取得中...</p>';
+        _initWeekSelector();
         try{
-          const wk = getWeekKeyLocal();
+          const wk = selectedWeek || _dashCurrentWeek || getWeekKeyLocal();
+          _dashCurrentWeek = wk;
+          var sel = document.getElementById('dashWeekSelector');
+          if(sel) sel.value = wk;
           const data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/submission-dashboard?weekKey='+encodeURIComponent(wk));
           const members = data.members || [];
           const daily = data.dailySubmissions || [];
