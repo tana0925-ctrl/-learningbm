@@ -7618,7 +7618,7 @@ wrap.innerHTML = '';
           const refRate = members.length > 0 ? Math.round(refCount / members.length * 100) : 0;
           const refMissing = members.filter(function(m){ return !refByUser[m.id]; });
           // 先週比
-          const prevTotal = 0; for(var uid in prevByUser) prevTotal += prevByUser[uid];
+          var prevTotal = 0; for(var uid in prevByUser) prevTotal += prevByUser[uid];
           var prevTotalVal = 0; for(var uid2 in prevByUser) prevTotalVal += prevByUser[uid2];
           const weekDiff = totalActual - prevTotalVal;
           const weekDiffLabel = weekDiff > 0 ? '+'+weekDiff : String(weekDiff);
