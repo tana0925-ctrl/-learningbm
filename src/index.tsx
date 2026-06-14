@@ -7460,14 +7460,14 @@ wrap.innerHTML = '';
 
       // 週キーヘルパー
       function _dashPrevWeek(wk){
-        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        var m = wk.match(/^(\\d{4})-W(\\d{2})$/);
         if(!m) return wk;
         var y = parseInt(m[1]), w = parseInt(m[2]);
         w--; if(w<1){y--; w=52;}
         return y+'-W'+String(w).padStart(2,'0');
       }
       function _dashNextWeek(wk){
-        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        var m = wk.match(/^(\\d{4})-W(\\d{2})$/);
         if(!m) return wk;
         var y = parseInt(m[1]), w = parseInt(m[2]);
         w++; if(w>52){y++; w=1;}
@@ -7475,7 +7475,7 @@ wrap.innerHTML = '';
       }
       // weekKeyから月曜日の日付文字列を取得
       function _weekKeyToMonday(wk){
-        var m = wk.match(/^(\d{4})-W(\d{2})$/);
+        var m = wk.match(/^(\\d{4})-W(\\d{2})$/);
         if(!m) return '';
         var year = parseInt(m[1]), week = parseInt(m[2]);
         var jan4 = new Date(Date.UTC(year,0,4));
