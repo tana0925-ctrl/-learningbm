@@ -3206,8 +3206,8 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
   const todayKey = realToday > fridayStr ? fridayStr : realToday
 
   // 指定週の月〜金の日付を計算（weekKeyから算出）
-  const activeDaysStr = menu?.active_days || 'mon,tue,wed,thu,fri'
-  const activeDays = activeDaysStr.split(',').map((d: string) => d.trim())
+  let activeDays = ['mon','tue','wed','thu','fri']
+  try { if (menu?.active_days) activeDays = JSON.parse(menu.active_days) } catch {}
   // monday is already computed above
   const weekDays: { date: string; dayName: string; label: string; isActive: boolean; isPast: boolean }[] = []
   const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri']
