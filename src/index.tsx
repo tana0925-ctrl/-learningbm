@@ -5702,14 +5702,14 @@ app.get('/admin', (c) => {
           const reset = document.createElement('button');
           reset.className='bg-slate-800 text-white rounded px-3 py-1 text-sm';
           reset.textContent='PWリセット';
-          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\n(次回ログインで変更させてください)'); };
+          reset.onclick = async ()=>{ const r=await api('/api/admin/reset-password/'+x.id,{method:'POST'}); alert('仮パスワード: '+r.tempPassword+'\\n(次回ログインで変更させてください)'); };
           right.appendChild(reset);
 
           const del = document.createElement('button');
           del.className='bg-red-600 text-white rounded px-3 py-1 text-sm';
           del.textContent='削除';
           del.onclick = async ()=>{
-            if(!confirm(x.name+'（'+x.loginId+'）のアカウントを完全に削除しますか？\n学習記録もすべて削除されます。この操作は取り消せません。')) return;
+            if(!confirm(x.name+'（'+x.loginId+'）のアカウントを完全に削除しますか？\\n学習記録もすべて削除されます。この操作は取り消せません。')) return;
             await api('/api/admin/delete/'+x.id,{method:'DELETE'});
             await loadAll();
           };
