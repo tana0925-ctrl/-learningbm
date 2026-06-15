@@ -1,0 +1,18 @@
+name: Fix contact-note coin save
+on:
+  workflow_dispatch:
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply coin save fix
+        run: python3 scripts/patch_coin_fix.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "fix: 連絡帳の報酬コインをsaveDataで保存（更新で消えるバグ）" && git push)
