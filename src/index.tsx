@@ -8132,48 +8132,48 @@ wrap.innerHTML = '';
         }
       }
 
-            // åäººå¨æéåæãéã
+            // 個人全期間分析を開く
       async function openStudentFullAnalysis(studentId, studentName){
         var overlay = document.getElementById('studentFullAnalysisOverlay');
         var nameEl = document.getElementById('fullAnalysisStudentName');
         var contentEl = document.getElementById('fullAnalysisContent');
         overlay.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
-        nameEl.textContent = 'ð ' + studentName + ' ã®åäººåæ';
-        contentEl.innerHTML = '<p class="text-indigo-500 animate-pulse text-sm">ð å¨æéã®ãã¼ã¿ãåå¾ä¸­...</p>';
+        nameEl.textContent = '📊 ' + studentName + ' の個人分析';
+        contentEl.innerHTML = '<p class="text-indigo-500 animate-pulse text-sm">📊 全期間のデータを取得中...</p>';
         overlay.scrollTop = 0;
         try {
           var res = await fetch('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(studentId));
           var data = await res.json();
-          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-sm">ãã¼ã¿ã®åå¾ã«å¤±æãã¾ãã</p>'; return; }
+          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-sm">データの取得に失敗しました</p>'; return; }
           var html = '';
           var ov = data.overview || {};
 
-          // === æ¦è¦çµ±è¨ã«ã¼ã ===
+          // === 概要統計カード ===
           html += '<div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">';
-          html += _faStatCard('ð', ov.totalSubmissions, 'æåºåæ°', 'blue');
-          html += _faStatCard('â±ï¸', ov.avgMinutes+'å', 'å¹³åå­¦ç¿æé', 'green');
-          html += _faStatCard('âï¸', ov.sunRate+'%', 'æºè¶³åº¦', 'amber');
-          html += _faStatCard('ð¥', ov.currentStreak+'æ¥', 'ç¾å¨ã®é£ç¶', 'red');
-          html += _faStatCard('ð', ov.maxStreak+'æ¥', 'æé·é£ç¶', 'purple');
-          html += _faStatCard('ð', ov.totalPlans, 'è¨ç»æåºæ°', 'indigo');
+          html += _faStatCard('📝', ov.totalSubmissions, '提出回数', 'blue');
+          html += _faStatCard('⏱️', ov.avgMinutes+'分', '平均学習時間', 'green');
+          html += _faStatCard('☀️', ov.sunRate+'%', '満足度', 'amber');
+          html += _faStatCard('🔥', ov.currentStreak+'日', '現在の連続', 'red');
+          html += _faStatCard('🏆', ov.maxStreak+'日', '最長連続', 'purple');
+          html += _faStatCard('📋', ov.totalPlans, '計画提出数', 'indigo');
           html += '</div>';
 
-          // æéæå ±
+          // 期間情報
           if(ov.firstDate){
             html += '<div class="bg-slate-50 rounded-lg p-2 mb-4 text-xs text-slate-500 flex gap-4 flex-wrap">';
-            html += '<span>ð åå: '+escH(ov.firstDate)+'</span>';
-            html += '<span>ð æçµ: '+escH(ov.lastDate)+'</span>';
-            html += '<span>â±ï¸ åè¨: '+ov.totalMinutes+'å ('+Math.round(ov.totalMinutes/60)+'æé)</span>';
-            html += '<span>ð è¿å´ç: '+ov.returnRate+'%</span>';
-            html += '<span>â è¨ç»æ¿èªç: '+ov.planCompletionRate+'%</span>';
+            html += '<span>📅 初回: '+escH(ov.firstDate)+'</span>';
+            html += '<span>📅 最終: '+escH(ov.lastDate)+'</span>';
+            html += '<span>⏱️ 合計: '+ov.totalMinutes+'分 ('+Math.round(ov.totalMinutes/60)+'時間)</span>';
+            html += '<span>🔄 返却率: '+ov.returnRate+'%</span>';
+            html += '<span>✅ 計画承認率: '+ov.planCompletionRate+'%</span>';
             html += '</div>';
           }
 
-          // === æå¥æåºæ¨ç§» ===
+          // === 月別提出推移 ===
           if(data.monthlyTrends && data.monthlyTrends.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð æå¥æåºåæ°ã®æ¨ç§»</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">📊 月別提出回数の推移</div>';
             var maxCount = Math.max.apply(null, data.monthlyTrends.map(function(t){return t.count;}));
             html += '<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height:140px">';
             for(var ti=0; ti<data.monthlyTrends.length; ti++){
@@ -8183,25 +8183,25 @@ wrap.innerHTML = '';
               html += '<div class="flex flex-col items-center justify-end min-w-[36px]" style="height:100%">';
               html += '<div class="text-[9px] text-slate-500 mb-1">'+t.count+'</div>';
               html += '<div class="w-7 '+barColor+' rounded-t" style="height:'+hPct+'%"></div>';
-              html += '<div class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">'+t.month.slice(5)+'æ</div>';
+              html += '<div class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">'+t.month.slice(5)+'月</div>';
               html += '</div>';
             }
             html += '</div>';
-            html += '<div class="flex gap-3 mt-2 text-[9px] text-slate-400"><span>ð¢ æºè¶³åº¦70%+ ð¡ 40-69% ðµ 39%ä»¥ä¸</span></div>';
+            html += '<div class="flex gap-3 mt-2 text-[9px] text-slate-400"><span>🟢 満足度70%+ 🟡 40-69% 🔵 39%以下</span></div>';
             html += '</div>';
           }
 
-          // === æåºã«ã¬ã³ãã¼ï¼ç´è¿6ã¶æï¼ ===
+          // === 提出カレンダー（直近6ヶ月） ===
           if(data.calendar && Object.keys(data.calendar).length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ðï¸ æåºã«ã¬ã³ãã¼ï¼ç´è¿6ã¶æï¼</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">🗓️ 提出カレンダー（直近6ヶ月）</div>';
             html += _renderFullCalendar(data.calendar);
             html += '</div>';
           }
 
-          // === å­¦ç¿æºè¶³åº¦ã®åå¸ ===
+          // === 学習満足度の分布 ===
           html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-          html += '<div class="font-bold text-sm text-slate-700 mb-3">ð¤ï¸ å­¦ç¿æºè¶³åº¦ã®åå¸</div>';
+          html += '<div class="font-bold text-sm text-slate-700 mb-3">🌤️ 学習満足度の分布</div>';
           var totalW = (ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0);
           if(totalW > 0){
             var sunW = Math.round(ov.sunCount/totalW*100);
@@ -8214,19 +8214,19 @@ wrap.innerHTML = '';
             if(rainW>0) html += '<div class="bg-blue-400 h-full" style="width:'+rainW+'%"></div>';
             html += '</div></div>';
             html += '<div class="flex gap-4 text-xs text-slate-600">';
-            html += '<span>âï¸ '+ov.sunCount+'å ('+sunW+'%)</span>';
-            html += '<span>âï¸ '+ov.cloudCount+'å ('+cloudW+'%)</span>';
-            html += '<span>ð§ï¸ '+ov.rainCount+'å ('+rainW+'%)</span>';
+            html += '<span>☀️ '+ov.sunCount+'回 ('+sunW+'%)</span>';
+            html += '<span>☁️ '+ov.cloudCount+'回 ('+cloudW+'%)</span>';
+            html += '<span>🌧️ '+ov.rainCount+'回 ('+rainW+'%)</span>';
             html += '</div>';
           } else {
-            html += '<p class="text-xs text-slate-400">ãã¼ã¿ãªã</p>';
+            html += '<p class="text-xs text-slate-400">データなし</p>';
           }
           html += '</div>';
 
-          // === æç§å¥æç¸¾ ===
+          // === 教科別成績 ===
           if(data.subjects && data.subjects.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð æç§å¥æç¸¾</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">📚 教科別成績</div>';
             html += '<div class="space-y-2">';
             for(var si=0; si<data.subjects.length; si++){
               var sub = data.subjects[si];
@@ -8234,33 +8234,33 @@ wrap.innerHTML = '';
               html += '<div class="flex items-center gap-2">';
               html += '<span class="text-xs w-20 text-slate-600 font-bold truncate">'+escH(sub.unit)+'</span>';
               html += '<div class="flex-1 bg-slate-100 rounded-full h-5"><div class="'+sColor+' rounded-full h-5 text-[10px] text-white flex items-center justify-center font-bold" style="width:'+Math.max(sub.rate,5)+'%">'+sub.rate+'%</div></div>';
-              html += '<span class="text-[10px] text-slate-400 w-12 text-right">'+sub.total+'å</span>';
+              html += '<span class="text-[10px] text-slate-400 w-12 text-right">'+sub.total+'問</span>';
               html += '</div>';
             }
             html += '</div></div>';
           }
 
-          // === é£ç¶æåºè¨é² ===
+          // === 連続提出記録 ===
           if(data.streaks && data.streaks.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð¥ é£ç¶æåºè¨é² TOP5</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">🔥 連続提出記録 TOP5</div>';
             html += '<div class="space-y-1">';
-            var medals = ['ð¥','ð¥','ð¥','4ï¸â£','5ï¸â£'];
+            var medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
             for(var ski=0; ski<Math.min(data.streaks.length,5); ski++){
               var sk = data.streaks[ski];
               html += '<div class="flex items-center gap-2 text-xs bg-slate-50 rounded-lg p-2">';
               html += '<span class="text-base">'+(medals[ski]||'')+'</span>';
-              html += '<span class="font-black text-indigo-600 text-lg">'+sk.length+'æ¥</span>';
-              html += '<span class="text-slate-400">'+escH(sk.start)+' â '+escH(sk.end)+'</span>';
+              html += '<span class="font-black text-indigo-600 text-lg">'+sk.length+'日</span>';
+              html += '<span class="text-slate-400">'+escH(sk.start)+' → '+escH(sk.end)+'</span>';
               html += '</div>';
             }
             html += '</div></div>';
           }
 
-          // === è¨ç»ã»æ¯ãè¿ãå±¥æ­´ ===
+          // === 計画・振り返り履歴 ===
           if((data.plans && data.plans.length > 0)||(data.reflections && data.reflections.length > 0)){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð è¨ç»ã»æ¯ãè¿ãå±¥æ­´</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">📋 計画・振り返り履歴</div>';
             var allWeeks = {};
             if(data.plans) for(var pi=0;pi<data.plans.length;pi++) allWeeks[data.plans[pi].weekKey]=true;
             if(data.reflections) for(var ri=0;ri<data.reflections.length;ri++) allWeeks[data.reflections[ri].weekKey]=true;
@@ -8274,51 +8274,51 @@ wrap.innerHTML = '';
               html += '<div class="flex items-center gap-2 text-xs p-2 bg-slate-50 rounded-lg border flex-wrap">';
               html += '<span class="font-bold text-slate-500 w-20">'+escH(wk)+'</span>';
               if(plan){
-                html += plan.approved ? '<span class="bg-green-100 text-green-700 px-1.5 rounded text-[9px]">âæ¿èª</span>' : '<span class="bg-yellow-100 text-yellow-700 px-1.5 rounded text-[9px]">ðæåº</span>';
-                if(plan.revisionCount>0) html += '<span class="bg-orange-100 text-orange-700 px-1 rounded text-[9px]">ä¿®æ­£'+plan.revisionCount+'å</span>';
+                html += plan.approved ? '<span class="bg-green-100 text-green-700 px-1.5 rounded text-[9px]">✅承認</span>' : '<span class="bg-yellow-100 text-yellow-700 px-1.5 rounded text-[9px]">📝提出</span>';
+                if(plan.revisionCount>0) html += '<span class="bg-orange-100 text-orange-700 px-1 rounded text-[9px]">修正'+plan.revisionCount+'回</span>';
               } else {
-                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">è¨ç»â</span>';
+                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">計画✗</span>';
               }
               if(ref){
                 var stars = '';
-                for(var ci=0;ci<Math.min(ref.concentration||0,3);ci++) stars+='â';
-                html += '<span class="bg-purple-100 text-purple-700 px-1.5 rounded text-[9px]">æ¯è¿ã éä¸­'+stars+'</span>';
+                for(var ci=0;ci<Math.min(ref.concentration||0,3);ci++) stars+='★';
+                html += '<span class="bg-purple-100 text-purple-700 px-1.5 rounded text-[9px]">振返り 集中'+stars+'</span>';
               } else {
-                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">æ¯è¿ãâ</span>';
+                html += '<span class="bg-red-100 text-red-700 px-1.5 rounded text-[9px]">振返り✗</span>';
               }
               html += '</div>';
             }
             html += '</div></div>';
           }
 
-          // === ç´è¿ã®å­¦ç¿è¨é² ===
+          // === 直近の学習記録 ===
           if(data.recentSubmissions && data.recentSubmissions.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">ð ç´è¿ã®å­¦ç¿è¨é²</div>';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">📝 直近の学習記録</div>';
             html += '<div class="space-y-1 max-h-64 overflow-y-auto">';
             for(var rsi=0; rsi<data.recentSubmissions.length; rsi++){
               var rs = data.recentSubmissions[rsi];
-              var wIcon = rs.end_weather==='sun'?'âï¸':rs.end_weather==='cloud'?'âï¸':rs.end_weather==='rain'?'ð§ï¸':'â';
-              var retBadge = rs.returned_at ? '<span class="text-[8px] text-green-500 ml-1">âè¿å´</span>' : '';
+              var wIcon = rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓';
+              var retBadge = rs.returned_at ? '<span class="text-[8px] text-green-500 ml-1">✓返却</span>' : '';
               html += '<div class="text-xs bg-slate-50 rounded p-1.5 border flex items-center gap-1">';
               html += '<span class="font-bold text-slate-500">'+escH(rs.day_key||'')+'</span> ';
               html += wIcon+' ';
               html += '<span class="text-slate-600 flex-1 truncate">'+escH(rs.todo||'')+'</span> ';
-              html += '<span class="text-slate-400">('+( rs.minutes||0)+'å)</span>';
+              html += '<span class="text-slate-400">('+( rs.minutes||0)+'分)</span>';
               html += retBadge;
               html += '</div>';
             }
             html += '</div></div>';
           }
 
-          // === AIã«ã«ããã¿ã³ ===
+          // === AIカルテボタン ===
           html += '<div class="text-center mt-4">';
-          html += '<button onclick="closeStudentFullAnalysis();openStudentKarte(&#39;'+escH(studentId)+'&#39;,&#39;'+escH(studentName)+'&#39;)" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-700">ð¤ AIã«ã«ããè¡¨ç¤º</button>';
+          html += '<button onclick="closeStudentFullAnalysis();openStudentKarte(&#39;'+escH(studentId)+'&#39;,&#39;'+escH(studentName)+'&#39;)" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-700">🤖 AIカルテを表示</button>';
           html += '</div>';
 
           contentEl.innerHTML = html;
         } catch(e) {
-          contentEl.innerHTML = '<p class="text-red-500 text-sm">ã¨ã©ã¼: '+escH(String(e.message||e))+'</p>';
+          contentEl.innerHTML = '<p class="text-red-500 text-sm">エラー: '+escH(String(e.message||e))+'</p>';
         }
       }
 
@@ -8362,22 +8362,22 @@ wrap.innerHTML = '';
           for(var di=0;di<week.length;di++){
             var day = week[di];
             var color = 'bg-slate-100';
-            var title = day.date+': æªæåº';
+            var title = day.date+': 未提出';
             if(day.data){
               var min = day.data.minutes||0;
               if(min>=60) color='bg-green-600';
               else if(min>=40) color='bg-green-500';
               else if(min>=20) color='bg-green-400';
               else color='bg-green-300';
-              var wName = day.data.weather==='sun'?'âï¸':day.data.weather==='cloud'?'âï¸':'ð§ï¸';
-              title = day.date+': '+min+'å '+wName;
+              var wName = day.data.weather==='sun'?'☀️':day.data.weather==='cloud'?'☁️':'🌧️';
+              title = day.date+': '+min+'分 '+wName;
             }
             html += '<div class="w-3 h-3 rounded-sm '+color+'" title="'+escH(title)+'"></div>';
           }
           html += '</div>';
         }
         html += '</div>';
-        // æã©ãã«
+        // 月ラベル
         html += '<div class="flex gap-1 mt-1 text-[8px] text-slate-400 pl-1">';
         var shownMonths = {};
         var d2 = new Date(startDate);
@@ -8385,13 +8385,13 @@ wrap.innerHTML = '';
           var mKey = d2.getFullYear()+'-'+String(d2.getMonth()+1).padStart(2,'0');
           if(!shownMonths[mKey]){
             shownMonths[mKey] = true;
-            html += '<span class="mr-4">'+(d2.getMonth()+1)+'æ</span>';
+            html += '<span class="mr-4">'+(d2.getMonth()+1)+'月</span>';
           }
           d2.setMonth(d2.getMonth()+1);
         }
         html += '</div>';
         html += '<div class="flex items-center gap-1 mt-1 text-[9px] text-slate-400">';
-        html += '<span>å°</span><div class="w-3 h-3 rounded-sm bg-slate-100"></div><div class="w-3 h-3 rounded-sm bg-green-300"></div><div class="w-3 h-3 rounded-sm bg-green-400"></div><div class="w-3 h-3 rounded-sm bg-green-500"></div><div class="w-3 h-3 rounded-sm bg-green-600"></div><span>å¤(60å+)</span>';
+        html += '<span>少</span><div class="w-3 h-3 rounded-sm bg-slate-100"></div><div class="w-3 h-3 rounded-sm bg-green-300"></div><div class="w-3 h-3 rounded-sm bg-green-400"></div><div class="w-3 h-3 rounded-sm bg-green-500"></div><div class="w-3 h-3 rounded-sm bg-green-600"></div><span>多(60分+)</span>';
         html += '</div></div>';
         return html;
       }
