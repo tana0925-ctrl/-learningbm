@@ -4407,7 +4407,7 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   if (!Number.isFinite(damage)) return jsonError(c, 400, 'invalid_damage')
   const monsterId = Math.max(0, Math.min(9999, Math.floor(Number(body.monsterId || 0))))
   const metaJson = body.meta ? JSON.stringify(body.meta).slice(0, 500) : null
-  const validEvents = ['damage', 'faint', 'win', 'lose', 'self_damage', 'gym_ready', 'egg_battle']
+  const validEvents = ['damage', 'faint', 'win', 'lose', 'draw', 'self_damage', 'gym_ready', 'egg_battle']
   const eventType = validEvents.includes(String(body.eventType)) ? String(body.eventType) : 'damage'
 
   // イベント記録
@@ -4438,9 +4438,23 @@ app.post('/api/rt/damage/:roomId', async (c) => {
   if (eventType === 'win') {
     newStatus = 'finished'
     winner = isHost ? 'host' : 'guest'
+  } else if (eventType === 'lose') {
+    newStatus = 'finished'
+    winner = isHost ? 'guest' : 'host'
   } else if (eventType === 'draw') {
     newStatus = 'finished'
     winner = 'draw'
+  }
+
+  // HPが0になったら自動で試合終了＋勝者確定（勝敗が宙ぶらりんになる不具合の修正）
+  if (newStatus !== 'finished') {
+    if (newHostHp <= 0 && newGuestHp <= 0) {
+      newStatus = 'finished'; winner = 'draw'
+    } else if (newGuestHp <= 0) {
+      newStatus = 'finished'; winner = 'host'
+    } else if (newHostHp <= 0) {
+      newStatus = 'finished'; winner = 'guest'
+    }
   }
 
   await c.env.DB.prepare(`
