@@ -4,7 +4,7 @@ import re, sys
 
 HTML_FILE = 'public/index.html'
 SCRIPT_TAG = '<script src="/rt-battle.js"></script>'
-MARKER     = 'rt-battle.js'
+MARKER     = '<script src="/rt-battle.js"'
 
 with open(HTML_FILE, 'r', encoding='utf-8') as f:
     content = f.read()
