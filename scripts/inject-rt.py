@@ -1,5 +1,5 @@
 # inject-rt.py
-# public/index.html に追加スクリプト(rt-battle.js / typeshoot.js)のタグを挿入する
+# public/index.html に追加スクリプトのタグ挿入 + window.getPlayer の公開
 import sys
 
 HTML_FILE = 'public/index.html'
@@ -23,6 +23,14 @@ for src in SCRIPTS:
         content += tag
     changed = True
     print('[inject] injected: ' + src)
+
+# 外部スクリプト(typeshoot.js等)から player を読めるように公開
+anchor = 'window.saveData = saveData;'
+helper = ' window.getPlayer = window.getPlayer || function(){ try { return player; } catch(e){ return null; } };'
+if anchor in content and 'window.getPlayer = window.getPlayer ||' not in content:
+    content = content.replace(anchor, anchor + helper, 1)
+    changed = True
+    print('[inject] exposed window.getPlayer')
 
 if changed:
     with open(HTML_FILE, 'w', encoding='utf-8') as f:
