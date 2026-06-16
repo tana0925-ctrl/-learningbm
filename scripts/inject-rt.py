@@ -1,30 +1,31 @@
 # inject-rt.py
-# learningbm_index.html に RT バトルスクリプトタグを挿入するパッチスクリプト
-import re, sys
+# public/index.html に追加スクリプト(rt-battle.js / typeshoot.js)のタグを挿入する
+import sys
 
 HTML_FILE = 'public/index.html'
-SCRIPT_TAG = '<script src="/rt-battle.js"></script>'
-MARKER     = '<script src="/rt-battle.js"'
+SCRIPTS = ['/rt-battle.js', '/typeshoot.js']
 
 with open(HTML_FILE, 'r', encoding='utf-8') as f:
     content = f.read()
 
-if MARKER in content:
-    print('[inject-rt] already injected, skipping.')
-    sys.exit(0)
+changed = False
+for src in SCRIPTS:
+    tag = '<script src="' + src + '"></script>'
+    marker = '<script src="' + src + '"'
+    if marker in content:
+        print('[inject] already present: ' + src)
+        continue
+    if '</body>' in content:
+        content = content.replace('</body>', tag + '</body>', 1)
+    elif '</html>' in content:
+        content = content.replace('</html>', tag + '</html>', 1)
+    else:
+        content += tag
+    changed = True
+    print('[inject] injected: ' + src)
 
-# </body> の直前に挿入
-if '</body>' in content:
-    content = content.replace('</body>', SCRIPT_TAG + '</body>', 1)
-    print('[inject-rt] inserted before </body>')
-elif '</html>' in content:
-    content = content.replace('</html>', SCRIPT_TAG + '</html>', 1)
-    print('[inject-rt] inserted before </html>')
-else:
-    content += SCRIPT_TAG
-    print('[inject-rt] appended to end of file')
+if changed:
+    with open(HTML_FILE, 'w', encoding='utf-8') as f:
+        f.write(content)
 
-with open(HTML_FILE, 'w', encoding='utf-8') as f:
-    f.write(content)
-
-print('[inject-rt] done.')
+print('[inject] done.')
