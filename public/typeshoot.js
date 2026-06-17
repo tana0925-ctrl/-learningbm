@@ -22,14 +22,24 @@
     'ば':['ba'],'び':['bi'],'ぶ':['bu'],'べ':['be'],'ぼ':['bo'],
     'ぱ':['pa'],'ぴ':['pi'],'ぷ':['pu'],'ぺ':['pe'],'ぽ':['po'],'ー':['-']
   };
+  var YOON = { 'きゃ':['kya'],'きゅ':['kyu'],'きょ':['kyo'],'しゃ':['sha','sya'],'しゅ':['shu','syu'],'しょ':['sho','syo'],'ちゃ':['cha','tya'],'ちゅ':['chu','tyu'],'ちょ':['cho','tyo'],'にゃ':['nya'],'にゅ':['nyu'],'にょ':['nyo'],'ひゃ':['hya'],'ひゅ':['hyu'],'ひょ':['hyo'],'みゃ':['mya'],'みゅ':['myu'],'みょ':['myo'],'りゃ':['rya'],'りゅ':['ryu'],'りょ':['ryo'],'ぎゃ':['gya'],'ぎゅ':['gyu'],'ぎょ':['gyo'],'じゃ':['ja','zya','jya'],'じゅ':['ju','zyu','jyu'],'じょ':['jo','zyo','jyo'],'びゃ':['bya'],'びゅ':['byu'],'びょ':['byo'],'ぴゃ':['pya'],'ぴゅ':['pyu'],'ぴょ':['pyo'],'ぢゃ':['ja','dya'],'ぢゅ':['ju','dyu'],'ぢょ':['jo','dyo'] };
   function romaPatterns(word) {
-    var sets = [];
-    for (var i = 0; i < word.length; i++) { var k = ROMA[word[i]]; if (!k) return [word]; sets.push(k); }
+    var sets = []; var i = 0; var dbl = false;
+    while (i < word.length) {
+      var c = word[i], c2 = word[i + 1];
+      if (c === 'っ') { dbl = true; i++; continue; }
+      var opts;
+      if (c2 && YOON[c + c2]) { opts = YOON[c + c2].slice(); i += 2; }
+      else if (ROMA[c]) { opts = ROMA[c].slice(); i += 1; }
+      else { return [word]; }
+      if (dbl) { opts = opts.map(function (o) { return /^[aiueo]/.test(o) ? o : o[0] + o; }); dbl = false; }
+      sets.push(opts);
+    }
     var out = [''];
     for (var s = 0; s < sets.length; s++) {
       var next = [];
       for (var a = 0; a < out.length; a++) for (var b = 0; b < sets[s].length; b++) next.push(out[a] + sets[s][b]);
-      out = next; if (out.length > 64) out = out.slice(0, 64);
+      out = next; if (out.length > 256) out = out.slice(0, 256);
     }
     return out;
   }
@@ -37,11 +47,11 @@
   function isComplete(t, p) { for (var i = 0; i < p.length; i++) if (p[i] === t) return true; return false; }
 
   var TIERS = [
-    ['あり','いか','いぬ','うし','うま','かに','かば','かめ','くま','さい','さる','せみ','ぞう','たい','たこ','ちば','つき','とら','とり','なら','にじ','ねこ','はち','ぶた','へび','ほし','やぎ','りす','わに','いちご','いるか','うさぎ','えいご','からす','きつね','きりん','くじら','こあら','こくご','さかな','さくら','すいか','ずこう','たぬき','だんご','つくえ','つくし','とまと','ながの','なごや','はさみ','ばなな','ぱんだ','ひみこ','びわこ','ぶどう','ぷりん','ぺりー','みかん','めだか','めろん','もみじ','りんご'],
-    ['あさがお','あじさい','えんぴつ','おおさか','おきなわ','おにぎり','おんがく','かごしま','かみなり','かもしか','からあげ','がんじん','くまもと','くろねこ','ぐらたん','こうえん','こうもり','こすもす','さいたま','さんすう','ざびえる','しまうま','せんせい','せんだい','せんべい','たいいく','たいやき','たいよう','たべもの','たんぽぽ','てつぼう','ともだち','どーなつ','ながぐつ','ながさき','にいがた','ひこうき','ひまわり','ひろしま','ふくおか','ふくろう','ふじさん','ぺんぎん','ほしぞら','やきそば','らいおん'],
-    ['あかとんぼ','ありがとう','おべんとう','おむらいす','かぶとむし','こんにちは','さようなら','せんぷうき','たからもの','たまごやき','だんごむし','つだうめこ','なつやすみ','はりねずみ','はんばーぐ','みずたまり'],
-    ['うんどうかい','おだのぶなが','きどたかよし','たいようけい','だてまさむね','どうぶつえん','のぐちひでよ'],
-    ['あけちみつひで','いしだみつなり','いとうひろぶみ','いのうただたか','いわくらともみ','かのうえいとく','さなだゆきむら','すぎたげんぱく','すぎはらちうね','たけだしんげん','なつめそうせき','ひぐちいちよう','ひらがげんない','ふくざわゆきち','みやもとむさし','むらさきしきぶ','あしかがたかうじ','あしかがよしみつ','いたがきたいすけ','うえすぎけんしん','うたがわひろしげ','おおくぼとしみち','おおくましげのぶ','かつしかほくさい','きたがわうたまろ','さいごうたかもり','たいらのきよもり','とくがわいえみつ','とくがわいえやす','とくがわよしむね','とよとみひでよし','もとおりのりなが','すがわらのみちざね','なかとみのかまたり','ふじわらのみちなが','みなもとのよしつね','みなもとのよりとも','きたざとしばさぶろう','なかのおおえのおうじ']
+    ['あり','いか','いぬ','うし','うま','かに','かば','かめ','ぎふ','くま','さい','さる','せみ','ぞう','たい','たこ','ちば','つき','とら','とり','なら','にじ','ねこ','はち','ぶた','へび','ほし','やぎ','りす','わに','いちご','いるか','うさぎ','えいご','からす','きつね','きりん','くじら','こあら','こくご','さかな','さくら','すいか','ずこう','たぬき','だんご','つくえ','つくし','とちぎ','とまと','ながの','なごや','はさみ','ばなな','ぱんだ','ひみこ','ひょう','びわこ','ぶどう','ぷりん','ぺりー','みかん','めだか','めろん','もみじ','りんご'],
+    ['あさがお','あじさい','えんぴつ','おおさか','おきなわ','おにぎり','おんがく','かごしま','かみなり','かもしか','からあげ','がっこう','がんじん','きょうと','きんぎょ','くまもと','くろねこ','ぐらたん','こうえん','こうもり','こすもす','さいたま','さっぽろ','さんすう','ざびえる','しまうま','せんせい','せんだい','せんべい','たいいく','たいやき','たいよう','たべもの','たんぽぽ','てつぼう','ともだち','どーなつ','ながぐつ','ながさき','にいがた','ひこうき','ひまわり','ひょうご','ひろしま','ふくおか','ふくろう','ふじさん','ぺんぎん','ほしぞら','やきそば','らいおん'],
+    ['あかとんぼ','ありがとう','おべんとう','おむらいす','かぶとむし','こんにちは','こんにゃく','さようなら','しゅくだい','しょくぱん','じゅぎょう','せんぷうき','たからもの','たまごやき','だんごむし','ちょうちょ','つだうめこ','とうきょう','なつやすみ','はりねずみ','はんばーぐ','みずたまり','りゅうぐう'],
+    ['うんどうかい','おだのぶなが','きどたかよし','きゅうしゅう','きゅうしょく','ぎゅうにゅう','たいようけい','だてまさむね','ちゃわんむし','どうぶつえん','のぐちひでよ'],
+    ['あけちみつひで','いしだみつなり','いとうひろぶみ','いのうただたか','いわくらともみ','かつかいしゅう','かのうえいとく','さなだゆきむら','すぎたげんぱく','すぎはらちうね','せんのりきゅう','たけだしんげん','なつめそうせき','ひぐちいちよう','ひらがげんない','ふくざわゆきち','まつおばしょう','みやもとむさし','むらさきしきぶ','あしかがたかうじ','あしかがよしまさ','あしかがよしみつ','いたがきたいすけ','うえすぎけんしん','うたがわひろしげ','おおくぼとしみち','おおくましげのぶ','かつしかほくさい','きたがわうたまろ','さいごうたかもり','さかもとりょうま','しょうとくたいし','しょうむてんのう','せいしょうなごん','たいらのきよもり','とくがわいえみつ','とくがわいえやす','とくがわよしむね','とよとみひでよし','もとおりのりなが','すがわらのみちざね','なかとみのかまたり','ふじわらのみちなが','ほうじょうときむね','みなもとのよしつね','みなもとのよりとも','きたざとしばさぶろう','ちかまつもんざえもん','なかのおおえのおうじ']
   ];
   function pickWord(stage) {
     var maxT = Math.min(4, Math.floor((stage - 1) / 3));
@@ -55,7 +65,7 @@
   function stageCpuHpMax(stage) { return Math.min(400, 100 + 15 * (stage - 1)); }
 
   var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, cpuHpMax:100, stage:1, combo:0,
-    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null };
+    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal' };
 
   var TYPE_JA = { normal:'ノーマル', fire:'ほのお', water:'みず', grass:'くさ', electric:'でんき', flying:'ひこう', rock:'いわ', ground:'じめん', ice:'こおり', fighting:'かくとう', psychic:'エスパー', dark:'あく', steel:'はがね', fairy:'フェアリー', ghost:'ゴースト', bug:'むし', poison:'どく', dragon:'ドラゴン' };
   function typeJa(t) { return TYPE_JA[t] || t || '？'; }
@@ -72,23 +82,23 @@
   function setEnemy(stage) {
     buildEnemyPool();
     var want = ENEMY_CYCLE[(stage - 1) % ENEMY_CYCLE.length];
-    var pool = (ENEMY_POOL && ENEMY_POOL[want]) || [];
-    if (pool.length) { var m = pool[Math.floor(Math.random() * pool.length)]; S.enemy = { sprite: m.sprite, name: m.name, el: m.el }; }
-    else { S.enemy = { sprite: '🏯', name: 'きち', el: 'normal' }; }
-    var cc = el('tsCpuChar'); if (cc) cc.textContent = S.enemy.sprite;
-    var ei = el('tsEnemyInfo'); if (ei) ei.textContent = '／ ' + (S.enemy.name ? S.enemy.name + ' ' : '') + typeJa(S.enemy.el);
+    function pick(type) { var pool = (ENEMY_POOL && ENEMY_POOL[type]) || []; return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null; }
+    var leader = pick(want) || { sprite: '🏯', name: 'きち', el: 'normal' };
+    S.enemyParty = [{ sprite: leader.sprite, name: leader.name, el: leader.el }];
+    for (var k = 0; k < 2; k++) { var m2 = pick(ENEMY_CYCLE[Math.floor(Math.random() * ENEMY_CYCLE.length)]); if (m2) S.enemyParty.push({ sprite: m2.sprite, name: m2.name, el: m2.el }); }
+    S.enemyIdx = 0; S.enemyType = leader.el; S.enemy = S.enemyParty[0];
+    var cc = el('tsCpuChar'); if (cc) cc.textContent = leader.sprite;
+    var ei = el('tsEnemyInfo'); if (ei) ei.textContent = '／ ' + (leader.name ? leader.name + ' ' : '') + typeJa(leader.el) + '（せんとう）';
     if (S.party && S.party.length) renderParty();
   }
   function loadParty() {
-    S.party = [];
+    S.party = []; var seen = {};
+    function pushMon(rawId) { var id = Number(rawId); if (!isFinite(id) || seen[id]) return; var m = window.getMonster && window.getMonster(id); if (m) { seen[id] = 1; S.party.push({ id: id, sprite: m.sprite || '⭐', name: m.name || '', el: m.elementType || 'normal' }); } }
     try {
       var p = window.getPlayer && window.getPlayer();
-      var ids = (p && p.party) ? p.party : [];
-      for (var i = 0; i < ids.length && S.party.length < 3; i++) {
-        var id = ids[i]; if (id && typeof id === 'object') id = id.i || id.id;
-        var m = window.getMonster && window.getMonster(id);
-        if (m) S.party.push({ id: id, sprite: m.sprite || '⭐', name: m.name || '', el: m.elementType || 'normal' });
-      }
+      var ids = (p && p.party && p.party.length) ? p.party : [];
+      for (var i = 0; i < ids.length && S.party.length < 3; i++) { var e = ids[i]; if (e && typeof e === 'object') e = e.i || e.id || e.mid; pushMon(e); }
+      if (S.party.length < 3 && p && p.monsters) { var owned = Object.keys(p.monsters); for (var j = 0; j < owned.length && S.party.length < 3; j++) pushMon(owned[j]); }
     } catch (e) {}
     if (!S.party.length) S.party = [{ sprite: '⭐', name: 'スター', el: 'normal' }];
     S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite;
@@ -96,19 +106,20 @@
   function activeMon() { return S.party && S.party[S.activeIdx]; }
   function renderParty() {
     var c = el('tsParty'); if (!c) return; c.innerHTML = '';
+    var lab = document.createElement('span'); lab.textContent = 'じゅんばん：'; lab.style.cssText = 'align-self:center;font-size:11px;color:#64748b';
+    c.appendChild(lab);
     for (var i = 0; i < S.party.length; i++) {
-      (function (i) {
-        var m = S.party[i]; var tip = '';
-        if (S.enemy) { var ef = effFactor(m.el, S.enemy.el); if (ef.f >= 2) tip = ' ◎'; else if (ef.f <= 0.5) tip = ' ▽'; }
-        var b = document.createElement('button');
-        b.textContent = (i + 1) + '.' + m.sprite + ' ' + typeJa(m.el) + tip;
-        b.style.cssText = 'border:none;border-radius:10px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer;' + (i === S.activeIdx ? 'background:#f59e0b;color:#1f2937;outline:3px solid #fcd34d' : 'background:#1e293b;color:#cbd5e1');
-        b.onclick = function () { setActive(i); };
-        c.appendChild(b);
-      })(i);
+      var m = S.party[i]; var tip = '';
+      var ef = effFactor(m.el, S.enemyType); if (ef.f >= 2) tip = '◎'; else if (ef.f <= 0.5) tip = '▽';
+      var b = document.createElement('span');
+      b.textContent = (i === S.activeIdx ? '▶' : (i + 1) + '.') + m.sprite + typeJa(m.el) + tip;
+      b.style.cssText = 'border-radius:10px;padding:5px 9px;font-size:13px;font-weight:800;' + (i === S.activeIdx ? 'background:#f59e0b;color:#1f2937;outline:2px solid #fcd34d' : 'background:#1e293b;color:#cbd5e1');
+      c.appendChild(b);
     }
   }
   function setActive(i) { if (i < 0 || i >= S.party.length) return; S.activeIdx = i; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[i]) mc.textContent = S.party[i].sprite; }
+  function rotateParty() { if (S.party.length) setActive((S.activeIdx + 1) % S.party.length); }
+  function rotateEnemy() { if (!S.enemyParty.length) return; S.enemyIdx = (S.enemyIdx + 1) % S.enemyParty.length; var cc = el('tsCpuChar'); if (cc) cc.textContent = S.enemyParty[S.enemyIdx].sprite; }
   function effFactor(at, dt) {
     var mult = 1; try { mult = window.getElementTypeMultiplier(at, [dt]); } catch (e) { mult = 1; }
     if (mult > 1.05) return { f: 2.0, label: 'こうかバツグン！', color: '#fca5a5' };
@@ -147,7 +158,7 @@
       '<div style="display:flex;gap:8px;justify-content:center;padding:8px 14px 0">' +
         '<button id="tsAtkBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">⚔ こうげき</button>' +
         '<button id="tsDefBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">🛡 ぼうぎょ</button>' +
-        '<span style="align-self:center;font-size:11px;color:#64748b">（スペース＝攻守／1〜3＝キャラ）</span>' +
+        '<span style="align-self:center;font-size:11px;color:#64748b">（スペースで こうげき／ぼうぎょ　キャラは順番に交代）</span>' +
       '</div>' +
       '<div id="tsParty" style="display:flex;gap:6px;justify-content:center;padding:6px 14px 0;flex-wrap:wrap"></div>' +
       '<div style="padding:8px 14px 20px;text-align:center;background:#0f172a">' +
@@ -233,7 +244,7 @@
   function rm(i, mo) { try { mo.node.remove(); } catch (e) {} S.missiles.splice(i, 1); }
   function hitCpu(mo) {
     var at = (mo && mo.atkType) || (activeMon() && activeMon().el) || 'normal';
-    var dt = (S.enemy && S.enemy.el) || 'normal';
+    var dt = S.enemyType || 'normal';
     var eff = effFactor(at, dt);
     var dmg = Math.round(18 * eff.f);
     S.cpuHp = Math.max(0, S.cpuHp - dmg); setBars(); fxBar('tsCpuBar', '#fde047');
@@ -299,13 +310,12 @@
     f.appendChild(box);
     S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats });
   }
-  function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnEnemyWord(); }
+  function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnEnemyWord(); rotateEnemy(); }
 
   function onKey(e) {
     if (!S.open || S.ended || !S.ready) return;
     if (e.key === 'Escape') { e.preventDefault(); closeGame(); return; }
     if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); setMode(S.mode === 'attack' ? 'defense' : 'attack'); return; }
-    if (e.key >= '1' && e.key <= '9') { var pidx = parseInt(e.key, 10) - 1; if (pidx < S.party.length) { e.preventDefault(); setActive(pidx); return; } }
     if (e.key === 'Backspace') { e.preventDefault(); S.typed = S.typed.slice(0, -1); renderTyped(); return; }
     if (e.key && e.key.length === 1 && /[a-zA-Z\-]/.test(e.key)) {
       e.preventDefault();
@@ -315,7 +325,7 @@
           S.typed = t; renderTyped();
           if (isComplete(S.typed, S.pats)) {
             S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : '';
-            var am = activeMon(); spawnMissile('up', am ? am.sprite : '⭐', am ? am.el : 'normal'); setWord();
+            var am = activeMon(); spawnMissile('up', am ? am.sprite : '⭐', am ? am.el : 'normal'); rotateParty(); setWord();
           }
         } else {
           S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
