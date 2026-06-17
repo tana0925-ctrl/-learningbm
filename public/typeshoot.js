@@ -212,11 +212,12 @@
   }
   function finish(win) {
     if (S.ended) return; S.ended = true; S.ready = false; stopLoops();
-    var reward = win ? 30 : 0; if (win) giveReward(reward);
+    // typeshootは作成途中のため、クリア報酬は一旦なし（giveRewardは呼ばない）
+    var reward = 0; /* if (win) giveReward(reward); */
     var r = el('tsResult');
     r.innerHTML = '<div style="font-size:56px">' + (win ? '🏆' : '💧') + '</div>' +
       '<div style="font-size:28px;font-weight:800;color:' + (win ? '#4ade80' : '#f87171') + '">' + (win ? 'クリア！' : 'まけ…') + '</div>' +
-      (win ? '<div style="margin-top:6px;color:#fbbf24">+' + reward + 'コイン</div>' : '') +
+      '' + /* 報酬なし：コイン表示も出さない */
       '<div style="margin-top:18px;display:flex;gap:10px">' +
         '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
