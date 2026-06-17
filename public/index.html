@@ -3583,6 +3583,9 @@ function formatYMD(d){
         <label class="text-xs flex items-center gap-1 mb-2">
           <input name="rtBattleType" type="radio" value="gym" onchange="document.getElementById('rtGradeSubjectArea').style.display='none'"/> ジムバトル形式
         </label>
+        <label class="text-xs flex items-center gap-1 mb-2">
+          <input name="rtBattleType" type="radio" value="shoot" onchange="document.getElementById('rtGradeSubjectArea').style.display='none'"/> ⌨ タイプシュート形式
+        </label>
                 <!-- タマゴバトル形式はRT同期未対応のため非表示 -->
         <div id="rtGradeSubjectArea"><div class="mb-2">
           <div class="text-[10px] text-gray-500 font-bold mb-1">①学年</div>
@@ -34733,6 +34736,9 @@ function endGymBattle(isWin) {
                     } catch(e) {
                         console.error('egg battle start error', e);
                     }
+                } else if (_rt.battleType === 'shoot') {
+                    _rt.isBattling = true;
+                    try { if (typeof window.startTypeShootVS === 'function') window.startTypeShootVS(_rt.roomId, _rt.myRole, _rt.opponentParty, _rt.opponentName); } catch(e) { console.error('shoot start error', e); }
                 } else {
                     battle.friendGym = false;
                     battle.pveArea = _rt.area || 'rounding';
