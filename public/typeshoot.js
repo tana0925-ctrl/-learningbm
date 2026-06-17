@@ -38,10 +38,10 @@
 
   var TIERS = [
     ['あり','いか','いぬ','うし','うま','かに','かば','かめ','くま','さい','さる','せみ','ぞう','たい','たこ','ちば','つき','とら','とり','なら','にじ','ねこ','はち','ぶた','へび','ほし','やぎ','りす','わに','いちご','いるか','うさぎ','えいご','からす','きつね','きりん','くじら','こあら','こくご','さかな','さくら','すいか','ずこう','たぬき','だんご','つくえ','つくし','とまと','ながの','なごや','はさみ','ばなな','ぱんだ','ひみこ','びわこ','ぶどう','ぷりん','ぺりー','みかん','めだか','めろん','もみじ','りんご'],
-    ['あさがお','あじさい','えんぴつ','おおさか','おきなわ','おにぎり','おんがく','かごしま','かみなり','かもしか','からあげ','くまもと','くろねこ','ぐらたん','こうえん','こうもり','こすもす','さいたま','さんすう','ざびえる','しまうま','せんせい','せんだい','せんべい','たいいく','たいやき','たいよう','たべもの','たんぽぽ','てつぼう','ともだち','どーなつ','ながぐつ','ながさき','にいがた','ひこうき','ひまわり','ひろしま','ふくおか','ふくろう','ふじさん','ぺんぎん','ほしぞら','やきそば','らいおん'],
+    ['あさがお','あじさい','えんぴつ','おおさか','おきなわ','おにぎり','おんがく','かごしま','かみなり','かもしか','からあげ','がんじん','くまもと','くろねこ','ぐらたん','こうえん','こうもり','こすもす','さいたま','さんすう','ざびえる','しまうま','せんせい','せんだい','せんべい','たいいく','たいやき','たいよう','たべもの','たんぽぽ','てつぼう','ともだち','どーなつ','ながぐつ','ながさき','にいがた','ひこうき','ひまわり','ひろしま','ふくおか','ふくろう','ふじさん','ぺんぎん','ほしぞら','やきそば','らいおん'],
     ['あかとんぼ','ありがとう','おべんとう','おむらいす','かぶとむし','こんにちは','さようなら','せんぷうき','たからもの','たまごやき','だんごむし','つだうめこ','なつやすみ','はりねずみ','はんばーぐ','みずたまり'],
-    ['うんどうかい','おだのぶなが','たいようけい','だてまさむね','どうぶつえん','のぐちひでよ'],
-    ['あけちみつひで','いしだみつなり','いとうひろぶみ','さなだゆきむら','たけだしんげん','ひらがげんない','ふくざわゆきち','みやもとむさし','むらさきしきぶ','うえすぎけんしん','おおくぼとしみち','さいごうたかもり','たいらのきよもり','とくがわいえやす','とよとみひでよし','すがわらのみちざね','ふじわらのみちなが','みなもとのよりとも']
+    ['うんどうかい','おだのぶなが','きどたかよし','たいようけい','だてまさむね','どうぶつえん','のぐちひでよ'],
+    ['あけちみつひで','いしだみつなり','いとうひろぶみ','いのうただたか','いわくらともみ','かのうえいとく','さなだゆきむら','すぎたげんぱく','すぎはらちうね','たけだしんげん','なつめそうせき','ひぐちいちよう','ひらがげんない','ふくざわゆきち','みやもとむさし','むらさきしきぶ','あしかがたかうじ','あしかがよしみつ','いたがきたいすけ','うえすぎけんしん','うたがわひろしげ','おおくぼとしみち','おおくましげのぶ','かつしかほくさい','きたがわうたまろ','さいごうたかもり','たいらのきよもり','とくがわいえみつ','とくがわいえやす','とくがわよしむね','とよとみひでよし','もとおりのりなが','すがわらのみちざね','なかとみのかまたり','ふじわらのみちなが','みなもとのよしつね','みなもとのよりとも','きたざとしばさぶろう','なかのおおえのおうじ']
   ];
   function pickWord(stage) {
     var maxT = Math.min(4, Math.floor((stage - 1) / 3));
@@ -55,17 +55,68 @@
   function stageCpuHpMax(stage) { return Math.min(400, 100 + 15 * (stage - 1)); }
 
   var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, cpuHpMax:100, stage:1, combo:0,
-    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0 };
+    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null };
 
-  function getMyMonster() {
+  var TYPE_JA = { normal:'ノーマル', fire:'ほのお', water:'みず', grass:'くさ', electric:'でんき', flying:'ひこう', rock:'いわ', ground:'じめん', ice:'こおり', fighting:'かくとう', psychic:'エスパー', dark:'あく', steel:'はがね', fairy:'フェアリー', ghost:'ゴースト', bug:'むし', poison:'どく', dragon:'ドラゴン' };
+  function typeJa(t) { return TYPE_JA[t] || t || '？'; }
+  var ENEMY_POOL = null;
+  function buildEnemyPool() {
+    if (ENEMY_POOL) return; ENEMY_POOL = {};
+    try {
+      var s = window.MONSTERS; if (!s) return;
+      var arr = Array.isArray(s) ? s : Object.keys(s).map(function (k) { return s[k]; });
+      for (var i = 0; i < arr.length; i++) { var m = arr[i]; if (m && m.elementType && m.sprite) { (ENEMY_POOL[m.elementType] = ENEMY_POOL[m.elementType] || []).push({ sprite: m.sprite, name: m.name || '', el: m.elementType }); } }
+    } catch (e) {}
+  }
+  var ENEMY_CYCLE = ['grass','fire','water','electric','flying','rock','ice','ground','fighting','psychic','dark','steel','fairy','ghost','bug','poison','dragon','normal'];
+  function setEnemy(stage) {
+    buildEnemyPool();
+    var want = ENEMY_CYCLE[(stage - 1) % ENEMY_CYCLE.length];
+    var pool = (ENEMY_POOL && ENEMY_POOL[want]) || [];
+    if (pool.length) { var m = pool[Math.floor(Math.random() * pool.length)]; S.enemy = { sprite: m.sprite, name: m.name, el: m.el }; }
+    else { S.enemy = { sprite: '🏯', name: 'きち', el: 'normal' }; }
+    var cc = el('tsCpuChar'); if (cc) cc.textContent = S.enemy.sprite;
+    var ei = el('tsEnemyInfo'); if (ei) ei.textContent = '／ ' + (S.enemy.name ? S.enemy.name + ' ' : '') + typeJa(S.enemy.el);
+    if (S.party && S.party.length) renderParty();
+  }
+  function loadParty() {
+    S.party = [];
     try {
       var p = window.getPlayer && window.getPlayer();
-      var id = p && p.party && p.party[0];
-      if (id && typeof id === 'object') id = id.i || id.id;
-      if (id != null && window.getMonster) { var m = window.getMonster(id); if (m) return { sprite: m.sprite || '⭐' }; }
+      var ids = (p && p.party) ? p.party : [];
+      for (var i = 0; i < ids.length && S.party.length < 3; i++) {
+        var id = ids[i]; if (id && typeof id === 'object') id = id.i || id.id;
+        var m = window.getMonster && window.getMonster(id);
+        if (m) S.party.push({ id: id, sprite: m.sprite || '⭐', name: m.name || '', el: m.elementType || 'normal' });
+      }
     } catch (e) {}
-    return { sprite: '⭐' };
+    if (!S.party.length) S.party = [{ sprite: '⭐', name: 'スター', el: 'normal' }];
+    S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite;
   }
+  function activeMon() { return S.party && S.party[S.activeIdx]; }
+  function renderParty() {
+    var c = el('tsParty'); if (!c) return; c.innerHTML = '';
+    for (var i = 0; i < S.party.length; i++) {
+      (function (i) {
+        var m = S.party[i]; var tip = '';
+        if (S.enemy) { var ef = effFactor(m.el, S.enemy.el); if (ef.f >= 2) tip = ' ◎'; else if (ef.f <= 0.5) tip = ' ▽'; }
+        var b = document.createElement('button');
+        b.textContent = (i + 1) + '.' + m.sprite + ' ' + typeJa(m.el) + tip;
+        b.style.cssText = 'border:none;border-radius:10px;padding:6px 10px;font-size:13px;font-weight:800;cursor:pointer;' + (i === S.activeIdx ? 'background:#f59e0b;color:#1f2937;outline:3px solid #fcd34d' : 'background:#1e293b;color:#cbd5e1');
+        b.onclick = function () { setActive(i); };
+        c.appendChild(b);
+      })(i);
+    }
+  }
+  function setActive(i) { if (i < 0 || i >= S.party.length) return; S.activeIdx = i; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[i]) mc.textContent = S.party[i].sprite; }
+  function effFactor(at, dt) {
+    var mult = 1; try { mult = window.getElementTypeMultiplier(at, [dt]); } catch (e) { mult = 1; }
+    if (mult > 1.05) return { f: 2.0, label: 'こうかバツグン！', color: '#fca5a5' };
+    if (mult === 0) return { f: 0.4, label: 'こうかなし…', color: '#94a3b8' };
+    if (mult < 0.95) return { f: 0.5, label: 'いまひとつ', color: '#93c5fd' };
+    return { f: 1.0, label: '', color: '#fde047' };
+  }
+  function getMyMonster() { var a = activeMon(); return { sprite: a ? a.sprite : '⭐' }; }
   function giveReward(coins) {
     try { if (window.hsGrantRewards) { window.hsGrantRewards({ kind:'coin', coins:coins, shards:0 }, { coins:0, shards:0 }); return; } } catch (e) {}
     try { var p = window.getPlayer && window.getPlayer(); if (p) p.coins = (p.coins || 0) + coins; if (window.saveData) window.saveData(); } catch (e) {}
@@ -84,11 +135,11 @@
         '<div id="tsStage" style="font-weight:800;font-size:16px;color:#fbbf24">ステージ 1</div>' +
         '<button id="tsClose" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer">とじる</button>' +
       '</div>' +
-      '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて の きち</div>' +
+      '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて の きち<span id="tsEnemyInfo" style="color:#fca5a5;font-weight:700"></span></div>' +
         '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsCpuBar" style="height:14px;background:#ef4444;width:100%;transition:width .3s"></div></div></div>' +
       '<div id="tsField" style="position:relative;flex:1;margin:4px 14px;border-radius:12px;background:#111a2e;overflow:hidden">' +
-        '<div style="position:absolute;top:8px;left:0;right:0;text-align:center;font-size:30px">🏯</div>' +
-        '<div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:30px">🛡️</div>' +
+        '<div id="tsCpuChar" style="position:absolute;top:8px;left:0;right:0;text-align:center;font-size:34px">🏯</div>' +
+        '<div id="tsMyChar" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:34px">🛡️</div>' +
         '<div id="tsCount" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:80px;font-weight:900;color:#fbbf24"></div>' +
       '</div>' +
       '<div style="padding:6px 14px"><div style="font-size:12px;color:#94a3b8">じぶん の きち</div>' +
@@ -96,8 +147,9 @@
       '<div style="display:flex;gap:8px;justify-content:center;padding:8px 14px 0">' +
         '<button id="tsAtkBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">⚔ こうげき</button>' +
         '<button id="tsDefBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">🛡 ぼうぎょ</button>' +
-        '<span style="align-self:center;font-size:11px;color:#64748b">（スペースキーで切替）</span>' +
+        '<span style="align-self:center;font-size:11px;color:#64748b">（スペース＝攻守／1〜3＝キャラ）</span>' +
       '</div>' +
+      '<div id="tsParty" style="display:flex;gap:6px;justify-content:center;padding:6px 14px 0;flex-wrap:wrap"></div>' +
       '<div style="padding:8px 14px 20px;text-align:center;background:#0f172a">' +
         '<div id="tsWord" style="font-size:34px;font-weight:800;letter-spacing:4px">ねこ</div>' +
         '<div id="tsTyped" style="font-size:20px;color:#a78bfa;min-height:26px;letter-spacing:2px;margin-top:4px">_</div>' +
@@ -148,15 +200,15 @@
     setTimeout(function () { if (c) { c.style.display = 'none'; c.style.fontSize = '80px'; } }, 900);
   }
 
-  function spawnMissile(dir, emoji) {
+  function spawnMissile(dir, emoji, atkType) {
     var f = el('tsField'); if (!f) return;
     var m = document.createElement('div');
     var x = 20 + Math.random() * (f.clientWidth - 60);
     var startY = dir === 'up' ? f.clientHeight - 50 : 20;
     m.textContent = emoji;
-    m.style.cssText = 'position:absolute;font-size:24px;left:' + x + 'px;top:' + startY + 'px';
+    m.style.cssText = 'position:absolute;font-size:26px;left:' + x + 'px;top:' + startY + 'px';
     f.appendChild(m);
-    S.missiles.push({ node: m, dir: dir, y: startY });
+    S.missiles.push({ node: m, dir: dir, y: startY, atkType: atkType });
   }
   function interceptNearest() {
     var best = -1, bestY = -1;
@@ -173,19 +225,28 @@
       var mo = S.missiles[i]; var speed = stageSpeed(S.stage) * dt;
       mo.y += mo.dir === 'up' ? -speed : speed;
       mo.node.style.top = mo.y + 'px';
-      if (mo.dir === 'up' && mo.y <= 26) { hitCpu(); rm(i, mo); }
+      if (mo.dir === 'up' && mo.y <= 26) { hitCpu(mo); rm(i, mo); }
       else if (mo.dir === 'down' && mo.y >= fh - 40) { hitMe(); rm(i, mo); }
     }
     S.raf = requestAnimationFrame(loop);
   }
   function rm(i, mo) { try { mo.node.remove(); } catch (e) {} S.missiles.splice(i, 1); }
-  function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); fxBar('tsCpuBar', '#fde047'); var f = el('tsField'); if (f) fxBurst(f.clientWidth / 2 - 14, 2, '💥'); if (S.cpuHp <= 0) nextStage(); }
+  function hitCpu(mo) {
+    var at = (mo && mo.atkType) || (activeMon() && activeMon().el) || 'normal';
+    var dt = (S.enemy && S.enemy.el) || 'normal';
+    var eff = effFactor(at, dt);
+    var dmg = Math.round(18 * eff.f);
+    S.cpuHp = Math.max(0, S.cpuHp - dmg); setBars(); fxBar('tsCpuBar', '#fde047');
+    var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, 2, '💥'); if (eff.label) fxFloat(f.clientWidth / 2 - 40, 18, eff.label, eff.color); }
+    if (S.cpuHp <= 0) nextStage();
+  }
   function nextStage() {
     fxClear(S.stage);
     S.stage++;
     S.myHp = Math.min(100, S.myHp + 20);
     S.cpuHpMax = stageCpuHpMax(S.stage);
     S.cpuHp = S.cpuHpMax;
+    setEnemy(S.stage);
     for (var i = S.missiles.length - 1; i >= 0; i--) { try { S.missiles[i].node.remove(); } catch (e) {} }
     S.missiles = [];
     S.typed = ''; renderTyped(); setBars(); updateStageLabel();
@@ -244,6 +305,7 @@
     if (!S.open || S.ended || !S.ready) return;
     if (e.key === 'Escape') { e.preventDefault(); closeGame(); return; }
     if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); setMode(S.mode === 'attack' ? 'defense' : 'attack'); return; }
+    if (e.key >= '1' && e.key <= '9') { var pidx = parseInt(e.key, 10) - 1; if (pidx < S.party.length) { e.preventDefault(); setActive(pidx); return; } }
     if (e.key === 'Backspace') { e.preventDefault(); S.typed = S.typed.slice(0, -1); renderTyped(); return; }
     if (e.key && e.key.length === 1 && /[a-zA-Z\-]/.test(e.key)) {
       e.preventDefault();
@@ -253,7 +315,7 @@
           S.typed = t; renderTyped();
           if (isComplete(S.typed, S.pats)) {
             S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : '';
-            spawnMissile('up', getMyMonster().sprite); setWord();
+            var am = activeMon(); spawnMissile('up', am ? am.sprite : '⭐', am ? am.el : 'normal'); setWord();
           }
         } else {
           S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
@@ -279,6 +341,7 @@
     build();
     S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0;
     el('tsOverlay').style.display = 'flex';
+    buildEnemyPool(); loadParty(); setEnemy(1);
     el('tsResult').style.display = 'none';
     setMode('attack'); setBars(); setWord(); updateStageLabel();
     if (el('tsCombo')) el('tsCombo').textContent = '';
