@@ -66,7 +66,7 @@
     o.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#0b1220;color:#f1f5f9;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden';
     o.innerHTML =
       '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0f172a">' +
-        '<div style="font-weight:700;color:#a78bfa">⌨ タイプシュート（しさく版 v0.2）</div>' +
+        '<div style="font-weight:700;color:#a78bfa">⌨ タイプシュート（しさく版 v0.3）</div>' +
         '<button id="tsClose" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer">とじる</button>' +
       '</div>' +
       '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて の きち</div>' +
@@ -156,7 +156,18 @@
   function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); if (S.cpuHp <= 0) finish(true); }
   function hitMe() { S.myHp = Math.max(0, S.myHp - 15); setBars(); flash(); if (S.myHp <= 0) finish(false); }
   function flash() { var f = el('tsField'); if (f) { f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); } }
-  function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnMissile('down', '💧'); }
+  function spawnEnemyWord() {
+    var f = el('tsField'); if (!f || !S.ready) return;
+    var w = WORDS[Math.floor(Math.random() * WORDS.length)];
+    var pats = romaPatterns(w);
+    var box = document.createElement('div');
+    var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
+    box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:48px';
+    box.innerHTML = '<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + w + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
+    f.appendChild(box);
+    S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats });
+  }
+  function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnEnemyWord(); }
 
   function onKey(e) {
     if (!S.open || S.ended || !S.ready) return;
@@ -166,18 +177,29 @@
     if (e.key && e.key.length === 1 && /[a-zA-Z\-]/.test(e.key)) {
       e.preventDefault();
       var t = S.typed + e.key.toLowerCase();
-      if (isPrefix(t, S.pats)) {
-        S.typed = t; renderTyped();
-        if (isComplete(S.typed, S.pats)) {
-          S.combo++;
-          if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : '';
-          if (S.mode === 'attack') spawnMissile('up', getMyMonster().sprite);
-          else interceptNearest();
-          setWord();
+      if (S.mode === 'attack') {
+        if (isPrefix(t, S.pats)) {
+          S.typed = t; renderTyped();
+          if (isComplete(S.typed, S.pats)) {
+            S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : '';
+            spawnMissile('up', getMyMonster().sprite); setWord();
+          }
+        } else {
+          S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
+          var tw = el('tsTyped'); if (tw) { tw.style.color = '#ef4444'; setTimeout(function () { if (tw) tw.style.color = '#a78bfa'; }, 200); }
         }
       } else {
-        S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
-        var tw = el('tsTyped'); if (tw) { tw.style.color = '#ef4444'; setTimeout(function () { if (tw) tw.style.color = '#a78bfa'; }, 200); }
+        var cands = [];
+        for (var ci = 0; ci < S.missiles.length; ci++) { var cm = S.missiles[ci]; if (cm.dir === 'down' && cm.pats && isPrefix(t, cm.pats)) cands.push(cm); }
+        if (cands.length) {
+          S.typed = t; renderTyped();
+          var done = null, dy = -1;
+          for (var cj = 0; cj < cands.length; cj++) { if (isComplete(t, cands[cj].pats) && cands[cj].y > dy) { dy = cands[cj].y; done = cands[cj]; } }
+          if (done) { var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
+        } else {
+          S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
+          var tw2 = el('tsTyped'); if (tw2) { tw2.style.color = '#ef4444'; setTimeout(function () { if (tw2) tw2.style.color = '#a78bfa'; }, 200); }
+        }
       }
     }
   }
@@ -243,5 +265,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectButton);
   else injectButton();
   setTimeout(injectButton, 2000);
-  console.log('[TypeShoot v0.2] loaded');
+  console.log('[TypeShoot v0.3 defense] loaded');
 })();
