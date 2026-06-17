@@ -65,7 +65,7 @@
   function stageCpuHpMax(stage) { return Math.min(400, 100 + 15 * (stage - 1)); }
 
   var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, cpuHpMax:100, stage:1, combo:0,
-    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal' };
+    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal', baseType:'normal' };
 
   var TYPE_JA = { normal:'ノーマル', fire:'ほのお', water:'みず', grass:'くさ', electric:'でんき', flying:'ひこう', rock:'いわ', ground:'じめん', ice:'こおり', fighting:'かくとう', psychic:'エスパー', dark:'あく', steel:'はがね', fairy:'フェアリー', ghost:'ゴースト', bug:'むし', poison:'どく', dragon:'ドラゴン' };
   var TYPE_COLOR = { normal:'#9ca3af', fire:'#ef4444', water:'#3b82f6', grass:'#22c55e', electric:'#eab308', flying:'#60a5fa', rock:'#a16207', ground:'#b45309', ice:'#22d3ee', fighting:'#b91c1c', psychic:'#ec4899', dark:'#374151', steel:'#64748b', fairy:'#f472b6', ghost:'#7c3aed', bug:'#84cc16', poison:'#a21caf', dragon:'#4338ca' };
@@ -104,7 +104,7 @@
       if (S.party.length < 3 && p && p.monsters) { var owned = Object.keys(p.monsters); for (var j = 0; j < owned.length && S.party.length < 3; j++) pushMon(owned[j]); }
     } catch (e) {}
     if (!S.party.length) S.party = [{ sprite: '⭐', name: 'スター', el: 'normal' }];
-    S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite; var mt = el('tsMyType'); if (mt && S.party[0]) mt.innerHTML = typeBadge(S.party[0].el, 'こうげき：');
+    S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite; var mt = el('tsMyType'); if (mt && S.party[0]) mt.innerHTML = typeBadge(S.party[0].el, 'こうげき：'); S.baseType = S.party[0] ? S.party[0].el : 'normal'; var bi = el('tsMyBaseInfo'); if (bi) bi.textContent = '／ きちタイプ ' + typeJa(S.baseType);
   }
   function activeMon() { return S.party && S.party[S.activeIdx]; }
   function renderParty() {
@@ -158,7 +158,7 @@
         '<div id="tsMyChar" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:34px">🛡️</div>' +
         '<div id="tsCount" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:80px;font-weight:900;color:#fbbf24"></div>' +
       '</div>' +
-      '<div style="padding:6px 14px"><div style="font-size:12px;color:#94a3b8">じぶん の きち</div>' +
+      '<div style="padding:6px 14px"><div style="font-size:12px;color:#94a3b8">じぶん の きち<span id="tsMyBaseInfo" style="color:#86efac;font-weight:700"></span></div>' +
         '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsMyBar" style="height:14px;background:#4ade80;width:100%;transition:width .3s"></div></div></div>' +
       '<div style="display:flex;gap:8px;justify-content:center;padding:8px 14px 0">' +
         '<button id="tsAtkBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">⚔ こうげき</button>' +
@@ -242,7 +242,7 @@
       mo.y += mo.dir === 'up' ? -speed : speed;
       mo.node.style.top = mo.y + 'px';
       if (mo.dir === 'up' && mo.y <= 26) { hitCpu(mo); rm(i, mo); }
-      else if (mo.dir === 'down' && mo.y >= fh - 40) { hitMe(); rm(i, mo); }
+      else if (mo.dir === 'down' && mo.y >= fh - 40) { hitMe(mo); rm(i, mo); }
     }
     S.raf = requestAnimationFrame(loop);
   }
@@ -271,7 +271,7 @@
     stageBanner('ステージ ' + S.stage);
     setWord();
   }
-  function hitMe() { S.myHp = Math.max(0, S.myHp - 15); setBars(); flash(); fxBar('tsMyBar', '#fca5a5'); var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); fxShake(f); } if (S.myHp <= 0) finish(false); }
+  function hitMe(mo) { var ie = (mo && mo.inEff) || 1; var mult = ie >= 2 ? 1.5 : (ie <= 0.5 ? 0.6 : 1); var dmg = Math.round(15 * mult); S.myHp = Math.max(0, S.myHp - dmg); setBars(); flash(); fxBar('tsMyBar', '#fca5a5'); var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); fxShake(f); } if (S.myHp <= 0) finish(false); }
   function flash() { var f = el('tsField'); if (f) { f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); } }
   function fxBurst(x, y, emoji, color) {
     var f = el('tsField'); if (!f) return;
@@ -308,12 +308,17 @@
     var f = el('tsField'); if (!f || !S.ready) return;
     var w = pickWord(S.stage);
     var pats = romaPatterns(w);
+    var atkEl = (S.enemyParty[S.enemyIdx] && S.enemyParty[S.enemyIdx].el) || S.enemyType || 'normal';
+    var eff = effFactor(atkEl, S.baseType);
+    var col = TYPE_COLOR[atkEl] || '#9ca3af';
+    var border = eff.f >= 2 ? '#f87171' : '#fca5a5';
     var box = document.createElement('div');
     var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
-    box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:48px';
-    box.innerHTML = '<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + w + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
+    box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid ' + border + ';border-radius:8px;padding:2px 8px;text-align:center;min-width:52px' + (eff.f >= 2 ? ';box-shadow:0 0 9px #f87171' : '');
+    var tag = eff.f >= 2 ? '<div style="font-size:10px;font-weight:800;color:#fecaca">⚠ばつぐん</div>' : (eff.f <= 0.5 ? '<div style="font-size:10px;color:#bfdbfe">いまひとつ</div>' : '');
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(atkEl) + '</div>' + tag + '<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + w + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
     f.appendChild(box);
-    S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats });
+    S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats, inEff: eff.f, atkEl: atkEl });
   }
   function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnEnemyWord(); rotateEnemy(); }
 
