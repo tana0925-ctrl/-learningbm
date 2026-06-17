@@ -105,6 +105,11 @@
         '<div id="tsCombo" style="font-size:13px;color:#fbbf24;margin-top:6px;height:18px"></div>' +
       '</div>' +
       '<div id="tsResult" style="display:none;position:absolute;inset:0;background:rgba(2,6,23,.92);flex-direction:column;align-items:center;justify-content:center;text-align:center"></div>';
+    if (!document.getElementById('tsFxStyle')) {
+      var st = document.createElement('style'); st.id = 'tsFxStyle';
+      st.textContent = '@keyframes tsPop{0%{transform:scale(.3);opacity:1}100%{transform:scale(1.9);opacity:0}}@keyframes tsShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}@keyframes tsRise{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-44px) scale(1.25);opacity:0}}@keyframes tsClearIn{0%{transform:scale(.2) rotate(-12deg);opacity:0}55%{transform:scale(1.15) rotate(5deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}@keyframes tsConfetti{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(250px) rotate(560deg);opacity:0}}';
+      document.head.appendChild(st);
+    }
     document.body.appendChild(o);
     el('tsClose').onclick = closeGame;
     el('tsAtkBtn').onclick = function () { setMode('attack'); };
@@ -174,8 +179,9 @@
     S.raf = requestAnimationFrame(loop);
   }
   function rm(i, mo) { try { mo.node.remove(); } catch (e) {} S.missiles.splice(i, 1); }
-  function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); if (S.cpuHp <= 0) nextStage(); }
+  function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); fxBar('tsCpuBar', '#fde047'); var f = el('tsField'); if (f) fxBurst(f.clientWidth / 2 - 14, 2, '💥'); if (S.cpuHp <= 0) nextStage(); }
   function nextStage() {
+    fxClear(S.stage);
     S.stage++;
     S.myHp = Math.min(100, S.myHp + 20);
     S.cpuHpMax = stageCpuHpMax(S.stage);
@@ -188,8 +194,39 @@
     stageBanner('ステージ ' + S.stage);
     setWord();
   }
-  function hitMe() { S.myHp = Math.max(0, S.myHp - 15); setBars(); flash(); if (S.myHp <= 0) finish(false); }
+  function hitMe() { S.myHp = Math.max(0, S.myHp - 15); setBars(); flash(); fxBar('tsMyBar', '#fca5a5'); var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); fxShake(f); } if (S.myHp <= 0) finish(false); }
   function flash() { var f = el('tsField'); if (f) { f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); } }
+  function fxBurst(x, y, emoji, color) {
+    var f = el('tsField'); if (!f) return;
+    var s = document.createElement('div'); s.textContent = emoji;
+    s.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px;font-size:28px;pointer-events:none;z-index:6;animation:tsPop .5s ease-out forwards';
+    if (color) s.style.color = color;
+    f.appendChild(s); setTimeout(function () { try { s.remove(); } catch (e) {} }, 520);
+  }
+  function fxFloat(x, y, text, color) {
+    var f = el('tsField'); if (!f) return;
+    var s = document.createElement('div'); s.textContent = text;
+    s.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px;font-size:16px;font-weight:800;color:' + (color || '#fbbf24') + ';pointer-events:none;z-index:7;text-shadow:0 1px 3px #000;animation:tsRise .7s ease-out forwards';
+    f.appendChild(s); setTimeout(function () { try { s.remove(); } catch (e) {} }, 720);
+  }
+  function fxShake(node) { if (!node) return; node.style.animation = 'tsShake .3s'; setTimeout(function () { if (node) node.style.animation = ''; }, 320); }
+  function fxBar(id, color) { var b = el(id); if (!b) return; var prev = b.style.background; b.style.background = color; setTimeout(function () { if (b) b.style.background = prev; }, 180); }
+  function fxClear(stageNum) {
+    var f = el('tsField'); if (!f) return;
+    var w = f.clientWidth;
+    var banner = document.createElement('div');
+    banner.textContent = 'ステージ ' + stageNum + ' クリア！';
+    banner.style.cssText = 'position:absolute;left:0;right:0;top:36%;text-align:center;font-size:34px;font-weight:900;color:#fde047;text-shadow:0 2px 6px #000;pointer-events:none;z-index:9;animation:tsClearIn .5s ease-out';
+    f.appendChild(banner);
+    var emo = ['🎉','⭐','🎊','✨','🏅','💫'];
+    for (var i = 0; i < 18; i++) {
+      var c = document.createElement('div'); c.textContent = emo[i % emo.length];
+      c.style.cssText = 'position:absolute;left:' + (Math.random() * w) + 'px;top:-12px;font-size:' + (16 + Math.random() * 16) + 'px;pointer-events:none;z-index:8;animation:tsConfetti ' + (0.9 + Math.random() * 0.9) + 's ease-in forwards';
+      f.appendChild(c);
+      (function (node) { setTimeout(function () { try { node.remove(); } catch (e) {} }, 2000); })(c);
+    }
+    setTimeout(function () { try { banner.remove(); } catch (e) {} }, 1100);
+  }
   function spawnEnemyWord() {
     var f = el('tsField'); if (!f || !S.ready) return;
     var w = pickWord(S.stage);
@@ -229,7 +266,7 @@
           S.typed = t; renderTyped();
           var done = null, dy = -1;
           for (var cj = 0; cj < cands.length; cj++) { if (isComplete(t, cands[cj].pats) && cands[cj].y > dy) { dy = cands[cj].y; done = cands[cj]; } }
-          if (done) { var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
+          if (done) { var dx = parseFloat(done.node.style.left) || 0; var dyy = done.y || 0; var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); fxBurst(dx, dyy, '💥'); fxFloat(dx, dyy, 'ナイス！', '#93c5fd'); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
         } else {
           S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
           var tw2 = el('tsTyped'); if (tw2) { tw2.style.color = '#ef4444'; setTimeout(function () { if (tw2) tw2.style.color = '#a78bfa'; }, 200); }
