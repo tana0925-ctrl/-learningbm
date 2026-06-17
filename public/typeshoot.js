@@ -416,6 +416,201 @@
     b.onclick = startGame;
     document.body.appendChild(b);
   }
+  /* ===== ともだち対戦（タイプシュート VS） 最小版 ===== */
+  var V = null;
+  function vMyMon() {
+    try {
+      var p = window.getPlayer && window.getPlayer();
+      var id = p && p.party && p.party[0];
+      if (id && typeof id === 'object') id = id.i || id.id;
+      id = Number(id);
+      var m = isFinite(id) && window.getMonster ? window.getMonster(id) : null;
+      if (m) return { sprite: m.sprite || '⭐', el: m.elementType || 'normal' };
+    } catch (e) {}
+    return { sprite: '⭐', el: 'normal' };
+  }
+  function vBuild() {
+    if (el('tsvOverlay')) return;
+    var o = document.createElement('div');
+    o.id = 'tsvOverlay';
+    o.style.cssText = 'position:fixed;inset:0;z-index:100001;background:#0b1220;color:#f1f5f9;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden';
+    o.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0f172a">' +
+        '<div style="font-weight:700;color:#a78bfa">⚔ タイプシュート たいせん</div>' +
+        '<div id="tsvInfo" style="font-size:13px;color:#fbbf24"></div>' +
+        '<button id="tsvClose" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer">やめる</button>' +
+      '</div>' +
+      '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて <span id="tsvOppName"></span> の きち</div>' +
+        '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsvOppBar" style="height:14px;background:#ef4444;width:100%;transition:width .3s"></div></div></div>' +
+      '<div id="tsvField" style="position:relative;flex:1;margin:4px 14px;border-radius:12px;background:#111a2e;overflow:hidden">' +
+        '<div style="position:absolute;top:8px;left:0;right:0;text-align:center;font-size:30px">🏯</div>' +
+        '<div id="tsvMyChar" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:30px">🙂</div>' +
+        '<div id="tsvCount" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:80px;font-weight:900;color:#fbbf24"></div>' +
+      '</div>' +
+      '<div style="padding:6px 14px"><div style="font-size:12px;color:#94a3b8">じぶん の きち</div>' +
+        '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsvMyBar" style="height:14px;background:#4ade80;width:100%;transition:width .3s"></div></div></div>' +
+      '<div style="display:flex;gap:8px;justify-content:center;padding:8px 14px 0">' +
+        '<button id="tsvAtkBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">⚔ こうげき</button>' +
+        '<button id="tsvDefBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">🛡 ぼうぎょ</button>' +
+        '<span style="align-self:center;font-size:11px;color:#64748b">（スペースで切替）</span>' +
+      '</div>' +
+      '<div style="padding:8px 14px 18px;text-align:center;background:#0f172a">' +
+        '<div id="tsvWord" style="font-size:32px;font-weight:800;letter-spacing:4px">ねこ</div>' +
+        '<div id="tsvTyped" style="font-size:20px;color:#a78bfa;min-height:26px;letter-spacing:2px;margin-top:4px">_</div>' +
+        '<div id="tsvHint" style="font-size:13px;color:#64748b;margin-top:2px"></div>' +
+      '</div>' +
+      '<div id="tsvResult" style="display:none;position:absolute;inset:0;background:rgba(2,6,23,.92);flex-direction:column;align-items:center;justify-content:center;text-align:center"></div>';
+    document.body.appendChild(o);
+    el('tsvClose').onclick = vClose;
+    el('tsvAtkBtn').onclick = function () { vSetMode('attack'); };
+    el('tsvDefBtn').onclick = function () { vSetMode('defense'); };
+  }
+  function vSetMode(m) {
+    V.mode = m;
+    var a = el('tsvAtkBtn'), d = el('tsvDefBtn');
+    if (a && d) {
+      a.style.background = m === 'attack' ? '#ef4444' : '#1e293b'; a.style.color = m === 'attack' ? '#fff' : '#94a3b8'; a.style.outline = m === 'attack' ? '3px solid #fca5a5' : 'none';
+      d.style.background = m === 'defense' ? '#3b82f6' : '#1e293b'; d.style.color = m === 'defense' ? '#fff' : '#94a3b8'; d.style.outline = m === 'defense' ? '3px solid #93c5fd' : 'none';
+    }
+  }
+  function vSetWord() {
+    V.word = pickWord(1 + Math.floor(Math.random() * 9));
+    V.pats = romaPatterns(V.word); V.typed = '';
+    if (el('tsvWord')) el('tsvWord').textContent = V.word;
+    if (el('tsvHint')) el('tsvHint').textContent = 'れい：' + V.pats[0];
+    vRenderTyped();
+  }
+  function vRenderTyped() { if (el('tsvTyped')) el('tsvTyped').textContent = V.typed || '_'; }
+  function vSetBars() {
+    if (el('tsvOppBar')) el('tsvOppBar').style.width = Math.max(0, V.oppHp) + '%';
+    if (el('tsvMyBar')) el('tsvMyBar').style.width = Math.max(0, V.myHp) + '%';
+  }
+  function vSpawnIncoming(word, ty) {
+    var f = el('tsvField'); if (!f) return;
+    var pats = romaPatterns(word);
+    var col = TYPE_COLOR[ty] || '#9ca3af';
+    var box = document.createElement('div');
+    var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
+    box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + word + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
+    f.appendChild(box);
+    V.missiles.push({ node: box, y: 18, word: word, pats: pats });
+  }
+  function vFire() {
+    var mon = vMyMon();
+    vSend({ k: 'f', w: V.word, ty: mon.el }, 0);
+    var f = el('tsvField'); if (f) fxFloat(f.clientWidth / 2 - 24, f.clientHeight - 74, 'はっしゃ！' + mon.sprite, '#fca5a5');
+    vSetWord();
+  }
+  function vLoop(ts) {
+    if (!V || V.ended) return;
+    if (!V.last) V.last = ts;
+    var dt = Math.min(50, ts - V.last); V.last = ts;
+    if (V.ready) {
+      var f = el('tsvField'); var fh = f ? f.clientHeight : 400;
+      var speed = 0.06 * dt;
+      for (var i = V.missiles.length - 1; i >= 0; i--) {
+        var mo = V.missiles[i]; mo.y += speed; mo.node.style.top = mo.y + 'px';
+        if (mo.y >= fh - 40) { vHitMe(); try { mo.node.remove(); } catch (e) {} V.missiles.splice(i, 1); }
+      }
+    }
+    V.raf = requestAnimationFrame(vLoop);
+  }
+  function vHitMe() {
+    var f = el('tsvField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); }
+    vSend({ k: 'h' }, 15);
+  }
+  function vKey(e) {
+    if (!V || V.ended) return;
+    if (e.key === 'Escape') { e.preventDefault(); vClose(); return; }
+    if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); vSetMode(V.mode === 'attack' ? 'defense' : 'attack'); return; }
+    if (!V.ready) return;
+    if (e.key === 'Backspace') { e.preventDefault(); V.typed = V.typed.slice(0, -1); vRenderTyped(); return; }
+    if (e.key && e.key.length === 1 && /[a-zA-Z\-]/.test(e.key)) {
+      e.preventDefault();
+      var t = V.typed + e.key.toLowerCase();
+      if (V.mode === 'attack') {
+        if (isPrefix(t, V.pats)) { V.typed = t; vRenderTyped(); if (isComplete(V.typed, V.pats)) vFire(); }
+        else { V.typed = ''; vRenderTyped(); }
+      } else {
+        var cands = [];
+        for (var ci = 0; ci < V.missiles.length; ci++) { if (isPrefix(t, V.missiles[ci].pats)) cands.push(V.missiles[ci]); }
+        if (cands.length) {
+          V.typed = t; vRenderTyped();
+          var done = null, dy = -1;
+          for (var cj = 0; cj < cands.length; cj++) { if (isComplete(t, cands[cj].pats) && cands[cj].y > dy) { dy = cands[cj].y; done = cands[cj]; } }
+          if (done) { var fx = parseFloat(done.node.style.left) || 0, fy = done.y || 0; var di = V.missiles.indexOf(done); if (di >= 0) { try { done.node.remove(); } catch (e2) {} V.missiles.splice(di, 1); } var f = el('tsvField'); if (f) fxBurst(fx, fy, '💥'); V.typed = ''; vRenderTyped(); }
+        } else { V.typed = ''; vRenderTyped(); }
+      }
+    }
+  }
+  function vSend(meta, dmg) {
+    if (!V || !V.roomId) return;
+    fetch('/api/rt/damage/' + V.roomId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ damage: dmg || 0, monsterId: 0, eventType: (dmg ? 'self_damage' : 'damage'), meta: meta }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.eventId) V.mine[d.eventId] = 1; }).catch(function () {});
+  }
+  function vPoll() {
+    if (!V || !V.roomId) return;
+    fetch('/api/rt/room/' + V.roomId + '?after=' + V.lastEventId).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) return;
+      var room = d.room || {};
+      if (V.role === 'host') { V.myHp = room.hostHp; V.oppHp = room.guestHp; } else { V.myHp = room.guestHp; V.oppHp = room.hostHp; }
+      vSetBars();
+      var evs = d.events || [];
+      for (var i = 0; i < evs.length; i++) {
+        var ev = evs[i];
+        if (ev.id > V.lastEventId) V.lastEventId = ev.id;
+        if (V.mine[ev.id]) continue;
+        var m = null; try { m = ev.meta_json ? JSON.parse(ev.meta_json) : null; } catch (e) {}
+        if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal');
+      }
+      if (room.status === 'finished' || room.winner) vFinish(room.winner);
+    }).catch(function () {});
+  }
+  function vFinish(winner) {
+    if (!V || V.ended) return; V.ended = true;
+    if (V.raf) cancelAnimationFrame(V.raf);
+    if (V.poll) { clearInterval(V.poll); V.poll = null; }
+    document.removeEventListener('keydown', vKey, true);
+    var iWon = (winner === V.role); var draw = (winner === 'draw');
+    var r = el('tsvResult');
+    r.innerHTML = '<div style="font-size:56px">' + (draw ? '🤝' : (iWon ? '🏆' : '💧')) + '</div>' +
+      '<div style="font-size:28px;font-weight:800;color:' + (iWon ? '#4ade80' : '#f87171') + '">' + (draw ? 'ひきわけ' : (iWon ? 'かち！' : 'まけ…')) + '</div>' +
+      '<div style="margin-top:18px"><button id="tsvBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">とじる</button></div>';
+    r.style.display = 'flex';
+    el('tsvBack').onclick = vClose;
+  }
+  function vClose() {
+    if (V) { V.ended = true; if (V.raf) cancelAnimationFrame(V.raf); if (V.poll) clearInterval(V.poll); for (var i = 0; i < V.missiles.length; i++) { try { V.missiles[i].node.remove(); } catch (e) {} } }
+    document.removeEventListener('keydown', vKey, true);
+    if (el('tsvOverlay')) el('tsvOverlay').style.display = 'none';
+    V = null;
+  }
+  function vCountdown(n) {
+    var c = el('tsvCount'); if (!c) { if (V) V.ready = true; return; }
+    c.style.display = 'flex';
+    if (n > 0) { c.textContent = String(n); setTimeout(function () { vCountdown(n - 1); }, 700); }
+    else { c.textContent = 'スタート！'; c.style.fontSize = '52px'; setTimeout(function () { c.style.display = 'none'; c.style.fontSize = '80px'; if (V) V.ready = true; }, 600); }
+  }
+  function startTypeShootVS(roomId, role, oppParty, oppName) {
+    try {
+      vBuild();
+      var mon = vMyMon();
+      V = { roomId: roomId, role: role || 'host', oppName: oppName || 'あいて', mode: 'attack', word: '', pats: [], typed: '', myHp: 100, oppHp: 100, missiles: [], raf: null, poll: null, last: 0, ended: false, ready: false, mine: {}, lastEventId: 0 };
+      el('tsvOverlay').style.display = 'flex';
+      el('tsvResult').style.display = 'none';
+      if (el('tsvOppName')) el('tsvOppName').textContent = oppName || '';
+      if (el('tsvMyChar')) el('tsvMyChar').textContent = mon.sprite;
+      if (el('tsvInfo')) el('tsvInfo').textContent = 'あいて：' + (oppName || '???');
+      vSetMode('attack'); vSetBars(); vSetWord();
+      document.addEventListener('keydown', vKey, true);
+      V.raf = requestAnimationFrame(vLoop);
+      V.poll = setInterval(vPoll, 250);
+      vCountdown(3);
+    } catch (e) { console.error('[TypeShoot VS] start error', e); }
+  }
+  window.startTypeShootVS = startTypeShootVS;
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectButton);
   else injectButton();
   setTimeout(injectButton, 2000);
