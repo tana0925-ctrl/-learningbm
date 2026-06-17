@@ -144,7 +144,7 @@
     var dt = Math.min(50, ts - S.last); S.last = ts;
     var f = el('tsField'); var fh = f ? f.clientHeight : 400;
     for (var i = S.missiles.length - 1; i >= 0; i--) {
-      var mo = S.missiles[i]; var speed = 0.12 * dt;
+      var mo = S.missiles[i]; var speed = 0.06 * dt;
       mo.y += mo.dir === 'up' ? -speed : speed;
       mo.node.style.top = mo.y + 'px';
       if (mo.dir === 'up' && mo.y <= 26) { hitCpu(); rm(i, mo); }
