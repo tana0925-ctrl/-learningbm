@@ -68,6 +68,8 @@
     mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal' };
 
   var TYPE_JA = { normal:'ノーマル', fire:'ほのお', water:'みず', grass:'くさ', electric:'でんき', flying:'ひこう', rock:'いわ', ground:'じめん', ice:'こおり', fighting:'かくとう', psychic:'エスパー', dark:'あく', steel:'はがね', fairy:'フェアリー', ghost:'ゴースト', bug:'むし', poison:'どく', dragon:'ドラゴン' };
+  var TYPE_COLOR = { normal:'#9ca3af', fire:'#ef4444', water:'#3b82f6', grass:'#22c55e', electric:'#eab308', flying:'#60a5fa', rock:'#a16207', ground:'#b45309', ice:'#22d3ee', fighting:'#b91c1c', psychic:'#ec4899', dark:'#374151', steel:'#64748b', fairy:'#f472b6', ghost:'#7c3aed', bug:'#84cc16', poison:'#a21caf', dragon:'#4338ca' };
+  function typeBadge(elm, prefix) { var col = TYPE_COLOR[elm] || '#9ca3af'; return '<span style="display:inline-block;background:' + col + ';color:#fff;font-size:13px;font-weight:800;padding:2px 11px;border-radius:11px;box-shadow:0 1px 3px rgba(0,0,0,.45)">' + (prefix || '') + typeJa(elm) + '</span>'; }
   function typeJa(t) { return TYPE_JA[t] || t || '？'; }
   var ENEMY_POOL = null;
   function buildEnemyPool() {
@@ -89,6 +91,7 @@
     S.enemyIdx = 0; S.enemyType = leader.el; S.enemy = S.enemyParty[0];
     var cc = el('tsCpuChar'); if (cc) cc.textContent = leader.sprite;
     var ei = el('tsEnemyInfo'); if (ei) ei.textContent = '／ ' + (leader.name ? leader.name + ' ' : '') + typeJa(leader.el) + '（せんとう）';
+    var ct = el('tsCpuType'); if (ct) ct.innerHTML = typeBadge(leader.el, 'きちタイプ：');
     if (S.party && S.party.length) renderParty();
   }
   function loadParty() {
@@ -101,7 +104,7 @@
       if (S.party.length < 3 && p && p.monsters) { var owned = Object.keys(p.monsters); for (var j = 0; j < owned.length && S.party.length < 3; j++) pushMon(owned[j]); }
     } catch (e) {}
     if (!S.party.length) S.party = [{ sprite: '⭐', name: 'スター', el: 'normal' }];
-    S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite;
+    S.activeIdx = 0; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[0]) mc.textContent = S.party[0].sprite; var mt = el('tsMyType'); if (mt && S.party[0]) mt.innerHTML = typeBadge(S.party[0].el, 'こうげき：');
   }
   function activeMon() { return S.party && S.party[S.activeIdx]; }
   function renderParty() {
@@ -117,7 +120,7 @@
       c.appendChild(b);
     }
   }
-  function setActive(i) { if (i < 0 || i >= S.party.length) return; S.activeIdx = i; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[i]) mc.textContent = S.party[i].sprite; }
+  function setActive(i) { if (i < 0 || i >= S.party.length) return; S.activeIdx = i; renderParty(); var mc = el('tsMyChar'); if (mc && S.party[i]) mc.textContent = S.party[i].sprite; var mt = el('tsMyType'); if (mt && S.party[i]) mt.innerHTML = typeBadge(S.party[i].el, 'こうげき：'); }
   function rotateParty() { if (S.party.length) setActive((S.activeIdx + 1) % S.party.length); }
   function rotateEnemy() { if (!S.enemyParty.length) return; S.enemyIdx = (S.enemyIdx + 1) % S.enemyParty.length; var cc = el('tsCpuChar'); if (cc) cc.textContent = S.enemyParty[S.enemyIdx].sprite; }
   function effFactor(at, dt) {
@@ -150,6 +153,8 @@
         '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsCpuBar" style="height:14px;background:#ef4444;width:100%;transition:width .3s"></div></div></div>' +
       '<div id="tsField" style="position:relative;flex:1;margin:4px 14px;border-radius:12px;background:#111a2e;overflow:hidden">' +
         '<div id="tsCpuChar" style="position:absolute;top:8px;left:0;right:0;text-align:center;font-size:34px">🏯</div>' +
+        '<div id="tsCpuType" style="position:absolute;top:52px;left:0;right:0;text-align:center"></div>' +
+        '<div id="tsMyType" style="position:absolute;bottom:52px;left:0;right:0;text-align:center"></div>' +
         '<div id="tsMyChar" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:34px">🛡️</div>' +
         '<div id="tsCount" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:80px;font-weight:900;color:#fbbf24"></div>' +
       '</div>' +
