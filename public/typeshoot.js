@@ -1,4 +1,4 @@
-/* タイプシュート 試作版 v0.2（1ステージ）
+/* タイプシュート v0.4（エンドレス）
  * 追加: 手持ちキャラ反映 / ⚔こうげき・🛡ぼうぎょ切替 / 3・2・1カウントダウン
  * 独立モード。既存のバトルには干渉しない。
  */
@@ -36,11 +36,25 @@
   function isPrefix(t, p) { for (var i = 0; i < p.length; i++) if (p[i].indexOf(t) === 0) return true; return false; }
   function isComplete(t, p) { for (var i = 0; i < p.length; i++) if (p[i] === t) return true; return false; }
 
-  var WORDS = ['ねこ','いぬ','とり','うさぎ','きりん','ぱんだ','さかな','からす',
-    'りんご','みかん','ばなな','すいか','とまと','ぶどう',
-    'えんぴつ','つくえ','はさみ','ともだち','せんせい','たいいく','ひまわり'];
+  var TIERS = [
+    ['ねこ','いぬ','とり','さる','くま','うし','うま','ぱんだ','きりん','さかな'],
+    ['うさぎ','からす','りんご','みかん','ばなな','すいか','とまと','ぶどう','めだか','こあら'],
+    ['えんぴつ','つくえ','はさみ','ともだち','せんせい','たいいく','ひまわり','たんぽぽ','ひこうき','おにぎり'],
+    ['くろねこ','あかとんぼ','てつぼう','ながぐつ','こうえん','たべもの','みずたまり','かぶとむし','だんごむし','ほしぞら'],
+    ['ありがとう','こんにちは','さようなら','おべんとう','うんどうかい','なつやすみ','たからもの','どうぶつえん','たいようけい','せんぷうき']
+  ];
+  function pickWord(stage) {
+    var maxT = Math.min(4, Math.floor((stage - 1) / 3));
+    var minT = Math.max(0, maxT - 1);
+    var t = minT + Math.floor(Math.random() * (maxT - minT + 1));
+    var arr = TIERS[t];
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+  function stageSpeed(stage) { return Math.min(0.18, 0.06 + 0.004 * (stage - 1)); }
+  function stageInterval(stage) { return Math.max(2000, 5500 - 220 * (stage - 1)); }
+  function stageCpuHpMax(stage) { return Math.min(400, 100 + 15 * (stage - 1)); }
 
-  var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, combo:0,
+  var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, cpuHpMax:100, stage:1, combo:0,
     mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0 };
 
   function getMyMonster() {
@@ -66,7 +80,8 @@
     o.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#0b1220;color:#f1f5f9;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden';
     o.innerHTML =
       '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0f172a">' +
-        '<div style="font-weight:700;color:#a78bfa">⌨ タイプシュート（しさく版 v0.3）</div>' +
+        '<div style="font-weight:700;color:#a78bfa">⌨ タイプシュート</div>' +
+        '<div id="tsStage" style="font-weight:800;font-size:16px;color:#fbbf24">ステージ 1</div>' +
         '<button id="tsClose" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer">とじる</button>' +
       '</div>' +
       '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて の きち</div>' +
@@ -110,7 +125,7 @@
   }
 
   function setWord() {
-    S.word = WORDS[Math.floor(Math.random() * WORDS.length)];
+    S.word = pickWord(S.stage);
     S.pats = romaPatterns(S.word); S.typed = '';
     if (el('tsWord')) el('tsWord').textContent = S.word;
     if (el('tsHint')) el('tsHint').textContent = 'れい：' + S.pats[0];
@@ -118,8 +133,14 @@
   }
   function renderTyped() { if (el('tsTyped')) el('tsTyped').textContent = S.typed || '_'; }
   function setBars() {
-    if (el('tsCpuBar')) el('tsCpuBar').style.width = Math.max(0, S.cpuHp) + '%';
+    if (el('tsCpuBar')) el('tsCpuBar').style.width = Math.max(0, S.cpuHp / (S.cpuHpMax || 100) * 100) + '%';
     if (el('tsMyBar')) el('tsMyBar').style.width = Math.max(0, S.myHp) + '%';
+  }
+  function updateStageLabel() { if (el('tsStage')) el('tsStage').textContent = 'ステージ ' + S.stage; }
+  function stageBanner(text) {
+    var c = el('tsCount'); if (!c) return;
+    c.style.fontSize = '40px'; c.textContent = text; c.style.display = 'flex';
+    setTimeout(function () { if (c) { c.style.display = 'none'; c.style.fontSize = '80px'; } }, 900);
   }
 
   function spawnMissile(dir, emoji) {
@@ -144,7 +165,7 @@
     var dt = Math.min(50, ts - S.last); S.last = ts;
     var f = el('tsField'); var fh = f ? f.clientHeight : 400;
     for (var i = S.missiles.length - 1; i >= 0; i--) {
-      var mo = S.missiles[i]; var speed = 0.06 * dt;
+      var mo = S.missiles[i]; var speed = stageSpeed(S.stage) * dt;
       mo.y += mo.dir === 'up' ? -speed : speed;
       mo.node.style.top = mo.y + 'px';
       if (mo.dir === 'up' && mo.y <= 26) { hitCpu(); rm(i, mo); }
@@ -153,12 +174,25 @@
     S.raf = requestAnimationFrame(loop);
   }
   function rm(i, mo) { try { mo.node.remove(); } catch (e) {} S.missiles.splice(i, 1); }
-  function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); if (S.cpuHp <= 0) finish(true); }
+  function hitCpu() { S.cpuHp = Math.max(0, S.cpuHp - 18); setBars(); if (S.cpuHp <= 0) nextStage(); }
+  function nextStage() {
+    S.stage++;
+    S.myHp = Math.min(100, S.myHp + 20);
+    S.cpuHpMax = stageCpuHpMax(S.stage);
+    S.cpuHp = S.cpuHpMax;
+    for (var i = S.missiles.length - 1; i >= 0; i--) { try { S.missiles[i].node.remove(); } catch (e) {} }
+    S.missiles = [];
+    S.typed = ''; renderTyped(); setBars(); updateStageLabel();
+    if (S.cpuTimer) clearInterval(S.cpuTimer);
+    S.cpuTimer = setInterval(cpuFire, stageInterval(S.stage));
+    stageBanner('ステージ ' + S.stage);
+    setWord();
+  }
   function hitMe() { S.myHp = Math.max(0, S.myHp - 15); setBars(); flash(); if (S.myHp <= 0) finish(false); }
   function flash() { var f = el('tsField'); if (f) { f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); } }
   function spawnEnemyWord() {
     var f = el('tsField'); if (!f || !S.ready) return;
-    var w = WORDS[Math.floor(Math.random() * WORDS.length)];
+    var w = pickWord(S.stage);
     var pats = romaPatterns(w);
     var box = document.createElement('div');
     var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
@@ -206,10 +240,10 @@
 
   function startGame() {
     build();
-    S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.cpuHp = 100; S.combo = 0; S.missiles = []; S.last = 0;
+    S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0;
     el('tsOverlay').style.display = 'flex';
     el('tsResult').style.display = 'none';
-    setMode('attack'); setBars(); setWord();
+    setMode('attack'); setBars(); setWord(); updateStageLabel();
     if (el('tsCombo')) el('tsCombo').textContent = '';
     document.addEventListener('keydown', onKey, true);
     S.raf = requestAnimationFrame(loop);
@@ -225,7 +259,7 @@
     if (!S.open || S.ended) return;
     S.ready = true;
     if (S.cpuTimer) clearInterval(S.cpuTimer);
-    S.cpuTimer = setInterval(cpuFire, 5500);
+    S.cpuTimer = setInterval(cpuFire, stageInterval(S.stage));
   }
   function stopLoops() {
     if (S.cpuTimer) { clearInterval(S.cpuTimer); S.cpuTimer = null; }
@@ -237,9 +271,9 @@
     // typeshootは作成途中のため、クリア報酬は一旦なし（giveRewardは呼ばない）
     var reward = 0; /* if (win) giveReward(reward); */
     var r = el('tsResult');
-    r.innerHTML = '<div style="font-size:56px">' + (win ? '🏆' : '💧') + '</div>' +
-      '<div style="font-size:28px;font-weight:800;color:' + (win ? '#4ade80' : '#f87171') + '">' + (win ? 'クリア！' : 'まけ…') + '</div>' +
-      '' + /* 報酬なし：コイン表示も出さない */
+    r.innerHTML = '<div style="font-size:56px">🎌</div>' +
+      '<div style="font-size:26px;font-weight:800;color:#fbbf24">ステージ ' + S.stage + ' まで とうたつ！</div>' +
+      '<div style="font-size:14px;color:#94a3b8;margin-top:6px">よく がんばったね！</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
         '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
@@ -265,5 +299,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectButton);
   else injectButton();
   setTimeout(injectButton, 2000);
-  console.log('[TypeShoot v0.3 defense] loaded');
+  console.log('[TypeShoot v0.4 endless] loaded');
 })();
