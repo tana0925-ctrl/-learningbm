@@ -8186,6 +8186,7 @@ wrap.innerHTML = '';
             // 個人全期間分析を開く
       async function openStudentFullAnalysis(studentId, studentName){
         var overlay = document.getElementById('studentFullAnalysisOverlay');
+        if (overlay && overlay.parentElement !== document.body) document.body.appendChild(overlay);
         var nameEl = document.getElementById('fullAnalysisStudentName');
         var contentEl = document.getElementById('fullAnalysisContent');
         overlay.classList.remove('hidden');
