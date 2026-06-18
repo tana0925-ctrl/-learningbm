@@ -417,6 +417,7 @@
   }
 
   function injectButton() {
+    return; /* float btn disabled: launch from battle menu */
     if (el('tsLaunchBtn')) return;
     var b = document.createElement('button');
     b.id = 'tsLaunchBtn'; b.textContent = '⌨ タイプシュート';
