@@ -498,7 +498,7 @@
   }
   function vFire() {
     var mon = vMyMon();
-    vSend({ k: 'f', w: V.word, ty: mon.el }, 0);
+    vSend({ k: 'f', w: V.word, ty: mon.el, from: V.role }, 0);
     var f = el('tsvField'); if (f) fxFloat(f.clientWidth / 2 - 24, f.clientHeight - 74, 'はっしゃ！' + mon.sprite, '#fca5a5');
     vSetWord();
   }
@@ -560,10 +560,13 @@
       for (var i = 0; i < evs.length; i++) {
         var ev = evs[i];
         if (ev.id > V.lastEventId) V.lastEventId = ev.id;
+        if (!V.synced) continue;
         if (V.mine[ev.id]) continue;
         var m = null; try { m = ev.meta_json ? JSON.parse(ev.meta_json) : null; } catch (e) {}
+        if (m && m.from === V.role) continue;
         if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal');
       }
+      if (!V.synced) V.synced = true;
       if (room.status === 'finished' || room.winner) vFinish(room.winner);
     }).catch(function () {});
   }
@@ -596,7 +599,7 @@
     try {
       vBuild();
       var mon = vMyMon();
-      V = { roomId: roomId, role: role || 'host', oppName: oppName || 'あいて', mode: 'attack', word: '', pats: [], typed: '', myHp: 100, oppHp: 100, missiles: [], raf: null, poll: null, last: 0, ended: false, ready: false, mine: {}, lastEventId: 0 };
+      V = { roomId: roomId, role: role || 'host', oppName: oppName || 'あいて', mode: 'attack', word: '', pats: [], typed: '', myHp: 100, oppHp: 100, missiles: [], raf: null, poll: null, last: 0, ended: false, ready: false, mine: {}, lastEventId: 0, synced: false };
       el('tsvOverlay').style.display = 'flex';
       el('tsvResult').style.display = 'none';
       if (el('tsvOppName')) el('tsvOppName').textContent = oppName || '';
