@@ -621,6 +621,7 @@
     } catch (e) { console.error('[TypeShoot VS] start error', e); }
   }
   window.startTypeShootVS = startTypeShootVS;
+  window.startTypeShoot = startGame;
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectButton);
   else injectButton();
