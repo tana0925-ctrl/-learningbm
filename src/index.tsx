@@ -4936,6 +4936,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
   const now = new Date().toISOString()
   let reward = 0
   let rewardClaimed = 0
+  let newCoinTotal: number | null = null
   // 締切内なら報酬あり
   if (note.reward_deadline) {
     if (now <= note.reward_deadline) {
@@ -4955,6 +4956,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
       if (prog?.state_json) {
         const state = JSON.parse(prog.state_json)
         state.coins = (Number(state.coins) || 0) + reward
+        newCoinTotal = state.coins
         await c.env.DB.prepare(
           `UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`
         ).bind(JSON.stringify(state), u.id).run()
@@ -4974,7 +4976,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO contact_note_reads (user_id, note_id, reward_claimed) VALUES (?,?,?)`
   ).bind(u.id, noteId, rewardClaimed).run()
-  return c.json({ ok: true, reward, rewardClaimed: !!rewardClaimed })
+  return c.json({ ok: true, reward, rewardClaimed: !!rewardClaimed, newCoins: newCoinTotal })
 })
 
 // -------------------- API: クラス共同ミッション (class missions) --------------------

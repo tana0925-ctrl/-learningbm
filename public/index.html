@@ -35415,7 +35415,7 @@ function checkOldCoinFraud() {
                     return;
                 }
                 const delta = (player.coins || 0) - (player.oldCoinDailyStart || 0);
-                if (delta >= 101) {
+                if (false && delta >= 101) { /* 不正リセット無効化：正規学習でも1日101枚超で誤発動していたため */
                     applyOldCoinFraudPenalty();
                 }
             } catch (e) {
@@ -51942,7 +51942,7 @@ async function _loadStudentContactNotes(){
                   var coinEl = document.getElementById('coinCount');
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
                   if(window.player) {
-                    player.coins = (player.coins||0) + res.reward;
+                    player.coins = (typeof res.newCoins === "number") ? res.newCoins : ((player.coins||0) + res.reward);
                     try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}
                     try{ if(typeof saveData==='function') saveData(); }catch(e){}
                   }
