@@ -539,6 +539,7 @@ app.put('/api/student/progress', async (c) => {
         u.id
       ).run()
     }
+    await c.env.DB.prepare(`UPDATE ranking_stats SET typeshoot_score=? WHERE user_id=?`).bind(Number(stats.typeShootScore || 0), u.id).run()
   } catch { /* ランキング更新エラーは無視 */ }
 
   return c.json({ ok: true })
@@ -594,16 +595,17 @@ function extractRankingStats(stateJson: string, fallbackName: string) {
     // v2: battle_power, pokedex_count, wild_win_streak
     // クライアント側で計算されたキャッシュ値を優先使用
     const battlePower = Number(s._cachedBattlePower || 0)
+    const typeShootScore = Number(s._cachedTypeShootScore || 0)
     const pokedexCount = Array.isArray(s.pokedex) ? s.pokedex.length : 0
     const maxObj: any = s.max || (s.M && s.M.max) || {}
     const wildWinStreak = Number(maxObj.winStreak || s._cachedWildWinStreak || 0)
     return {
       displayName: String(s.name || fallbackName).slice(0, 30),
       totalLevel, monsterCount, correctCount, rankingPoints,
-      battlePower, pokedexCount, wildWinStreak
+      battlePower, pokedexCount, wildWinStreak, typeShootScore
     }
   } catch {
-    return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0, rankingPoints: 0, battlePower: 0, pokedexCount: 0, wildWinStreak: 0 }
+    return { displayName: fallbackName, totalLevel: 0, monsterCount: 0, correctCount: 0, rankingPoints: 0, battlePower: 0, pokedexCount: 0, wildWinStreak: 0, typeShootScore: 0 }
   }
 }
 
@@ -2039,6 +2041,7 @@ app.get('/api/ranking', async (c) => {
     case 'pokedex': orderCol = 'rs.pokedex_count'; break
     case 'wild': orderCol = 'rs.wild_win_streak'; break
     case 'grade': orderCol = 'rs.ranking_points'; break
+    case 'typeshoot': orderCol = 'rs.typeshoot_score'; break
   }
 
   // 週間の場合は差分で並べ替え
@@ -2049,6 +2052,7 @@ app.get('/api/ranking', async (c) => {
       case 'correct': case 'grade': extraSelect = ', ROUND(rs.ranking_points - rs.week_base_ranking_points, 1) as weeklyScore'; orderCol = 'weeklyScore'; break
       case 'pokedex': extraSelect = ', (rs.pokedex_count - rs.week_base_pokedex_count) as weeklyScore'; orderCol = 'weeklyScore'; break
       case 'wild': extraSelect = ', (rs.wild_win_streak - rs.week_base_wild_win_streak) as weeklyScore'; orderCol = 'weeklyScore'; break
+      case 'typeshoot': extraSelect = ', rs.typeshoot_score as weeklyScore'; orderCol = 'weeklyScore'; break
     }
   }
 
@@ -2065,7 +2069,7 @@ app.get('/api/ranking', async (c) => {
   const selectCols = `rs.user_id as userId, rs.display_name as displayName,
     rs.total_level as totalLevel, rs.monster_count as monsterCount, rs.correct_count as correctCount,
     rs.ranking_points as rankingPoints,
-    rs.grade, rs.battle_power as battlePower, rs.pokedex_count as pokedexCount, rs.wild_win_streak as wildWinStreak
+    rs.grade, rs.battle_power as battlePower, rs.pokedex_count as pokedexCount, rs.wild_win_streak as wildWinStreak, rs.typeshoot_score as typeShootScore
     ${extraSelect}`
 
   if (scope === 'global' || u.role === 'admin') {

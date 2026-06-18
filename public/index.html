@@ -4434,6 +4434,7 @@ window.claimClassMission=async function(){
       <button class="rk-tab" data-rktype="correct" onclick="rkSwitchType('correct')">正解pt</button>
       <button class="rk-tab" data-rktype="pokedex" onclick="rkSwitchType('pokedex')">図鑑</button>
       <button class="rk-tab" data-rktype="wild" onclick="rkSwitchType('wild')">野生バトル</button>
+      <button class="rk-tab" data-rktype="typeshoot" onclick="rkSwitchType('typeshoot')">⌨タイプシュート</button>
     </div>
     <div class="flex items-center gap-2 mb-2">
       <div class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-bold">
@@ -36155,7 +36156,7 @@ function rkSwitchGrade(g) {
 }
 
 function _rkValueLabel(type, period) {
-  var labels = {overall:'総合Lv', grade:'正解pt', power:'戦闘力', correct:'正解pt', pokedex:'図鑑数', wild:'最大連勝'};
+  var labels = {overall:'総合Lv', grade:'正解pt', power:'戦闘力', correct:'正解pt', pokedex:'図鑑数', wild:'最大連勝', typeshoot:'タイプシュート'};
   return (period === 'weekly' ? '今週の' : '') + (labels[type] || '値');
 }
 function _rkValueOf(r, type, period) {
@@ -36166,6 +36167,7 @@ function _rkValueOf(r, type, period) {
     case 'correct': case 'grade': return Number(((r.rankingPoints || r.correctCount || 0)).toFixed(1));
     case 'pokedex': return r.pokedexCount || 0;
     case 'wild': return r.wildWinStreak || 0;
+    case 'typeshoot': return r.typeShootScore || 0;
     default: return r.totalLevel || 0;
   }
 }

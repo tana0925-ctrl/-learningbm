@@ -65,7 +65,7 @@
   function stageCpuHpMax(stage) { return Math.min(400, 100 + 15 * (stage - 1)); }
 
   var S = { open:false, ready:false, word:'', pats:[], typed:'', myHp:100, cpuHp:100, cpuHpMax:100, stage:1, combo:0,
-    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal', baseType:'normal' };
+    mode:'attack', raf:null, missiles:[], cpuTimer:null, ended:false, last:0, party:[], activeIdx:0, enemy:null, enemyParty:[], enemyIdx:0, enemyType:'normal', baseType:'normal', score:0 };
 
   var TYPE_JA = { normal:'ノーマル', fire:'ほのお', water:'みず', grass:'くさ', electric:'でんき', flying:'ひこう', rock:'いわ', ground:'じめん', ice:'こおり', fighting:'かくとう', psychic:'エスパー', dark:'あく', steel:'はがね', fairy:'フェアリー', ghost:'ゴースト', bug:'むし', poison:'どく', dragon:'ドラゴン' };
   var TYPE_COLOR = { normal:'#9ca3af', fire:'#ef4444', water:'#3b82f6', grass:'#22c55e', electric:'#eab308', flying:'#60a5fa', rock:'#a16207', ground:'#b45309', ice:'#22d3ee', fighting:'#b91c1c', psychic:'#ec4899', dark:'#374151', steel:'#64748b', fairy:'#f472b6', ghost:'#7c3aed', bug:'#84cc16', poison:'#a21caf', dragon:'#4338ca' };
@@ -147,6 +147,7 @@
       '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0f172a">' +
         '<div style="font-weight:700;color:#a78bfa">⌨ タイプシュート</div>' +
         '<div id="tsStage" style="font-weight:800;font-size:16px;color:#fbbf24">ステージ 1</div>' +
+        '<div id="tsScore" style="font-weight:800;font-size:14px;color:#86efac">スコア 0</div>' +
         '<button id="tsClose" style="background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer">とじる</button>' +
       '</div>' +
       '<div style="padding:8px 14px"><div style="font-size:12px;color:#94a3b8">あいて の きち<span id="tsEnemyInfo" style="color:#fca5a5;font-weight:700"></span></div>' +
@@ -210,6 +211,7 @@
     if (el('tsMyBar')) el('tsMyBar').style.width = Math.max(0, S.myHp) + '%';
   }
   function updateStageLabel() { if (el('tsStage')) el('tsStage').textContent = 'ステージ ' + S.stage; }
+  function updateScore() { if (el('tsScore')) el('tsScore').textContent = 'スコア ' + (S.score || 0); }
   function stageBanner(text) {
     var c = el('tsCount'); if (!c) return;
     c.style.fontSize = '40px'; c.textContent = text; c.style.display = 'flex';
@@ -252,6 +254,7 @@
     var dt = S.enemyType || 'normal';
     var eff = effFactor(at, dt);
     var dmg = Math.round(18 * eff.f);
+    S.score = (S.score || 0) + Math.round(10 * eff.f) + (S.combo || 0); updateScore();
     S.cpuHp = Math.max(0, S.cpuHp - dmg); setBars(); fxBar('tsCpuBar', '#fde047');
     var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, 2, '💥'); if (eff.label) fxFloat(f.clientWidth / 2 - 40, 18, eff.label, eff.color); }
     if (S.cpuHp <= 0) nextStage();
@@ -268,6 +271,7 @@
     S.typed = ''; renderTyped(); setBars(); updateStageLabel();
     if (S.cpuTimer) clearInterval(S.cpuTimer);
     S.cpuTimer = setInterval(cpuFire, stageInterval(S.stage));
+    S.score = (S.score || 0) + 100; updateScore();
     stageBanner('ステージ ' + S.stage);
     setWord();
   }
@@ -348,7 +352,7 @@
           S.typed = t; renderTyped();
           var done = null, dy = -1;
           for (var cj = 0; cj < cands.length; cj++) { if (isComplete(t, cands[cj].pats) && cands[cj].y > dy) { dy = cands[cj].y; done = cands[cj]; } }
-          if (done) { var dx = parseFloat(done.node.style.left) || 0; var dyy = done.y || 0; var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); fxBurst(dx, dyy, '💥'); fxFloat(dx, dyy, 'ナイス！', '#93c5fd'); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
+          if (done) { var dx = parseFloat(done.node.style.left) || 0; var dyy = done.y || 0; var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); fxBurst(dx, dyy, '💥'); fxFloat(dx, dyy, 'ナイス！', '#93c5fd'); S.score = (S.score || 0) + 15 + (S.combo || 0); updateScore(); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
         } else {
           S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
           var tw2 = el('tsTyped'); if (tw2) { tw2.style.color = '#ef4444'; setTimeout(function () { if (tw2) tw2.style.color = '#a78bfa'; }, 200); }
@@ -359,11 +363,11 @@
 
   function startGame() {
     build();
-    S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0;
+    S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0; S.score = 0;
     el('tsOverlay').style.display = 'flex';
     buildEnemyPool(); loadParty(); setEnemy(1);
     el('tsResult').style.display = 'none';
-    setMode('attack'); setBars(); setWord(); updateStageLabel();
+    setMode('attack'); setBars(); setWord(); updateStageLabel(); updateScore();
     if (el('tsCombo')) el('tsCombo').textContent = '';
     document.addEventListener('keydown', onKey, true);
     S.raf = requestAnimationFrame(loop);
@@ -390,9 +394,13 @@
     if (S.ended) return; S.ended = true; S.ready = false; stopLoops();
     // typeshootは作成途中のため、クリア報酬は一旦なし（giveRewardは呼ばない）
     var reward = 0; /* if (win) giveReward(reward); */
+    var best = S.score || 0; var isNewBest = false;
+    try { var _p = window.getPlayer && window.getPlayer(); if (_p) { var prevBest = Number(_p._cachedTypeShootScore || 0); isNewBest = (S.score || 0) > prevBest; best = Math.max(prevBest, S.score || 0); _p._cachedTypeShootScore = best; if (window.saveData) window.saveData(); } } catch (e) {}
     var r = el('tsResult');
     r.innerHTML = '<div style="font-size:56px">🎌</div>' +
       '<div style="font-size:26px;font-weight:800;color:#fbbf24">ステージ ' + S.stage + ' まで とうたつ！</div>' +
+      '<div style="font-size:30px;font-weight:900;color:#86efac;margin-top:8px">スコア ' + (S.score || 0) + '</div>' +
+      '<div style="font-size:13px;color:#94a3b8;margin-top:2px">' + (isNewBest ? '🎉 ベスト更新！' : 'ベスト ' + best) + '</div>' +
       '<div style="font-size:14px;color:#94a3b8;margin-top:6px">よく がんばったね！</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
         '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
