@@ -6285,7 +6285,6 @@ app.get('/teacher', (c) => {
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
-        <button id="tabLanalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('lanalytics')">📈 アナリティクス</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
         <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">🎯 ミッション</button>
       </div>
@@ -6299,14 +6298,20 @@ app.get('/teacher', (c) => {
       <div id="tabPaneAnalytics" class="hidden space-y-3">
         <!-- サブタブナビ -->
         <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
-          <button id="anSubTab_subject" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-purple-500 text-white" onclick="switchAnalyticsSubTab('subject')">
-            <span class="bg-white text-purple-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 教科の成績
+          <button id="anSubTab_overview" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-indigo-500 text-white" onclick="switchAnalyticsSubTab('overview')">
+            <span class="bg-white text-indigo-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> クラス全体
+          </button>
+          <button id="anSubTab_subject" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('subject')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 教科の定着
           </button>
           <button id="anSubTab_homework" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('homework')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 家庭学習
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 家庭学習
           </button>
           <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> AI分析
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> AI分析・個人
+          </button>
+          <button id="anSubTab_tests" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('tests')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">5</span> テスト取り込み
           </button>
         </div>
         <!-- 共通クラス選択 -->
@@ -6315,8 +6320,20 @@ app.get('/teacher', (c) => {
           <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white"></select>
         </div>
 
-        <!-- サブタブ①: 教科の成績 -->
-        <div id="anPane_subject" class="space-y-3">
+        <!-- サブタブ①: クラス全体（ラーニングアナリティクス） -->
+        <div id="anPane_overview" class="space-y-3">
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="flex items-center gap-2 flex-wrap mb-3">
+              <h3 class="font-bold text-slate-700">📈 ラーニングアナリティクス</h3>
+              <select id="laClassSelect" class="border p-1.5 rounded text-sm bg-white font-bold"></select>
+              <button onclick="loadLearnAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">分析する</button>
+            </div>
+            <div id="laContent"><p class="text-xs text-slate-400">クラスを選んで「分析する」を押してください</p></div>
+          </div>
+        </div>
+
+        <!-- サブタブ②: 教科の定着 -->
+        <div id="anPane_subject" class="hidden space-y-3">
           <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
             <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
               <div class="font-bold text-sm text-purple-800">📊 教科別・単元別の正解率</div>
@@ -6409,6 +6426,24 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
+        <!-- サブタブ⑤: テスト結果の取り込み -->
+        <div id="anPane_tests" class="hidden space-y-3">
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="font-bold text-slate-700 mb-1">📝 テスト結果の取り込み</div>
+            <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDFは外部AI（ChatGPT・Gemini・Claude）に読み取らせ、決まった形式で書き出した結果をここに貼り付けて取り込みます。保存先は「クラス全体」で選んだクラスです。</div>
+            <div class="flex items-center gap-2 flex-wrap mb-2">
+              <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
+              <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
+            </div>
+            <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 満点: / --- / 名前, 点数 …）"></textarea>
+            <div class="flex items-center gap-2 mt-2">
+              <button onclick="parseTestScores()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
+              <span id="tsParseStatus" class="text-xs text-slate-500"></span>
+            </div>
+            <div id="tsPreview" class="mt-3"></div>
+          </div>
+        </div>
+
         <!-- 個人カルテ詳細パネル（オーバーレイ） -->
         <div id="studentKartePanel" class="hidden bg-white rounded-xl shadow-lg p-4 space-y-3 border-2 border-purple-300">
           <div class="flex items-center justify-between">
@@ -6432,32 +6467,6 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
-      <!-- 家庭学習提出一覧タブ -->
-      <!-- ラーニングアナリティクスタブ -->
-      <div id="tabPaneLanalytics" class="hidden space-y-3">
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="flex items-center gap-2 flex-wrap mb-3">
-            <h3 class="font-bold text-slate-700">📈 ラーニングアナリティクス</h3>
-            <select id="laClassSelect" class="border p-1.5 rounded text-sm bg-white font-bold"></select>
-            <button onclick="loadLearnAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">分析する</button>
-          </div>
-          <div id="laContent"><p class="text-xs text-slate-400">クラスを選んで「分析する」を押してください</p></div>
-        </div>
-        <div class="bg-white rounded-xl shadow p-4">
-          <div class="font-bold text-slate-700 mb-1">📝 テスト結果の取り込み</div>
-          <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDFは外部AI（ChatGPT・Gemini・Claude）に読み取らせ、決まった形式で書き出した結果をここに貼り付けて取り込みます。保存先は上の「アナリティクス」で選んだクラスです。</div>
-          <div class="flex items-center gap-2 flex-wrap mb-2">
-            <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
-            <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
-          </div>
-          <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 満点: / --- / 名前, 点数 …）"></textarea>
-          <div class="flex items-center gap-2 mt-2">
-            <button onclick="parseTestScores()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
-            <span id="tsParseStatus" class="text-xs text-slate-500"></span>
-          </div>
-          <div id="tsPreview" class="mt-3"></div>
-        </div>
-      </div>
       <div id="tabPaneHomework" class="hidden space-y-3">
         <!-- ステップ風サブタブナビゲーション -->
         <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
@@ -6955,7 +6964,7 @@ app.get('/teacher', (c) => {
       }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','lanalytics','mail','missions'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','mail','missions'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -6964,8 +6973,7 @@ app.get('/teacher', (c) => {
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
         if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
-        if(tab === 'analytics') { initAnalyticsFilters(); switchAnalyticsSubTab('subject'); }
-        if(tab === 'lanalytics') initLearnAnalytics();
+        if(tab === 'analytics') { initAnalyticsFilters(); initLearnAnalytics(); switchAnalyticsSubTab('overview'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'missions') loadClassMissions();
@@ -7145,8 +7153,8 @@ app.get('/teacher', (c) => {
 
       // --- 分析サブタブ切り替え ---
       function switchAnalyticsSubTab(sub){
-        var tabs = ['subject','homework','ai'];
-        var colors = {subject:'purple',homework:'indigo',ai:'purple'};
+        var tabs = ['overview','subject','homework','ai','tests'];
+        var colors = {overview:'indigo',subject:'purple',homework:'indigo',ai:'purple',tests:'rose'};
         tabs.forEach(function(t){
           var pane = document.getElementById('anPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -8820,7 +8828,7 @@ wrap.innerHTML = '';
         var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
         var st=document.getElementById('tsParseStatus');
         var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
-        if(!cid){ if(st) st.textContent='先に上の「アナリティクス」でクラスを選んでください'; return; }
+        if(!cid){ if(st) st.textContent='先に「クラス全体」でクラスを選んでください'; return; }
         if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
         if(st) st.textContent='読み取り中...';
         fetch('/api/teacher/test-scores/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
