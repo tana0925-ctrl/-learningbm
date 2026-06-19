@@ -11342,7 +11342,7 @@ const now = Date.now();
                 // ランキング用キャッシュ：戦闘力・連勝数
                 try{
                     player._cachedBattlePower = (typeof getPartyCombatPower === 'function') ? getPartyCombatPower() : 0;
-                    var _mObj = (player.M && player.M.max) || player.max || {};
+                    var _mObj = (player.metrics && player.metrics.max) || (player.M && player.M.max) || player.max || {};
                     player._cachedWildWinStreak = Number(_mObj.winStreak || 0);
                 }catch(e){}
                 const now = Date.now();

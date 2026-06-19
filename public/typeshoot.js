@@ -410,6 +410,7 @@
     el('tsRetry').onclick = startGame; el('tsBack').onclick = closeGame;
   }
   function closeGame() {
+    try { var _pc = window.getPlayer && window.getPlayer(); if (_pc && (S.score||0) > Number(_pc._cachedTypeShootScore||0)) { _pc._cachedTypeShootScore = S.score||0; if (window.saveData) window.saveData(); } } catch(e){}
     S.open = false; S.ready = false; stopLoops();
     for (var i = 0; i < S.missiles.length; i++) { try { S.missiles[i].node.remove(); } catch (e) {} }
     S.missiles = [];

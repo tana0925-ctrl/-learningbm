@@ -597,7 +597,7 @@ function extractRankingStats(stateJson: string, fallbackName: string) {
     const battlePower = Number(s._cachedBattlePower || 0)
     const typeShootScore = Number(s._cachedTypeShootScore || 0)
     const pokedexCount = Array.isArray(s.pokedex) ? s.pokedex.length : 0
-    const maxObj: any = s.max || (s.M && s.M.max) || {}
+    const maxObj: any = (s.metrics && s.metrics.max) || s.max || (s.M && s.M.max) || {}
     const wildWinStreak = Number(maxObj.winStreak || s._cachedWildWinStreak || 0)
     return {
       displayName: String(s.name || fallbackName).slice(0, 30),
