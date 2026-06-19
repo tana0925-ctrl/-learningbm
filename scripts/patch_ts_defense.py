@@ -1,22 +1,15 @@
 import sys
-def patch_file(path, edits):
+def patch_remove(path, olds):
     data=open(path,'rb').read().decode('utf-8')
-    for old,new,g in edits:
-        if new in data and old not in data:
-            print('skip '+g, file=sys.stderr); continue
+    for old in olds:
+        if old not in data:
+            print('skip (already removed)', file=sys.stderr); continue
         c=data.count(old)
         if c!=1:
-            print('ANCHOR x'+str(c)+' '+g, file=sys.stderr); sys.exit(1)
-        data=data.replace(old,new,1)
+            print('COUNT '+str(c), file=sys.stderr); sys.exit(1)
+        data=data.replace(old,'',1)
     open(path,'wb').write(data.encode('utf-8'))
     print('ok', file=sys.stderr)
-EDITS=[
-  ('/[\\s\u3000]/g','/[\\\\s\u3000]/g','normId'),
-  ('/\\r?\\n/','/\\\\r?\\\\n/','split'),
-  ('/^[\\s\u3000]*[=＝]{2,}[\\s\u3000]*[\\[［]\\s*([^\\]］]+?)\\s*[\\]］]/','/^[\\\\s\u3000]*[=＝]{2,}[\\\\s\u3000]*[\\\\[［]\\\\s*([^\\\\]］]+?)\\\\s*[\\\\]］]/','marker'),
-  ('/^\\s+|\\s+$/g','/^\\\\s+|\\\\s+$/g','trim'),
-  ('/<style>[\\s\\S]*?<\\/style>/','/<style>[\\\\s\\\\S]*?<\\\\/style>/','stylere'),
-  ('/<body>([\\s\\S]*?)<\\/body>/','/<body>([\\\\s\\\\S]*?)<\\\\/body>/','bodyre'),
-]
-patch_file('src/index.tsx', EDITS)
+OLDS=['H.push(\'<div class="sec"><h2>👩\u200d🏫 先生からの ひとこと</h2><div class="note"></div></div>\');']
+patch_remove('src/index.tsx', OLDS)
 print('DONE', file=sys.stderr)
