@@ -8787,6 +8787,15 @@ wrap.innerHTML = '';
         if(tg.length){ var tgh='<div class="text-xs text-slate-500 mb-1">取り込んだテストの教科別 平均得点率</div>'+_laHBars(tg, function(x){return x.avgPct||0;}, function(x){return x.subject+'（'+x.count+'回）';}, '#e11d48', '%'); h+=_laCard('📝 テスト結果（教科別の平均）', tgh); }
         return h;
       }
+      function _tsDispName(rm){ return (typeof resolveStudentName==='function')?resolveStudentName(rm.loginId, rm.name):(rm.name||rm.loginId||''); }
+      function _tsRematch(d){
+        var roster=d.roster||[]; var idx={};
+        for(var j=0;j<roster.length;j++){ var rm=roster[j]; var dn=_tsDispName(rm); if(dn) idx[_normId(dn)]=rm; if(rm.name) idx[_normId(rm.name)]=rm; if(rm.loginId) idx[_normId(rm.loginId)]=rm; }
+        for(var i=0;i<d.rows.length;i++){ var r=d.rows[i]; var key=_normId(r.rawName||''); var hit=idx[key]||null;
+          if(!hit){ for(var k=0;k<roster.length;k++){ var rm2=roster[k]; var dn2=_normId(_tsDispName(rm2)); if(dn2 && (dn2.indexOf(key)>=0||key.indexOf(dn2)>=0)){ hit=rm2; break; } } }
+          r.matchedUserId = hit? hit.userId : null; r.matchedName = hit? _tsDispName(hit) : null;
+        }
+      }
       function copyTestPrompt(){
         var NL=String.fromCharCode(10);
         var L=[];
@@ -8816,6 +8825,7 @@ wrap.innerHTML = '';
         if(st) st.textContent='読み取り中...';
         fetch('/api/teacher/test-scores/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
+          _tsRematch(d);
           window._tsParsed=d;
           if(st) st.textContent='✓ '+d.rows.length+'件を読み取りました。内容を確認して保存してください';
           _tsRenderPreview(d);
@@ -8824,7 +8834,7 @@ wrap.innerHTML = '';
       function _tsRenderPreview(d){
         var el=document.getElementById('tsPreview'); if(!el) return;
         var roster=d.roster||[]; var hd=d.header||{};
-        var opts=function(selId){ var s='<option value="">（未割り当て）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; s+='<option value="'+escH(rm.userId)+'"'+(rm.userId===selId?' selected':'')+'>'+escH(rm.name||rm.loginId||rm.userId)+'</option>'; } return s; };
+        var opts=function(selId){ var s='<option value="">（未割り当て）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; s+='<option value="'+escH(rm.userId)+'"'+(rm.userId===selId?' selected':'')+'>'+escH(_tsDispName(rm))+'</option>'; } return s; };
         var h='';
         h+='<div class="bg-slate-50 rounded-lg border p-3 mb-2"><div class="grid grid-cols-2 gap-2 text-xs">';
         h+='<label class="flex flex-col text-slate-500">テスト名<input id="tsHdrName" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(hd.testName||'')+'"></label>';
