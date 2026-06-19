@@ -8370,6 +8370,16 @@ wrap.innerHTML = '';
           }
 
           // === AIカルテボタン ===
+          window._faData = data; window._faName = studentName; window._faId = studentId;
+          html += '<div class="bg-white rounded-xl border p-4 mb-4 mt-4">';
+          html += '<div class="font-bold text-sm text-slate-700 mb-2">🤖 外部AI（ChatGPT・Geminiなど）で分析</div>';
+          html += '<label class="flex items-center gap-2 text-xs text-slate-600 mb-2"><input type="checkbox" id="faIncludeName" checked> 児童名を含める</label>';
+          html += '<div class="flex items-center gap-2 flex-wrap">';
+          html += '<button onclick="copyAiAnalysisText()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">📋 AI分析用テキストをコピー</button>';
+          html += '<span id="faCopyStatus" class="text-xs text-emerald-600 font-bold"></span>';
+          html += '</div>';
+          html += '<div class="text-[10px] text-slate-400 mt-2">コピーしてChatGPTやGeminiに貼り付けると、先生向けの分析コメントが作れます</div>';
+          html += '</div>';
           html += '<div class="text-center mt-4">';
           html += '<button onclick="closeStudentFullAnalysis();openStudentKarte(&#39;'+escH(studentId)+'&#39;,&#39;'+escH(studentName)+'&#39;)" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-700">🤖 AIカルテを表示</button>';
           html += '</div>';
@@ -8380,6 +8390,43 @@ wrap.innerHTML = '';
         }
       }
 
+      function _buildAiAnalysisText(){
+        var data = window._faData || {}; var ov = data.overview || {};
+        var includeName = true; var cb = document.getElementById('faIncludeName'); if(cb) includeName = !!cb.checked;
+        var name = includeName ? (window._faName || '児童') : '（匿名児童）';
+        var NL = String.fromCharCode(10); var L = [];
+        L.push('あなたは小学校の先生のサポート役です。以下の児童の家庭学習データをもとに、①取り組みの良い点、②気になる点、③次の声かけ・支援の提案、を小学校の先生向けにやさしい日本語でまとめてください。');
+        L.push('');
+        L.push('■ 児童: ' + name);
+        L.push('');
+        L.push('【基本統計】');
+        L.push('・提出回数: ' + (ov.totalSubmissions||0) + '回');
+        L.push('・平均学習時間: ' + (ov.avgMinutes||0) + '分');
+        L.push('・学習満足度（☀️の割合）: ' + (ov.sunRate||0) + '%');
+        L.push('・現在の連続提出: ' + (ov.currentStreak||0) + '日 / 最長連続: ' + (ov.maxStreak||0) + '日');
+        if(ov.firstDate) L.push('・記録期間: ' + ov.firstDate + ' 〜 ' + ov.lastDate);
+        if(ov.totalMinutes!=null) L.push('・合計学習時間: ' + ov.totalMinutes + '分（約' + Math.round((ov.totalMinutes||0)/60) + '時間）');
+        if(ov.returnRate!=null) L.push('・先生からの返却率: ' + ov.returnRate + '%');
+        if(ov.planCompletionRate!=null) L.push('・計画の承認率: ' + ov.planCompletionRate + '%');
+        var tw = (ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0);
+        if(tw>0) L.push('・満足度の内訳: ☀️' + (ov.sunCount||0) + '回 / ☁️' + (ov.cloudCount||0) + '回 / 🌧️' + (ov.rainCount||0) + '回');
+        if(data.monthlyTrends && data.monthlyTrends.length){ L.push(''); L.push('【月別の提出回数の推移】'); for(var i=0;i<data.monthlyTrends.length;i++){ var t=data.monthlyTrends[i]; L.push('・' + t.month + ': ' + t.count + '回（満足度' + (t.sunRate!=null?t.sunRate+'%':'-') + '・平均' + (t.avgMin||0) + '分）'); } }
+        if(data.subjects && data.subjects.length){ L.push(''); L.push('【教科別の正答率（取り組み量の多い順）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; L.push('・' + su.unit + ': 正答率' + su.rate + '%（' + su.total + '問）'); } }
+        if(data.streaks && data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ var sk=data.streaks[k]; L.push('・' + sk.length + '日連続（' + sk.start + ' 〜 ' + sk.end + '）'); } }
+        if(data.reflections && data.reflections.length){ L.push(''); L.push('【最近のふりかえり（本人の記録）】'); for(var m=0;m<Math.min(data.reflections.length,5);m++){ var rf=data.reflections[m]; var ps=[]; if(rf.concentration!=null) ps.push('集中度' + rf.concentration + '/3'); if(rf.goodPoint) ps.push('よかった点:' + rf.goodPoint); if(rf.improvePoint) ps.push('直したい点:' + rf.improvePoint); if(rf.nextAction) ps.push('次の目標:' + rf.nextAction); L.push('・[' + (rf.weekKey||'') + '] ' + (ps.length?ps.join(' / '):'記録あり')); } }
+        if(data.recentSubmissions && data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,12);n++){ var rs=data.recentSubmissions[n]; var w = rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・' + (rs.day_key||'') + ' ' + w + ' ' + (rs.todo||'') + '（' + (rs.minutes||0) + '分）'; if(rs.weather_reason) line += ' ふりかえり:' + rs.weather_reason; L.push(line); } }
+        L.push('');
+        L.push('※先生がそのまま使えるよう、具体的でやさしい言葉でお願いします。');
+        return L.join(NL);
+      }
+      function _faFallbackCopy(txt){ try{ var ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }catch(e){} }
+      function copyAiAnalysisText(){
+        var s=document.getElementById('faCopyStatus');
+        try{ var txt=_buildAiAnalysisText(); var done=function(){ if(s){ s.textContent='✓ コピーしました'; setTimeout(function(){ s.textContent=''; },3000); } };
+          if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done, function(){ _faFallbackCopy(txt); done(); }); }
+          else { _faFallbackCopy(txt); done(); }
+        }catch(e){ if(s) s.textContent='コピー失敗'; }
+      }
       function _faStatCard(icon, value, label, color){
         return '<div class="bg-'+color+'-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-'+color+'-600">'+icon+' '+value+'</div><div class="text-[9px] text-slate-500">'+label+'</div></div>';
       }
