@@ -1868,6 +1868,108 @@ app.post('/api/teacher/student-ai-comments', async (c) => {
   return c.json({ ok: true, saved })
 })
 
+
+// ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
+app.get('/api/teacher/learning-analytics', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const members = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const total = members.length
+  const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
+  const subs = (((await c.env.DB.prepare('SELECT user_id, day_key, minutes, end_weather, weather_reason, submitted_at FROM homework_submissions WHERE user_id IN ' + memQ + ' ORDER BY day_key').bind(classId).all<any>()).results) || [])
+  const [unitAgg, perStuLR, hourAgg] = await Promise.all([
+    c.env.DB.prepare("SELECT unit, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " GROUP BY unit").bind(classId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare("SELECT user_id, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " GROUP BY user_id").bind(classId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare("SELECT strftime('%H', datetime(answered_at, '+9 hours')) as hr, COUNT(*) as n FROM learning_results WHERE user_id IN " + memQ + " GROUP BY hr").bind(classId).all<any>().catch(() => ({ results: [] })),
+  ])
+  const dayMs = 86400000
+  const todayMs = Date.now()
+  const dkMs = (dk: string) => new Date(dk + 'T00:00:00Z').getTime()
+  const isoWeek = (dk: string) => { const d = new Date(dk + 'T00:00:00Z'); const wd = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - wd); return d.toISOString().slice(0, 10) }
+  // Area1 continuity
+  const byStu: Record<string, string[]> = {}
+  for (const s of subs) { if (!s.day_key) continue; (byStu[s.user_id] = byStu[s.user_id] || []).push(s.day_key) }
+  const perStudent = members.map((m: any) => {
+    const days = Array.from(new Set(byStu[m.id] || [])).sort()
+    let maxStreak = 0, run = 0, prev = ''
+    for (const dk of days) { if (prev && Math.round((dkMs(dk) - dkMs(prev)) / dayMs) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
+    let currentStreak = 0
+    if (days.length) { const since = Math.round((todayMs - dkMs(days[days.length - 1])) / dayMs); if (since <= 1) currentStreak = run }
+    const recent7 = days.filter(dk => (todayMs - dkMs(dk)) <= 7 * dayMs).length
+    const prev7 = days.filter(dk => { const a = todayMs - dkMs(dk); return a > 7 * dayMs && a <= 14 * dayMs }).length
+    const dropping = (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) || (prev7 >= 3 && recent7 === 0)
+    return { userId: m.id, name: m.name, loginId: m.loginId, submissions: days.length, currentStreak, maxStreak, recent7, prev7, dropping }
+  })
+  const droppingStudents = perStudent.filter((p: any) => p.dropping).map((p: any) => ({ userId: p.userId, name: p.name, loginId: p.loginId, recent7: p.recent7, prev7: p.prev7 }))
+  const wkSet: Record<string, Set<string>> = {}
+  for (const s of subs) { if (!s.day_key) continue; const w = isoWeek(s.day_key); (wkSet[w] = wkSet[w] || new Set()).add(s.user_id) }
+  const weeklyRate = Object.keys(wkSet).sort().slice(-10).map(w => ({ week: w, submitted: wkSet[w].size, total, rate: total ? Math.round(wkSet[w].size / total * 100) : 0 }))
+  // Area2 subjects
+  const perUnit = ((unitAgg.results || []) as any[]).map(r => ({ unit: r.unit, total: r.t, correct: r.cc, rate: r.t ? Math.round(r.cc / r.t * 100) : 0 })).sort((a, b) => b.total - a.total)
+  const strong = perUnit.filter(x => x.total >= 20).sort((a, b) => b.rate - a.rate).slice(0, 5)
+  const weak = perUnit.filter(x => x.total >= 20).sort((a, b) => a.rate - b.rate).slice(0, 5)
+  const buckets = [0, 0, 0, 0, 0, 0]
+  const bIdx = (r: number) => r >= 90 ? 5 : r >= 80 ? 4 : r >= 70 ? 3 : r >= 60 ? 2 : r >= 40 ? 1 : 0
+  for (const r of (perStuLR.results || []) as any[]) { if (r.t >= 10) buckets[bIdx(Math.round(r.cc / r.t * 100))]++ }
+  const distribution = [{ label: '0-39%', count: buckets[0] }, { label: '40-59%', count: buckets[1] }, { label: '60-69%', count: buckets[2] }, { label: '70-79%', count: buckets[3] }, { label: '80-89%', count: buckets[4] }, { label: '90-100%', count: buckets[5] }]
+  // Area3 time
+  const hourHistogram = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0 }))
+  for (const r of (hourAgg.results || []) as any[]) { const h = parseInt(r.hr, 10); if (h >= 0 && h < 24) hourHistogram[h].count = r.n }
+  const dows = ['日', '月', '火', '水', '木', '金', '土']
+  const wdCount = [0, 0, 0, 0, 0, 0, 0], wdMin = [0, 0, 0, 0, 0, 0, 0]
+  for (const s of subs) { if (!s.day_key) continue; const d = new Date(s.day_key + 'T00:00:00Z').getUTCDay(); wdCount[d]++; wdMin[d] += (s.minutes || 0) }
+  const weekdayHistogram = dows.map((nm, i) => ({ dow: nm, count: wdCount[i], avgMin: wdCount[i] ? Math.round(wdMin[i] / wdCount[i]) : 0 }))
+  const wkMin: Record<string, number> = {}
+  for (const s of subs) { if (!s.day_key) continue; const w = isoWeek(s.day_key); wkMin[w] = (wkMin[w] || 0) + (s.minutes || 0) }
+  const weeklyMinutes = Object.keys(wkMin).sort().slice(-10).map(w => ({ week: w, avgMinPerStudent: total ? Math.round(wkMin[w] / total) : 0 }))
+  const totMin = subs.reduce((a: number, s: any) => a + (s.minutes || 0), 0)
+  const avgMinPerSubmission = subs.length ? Math.round(totMin / subs.length) : 0
+  // Area4 satisfaction
+  let sun = 0, cloud = 0, rain = 0
+  for (const s of subs) { if (s.end_weather === 'sun') sun++; else if (s.end_weather === 'cloud') cloud++; else if (s.end_weather === 'rain') rain++ }
+  const wkW: Record<string, any> = {}
+  for (const s of subs) { if (!s.day_key || !s.end_weather) continue; const w = isoWeek(s.day_key); const o = wkW[w] = wkW[w] || { sun: 0, cloud: 0, rain: 0 }; if (s.end_weather === 'sun') o.sun++; else if (s.end_weather === 'cloud') o.cloud++; else if (s.end_weather === 'rain') o.rain++ }
+  const satWeekly = Object.keys(wkW).sort().slice(-10).map(w => { const o = wkW[w]; const t = o.sun + o.cloud + o.rain; return { week: w, sun: o.sun, cloud: o.cloud, rain: o.rain, sunRate: t ? Math.round(o.sun / t * 100) : 0 } })
+  const stop = new Set(['今日', 'こと', 'できた', 'できました', 'すること', 'した', 'やる', 'やった', '勉強', 'から', 'ので', 'けど', 'けれど', 'ちょっと', 'もっと', 'みたい', 'なので', 'ため', 'たから', 'おわった', '終わった', 'できて', 'これ', 'それ', 'です', 'ます', 'して', 'いる', 'ある', 'なる', 'ない', 'よう', 'たい', 'たくさん', 'すごく', 'とても', 'まあ', 'まだ', 'もう', 'また'])
+  const freq: Record<string, number> = {}
+  for (const s of subs) {
+    const tx = String(s.weather_reason || '')
+    if (!tx) continue
+    const toks = tx.split(/[^぀-ヿ一-鿿]+/)
+    for (const tk of toks) { if (tk.length >= 2 && tk.length <= 6 && !stop.has(tk)) freq[tk] = (freq[tk] || 0) + 1 }
+  }
+  const keywords = Object.keys(freq).map(w => ({ word: w, count: freq[w] })).sort((a, b) => b.count - a.count).slice(0, 20)
+  // Area5 relation
+  const minByStu: Record<string, number> = {}, wByStu: Record<string, any> = {}
+  for (const s of subs) { minByStu[s.user_id] = (minByStu[s.user_id] || 0) + (s.minutes || 0); const o = wByStu[s.user_id] = wByStu[s.user_id] || { sun: 0, n: 0 }; if (s.end_weather) { o.n++; if (s.end_weather === 'sun') o.sun++ } }
+  const lrByStu: Record<string, any> = {}
+  for (const r of (perStuLR.results || []) as any[]) lrByStu[r.user_id] = r
+  const scatter = members.map((m: any) => { const lr = lrByStu[m.id]; const w = wByStu[m.id]; return { name: m.name, problems: lr ? lr.t : 0, minutes: minByStu[m.id] || 0, rate: (lr && lr.t) ? Math.round(lr.cc / lr.t * 100) : null, sunRate: (w && w.n) ? Math.round(w.sun / w.n * 100) : null } }).filter((x: any) => x.problems > 0 || x.minutes > 0)
+  const pts = scatter.filter((x: any) => x.rate != null && x.problems > 0)
+  let corr = null as number | null
+  if (pts.length >= 3) {
+    const n = pts.length; const xs = pts.map((p: any) => p.problems), ys = pts.map((p: any) => p.rate)
+    const mx = xs.reduce((a: number, b: number) => a + b, 0) / n, my = ys.reduce((a: number, b: number) => a + b, 0) / n
+    let sxy = 0, sxx = 0, syy = 0
+    for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy }
+    corr = (sxx > 0 && syy > 0) ? Math.round(sxy / Math.sqrt(sxx * syy) * 100) / 100 : null
+  }
+  return c.json({
+    ok: true, classId, className: cls.name, studentCount: total, generatedAt: new Date().toISOString(),
+    continuity: { perStudent, droppingStudents, weeklyRate },
+    subjects: { perUnit, strong, weak, distribution },
+    time: { hourHistogram, weekdayHistogram, weeklyMinutes, avgMinPerSubmission },
+    satisfaction: { overall: { sun, cloud, rain }, weekly: satWeekly, keywords },
+    relation: { scatter, correlation: corr },
+  })
+})
+
 // 週報レポートAPI: クラス全体の1週間まとめ
 app.get('/api/teacher/weekly-report', async (c) => {
   const u = c.get('user')
@@ -6086,6 +6188,7 @@ app.get('/teacher', (c) => {
         <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
+        <button id="tabLanalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('lanalytics')">📈 アナリティクス</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
         <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">🎯 ミッション</button>
       </div>
@@ -6233,6 +6336,17 @@ app.get('/teacher', (c) => {
       </div>
 
       <!-- 家庭学習提出一覧タブ -->
+      <!-- ラーニングアナリティクスタブ -->
+      <div id="tabPaneLanalytics" class="hidden space-y-3">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex items-center gap-2 flex-wrap mb-3">
+            <h3 class="font-bold text-slate-700">📈 ラーニングアナリティクス</h3>
+            <select id="laClassSelect" class="border p-1.5 rounded text-sm bg-white font-bold"></select>
+            <button onclick="loadLearnAnalytics()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">分析する</button>
+          </div>
+          <div id="laContent"><p class="text-xs text-slate-400">クラスを選んで「分析する」を押してください</p></div>
+        </div>
+      </div>
       <div id="tabPaneHomework" class="hidden space-y-3">
         <!-- ステップ風サブタブナビゲーション -->
         <div class="bg-white rounded-xl shadow p-2 flex items-center gap-1 overflow-x-auto">
@@ -6730,7 +6844,7 @@ app.get('/teacher', (c) => {
       }
 
       function switchTab(tab){
-        ['classes','contact','announcements','homework','analytics','mail','missions'].forEach(function(t){
+        ['classes','contact','announcements','homework','analytics','lanalytics','mail','missions'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
           if(pane) pane.classList.toggle('hidden', tab !== t);
           var btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -6740,6 +6854,7 @@ app.get('/teacher', (c) => {
         });
         if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
         if(tab === 'analytics') { initAnalyticsFilters(); switchAnalyticsSubTab('subject'); }
+        if(tab === 'lanalytics') initLearnAnalytics();
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
         if(tab === 'missions') loadClassMissions();
@@ -8499,6 +8614,48 @@ wrap.innerHTML = '';
       async function copyAllAiText(){ var students=window._lastStudentSummaries||[]; var status=document.getElementById('allAiStatus'); if(!students.length){ if(status) status.textContent='先に「AIで分析」か「週報を生成」を押して児童一覧を表示してください'; return; } if(status) status.textContent='データを集めています...(0/'+students.length+')'; var NL=String.fromCharCode(10); var L=[]; L.push('以下は同じクラスの複数の児童の家庭学習データです。あなたは関西弁の応援キャラ「阪神マン」です。各児童ごとに、「=== [児童ID] 名前 ===」の目印の行を そのまま変えずに残し、その下に ①ええところ（取り組みの良い点）②気になるところ ③おすすめの学習・声かけ を、関西弁で子どもを励ますようにやさしく書いてください。児童IDと目印は絶対に変更しないでください。やりすぎず、先生がそのまま使える範囲で。'); L.push(''); for(var i=0;i<students.length;i++){ var s=students[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); var id=s.loginId||s.userId||s.name; L.push('=== ['+id+'] '+nm+' ==='); try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId||s.name)); var data=await res.json(); if(data&&data.ok){ L=L.concat(_aiBodyLines(data)); } else { L.push('(データの取得に失敗しました)'); } }catch(e){ L.push('(エラー: '+e.message+')'); } L.push(''); if(status) status.textContent='データを集めています...('+(i+1)+'/'+students.length+')'; } var txt=L.join(NL); var done=function(){ if(status) status.textContent='✓ '+students.length+'人分をコピーしました。AIに貼り付けてください'; }; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); } }
       async function saveAllAiComments(){ var ta=document.getElementById('allAiPaste'); var raw=ta?ta.value:''; var status=document.getElementById('allAiStatus'); if(!raw||!raw.trim()){ if(status) status.textContent='AIの結果を貼り付けてください'; return; } var students=window._lastStudentSummaries||[]; var map={}; for(var i=0;i<students.length;i++){ var s=students[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; } var blocks=_parseAiBlocks(raw); var comments=[]; var unmatched=[]; for(var b=0;b<blocks.length;b++){ var uid=map[_normId(blocks[b].id)]; if(uid&&blocks[b].body){ comments.push({studentId:uid,comment:blocks[b].body}); } else { unmatched.push(blocks[b].id); } } if(!comments.length){ if(status) status.textContent='目印 === [児童ID] === が見つかりませんでした（'+blocks.length+'ブロック検出）'; return; } if(status) status.textContent='保存中...'; try{ var res=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:comments})}); var d=await res.json(); if(d&&d.ok){ if(status) status.textContent='✓ '+d.saved+'人分を保存しました'+(unmatched.length?'（未一致: '+unmatched.join(', ')+'）':''); } else { if(status) status.textContent='保存に失敗しました'; } }catch(e){ if(status) status.textContent='エラー: '+e.message; } }
       async function downloadAllKartes(){ var students=window._lastStudentSummaries||[]; var status=document.getElementById('allAiStatus'); if(!students.length){ if(status) status.textContent='先に児童一覧を表示してください'; return; } if(status) status.textContent='カルテを作成中...(0/'+students.length+')'; var savedD=window._faData, savedN=window._faName; var docs=[]; for(var i=0;i<students.length;i++){ var s=students[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId||s.name)); var data=await res.json(); if(data&&data.ok){ window._faData=data; window._faName=nm; docs.push(_buildKarteHtml()); } }catch(e){} if(status) status.textContent='カルテを作成中...('+(i+1)+'/'+students.length+')'; } window._faData=savedD; window._faName=savedN; if(!docs.length){ if(status) status.textContent='データがありませんでした'; return; } var style=''; var sm=docs[0].match(/<style>[\\s\\S]*?<\\/style>/); if(sm) style=sm[0]; var bodies=docs.map(function(doc){ var m=doc.match(/<body>([\\s\\S]*?)<\\/body>/); return '<div style="page-break-after:always">'+(m?m[1]:'')+'</div>'; }); var html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ（全員分）</title>'+style+'</head><body>'+bodies.join('')+'</body></html>'; var w=window.open('','_blank'); if(!w){ if(status) status.textContent='ポップアップを許可してください'; return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 800); if(status) status.textContent='✓ '+docs.length+'人分のカルテを開きました'; }
+      function initLearnAnalytics(){ var sel=document.getElementById('laClassSelect'); if(!sel || sel.getAttribute('data-init')) return; fetch('/api/teacher/classes').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok&&d.classes&&d.classes.length){ sel.innerHTML=''; for(var i=0;i<d.classes.length;i++){ var o=document.createElement('option'); o.value=d.classes[i].id; o.textContent=d.classes[i].name; sel.appendChild(o); } sel.setAttribute('data-init','1'); } }).catch(function(e){}); }
+      function loadLearnAnalytics(){ var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:''; var el=document.getElementById('laContent'); if(!cid){ el.innerHTML='<p class="text-xs text-slate-400">クラスを選んでください</p>'; return; } el.innerHTML='<p class="text-xs text-indigo-500 animate-pulse">📈 学習データを集計しています...</p>'; fetch('/api/teacher/learning-analytics?classId='+encodeURIComponent(cid)).then(function(r){return r.json();}).then(function(d){ if(!d.ok){ el.innerHTML='<p class="text-xs text-red-500">取得エラー</p>'; return; } window._laData=d; el.innerHTML=_laRender(d); }).catch(function(e){ el.innerHTML='<p class="text-xs text-red-500">エラー: '+e.message+'</p>'; }); }
+      function _laCard(title, inner){ return '<div class="bg-white rounded-xl border border-slate-200 p-4 mb-3"><div class="font-bold text-sm text-slate-700 mb-2">'+title+'</div>'+inner+'</div>'; }
+      function _laVBars(items, getV, getLabel, color){ var max=1,i; for(i=0;i<items.length;i++){ var v=getV(items[i]); if(v>max)max=v; } var h='<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height:130px">'; for(i=0;i<items.length;i++){ var v=getV(items[i]); var pct=Math.max(Math.round(v/max*100),2); h+='<div class="flex flex-col items-center justify-end min-w-[26px]" style="height:100%"><div class="text-[8px] text-slate-500 mb-0.5">'+v+'</div><div class="w-5 rounded-t" style="height:'+pct+'%;background:'+color+'"></div><div class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">'+escH(String(getLabel(items[i])))+'</div></div>'; } h+='</div>'; return h; }
+      function _laHBars(items, getV, getLabel, color, suffix){ var max=1,i; for(i=0;i<items.length;i++){ var v=getV(items[i]); if(v>max)max=v; } var h='<div class="space-y-1">'; for(i=0;i<items.length;i++){ var v=getV(items[i]); var pct=Math.max(Math.round(v/max*100),4); h+='<div class="flex items-center gap-2"><span class="text-xs w-24 truncate text-slate-600 font-bold">'+escH(String(getLabel(items[i])))+'</span><div class="flex-1 bg-slate-100 rounded-full h-4"><div class="h-4 rounded-full text-[10px] text-white flex items-center justify-end pr-1 font-bold" style="width:'+pct+'%;background:'+color+'">'+v+(suffix||'')+'</div></div></div>'; } h+='</div>'; return h; }
+      function _laLine(points, getV, getLabel, color, suffix){ var n=points.length; if(!n) return '<p class="text-xs text-slate-400">データなし</p>'; var W=Math.max(n*46,220), H=130, pad=22, i; var max=1; for(i=0;i<n;i++){ var v=getV(points[i]); if(v>max)max=v; } var xs=function(i){ return pad+(n>1? i*(W-2*pad)/(n-1):(W-2*pad)/2); }; var ys=function(v){ return H-pad-(v/max)*(H-2*pad); }; var poly='',circ='',lbl=''; for(i=0;i<n;i++){ var v=getV(points[i]); var x=xs(i),y=ys(v); poly+=(i?' ':'')+x.toFixed(0)+','+y.toFixed(0); circ+='<circle cx="'+x.toFixed(0)+'" cy="'+y.toFixed(0)+'" r="3" fill="'+color+'"/><text x="'+x.toFixed(0)+'" y="'+(y-6).toFixed(0)+'" font-size="9" text-anchor="middle" fill="#475569">'+v+(suffix||'')+'</text>'; lbl+='<text x="'+x.toFixed(0)+'" y="'+(H-4)+'" font-size="8" text-anchor="middle" fill="#94a3b8">'+escH(String(getLabel(points[i])))+'</text>'; } return '<div style="overflow-x:auto"><svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'"><polyline points="'+poly+'" fill="none" stroke="'+color+'" stroke-width="2"/>'+circ+lbl+'</svg></div>'; }
+      function _laScatter(pts){ var p=[],i; for(i=0;i<pts.length;i++){ if(pts[i].rate!=null && pts[i].problems>0) p.push(pts[i]); } if(!p.length) return '<p class="text-xs text-slate-400">データなし</p>'; var W=360,H=240,pad=36; var maxX=1; for(i=0;i<p.length;i++){ if(p[i].problems>maxX)maxX=p[i].problems; } var X=function(v){ return pad+v/maxX*(W-2*pad); }; var Y=function(v){ return H-pad-v/100*(H-2*pad); }; var dots=''; for(i=0;i<p.length;i++){ dots+='<circle cx="'+X(p[i].problems).toFixed(0)+'" cy="'+Y(p[i].rate).toFixed(0)+'" r="4" fill="#6366f1" opacity="0.7"><title>'+escH(p[i].name)+' / '+p[i].problems+'問 / 正答率'+p[i].rate+'%</title></circle>'; } var ax='<line x1="'+pad+'" y1="'+(H-pad)+'" x2="'+(W-pad)+'" y2="'+(H-pad)+'" stroke="#cbd5e1"/><line x1="'+pad+'" y1="'+pad+'" x2="'+pad+'" y2="'+(H-pad)+'" stroke="#cbd5e1"/><text x="'+(W/2)+'" y="'+(H-6)+'" font-size="9" text-anchor="middle" fill="#94a3b8">取り組んだ問題数 →</text><text x="11" y="'+(H/2)+'" font-size="9" text-anchor="middle" fill="#94a3b8" transform="rotate(-90 11 '+(H/2)+')">正答率% →</text>'; return '<div style="overflow-x:auto"><svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'+ax+dots+'</svg></div>'; }
+      function _laWeather(o){ var t=(o.sun||0)+(o.cloud||0)+(o.rain||0); if(!t) return '<p class="text-xs text-slate-400">データなし</p>'; var sw=Math.round(o.sun/t*100),cw=Math.round(o.cloud/t*100),rw=Math.round(o.rain/t*100); return '<div class="flex h-6 rounded-full overflow-hidden border border-slate-200">'+(sw>0?'<div style="width:'+sw+'%;background:#fbbf24"></div>':'')+(cw>0?'<div style="width:'+cw+'%;background:#cbd5e1"></div>':'')+(rw>0?'<div style="width:'+rw+'%;background:#60a5fa"></div>':'')+'</div><div class="flex gap-3 text-xs text-slate-600 mt-1"><span>☀️ '+o.sun+'回('+sw+'%)</span><span>☁️ '+o.cloud+'回('+cw+'%)</span><span>🌧️ '+o.rain+'回('+rw+'%)</span></div>'; }
+      function _laRender(d){ var h=''; var i;
+        h+='<div class="text-xs text-slate-500 mb-2">クラス: <b>'+escH(d.className)+'</b> ／ '+d.studentCount+'人 ／ 集計: '+escH((d.generatedAt||'').slice(0,10))+'</div>';
+        var c=d.continuity||{};
+        var drop='';
+        if(c.droppingStudents&&c.droppingStudents.length){ drop='<div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2"><div class="text-xs font-bold text-amber-700 mb-1">⚠ 離れ気味アラート（直近7日が前の7日より大きく減少）</div><div class="text-xs text-amber-800">'; for(i=0;i<c.droppingStudents.length;i++){ var ds=c.droppingStudents[i]; drop+=escH(resolveStudentName(ds.loginId,ds.name))+'（前7日'+ds.prev7+'→直近'+ds.recent7+'回） '; } drop+='</div></div>'; } else { drop='<div class="text-xs text-green-600 mb-2">✅ 直近で大きく落ちている児童はいません</div>'; }
+        var cont = drop + '<div class="text-xs font-bold text-slate-500 mb-1">クラスの週別 提出率</div>' + _laLine(c.weeklyRate||[], function(x){return x.rate;}, function(x){return (x.week||'').slice(5);}, '#10b981', '%');
+        cont += '<div class="text-xs font-bold text-slate-500 mt-3 mb-1">児童ごとの提出回数・最長連続</div><div class="max-h-48 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">児童</th><th class="p-1">提出</th><th class="p-1">最長連続</th><th class="p-1">直近7日</th></tr></thead><tbody>';
+        var ps=(c.perStudent||[]).slice().sort(function(a,b){return b.submissions-a.submissions;});
+        for(i=0;i<ps.length;i++){ var p=ps[i]; cont+='<tr class="'+(p.dropping?'bg-amber-50':'')+'"><td class="p-1 font-bold text-slate-700">'+escH(resolveStudentName(p.loginId,p.name))+'</td><td class="p-1 text-center">'+p.submissions+'</td><td class="p-1 text-center">'+p.maxStreak+'日</td><td class="p-1 text-center">'+p.recent7+'</td></tr>'; }
+        cont+='</tbody></table></div>';
+        h+=_laCard('① 継続・つまずきの早期発見', cont);
+        var sj=d.subjects||{};
+        var sub='';
+        if(sj.strong&&sj.strong.length){ sub+='<div class="text-xs font-bold text-green-600 mb-1">💪 クラスの得意（正答率・20問以上）</div>'+_laHBars(sj.strong, function(x){return x.rate;}, function(x){return _unitJa(x.unit);}, '#16a34a', '%'); }
+        if(sj.weak&&sj.weak.length){ sub+='<div class="text-xs font-bold text-rose-600 mt-3 mb-1">🌱 クラスの苦手（正答率・20問以上）</div>'+_laHBars(sj.weak, function(x){return x.rate;}, function(x){return _unitJa(x.unit);}, '#f43f5e', '%'); }
+        sub+='<div class="text-xs font-bold text-slate-500 mt-3 mb-1">正答率の分布（児童数・10問以上の児童）</div>'+_laVBars(sj.distribution||[], function(x){return x.count;}, function(x){return x.label;}, '#6366f1');
+        h+=_laCard('② 教科ごとの定着度', sub);
+        var tm=d.time||{};
+        var tim='<div class="text-xs font-bold text-slate-500 mb-1">学習している時間帯（問題を解いた時刻・JST）</div>'+_laVBars(tm.hourHistogram||[], function(x){return x.count;}, function(x){return x.hour;}, '#0ea5e9');
+        tim+='<div class="text-xs font-bold text-slate-500 mt-3 mb-1">曜日別の提出回数</div>'+_laVBars(tm.weekdayHistogram||[], function(x){return x.count;}, function(x){return x.dow;}, '#f59e0b');
+        tim+='<div class="text-xs font-bold text-slate-500 mt-3 mb-1">1人あたり週の学習時間（分）</div>'+_laLine(tm.weeklyMinutes||[], function(x){return x.avgMinPerStudent;}, function(x){return (x.week||'').slice(5);}, '#8b5cf6', '分');
+        tim+='<div class="text-xs text-slate-500 mt-2">1回あたり平均学習時間: <b>'+(tm.avgMinPerSubmission||0)+'分</b></div>';
+        h+=_laCard('③ 時間帯・学習時間', tim);
+        var st=d.satisfaction||{};
+        var sat='<div class="text-xs font-bold text-slate-500 mb-1">満足度の全体割合</div>'+_laWeather(st.overall||{sun:0,cloud:0,rain:0});
+        sat+='<div class="text-xs font-bold text-slate-500 mt-3 mb-1">週別の☀️率の推移</div>'+_laLine(st.weekly||[], function(x){return x.sunRate;}, function(x){return (x.week||'').slice(5);}, '#fbbf24', '%');
+        if(st.keywords&&st.keywords.length){ sat+='<div class="text-xs font-bold text-slate-500 mt-3 mb-1">振り返りのよく出る言葉</div><div class="flex flex-wrap gap-1">'; for(i=0;i<st.keywords.length;i++){ var kw=st.keywords[i]; var sz=10+Math.min(kw.count,12); sat+='<span class="bg-slate-100 rounded-full px-2 py-0.5 text-slate-700" style="font-size:'+sz+'px">'+escH(kw.word)+'<span class="text-slate-400 text-[9px]"> '+kw.count+'</span></span>'; } sat+='</div>'; }
+        h+=_laCard('④ 満足度・振り返りの傾向', sat);
+        var rl=d.relation||{};
+        var rel='<div class="text-xs text-slate-500 mb-1">点ひとつが児童1人（横: 取り組んだ問題数、縦: 正答率）</div>'+_laScatter(rl.scatter||[]);
+        if(rl.correlation!=null){ var cr=rl.correlation; var msg = cr>=0.4?'取り組み量が多い子ほど正答率が高い傾向（正の相関）':cr<=-0.4?'負の相関':'はっきりした相関は見られません'; rel+='<div class="text-xs text-slate-600 mt-1">相関係数: <b>'+cr+'</b> … '+msg+'</div>'; }
+        h+=_laCard('⑤ 取り組み量と成績の関係', rel);
+        return h;
+      }
       function _faStatCard(icon, value, label, color){
         return '<div class="bg-'+color+'-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-'+color+'-600">'+icon+' '+value+'</div><div class="text-[9px] text-slate-500">'+label+'</div></div>';
       }
