@@ -52011,6 +52011,7 @@ async function _loadStudentContactNotes(){
                   if(coinEl) coinEl.textContent = String(parseInt(coinEl.textContent||'0') + res.reward);
                   if(window.player) {
                     player.coins = (typeof res.newCoins === "number") ? res.newCoins : ((player.coins||0) + res.reward);
+                    if(typeof res.contactCoinsApplied === "number") player._contactCoinsApplied = res.contactCoinsApplied;
                     try{if(typeof player.oldCoinDailyStart!="undefined") player.oldCoinDailyStart=(player.coins||0);}catch(e){}
                     try{ if(typeof saveData==='function') saveData(); }catch(e){}
                   }

@@ -458,13 +458,30 @@ app.put('/api/student/progress', async (c) => {
   if (u.role === 'teacher') return c.json({ ok: true })
   if (stateJson.length > 1_000_000) return c.json({ ok: true })
 
+  // 連絡帳コインの上書き消失を防ぐ：サーバが付与済みの連絡帳コインをクライアントが知らない場合は補填
+  let saveJson = stateJson
+  try {
+    const _cur = await c.env.DB.prepare(`SELECT state_json FROM progress WHERE user_id=?`).bind(u.id).first<any>()
+    if (_cur?.state_json) {
+      const _srv = JSON.parse(_cur.state_json)
+      const _srvApplied = Number(_srv._contactCoinsApplied) || 0
+      const _inc: any = body.state ?? body
+      const _cliApplied = Number(_inc._contactCoinsApplied) || 0
+      if (_srvApplied > _cliApplied) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvApplied - _cliApplied)
+        _inc._contactCoinsApplied = _srvApplied
+        saveJson = JSON.stringify(_inc)
+      }
+    }
+  } catch { /* 補填失敗時はそのまま保存 */ }
+
   try {
     await c.env.DB.prepare(
       `INSERT INTO progress (user_id, state_json, updated_at)
        VALUES (?, ?, datetime('now'))
        ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=datetime('now')`
     )
-      .bind(u.id, stateJson)
+      .bind(u.id, saveJson)
       .run()
   } catch (e: any) {
     console.error('[progress] DB error:', e?.message || e)
@@ -4966,6 +4983,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
   let reward = 0
   let rewardClaimed = 0
   let newCoinTotal: number | null = null
+  let contactApplied: number | null = null
   // 締切内なら報酬あり
   if (note.reward_deadline) {
     if (now <= note.reward_deadline) {
@@ -4985,7 +5003,9 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
       if (prog?.state_json) {
         const state = JSON.parse(prog.state_json)
         state.coins = (Number(state.coins) || 0) + reward
+        state._contactCoinsApplied = (Number(state._contactCoinsApplied) || 0) + reward
         newCoinTotal = state.coins
+        contactApplied = state._contactCoinsApplied
         await c.env.DB.prepare(
           `UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`
         ).bind(JSON.stringify(state), u.id).run()
@@ -5005,7 +5025,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
   await c.env.DB.prepare(
     `INSERT OR IGNORE INTO contact_note_reads (user_id, note_id, reward_claimed) VALUES (?,?,?)`
   ).bind(u.id, noteId, rewardClaimed).run()
-  return c.json({ ok: true, reward, rewardClaimed: !!rewardClaimed, newCoins: newCoinTotal })
+  return c.json({ ok: true, reward, rewardClaimed: !!rewardClaimed, newCoins: newCoinTotal, contactCoinsApplied: contactApplied })
 })
 
 // -------------------- API: クラス共同ミッション (class missions) --------------------
