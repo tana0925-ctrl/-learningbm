@@ -1577,7 +1577,7 @@ app.get('/api/teacher/student-karte', async (c) => {
   let subjectResults: any = { results: [] }
   try {
     subjectResults = await c.env.DB.prepare(`
-      SELECT unit, week_key, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      SELECT unit, week_key, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? GROUP BY unit, week_key ORDER BY week_key DESC
     `).bind(studentId).all<any>()
   } catch {}
@@ -1723,7 +1723,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       FROM homework_submissions WHERE user_id=? ORDER BY day_key DESC
     `).bind(studentId).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
-      SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      SELECT unit, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? GROUP BY unit ORDER BY total DESC
     `).bind(studentId).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
@@ -1870,7 +1870,7 @@ app.get('/api/teacher/weekly-report', async (c) => {
   let thisResults: any = { results: [] }
   try {
     thisResults = await c.env.DB.prepare(`
-      SELECT lr.user_id, lr.unit, COUNT(*) as total, SUM(CASE WHEN lr.correct=1 THEN 1 ELSE 0 END) as correct_count
+      SELECT lr.user_id, lr.unit, COUNT(*) as total, SUM(CASE WHEN lr.is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id=?
       WHERE lr.week_key=? GROUP BY lr.user_id, lr.unit
     `).bind(classId, weekKey).all<any>()
@@ -3015,13 +3015,13 @@ app.get('/api/student/dashboard', async (c) => {
   // 2) 教科別正答率（今週 vs 先週）
   const thisWeekResults = await c.env.DB.prepare(`
     SELECT unit, COUNT(*) as total,
-           SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+           SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
     FROM learning_results WHERE user_id=? AND week_key=?
     GROUP BY unit
   `).bind(u.id, weekKey).all<any>()
   const prevWeekResults = await c.env.DB.prepare(`
     SELECT unit, COUNT(*) as total,
-           SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+           SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
     FROM learning_results WHERE user_id=? AND week_key=?
     GROUP BY unit
   `).bind(u.id, prevWeekKey).all<any>()
@@ -3408,12 +3408,12 @@ app.get('/api/teacher/auto-feedback', async (c) => {
     `).bind(m.id).first<any>() } catch {}
     let thisResults: any = { results: [] }
     try { thisResults = await c.env.DB.prepare(`
-      SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      SELECT unit, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? AND week_key=? GROUP BY unit
     `).bind(m.id, weekKey).all<any>() } catch {}
     let prevResults: any = { results: [] }
     try { prevResults = await c.env.DB.prepare(`
-      SELECT unit, COUNT(*) as total, SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) as correct_count
+      SELECT unit, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results WHERE user_id=? AND week_key=? GROUP BY unit
     `).bind(m.id, prevWeekKey).all<any>() } catch {}
     let planRow: any = null
