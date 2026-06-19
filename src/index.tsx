@@ -1824,6 +1824,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   const returnedSubs = subs.filter((s: any) => s.returned_at)
   let aiComment2 = ''
   try { const _air = await c.env.DB.prepare(`SELECT comment FROM student_ai_comments WHERE user_id=? LIMIT 1`).bind(studentId).first<any>(); aiComment2 = (_air && _air.comment) || '' } catch {}
+  let testScores: any[] = []
+  try { const _tsr = await c.env.DB.prepare(`SELECT id, test_name, test_date, subject, max_score, score, comment FROM student_test_scores WHERE user_id=? ORDER BY (test_date IS NULL OR test_date=''), test_date DESC, id DESC`).bind(studentId).all<any>(); testScores = (((_tsr && _tsr.results) || []) as any[]).map((r: any) => ({ id: r.id, testName: r.test_name, testDate: r.test_date, subject: r.subject, maxScore: r.max_score, score: r.score, comment: r.comment, pct: (r.max_score ? Math.round(r.score / r.max_score * 100) : null) })) } catch {}
 
   return c.json({
     ok: true,
@@ -1843,6 +1845,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     revisions: (revisions.results || []).slice(0, 30),
     recentSubmissions: subs.slice(0, 15),
     aiComment: aiComment2,
+    testScores,
   })
 })
 
@@ -1868,6 +1871,97 @@ app.post('/api/teacher/student-ai-comments', async (c) => {
   return c.json({ ok: true, saved })
 })
 
+
+// ===== テスト結果の取り込みAPI（外部AIの出力を貼り付け→パース→保存・集計値は再利用可能） =====
+function _tsNorm(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}).replace(/[ 　]/g,'').toLowerCase(); }
+function _tsHalf(s){ return String(s==null?'':s).replace(/[０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}); }
+function _tsKeepNum(s){ return _tsHalf(s).replace(/[^0-9]/g,''); }
+function _tsParseText(text){
+  var NL=String.fromCharCode(10);
+  var lines=String(text||'').split(NL);
+  var testName='', testDate='', subject='', maxScore=100;
+  var rows=[];
+  for(var i=0;i<lines.length;i++){
+    var line=String(lines[i]==null?'':lines[i]).trim();
+    if(!line) continue;
+    var hasColon=(line.indexOf(':')>=0)||(line.indexOf('：')>=0);
+    var hasComma=(line.indexOf(',')>=0)||(line.indexOf('，')>=0)||(line.indexOf('、')>=0);
+    if(!hasColon && !hasComma) continue;
+    if(hasColon && !hasComma){
+      var ci=line.indexOf('：'); if(ci<0) ci=line.indexOf(':');
+      var k=line.slice(0,ci).replace(/[ 　]/g,'');
+      var v=line.slice(ci+1).trim();
+      if(k.indexOf('テスト名')>=0||k.indexOf('名称')>=0||k.indexOf('タイトル')>=0){ testName=v; }
+      else if(k.indexOf('実施日')>=0||k.indexOf('日付')>=0||k.indexOf('日時')>=0){ testDate=_tsHalf(v).split('年').join('-').split('月').join('-').split('日').join('').split('/').join('-').split('.').join('-').trim(); if(testDate.charAt(testDate.length-1)==='-') testDate=testDate.slice(0,-1); }
+      else if(k.indexOf('教科')>=0||k.indexOf('科目')>=0){ subject=v; }
+      else if(k.indexOf('満点')>=0||k.indexOf('配点')>=0){ var mn=parseInt(_tsKeepNum(v),10); if(!isNaN(mn)&&mn>0) maxScore=mn; }
+      continue;
+    }
+    var norm=line.split('，').join(',').split('、').join(',');
+    var parts=norm.split(',');
+    if(parts.length<2) continue;
+    var nm=String(parts[0]).trim();
+    var scoreStr=_tsKeepNum(parts[1]);
+    if(!nm||scoreStr==='') continue;
+    var sc=parseInt(scoreStr,10);
+    if(isNaN(sc)) continue;
+    var cm=parts.slice(2).join(',').trim();
+    rows.push({rawName:nm, score:sc, comment:cm});
+  }
+  return { testName:testName, testDate:testDate, subject:subject, maxScore:maxScore, rows:rows };
+}
+app.post('/api/teacher/test-scores/parse', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body.text !== 'string') return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const idx: Record<string, string> = {}
+  for (const m of roster as any[]) { if (m.name) idx[_tsNorm(m.name)] = m.id; if (m.loginId) idx[_tsNorm(m.loginId)] = m.id }
+  const parsed = _tsParseText(body.text)
+  const rows = parsed.rows.map((r: any) => {
+    const key = _tsNorm(r.rawName)
+    let uid: string | null = idx[key] || null
+    if (!uid) { for (const m of roster as any[]) { const nn = _tsNorm(m.name); if (nn && (nn.indexOf(key) >= 0 || key.indexOf(nn) >= 0)) { uid = m.id; break } } }
+    const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
+    return { rawName: r.rawName, score: r.score, comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
+  })
+  return c.json({ ok: true, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
+})
+app.post('/api/teacher/test-scores/save', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body || !Array.isArray(body.rows)) return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
+  const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
+  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_test_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, test_name TEXT, test_date TEXT, subject TEXT, max_score INTEGER DEFAULT 100, score INTEGER, comment TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  const testName = String(body.testName || '').slice(0, 120)
+  const testDate = String(body.testDate || '').slice(0, 40)
+  const subject = String(body.subject || '').slice(0, 40)
+  const maxScore = Math.max(1, parseInt(String(body.maxScore || 100), 10) || 100)
+  const nowIso = new Date().toISOString()
+  let saved = 0
+  for (const it of body.rows) {
+    const uid = String((it && it.userId) || '')
+    if (!uid || !allowed.has(uid)) continue
+    const sc = parseInt(String(it && it.score), 10)
+    if (isNaN(sc)) continue
+    await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), u.id, nowIso).run()
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
 
 // ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
 app.get('/api/teacher/learning-analytics', async (c) => {
@@ -1960,6 +2054,8 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy }
     corr = (sxx > 0 && syy > 0) ? Math.round(sxy / Math.sqrt(sxx * syy) * 100) / 100 : null
   }
+  let testsBySubject: any[] = []
+  try { const _tsa = await c.env.DB.prepare("SELECT subject, COUNT(*) as n, AVG(CASE WHEN max_score>0 THEN score*100.0/max_score ELSE NULL END) as avgpct FROM student_test_scores WHERE user_id IN " + memQ + " GROUP BY subject").bind(classId).all<any>(); testsBySubject = (((_tsa && _tsa.results) || []) as any[]).map((r: any) => ({ subject: r.subject || '(教科なし)', count: r.n, avgPct: (r.avgpct != null ? Math.round(r.avgpct) : null) })) } catch {}
   return c.json({
     ok: true, classId, className: cls.name, studentCount: total, generatedAt: new Date().toISOString(),
     continuity: { perStudent, droppingStudents, weeklyRate },
@@ -1967,6 +2063,7 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     time: { hourHistogram, weekdayHistogram, weeklyMinutes, avgMinPerSubmission },
     satisfaction: { overall: { sun, cloud, rain }, weekly: satWeekly, keywords },
     relation: { scatter, correlation: corr },
+    tests: { bySubject: testsBySubject },
   })
 })
 
@@ -6346,6 +6443,20 @@ app.get('/teacher', (c) => {
           </div>
           <div id="laContent"><p class="text-xs text-slate-400">クラスを選んで「分析する」を押してください</p></div>
         </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="font-bold text-slate-700 mb-1">📝 テスト結果の取り込み</div>
+          <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDFは外部AI（ChatGPT・Gemini・Claude）に読み取らせ、決まった形式で書き出した結果をここに貼り付けて取り込みます。保存先は上の「アナリティクス」で選んだクラスです。</div>
+          <div class="flex items-center gap-2 flex-wrap mb-2">
+            <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
+            <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
+          </div>
+          <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 満点: / --- / 名前, 点数 …）"></textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <button onclick="parseTestScores()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
+            <span id="tsParseStatus" class="text-xs text-slate-500"></span>
+          </div>
+          <div id="tsPreview" class="mt-3"></div>
+        </div>
       </div>
       <div id="tabPaneHomework" class="hidden space-y-3">
         <!-- ステップ風サブタブナビゲーション -->
@@ -8522,6 +8633,24 @@ wrap.innerHTML = '';
             html += '</div></div>';
           }
 
+          // === テスト結果 ===
+          if(data.testScores && data.testScores.length > 0){
+            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+            html += '<div class="font-bold text-sm text-slate-700 mb-3">📝 テスト結果</div>';
+            html += '<div class="space-y-1 max-h-64 overflow-y-auto">';
+            for(var tsi=0; tsi<data.testScores.length; tsi++){
+              var ts2 = data.testScores[tsi];
+              var tpct = (ts2.pct==null) ? '' : (' ('+ts2.pct+'%)');
+              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border flex items-center gap-1">';
+              html += '<span class="text-slate-400">'+escH(ts2.testDate||'')+'</span> ';
+              html += (ts2.subject ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1 rounded">'+escH(ts2.subject)+'</span> ' : '');
+              html += '<span class="text-slate-600 flex-1 truncate">'+escH(ts2.testName||'')+'</span> ';
+              html += '<span class="font-bold text-slate-700 whitespace-nowrap">'+(ts2.score==null?'-':ts2.score)+' / '+(ts2.maxScore||100)+tpct+'</span>';
+              html += '</div>';
+            }
+            html += '</div></div>';
+          }
+
           // === 直近の学習記録 ===
           if(data.recentSubmissions && data.recentSubmissions.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
@@ -8606,7 +8735,7 @@ wrap.innerHTML = '';
       function _unitJa(id){ return (window.UNIT_JP && window.UNIT_JP[id]) || id; }
       function _subjectArea(id){ var m={'rounding':'math','division':'math','decimal':'math','area':'math','brackets':'math','long-division':'math','fraction-mixed':'math','idiom':'jp','conjunction':'jp','kanji':'jp','social':'soc'}; if(m[id]) return m[id]; var c=(id||'').charAt(0); if(c==='m') return 'math'; if(c==='j') return 'jp'; if(c==='s') return 'soc'; if(c==='r') return 'sci'; return ''; }
       function _kStudyTip(id){ var T={'j5-keigo':'みじかい文で、ていねいな言い方を声に出して練習しよう。','rounding':'お買い物のときに「だいたいいくら？」と考える練習をしてみよう。','idiom':'本やお話で見つけた言葉を、1日1つ おぼえてみよう。','conjunction':'「だから」「でも」を使って文をつなぐ練習をしてみよう。','long-division':'筆算は、1だんずつ ゆっくり書いて たしかめよう。','fraction-mixed':'分数は 絵をかいて、大きさを イメージしてみよう。','area':'まわりのものの広さを、四角に分けて 考えてみよう。'}; if(T[id]) return T[id]; var a=_subjectArea(id); if(a==='math') return 'まちがえた問題を、もう一度 ときなおしてみよう。'; if(a==='jp') return '声に出して読んだり、ノートに書いたりして おぼえよう。'; if(a==='soc') return '地図や絵と むすびつけて、おはなしのように おぼえよう。'; if(a==='sci') return '身のまわりの出来事と むすびつけて 考えてみよう。'; return 'まちがえた問題を見直して、もう一度 チャレンジしてみよう。'; }
-      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var good=subjects.filter(function(s){return s.rate>=80 && s.total>=20;}).sort(function(a,b){return (b.total-a.total)||(b.rate-a.rate);}).slice(0,5); var grow=subjects.filter(function(s){return s.rate<70 && s.total>=5;}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); H.push('<div class="sec good"><h2>💪 とくいな教科</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いま '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>にがては 見あたりません。すばらしい！いろいろな教科に チャレンジしてみよう！</p>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🤖 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
+      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var good=subjects.filter(function(s){return s.rate>=80 && s.total>=20;}).sort(function(a,b){return (b.total-a.total)||(b.rate-a.rate);}).slice(0,5); var grow=subjects.filter(function(s){return s.rate<70 && s.total>=5;}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); H.push('<div class="sec good"><h2>💪 とくいな教科</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いま '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>にがては 見あたりません。すばらしい！いろいろな教科に チャレンジしてみよう！</p>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } var tsc=(d.testScores||[]); if(tsc.length){ H.push('<div class="sec"><h2>📝 テストの記録</h2><ul>'); for(var ti=0;ti<tsc.length;ti++){ var tt=tsc[ti]; var tp=(tt.pct==null)?'':('（'+tt.pct+'%）'); H.push('<li>'+esc(tt.testDate||'')+' '+esc(tt.subject||'')+' '+esc(tt.testName||'')+' … '+(tt.score==null?'-':tt.score)+'/'+(tt.maxScore||100)+'点'+tp+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🤖 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
       function downloadKartePdf(){ try{ var html=_buildKarteHtml(); var w=window.open('','_blank'); if(!w){ alert('ポップアップがブロックされました。このサイトのポップアップを許可してください。'); return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 500); }catch(e){ alert('カルテの作成に失敗しました: '+e.message); } }
       function _aiBodyLines(data){ var ov=data.overview||{}; var L=[]; L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ L.push(''); L.push('【教科別の正答率（取り組み量の多い順）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; L.push('・'+_unitJa(su.unit)+': 正答率'+su.rate+'%（'+su.total+'問）'); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } return L; }
       function _normId(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}).replace(/[\\s　]/g,'').toLowerCase(); }
@@ -8654,7 +8783,89 @@ wrap.innerHTML = '';
         var rel='<div class="text-xs text-slate-500 mb-1">点ひとつが児童1人（横: 取り組んだ問題数、縦: 正答率）</div>'+_laScatter(rl.scatter||[]);
         if(rl.correlation!=null){ var cr=rl.correlation; var msg = cr>=0.4?'取り組み量が多い子ほど正答率が高い傾向（正の相関）':cr<=-0.4?'負の相関':'はっきりした相関は見られません'; rel+='<div class="text-xs text-slate-600 mt-1">相関係数: <b>'+cr+'</b> … '+msg+'</div>'; }
         h+=_laCard('⑤ 取り組み量と成績の関係', rel);
+        var tg=(d.tests&&d.tests.bySubject)||[];
+        if(tg.length){ var tgh='<div class="text-xs text-slate-500 mb-1">取り込んだテストの教科別 平均得点率</div>'+_laHBars(tg, function(x){return x.avgPct||0;}, function(x){return x.subject+'（'+x.count+'回）';}, '#e11d48', '%'); h+=_laCard('📝 テスト結果（教科別の平均）', tgh); }
         return h;
+      }
+      function copyTestPrompt(){
+        var NL=String.fromCharCode(10);
+        var L=[];
+        L.push('あなたは小学校のテストの採点結果を整理するアシスタントです。アップロードした（または貼り付けた）テストの画像・PDFから、児童ごとの点数を読み取り、次の「出力形式」だけを、コードブロックに入れずそのまま出力してください。前置きや説明は書かないでください。');
+        L.push('');
+        L.push('【出力形式】');
+        L.push('テスト名: （テストの名前）');
+        L.push('実施日: （YYYY-MM-DD。わからなければ空欄）');
+        L.push('教科: （国語・算数・理科・社会・英語 など）');
+        L.push('満点: （数字。わからなければ100）');
+        L.push('---');
+        L.push('児童名, 点数');
+        L.push('児童名, 点数');
+        L.push('');
+        L.push('【ルール】名前と点数はカンマ（,）で区切る。1行に1人。点数は数字のみ。満点は必ず「満点:」の行に入れる（不明なら100）。児童名はできるだけ名簿の表記に合わせる。読み取れない児童は飛ばしてよい。合計や平均などの余計な行は入れない。');
+        var txt=L.join(NL);
+        var st=document.getElementById('tsPromptStatus');
+        var done=function(){ if(st) st.textContent='✓ コピーしました。AIに貼り付けてください'; };
+        if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+      }
+      function parseTestScores(){
+        var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
+        var st=document.getElementById('tsParseStatus');
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        if(!cid){ if(st) st.textContent='先に上の「アナリティクス」でクラスを選んでください'; return; }
+        if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
+        if(st) st.textContent='読み取り中...';
+        fetch('/api/teacher/test-scores/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
+          window._tsParsed=d;
+          if(st) st.textContent='✓ '+d.rows.length+'件を読み取りました。内容を確認して保存してください';
+          _tsRenderPreview(d);
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
+      function _tsRenderPreview(d){
+        var el=document.getElementById('tsPreview'); if(!el) return;
+        var roster=d.roster||[]; var hd=d.header||{};
+        var opts=function(selId){ var s='<option value="">（未割り当て）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; s+='<option value="'+escH(rm.userId)+'"'+(rm.userId===selId?' selected':'')+'>'+escH(rm.name||rm.loginId||rm.userId)+'</option>'; } return s; };
+        var h='';
+        h+='<div class="bg-slate-50 rounded-lg border p-3 mb-2"><div class="grid grid-cols-2 gap-2 text-xs">';
+        h+='<label class="flex flex-col text-slate-500">テスト名<input id="tsHdrName" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(hd.testName||'')+'"></label>';
+        h+='<label class="flex flex-col text-slate-500">実施日<input id="tsHdrDate" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(hd.testDate||'')+'" placeholder="YYYY-MM-DD"></label>';
+        h+='<label class="flex flex-col text-slate-500">教科<input id="tsHdrSubject" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(hd.subject||'')+'"></label>';
+        h+='<label class="flex flex-col text-slate-500">満点<input id="tsHdrMax" type="number" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(String(hd.maxScore||100))+'"></label>';
+        h+='</div></div>';
+        var unmatched=0;
+        h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th></tr></thead><tbody>';
+        for(var i=0;i<d.rows.length;i++){
+          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;
+          h+='<tr class="'+(warn?'bg-amber-50':'')+'">';
+          h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+(warn?' <span class="text-[9px] text-amber-600">⚠未マッチ</span>':'')+'</td>';
+          h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select></td>';
+          h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
+          h+='</tr>';
+        }
+        h+='</tbody></table></div>';
+        h+='<div class="flex items-center gap-2 mt-2"><button onclick="saveTestScores()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-rose-700">💾 保存</button>';
+        h+='<span id="tsSaveStatus" class="text-xs font-bold text-amber-600">'+(unmatched?('未マッチ '+unmatched+'件は児童を選ぶと保存されます'):'')+'</span></div>';
+        el.innerHTML=h;
+      }
+      function saveTestScores(){
+        var d=window._tsParsed; if(!d) return;
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var st=document.getElementById('tsSaveStatus');
+        var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
+        var testName=gv('tsHdrName'), testDate=gv('tsHdrDate'), subject=gv('tsHdrSubject'), maxScore=gv('tsHdrMax')||'100';
+        var rows=[]; var skipped=0;
+        for(var i=0;i<d.rows.length;i++){
+          var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
+          if(!uid){ skipped++; continue; }
+          if(score===''||score==null){ skipped++; continue; }
+          rows.push({userId:uid, score:parseInt(score,10), comment:(d.rows[i].comment||'')});
+        }
+        if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと点数を確認）'; return; }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/test-scores/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, testName:testName, testDate:testDate, subject:subject, maxScore:(parseInt(maxScore,10)||100), rows:rows})}).then(function(r){return r.json();}).then(function(res){
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+'。個人分析・カルテ・アナリティクスに反映されます'; }
+          else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function _faStatCard(icon, value, label, color){
         return '<div class="bg-'+color+'-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-'+color+'-600">'+icon+' '+value+'</div><div class="text-[9px] text-slate-500">'+label+'</div></div>';
