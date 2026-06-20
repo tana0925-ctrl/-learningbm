@@ -16409,18 +16409,18 @@ function loadReviewSuggestions(){
     var card=document.getElementById('homeReviewSuggest'); if(!card) return;
     fetch('/api/student/review-suggestions',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){ card.style.display='none'; return; }
-      var list=(d.suggestions||[]).filter(function(s){ return s.launchable && (typeof _isNewCurrId!=='function' || _isNewCurrId(s.unit)); }).slice(0,4);
+      function _curUnitById(id){ try{ if(typeof CURRICULUM==='undefined'||!CURRICULUM) return null; for(var sk in CURRICULUM){ var sj=CURRICULUM[sk]; if(!sj||!sj.grades) continue; for(var gk in sj.grades){ var us=sj.grades[gk]&&sj.grades[gk].units; if(!us) continue; for(var qi=0;qi<us.length;qi++){ if(us[qi]&&us[qi].id===id) return us[qi]; } } } }catch(e){} return null; } var list=(d.suggestions||[]).map(function(s){ s.__u=_curUnitById(s.unit); return s; }).filter(function(s){ return s.launchable && s.__u; }).slice(0,4);
       if(!list.length){ card.style.display='none'; return; }
       card.style.display='';
       var inner=document.getElementById('homeReviewSuggestList'); if(!inner) return; inner.innerHTML='';
       for(var i=0;i<list.length;i++){ (function(s){
-        var nm=null; try{ if(window.UNIT_DISPLAY&&window.UNIT_DISPLAY[s.unit]&&window.UNIT_DISPLAY[s.unit].name) nm=window.UNIT_DISPLAY[s.unit].name; }catch(e){} if(nm==null){ nm=(typeof _modeLabel==='function')?_modeLabel(s.unit):s.unit; }
+        var nm=(s.__u&&s.__u.name)?s.__u.name:null; if(nm==null){ try{ if(window.UNIT_DISPLAY&&window.UNIT_DISPLAY[s.unit]&&window.UNIT_DISPLAY[s.unit].name) nm=window.UNIT_DISPLAY[s.unit].name; }catch(e){} } if(nm==null){ nm=(typeof _modeLabel==='function')?_modeLabel(s.unit):s.unit; }
         var safe=String(nm==null?'':nm).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
         var badge=s.isReview?'<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:8px;margin-left:6px">復習</span>':(s.isSame?'<span style="font-size:10px;background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:8px;margin-left:6px">いまの学年</span>':'');
         var btn=document.createElement('button'); btn.type='button';
         btn.className='w-full flex items-center justify-between gap-2 bg-amber-50 rounded-xl border border-amber-200 px-3 py-2 hover:bg-amber-100 active:scale-95 transition text-left';
         btn.innerHTML='<div class="font-bold text-gray-800">'+safe+badge+'</div><div class="text-sm text-amber-700 font-bold whitespace-nowrap">最終学習 '+s.daysSince+'日前 ▶</div>';
-        btn.onclick=function(){ try{ trySetMode('training'); }catch(e){} try{ selectTrainingMode(s.unit); }catch(e){} };
+        btn.onclick=function(){ try{ trySetMode('training'); }catch(e){} try{ if(s.__u) window.__currUnit=s.__u; }catch(e){} try{ selectTrainingMode(s.unit); }catch(e){} };
         inner.appendChild(btn);
       })(list[i]); }
     }).catch(function(e){ if(card) card.style.display='none'; });
