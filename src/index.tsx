@@ -64,7 +64,7 @@ function getGeminiKeys(env: any): string[] {
   return keys
 }
 
-async function callGemini(env: any, body: any, model = 'gemini-2.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {
+async function callGemini(env: any, body: any, model = 'gemini-3.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {
   const keys = getGeminiKeys(env)
   if (!keys.length) return { ok: false, text: '', source: 'no_key' }
 
