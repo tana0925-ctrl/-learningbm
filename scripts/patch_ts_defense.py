@@ -1,23 +1,29 @@
 import sys
+
 def patch_file(path, edits):
-    data=open(path,'rb').read().decode('utf-8')
-    for old,new,g in edits:
+    with open(path, 'r', encoding='utf-8', newline='') as f:
+        data = f.read()
+    for old, new in edits:
         if new in data and old not in data:
-            print('skip '+g, file=sys.stderr); continue
-        c=data.count(old)
-        if c!=1:
-            print('ANCHOR x'+str(c)+' '+g, file=sys.stderr); sys.exit(1)
-        data=data.replace(old,new,1)
-    open(path,'wb').write(data.encode('utf-8'))
-    print('ok '+path, file=sys.stderr)
-SRV_EDITS=[
-  ('// ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====', '// ===== 復習おすすめAPI（忘れかけ単元の検出・児童本人のみ） =====\napp.get(\'/api/student/review-suggestions\', async (c) => {\n  const u = requireStudent(c)\n  if (!u) return jsonError(c, 401, \'unauthorized\')\n  let grade: number | null = null\n  try { const gr = await c.env.DB.prepare(\'SELECT grade FROM users WHERE id=? LIMIT 1\').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}\n  let rows: any[] = []\n  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor, MAX(answered_at) as last_at FROM learning_results WHERE user_id=? GROUP BY unit").bind(u.id).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}\n  const now = Date.now(); const dayMs = 86400000\n  const ug = (id: string) => { id = String(id || \'\'); const c0 = id.charAt(0); if ((c0 === \'m\' || c0 === \'j\' || c0 === \'r\' || c0 === \'s\') && id.charAt(2) === \'-\') { const dch = id.charAt(1); if (dch >= \'1\' && dch <= \'6\') return parseInt(dch, 10) } return null }\n  const thr = (acc: number) => acc >= 0.9 ? 21 : acc >= 0.8 ? 14 : acc >= 0.6 ? 7 : 4\n  const items: any[] = []\n  for (const row of rows) {\n    const n = row.n || 0; if (n < 4) continue\n    const acc = n ? (row.cor || 0) / n : 0\n    const last = row.last_at ? Date.parse(row.last_at) : 0; if (!last) continue\n    const daysSince = Math.floor((now - last) / dayMs); const th = thr(acc)\n    if (daysSince <= th) continue\n    const gu = ug(row.unit); const launchable = gu != null\n    const isReview = (grade != null && gu != null) ? (gu < grade) : false\n    const isSame = (grade != null && gu != null) ? (gu === grade) : false\n    items.push({ unit: row.unit, acc: Math.round(acc * 100), daysSince, threshold: th, gradeOfUnit: gu, isReview, isSame, launchable })\n  }\n  items.sort((a, b) => { if (a.isSame !== b.isSame) return a.isSame ? -1 : 1; if (a.isReview !== b.isReview) return a.isReview ? 1 : -1; return (b.daysSince / b.threshold) - (a.daysSince / a.threshold) })\n  return c.json({ ok: true, grade, suggestions: items.slice(0, 8) })\n})\n\n// ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====', 'S1_endpoint'),
+            print('skip (already applied):', repr(old[:40]))
+            continue
+        if old not in data:
+            print('ANCHOR NOT FOUND in', path, '::', repr(old[:60]))
+            sys.exit(1)
+        if data.count(old) != 1:
+            print('ANCHOR NOT UNIQUE', data.count(old), repr(old[:60]))
+            sys.exit(1)
+        data = data.replace(old, new)
+        print('ok', path, '::', repr(old[:40]))
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write(data)
+
+PUB_EDITS = [
+    ('  window.pveSelectedGrade = 4;',
+     '  try{ window.UNIT_DISPLAY = UNIT_DISPLAY; }catch(e){}\r\n  window.pveSelectedGrade = 4;'),
+    ("        var nm=(typeof _modeLabel==='function')?_modeLabel(s.unit):s.unit;",
+     "        var nm=null; try{ if(window.UNIT_DISPLAY&&window.UNIT_DISPLAY[s.unit]&&window.UNIT_DISPLAY[s.unit].name) nm=window.UNIT_DISPLAY[s.unit].name; }catch(e){} if(nm==null){ nm=(typeof _modeLabel==='function')?_modeLabel(s.unit):s.unit; }"),
 ]
-PUB_EDITS=[
-  ('<div class="mt-2" id="homeWeakTopics"></div>\r\n      <div class="text-xs text-gray-500 mt-1">※10問以上やった単元だけ表示します。</div>\r\n    </div>', '<div class="mt-2" id="homeWeakTopics"></div>\r\n      <div class="text-xs text-gray-500 mt-1">※10問以上やった単元だけ表示します。</div>\r\n    </div>\r\n\r\n<div id="homeReviewSuggest" style="display:none">\r\n<div class="font-bold text-indigo-700">🔁 そろそろ復習しよう（忘れかけ）</div>\r\n<div class="mt-2 space-y-1" id="homeReviewSuggestList"></div>\r\n<div class="text-xs text-gray-500 mt-1">※前にできていた単元も、時間がたつと忘れちゃう。タップで復習に進めるよ。</div>\r\n</div>', 'P1_card_html'),
-  ('        function selectTrainingMode(mode) {', 'function loadReviewSuggestions(){\r\n  try{\r\n    var card=document.getElementById(\'homeReviewSuggest\'); if(!card) return;\r\n    fetch(\'/api/student/review-suggestions\',{credentials:\'include\'}).then(function(r){return r.json();}).then(function(d){\r\n      if(!d||!d.ok){ card.style.display=\'none\'; return; }\r\n      var list=(d.suggestions||[]).filter(function(s){ return s.launchable && (typeof _isNewCurrId!==\'function\' || _isNewCurrId(s.unit)); }).slice(0,4);\r\n      if(!list.length){ card.style.display=\'none\'; return; }\r\n      card.style.display=\'\';\r\n      var inner=document.getElementById(\'homeReviewSuggestList\'); if(!inner) return; inner.innerHTML=\'\';\r\n      for(var i=0;i<list.length;i++){ (function(s){\r\n        var nm=(typeof _modeLabel===\'function\')?_modeLabel(s.unit):s.unit;\r\n        var safe=String(nm==null?\'\':nm).split(\'&\').join(\'&amp;\').split(\'<\').join(\'&lt;\').split(\'>\').join(\'&gt;\');\r\n        var badge=s.isReview?\'<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:8px;margin-left:6px">復習</span>\':(s.isSame?\'<span style="font-size:10px;background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:8px;margin-left:6px">いまの学年</span>\':\'\');\r\n        var btn=document.createElement(\'button\'); btn.type=\'button\';\r\n        btn.className=\'w-full flex items-center justify-between gap-2 bg-amber-50 rounded-xl border border-amber-200 px-3 py-2 hover:bg-amber-100 active:scale-95 transition text-left\';\r\n        btn.innerHTML=\'<div class="font-bold text-gray-800">\'+safe+badge+\'</div><div class="text-sm text-amber-700 font-bold whitespace-nowrap">最終学習 \'+s.daysSince+\'日前 ▶</div>\';\r\n        btn.onclick=function(){ try{ trySetMode(\'training\'); }catch(e){} try{ selectTrainingMode(s.unit); }catch(e){} };\r\n        inner.appendChild(btn);\r\n      })(list[i]); }\r\n    }).catch(function(e){ if(card) card.style.display=\'none\'; });\r\n  }catch(e){}\r\n}\r\n        function selectTrainingMode(mode) {', 'P2_js_function'),
-  ("    const homeMisEl = document.getElementById('homeCommonMistakes');", "try{ if(typeof loadReviewSuggestions==='function') loadReviewSuggestions(); }catch(e){}\r\n    const homeMisEl = document.getElementById('homeCommonMistakes');", 'P3_hook'),
-]
-patch_file('src/index.tsx', SRV_EDITS)
+
 patch_file('public/index.html', PUB_EDITS)
-print('DONE', file=sys.stderr)
+print('DONE')
