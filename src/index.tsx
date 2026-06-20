@@ -1551,7 +1551,7 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     }
     // フォールバック
     if (!analysisText) {
-      const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1024
       })
@@ -2938,7 +2938,7 @@ ${examplesBlock}
       let ud = `${s.grade ? s.grade + '年生 / ' : ''}学習: ${s.todo || '未記入'}, ${s.minutes || 0}分(平均${avgMin}分), 振り返り: ${s.weather_reason || '未記入'}`
       if (s.work_photo_analysis) ud += `, 成果物: ${s.work_photo_analysis}`
       try {
-        const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
           messages: [
             { role: 'system', content: 'あなたは小学校の担任の先生です。児童の家庭学習に温かく具体的なコメントを1つだけ出力。50〜100文字。児童が書いた「やったこと」「めあて」「振り返り」の具体的な言葉を引用して触れる。学習時間の変化にも言及する。「すごいね」「がんばったね」だけのコメントは絶対NG。名前不要。コメントだけ出力。' },
             { role: 'user', content: ud }
