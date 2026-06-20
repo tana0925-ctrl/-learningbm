@@ -16409,7 +16409,7 @@ function loadReviewSuggestions(){
     var card=document.getElementById('homeReviewSuggest'); if(!card) return;
     fetch('/api/student/review-suggestions',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){ card.style.display='none'; return; }
-      function _curUnitById(id){ try{ if(typeof CURRICULUM==='undefined'||!CURRICULUM) return null; for(var sk in CURRICULUM){ var sj=CURRICULUM[sk]; if(!sj||!sj.grades) continue; for(var gk in sj.grades){ var us=sj.grades[gk]&&sj.grades[gk].units; if(!us) continue; for(var qi=0;qi<us.length;qi++){ if(us[qi]&&us[qi].id===id) return us[qi]; } } } }catch(e){} return null; } var list=(d.suggestions||[]).map(function(s){ s.__u=_curUnitById(s.unit); return s; }).filter(function(s){ return s.launchable && s.__u; }).slice(0,4);
+      function _curUnitById(id){ try{ var C=window.CURRICULUM; if(!C) return null; for(var sk in C){ var sj=C[sk]; if(!sj||!sj.grades) continue; for(var gk in sj.grades){ var us=sj.grades[gk]&&sj.grades[gk].units; if(!us) continue; for(var qi=0;qi<us.length;qi++){ if(us[qi]&&us[qi].id===id) return us[qi]; } } } }catch(e){} return null; } var list=(d.suggestions||[]).map(function(s){ s.__u=_curUnitById(s.unit); return s; }).filter(function(s){ return s.launchable && s.__u; }).slice(0,4);
       if(!list.length){ card.style.display='none'; return; }
       card.style.display='';
       var inner=document.getElementById('homeReviewSuggestList'); if(!inner) return; inner.innerHTML='';
