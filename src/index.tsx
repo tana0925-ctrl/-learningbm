@@ -1827,6 +1827,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   let testScores: any[] = []
   try { const _tsr = await c.env.DB.prepare(`SELECT id, test_name, test_date, subject, max_score, score, comment FROM student_test_scores WHERE user_id=? ORDER BY (test_date IS NULL OR test_date=''), test_date DESC, id DESC`).bind(studentId).all<any>(); testScores = (((_tsr && _tsr.results) || []) as any[]).map((r: any) => ({ id: r.id, testName: r.test_name, testDate: r.test_date, subject: r.subject, maxScore: r.max_score, score: r.score, comment: r.comment, pct: (r.max_score ? Math.round(r.score / r.max_score * 100) : null) })) } catch {}
 
+  let teacherNotes: any[] = []
+  try { const _tnr = await c.env.DB.prepare(`SELECT day_key, body, show_in_karte FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); teacherNotes = (((_tnr && _tnr.results) || []) as any[]).map((r: any) => ({ dayKey: r.day_key, body: r.body, showInKarte: !!r.show_in_karte })) } catch {}
   return c.json({
     ok: true,
     student: { id: member.id, name: member.name, loginId: member.login_id, grade: member.grade },
@@ -1846,6 +1848,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     recentSubmissions: subs.slice(0, 15),
     aiComment: aiComment2,
     testScores,
+    teacherNotes,
   })
 })
 
@@ -1961,6 +1964,66 @@ app.post('/api/teacher/test-scores/save', async (c) => {
     saved++
   }
   return c.json({ ok: true, saved })
+})
+
+// ===== 授業メモAPI（クラス全体メモ＋児童ごとメモ・教師は自分のクラスのみ） =====
+app.get('/api/teacher/class-notes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = String(c.req.query('classId') || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  let notes: any[] = []
+  try { const r = await c.env.DB.prepare("SELECT day_key, body FROM teacher_class_notes WHERE class_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC").bind(classId).all<any>(); notes = (((r && r.results) || []) as any[]).map((x: any) => ({ dayKey: x.day_key, body: x.body })) } catch {}
+  const roster = (((await c.env.DB.prepare('SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? ORDER BY u.name').bind(classId).all<any>()).results) || [])
+  return c.json({ ok: true, notes, roster })
+})
+app.post('/api/teacher/class-notes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const txt = String(body.body || '').slice(0, 2000)
+  if (!txt.trim()) return jsonError(c, 400, 'empty')
+  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS teacher_class_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, class_id TEXT NOT NULL, day_key TEXT, body TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  await c.env.DB.prepare('INSERT INTO teacher_class_notes (class_id, day_key, body, created_by, created_at) VALUES (?,?,?,?,?)').bind(classId, String(body.dayKey || '').slice(0, 40), txt, u.id, new Date().toISOString()).run()
+  return c.json({ ok: true })
+})
+app.get('/api/teacher/student-notes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const studentId = String(c.req.query('studentId') || '')
+  const allowed = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM users WHERE id=? LIMIT 1').bind(studentId).first<any>()
+    : await c.env.DB.prepare('SELECT u.id FROM users u JOIN class_members cm ON cm.user_id=u.id JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE u.id=? LIMIT 1').bind(u.id, studentId).first<any>()
+  if (!allowed) return jsonError(c, 404, 'student_not_found')
+  let notes: any[] = []
+  try { const r = await c.env.DB.prepare("SELECT day_key, body, show_in_karte FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC").bind(studentId).all<any>(); notes = (((r && r.results) || []) as any[]).map((x: any) => ({ dayKey: x.day_key, body: x.body, showInKarte: !!x.show_in_karte })) } catch {}
+  return c.json({ ok: true, notes })
+})
+app.post('/api/teacher/student-notes', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  const studentId = String(body.studentId || '')
+  const mem = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT cm.class_id as classId FROM class_members cm WHERE cm.user_id=? LIMIT 1').bind(studentId).first<any>()
+    : await c.env.DB.prepare('SELECT cm.class_id as classId FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, studentId).first<any>()
+  if (!mem) return jsonError(c, 404, 'student_not_found')
+  const txt = String(body.body || '').slice(0, 2000)
+  if (!txt.trim()) return jsonError(c, 400, 'empty')
+  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS teacher_student_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, class_id TEXT, day_key TEXT, body TEXT, show_in_karte INTEGER DEFAULT 0, created_by TEXT, created_at TEXT)").run() } catch {}
+  const showK = (body.showInKarte === 1 || body.showInKarte === true || body.showInKarte === '1') ? 1 : 0
+  await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, created_by, created_at) VALUES (?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, u.id, new Date().toISOString()).run()
+  return c.json({ ok: true })
 })
 
 // ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
@@ -6313,6 +6376,9 @@ app.get('/teacher', (c) => {
           <button id="anSubTab_tests" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('tests')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">5</span> テスト取り込み
           </button>
+          <button id="anSubTab_notes" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('notes')">
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">6</span> 授業メモ
+          </button>
         </div>
         <!-- 共通クラス選択 -->
         <div class="bg-white rounded-xl shadow p-3 flex gap-2 items-center flex-wrap">
@@ -6441,6 +6507,35 @@ app.get('/teacher', (c) => {
               <span id="tsParseStatus" class="text-xs text-slate-500"></span>
             </div>
             <div id="tsPreview" class="mt-3"></div>
+          </div>
+        </div>
+
+        <!-- サブタブ⑥: 授業メモ -->
+        <div id="anPane_notes" class="hidden space-y-3">
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="flex items-center gap-2 flex-wrap mb-2">
+              <div class="font-bold text-slate-700">🏫 クラス全体メモ</div>
+              <button onclick="loadNotes()" class="bg-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold hover:bg-slate-300">🔄 読み込む</button>
+            </div>
+            <div class="text-xs text-slate-500 mb-2">上の「クラス」で選んだクラスの、その日の授業の気づきを記録します。</div>
+            <div class="flex flex-col gap-2">
+              <input id="cnoteDate" type="date" class="border rounded p-1.5 text-xs w-40">
+              <textarea id="cnoteBody" rows="3" class="w-full border rounded-lg p-2 text-xs" placeholder="例：今日は発表が活発だった。グループ活動の声かけを工夫したい。"></textarea>
+              <div class="flex items-center gap-2"><button onclick="saveClassNote()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">💾 クラスメモを保存</button><span id="cnoteStatus" class="text-xs text-indigo-600 font-bold"></span></div>
+            </div>
+            <div id="cnoteList" class="mt-3 space-y-1"></div>
+          </div>
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="font-bold text-slate-700 mb-1">👤 児童ごとメモ</div>
+            <div class="text-xs text-slate-500 mb-2">児童を選んで、授業中の様子をサッと一言。チェックを入れたメモだけ「子ども向けカルテPDF」に載ります（既定はオフ＝先生だけが見る）。</div>
+            <div class="flex flex-col gap-2">
+              <select id="snoteStudent" class="border rounded p-1.5 text-xs bg-white" onchange="loadStudentNotesTab()"></select>
+              <input id="snoteDate" type="date" class="border rounded p-1.5 text-xs w-40">
+              <input id="snoteBody" class="w-full border rounded-lg p-2 text-xs" placeholder="例：発表でしっかり説明できた">
+              <label class="flex items-center gap-1 text-xs text-slate-600"><input id="snoteKarte" type="checkbox"> カルテ（子ども向け）にも載せる</label>
+              <div class="flex items-center gap-2"><button onclick="saveStudentNoteTab()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-teal-700">💾 児童メモを保存</button><span id="snoteStatus" class="text-xs text-teal-600 font-bold"></span></div>
+            </div>
+            <div id="snoteList" class="mt-3 space-y-1"></div>
           </div>
         </div>
 
@@ -7153,8 +7248,9 @@ app.get('/teacher', (c) => {
 
       // --- 分析サブタブ切り替え ---
       function switchAnalyticsSubTab(sub){
-        var tabs = ['overview','subject','homework','ai','tests'];
-        var colors = {overview:'indigo',subject:'purple',homework:'indigo',ai:'purple',tests:'rose'};
+        var tabs = ['overview','subject','homework','ai','tests','notes'];
+        var colors = {overview:'indigo',subject:'purple',homework:'indigo',ai:'purple',tests:'rose',notes:'teal'};
+        if(sub==='notes' && typeof initNotesTab==='function') initNotesTab();
         tabs.forEach(function(t){
           var pane = document.getElementById('anPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -8642,6 +8738,26 @@ wrap.innerHTML = '';
             html += '</div></div>';
           }
 
+          // === 先生の記録（授業メモ） ===
+          html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+          html += '<div class="font-bold text-sm text-slate-700 mb-2">📝 先生の記録</div>';
+          if(data.teacherNotes && data.teacherNotes.length){
+            html += '<div class="space-y-1 max-h-48 overflow-y-auto mb-3">';
+            for(var tni=0; tni<data.teacherNotes.length; tni++){
+              var tnn = data.teacherNotes[tni];
+              var kbadge = tnn.showInKarte ? '<span class="text-[8px] bg-rose-100 text-rose-700 px-1 rounded ml-1">カルテ掲載</span>' : '';
+              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="text-slate-400">'+escH(tnn.dayKey||'')+'</span> '+escH(tnn.body||'')+kbadge+'</div>';
+            }
+            html += '</div>';
+          } else { html += '<div class="text-xs text-slate-400 mb-3">まだ記録はありません</div>'; }
+          html += '<div class="flex flex-col gap-1 bg-slate-50 rounded-lg p-2">';
+          html += '<input id="faNoteDate" type="date" class="border rounded p-1 text-xs w-40" value="'+escH(new Date().toISOString().slice(0,10))+'">';
+          html += '<input id="faNoteBody" class="border rounded p-1 text-xs" placeholder="例：発表でしっかり説明できた">';
+          html += '<label class="flex items-center gap-1 text-[11px] text-slate-600"><input id="faNoteKarte" type="checkbox"> カルテ（子ども向け）にも載せる</label>';
+          html += '<div class="flex items-center gap-2"><button onclick="saveQuickStudentNote()" class="bg-teal-600 text-white rounded-lg px-3 py-1 text-xs font-bold hover:bg-teal-700">💾 メモを保存</button><span id="faNoteStatus" class="text-xs text-teal-600 font-bold"></span></div>';
+          html += '</div>';
+          html += '</div>';
+
           // === テスト結果 ===
           if(data.testScores && data.testScores.length > 0){
             html += '<div class="bg-white rounded-xl border p-4 mb-4">';
@@ -8726,7 +8842,7 @@ wrap.innerHTML = '';
         if(tw>0) L.push('・満足度の内訳: ☀️' + (ov.sunCount||0) + '回 / ☁️' + (ov.cloudCount||0) + '回 / 🌧️' + (ov.rainCount||0) + '回');
         if(data.monthlyTrends && data.monthlyTrends.length){ L.push(''); L.push('【月別の提出回数の推移】'); for(var i=0;i<data.monthlyTrends.length;i++){ var t=data.monthlyTrends[i]; L.push('・' + t.month + ': ' + t.count + '回（満足度' + (t.sunRate!=null?t.sunRate+'%':'-') + '・平均' + (t.avgMin||0) + '分）'); } }
         if(data.subjects && data.subjects.length){ var _sg4=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug=_unitGrade(su.unit); var _lab=_gradeLabel(_gradeClass(_sg4,_ug))||'対象学年不明'; L.push('・' + _unitJa(su.unit) + '（' + (_ug?('対象'+_ug+'年・'):'') + _lab + '）: 正答率' + su.rate + '%（' + su.total + '問）'); } }
-        if(data.streaks && data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ var sk=data.streaks[k]; L.push('・' + sk.length + '日連続（' + sk.start + ' 〜 ' + sk.end + '）'); } }
+        if(data.teacherNotes && data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; L.push('・'+(nt.dayKey||'')+' '+(nt.body||'')); } } if(data.streaks && data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ var sk=data.streaks[k]; L.push('・' + sk.length + '日連続（' + sk.start + ' 〜 ' + sk.end + '）'); } }
         if(data.reflections && data.reflections.length){ L.push(''); L.push('【最近のふりかえり（本人の記録）】'); for(var m=0;m<Math.min(data.reflections.length,5);m++){ var rf=data.reflections[m]; var ps=[]; if(rf.concentration!=null) ps.push('集中度' + rf.concentration + '/3'); if(rf.goodPoint) ps.push('よかった点:' + rf.goodPoint); if(rf.improvePoint) ps.push('直したい点:' + rf.improvePoint); if(rf.nextAction) ps.push('次の目標:' + rf.nextAction); L.push('・[' + (rf.weekKey||'') + '] ' + (ps.length?ps.join(' / '):'記録あり')); } }
         if(data.recentSubmissions && data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,12);n++){ var rs=data.recentSubmissions[n]; var w = rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・' + (rs.day_key||'') + ' ' + w + ' ' + (rs.todo||'') + '（' + (rs.minutes||0) + '分）'; if(rs.weather_reason) line += ' ふりかえり:' + rs.weather_reason; L.push(line); } }
         L.push('');
@@ -8748,9 +8864,9 @@ wrap.innerHTML = '';
       function _gradeClass(sg, ug){ if(sg==null||ug==null) return 'unknown'; if(ug===sg) return 'same'; if(ug<sg) return 'review'; return 'ahead'; }
       function _gradeLabel(cl){ return cl==='review'?'復習':cl==='same'?'学年相当':cl==='ahead'?'先取り':''; }
       function _kStudyTip(id){ var T={'j5-keigo':'尊敬語とけんじょう語の取りちがえが多いところ。「先生が言う→おっしゃる」など短い言いかえを声に出して、1日3つ練習しよう。','rounding':'「上から2けた」「百の位まで」など、どこで四捨五入するか先に印をつけてから計算しよう。','idiom':'本やニュースで出会った慣用句を、意味と例文をセットで1日1つためていこう。','conjunction':'「だから・でも・それで」で2つの文をつなぐ練習。教科書の文を1つ選んで言いかえてみよう。','long-division':'たてる→かける→ひく→おろす の4手順を声に出しながら1段ずつ。位をそろえて書くとミスが減るよ。','fraction-mixed':'帯分数と仮分数の行き来でつまずきやすい。図に分けて大きさをイメージしてから計算しよう。','area':'公式の暗記よりも「たて×よこ」の意味から。複雑な形は四角に分けて足し引きしよう。','m6-circle':'半径×半径×3.14。直径と半径の取りちがえが定番ミス。まず図に半径を書きこんでから式を立てよう。','m6-frac-div':'分数のわり算は「ひっくり返してかける」。約分のし忘れに注意。1問だけ図でなぜそうなるか確かめると定着するよ。','m6-frac-mul':'計算の前に約分するとラクで正確。帯分数は仮分数に直してから。','m6-ratio':'比は「何対何」をジュースと水などの具体物でイメージ。比の値とのちがいを1問ずつ確認しよう。','m6-proportion':'片方が2倍で他方も2倍なら比例、半分なら反比例。表に書いて確かめよう。','m6-expression':'xやaに具体的な数を入れて確かめる練習から。文章を式にする所をゆっくり。','m5-speed':'速さ＝道のり÷時間。「は・じ・き」の図で求めるものを指でかくして確認。分と時間の単位変換に注意。','m5-percent':'まず「もとにする量」を見つけるのが第一歩。0.01＝1%の対応を表で確認しよう。','m5-dec-div':'小数のわり算は小数点の移動がカギ。わる数を整数にした分だけ、わられる数も同じだけ動かそう。','m5-frac-eq':'約分・通分は分母の最小公倍数がカギ。九九を使って素早く見つけよう。','m5-unit-qty':'「1あたりの量」をそろえて比べる。どちらが1あたりか言葉で確認してから計算しよう。','j6-kanji':'読みと書きを分け、まちがえた字だけ集中的に。部首の意味とセットで覚えると忘れにくいよ。','j6-bunpo':'主語・述語・修飾語を色分けして、文の組み立てを見える化しよう。','s6-world':'国旗・位置・特徴をセットで。白地図に色をぬりながら覚えると定着するよ。','s6-politics':'国会・内閣・裁判所の役割をニュースと結びつけ、図にしてつながりを覚えよう。'}; if(T[id]) return T[id]; var a=_subjectArea(id); if(a==='math') return 'まちがえた問題をもう一度ときなおし、どこで間違えたかを言葉で説明してみよう。'; if(a==='jp') return '声に出して読んだり、まちがえた所だけノートに書いたりして おぼえよう。'; if(a==='soc') return '地図や年表・絵とむすびつけて、おはなしのように流れで おぼえよう。'; if(a==='sci') return '身のまわりの出来事とむすびつけ、「なぜ？」を1つ考えてみよう。'; return 'まちがえた問題を見直して、もう一度チャレンジしてみよう。'; }
-      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var _sg=(d.student&&d.student.grade)||null; var _cl=function(u){return _gradeClass(_sg,_unitGrade(u));}; var good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)==='same';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); if(!good.length){ good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)!=='review';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); } var _rev=subjects.filter(function(s){return _cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewGood=_rev.filter(function(s){return s.rate>=80;}).slice(0,3); var reviewWeak=_rev.filter(function(s){return s.rate<70;}).slice(0,3); var ahead=subjects.filter(function(s){return _cl(s.unit)==='ahead'&&s.rate>=70&&s.total>=10;}).sort(function(a,b){return (b.rate-a.rate);}).slice(0,3); var grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); if(!grow.length){ grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); } var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん'+(_sg?'（'+_sg+'年生）':'')+'</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); H.push('<div class="sec good"><h2>💪 とくいな教科'+(_sg?'（いまの学年）':'')+'</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } if(reviewGood.length){ var _rg=[]; for(var rgi=0;rgi<reviewGood.length;rgi++){ var _rgu=reviewGood[rgi]; var _rgg=_unitGrade(_rgu.unit); _rg.push((_rgg?_rgg+'年 ':'')+esc(_unitJa(_rgu.unit))+'('+_rgu.rate+'%)'); } H.push('<div style="margin-top:8px;font-size:12px;color:#0369a1;font-weight:700">🔁 下の学年の復習もバッチリ … '+_rg.join('、')+'</div>'); } if(ahead.length){ var _ag=[]; for(var agi=0;agi<ahead.length;agi++){ var _agu=ahead[agi]; var _agg=_unitGrade(_agu.unit); _ag.push((_agg?_agg+'年 ':'')+esc(_unitJa(_agu.unit))+'('+_agu.rate+'%)'); } H.push('<div style="margin-top:6px;font-size:12px;color:#7c3aed;font-weight:700">🚀 先取りもチャレンジ … '+_ag.join('、')+'</div>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いまの学年・正答率 '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>いまの学年の単元は よくできています。すばらしい！</p>'); } if(reviewWeak.length){ H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px"><div style="font-weight:800;color:#b45309;font-size:13px">📥 まずは下の学年の復習から（土台づくり）</div>'); for(var rw=0;rw<reviewWeak.length;rw++){ var _rwu=reviewWeak[rw]; var _rwg=_unitGrade(_rwu.unit); H.push('<div class="it"><div class="t">'+(_rwg?_rwg+'年 ':'')+esc(_unitJa(_rwu.unit))+'（いま '+_rwu.rate+'%）</div><div class="tip">👉 まず'+(_rwg?_rwg+'年の':'')+esc(_unitJa(_rwu.unit))+'を復習して、できるようになってから いまの学年へ進もう。'+esc(_kStudyTip(_rwu.unit))+'</div></div>'); } H.push('</div>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } var tsc=(d.testScores||[]); if(tsc.length){ H.push('<div class="sec"><h2>📝 テストの記録</h2><ul>'); for(var ti=0;ti<tsc.length;ti++){ var tt=tsc[ti]; var tp=(tt.pct==null)?'':('（'+tt.pct+'%）'); H.push('<li>'+esc(tt.testDate||'')+' '+esc(tt.subject||'')+' '+esc(tt.testName||'')+' … '+(tt.score==null?'-':tt.score)+'/'+(tt.maxScore||100)+'点'+tp+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🤖 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
+      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var _sg=(d.student&&d.student.grade)||null; var _cl=function(u){return _gradeClass(_sg,_unitGrade(u));}; var good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)==='same';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); if(!good.length){ good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)!=='review';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); } var _rev=subjects.filter(function(s){return _cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewGood=_rev.filter(function(s){return s.rate>=80;}).slice(0,3); var reviewWeak=_rev.filter(function(s){return s.rate<70;}).slice(0,3); var ahead=subjects.filter(function(s){return _cl(s.unit)==='ahead'&&s.rate>=70&&s.total>=10;}).sort(function(a,b){return (b.rate-a.rate);}).slice(0,3); var grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); if(!grow.length){ grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); } var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん'+(_sg?'（'+_sg+'年生）':'')+'</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); H.push('<div class="sec good"><h2>💪 とくいな教科'+(_sg?'（いまの学年）':'')+'</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } if(reviewGood.length){ var _rg=[]; for(var rgi=0;rgi<reviewGood.length;rgi++){ var _rgu=reviewGood[rgi]; var _rgg=_unitGrade(_rgu.unit); _rg.push((_rgg?_rgg+'年 ':'')+esc(_unitJa(_rgu.unit))+'('+_rgu.rate+'%)'); } H.push('<div style="margin-top:8px;font-size:12px;color:#0369a1;font-weight:700">🔁 下の学年の復習もバッチリ … '+_rg.join('、')+'</div>'); } if(ahead.length){ var _ag=[]; for(var agi=0;agi<ahead.length;agi++){ var _agu=ahead[agi]; var _agg=_unitGrade(_agu.unit); _ag.push((_agg?_agg+'年 ':'')+esc(_unitJa(_agu.unit))+'('+_agu.rate+'%)'); } H.push('<div style="margin-top:6px;font-size:12px;color:#7c3aed;font-weight:700">🚀 先取りもチャレンジ … '+_ag.join('、')+'</div>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いまの学年・正答率 '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>いまの学年の単元は よくできています。すばらしい！</p>'); } if(reviewWeak.length){ H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px"><div style="font-weight:800;color:#b45309;font-size:13px">📥 まずは下の学年の復習から（土台づくり）</div>'); for(var rw=0;rw<reviewWeak.length;rw++){ var _rwu=reviewWeak[rw]; var _rwg=_unitGrade(_rwu.unit); H.push('<div class="it"><div class="t">'+(_rwg?_rwg+'年 ':'')+esc(_unitJa(_rwu.unit))+'（いま '+_rwu.rate+'%）</div><div class="tip">👉 まず'+(_rwg?_rwg+'年の':'')+esc(_unitJa(_rwu.unit))+'を復習して、できるようになってから いまの学年へ進もう。'+esc(_kStudyTip(_rwu.unit))+'</div></div>'); } H.push('</div>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } var tsc=(d.testScores||[]); if(tsc.length){ H.push('<div class="sec"><h2>📝 テストの記録</h2><ul>'); for(var ti=0;ti<tsc.length;ti++){ var tt=tsc[ti]; var tp=(tt.pct==null)?'':('（'+tt.pct+'%）'); H.push('<li>'+esc(tt.testDate||'')+' '+esc(tt.subject||'')+' '+esc(tt.testName||'')+' … '+(tt.score==null?'-':tt.score)+'/'+(tt.maxScore||100)+'点'+tp+'</li>'); } H.push('</ul></div>'); } var _tn=(d.teacherNotes||[]).filter(function(n){return n.showInKarte;}); if(_tn.length){ H.push('<div class="sec"><h2>📝 先生からの記録</h2><ul>'); for(var ni=0;ni<_tn.length;ni++){ var nn=_tn[ni]; H.push('<li>'+esc(nn.dayKey||'')+' '+esc(nn.body||'')+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🤖 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
       function downloadKartePdf(){ try{ var html=_buildKarteHtml(); var w=window.open('','_blank'); if(!w){ alert('ポップアップがブロックされました。このサイトのポップアップを許可してください。'); return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 500); }catch(e){ alert('カルテの作成に失敗しました: '+e.message); } }
-      function _aiBodyLines(data){ var ov=data.overview||{}; var _sg5=(data.student&&data.student.grade)||null; var L=[]; if(_sg5) L.push('【学年】'+_sg5+'年生'); L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ var _sg6=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug6=_unitGrade(su.unit); var _lab6=_gradeLabel(_gradeClass(_sg6,_ug6))||'対象学年不明'; L.push('・'+_unitJa(su.unit)+'（'+(_ug6?('対象'+_ug6+'年・'):'')+_lab6+'）: 正答率'+su.rate+'%（'+su.total+'問）'); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } return L; }
+      function _aiBodyLines(data){ var ov=data.overview||{}; var _sg5=(data.student&&data.student.grade)||null; var L=[]; if(_sg5) L.push('【学年】'+_sg5+'年生'); L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ var _sg6=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug6=_unitGrade(su.unit); var _lab6=_gradeLabel(_gradeClass(_sg6,_ug6))||'対象学年不明'; L.push('・'+_unitJa(su.unit)+'（'+(_ug6?('対象'+_ug6+'年・'):'')+_lab6+'）: 正答率'+su.rate+'%（'+su.total+'問）'); } } if(data.teacherNotes&&data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; L.push('・'+(nt.dayKey||'')+' '+(nt.body||'')); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } return L; }
       function _normId(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}).replace(/[\\s　]/g,'').toLowerCase(); }
       function _parseAiBlocks(raw){ var lines=String(raw||'').split(/\\r?\\n/); var blocks=[]; var cur=null; var re=/^[\\s　]*[=＝]{2,}[\\s　]*[\\[［]\\s*([^\\]］]+?)\\s*[\\]］]/; for(var i=0;i<lines.length;i++){ var m=lines[i].match(re); if(m){ if(cur) blocks.push(cur); cur={id:m[1],lines:[]}; } else if(cur){ cur.lines.push(lines[i]); } } if(cur) blocks.push(cur); return blocks.map(function(b){ return {id:b.id, body:b.lines.join(String.fromCharCode(10)).replace(/^\\s+|\\s+$/g,'')}; }); }
       async function copyAllAiText(){ var students=window._lastStudentSummaries||[]; var status=document.getElementById('allAiStatus'); if(!students.length){ if(status) status.textContent='先に「AIで分析」か「週報を生成」を押して児童一覧を表示してください'; return; } if(status) status.textContent='データを集めています...(0/'+students.length+')'; var NL=String.fromCharCode(10); var L=[]; L.push('以下は同じクラスの複数の児童の家庭学習データです。あなたは関西弁の応援キャラ「阪神マン」です。各児童ごとに、「=== [児童ID] 名前 ===」の目印の行を そのまま変えずに残し、その下に ①ええところ（取り組みの良い点）②気になるところ ③おすすめの学習・声かけ を、関西弁で子どもを励ますようにやさしく書いてください。各児童の【学年】と各単元の【対象学年】を見て声かけを変えること：下の学年の復習は「復習できたな！次はいまの学年へ」、学年相当はしっかりほめる、先取り（上の学年）は「まだ習ってへんのにスゴいやん！」。おすすめは単元名・つまずきポイント・次の一歩を具体的に。児童IDと目印は絶対に変更しないでください。やりすぎず、先生がそのまま使える範囲で。'); L.push(''); for(var i=0;i<students.length;i++){ var s=students[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); var id=s.loginId||s.userId||s.name; L.push('=== ['+id+'] '+nm+' ==='); try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId||s.name)); var data=await res.json(); if(data&&data.ok){ L=L.concat(_aiBodyLines(data)); } else { L.push('(データの取得に失敗しました)'); } }catch(e){ L.push('(エラー: '+e.message+')'); } L.push(''); if(status) status.textContent='データを集めています...('+(i+1)+'/'+students.length+')'; } var txt=L.join(NL); var done=function(){ if(status) status.textContent='✓ '+students.length+'人分をコピーしました。AIに貼り付けてください'; }; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); } }
@@ -8808,6 +8924,58 @@ wrap.innerHTML = '';
           if(!hit){ for(var k=0;k<roster.length;k++){ var rm2=roster[k]; var dn2=_normId(_tsDispName(rm2)); if(dn2 && (dn2.indexOf(key)>=0||key.indexOf(dn2)>=0)){ hit=rm2; break; } } }
           r.matchedUserId = hit? hit.userId : null; r.matchedName = hit? _tsDispName(hit) : null;
         }
+      }
+      function _notesClassId(){ var sel=document.getElementById('analyticsClassFilter'); return sel?sel.value:''; }
+      function _todayStr(){ return new Date().toISOString().slice(0,10); }
+      function initNotesTab(){ var cd=document.getElementById('cnoteDate'); if(cd && !cd.value) cd.value=_todayStr(); var sd=document.getElementById('snoteDate'); if(sd && !sd.value) sd.value=_todayStr(); if(_notesClassId()) loadNotes(); }
+      function loadNotes(){
+        var cid=_notesClassId(); if(!cid) return;
+        fetch('/api/teacher/class-notes?classId='+encodeURIComponent(cid)).then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok) return;
+          window._notesRoster=d.roster||[];
+          var sel=document.getElementById('snoteStudent');
+          if(sel){ var cur=sel.value; var h='<option value="">児童を選ぶ…</option>'; for(var i=0;i<window._notesRoster.length;i++){ var rm=window._notesRoster[i]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(rm.loginId,rm.name):(rm.name||rm.loginId); h+='<option value="'+escH(rm.userId)+'">'+escH(dn)+'</option>'; } sel.innerHTML=h; if(cur) sel.value=cur; }
+          var list=document.getElementById('cnoteList');
+          if(list){ var notes=d.notes||[]; if(!notes.length){ list.innerHTML='<div class="text-xs text-slate-400">まだクラスメモはありません</div>'; } else { var s=''; for(var j=0;j<notes.length;j++){ var n=notes[j]; s+='<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="text-slate-400">'+escH(n.dayKey||'')+'</span> '+escH(n.body||'')+'</div>'; } list.innerHTML=s; } }
+        }).catch(function(e){});
+      }
+      function saveClassNote(){
+        var cid=_notesClassId(); var st=document.getElementById('cnoteStatus');
+        if(!cid){ if(st) st.textContent='上でクラスを選んでください'; return; }
+        var dk=(document.getElementById('cnoteDate')||{}).value||''; var body=(document.getElementById('cnoteBody')||{}).value||'';
+        if(!body||!body.trim()){ if(st) st.textContent='メモを入力してください'; return; }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/class-notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, dayKey:dk, body:body})}).then(function(r){return r.json();}).then(function(d){
+          if(d&&d.ok){ if(st) st.textContent='✓ 保存しました'; var b=document.getElementById('cnoteBody'); if(b) b.value=''; loadNotes(); } else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
+      function loadStudentNotesTab(){
+        var sid=(document.getElementById('snoteStudent')||{}).value||''; var list=document.getElementById('snoteList');
+        if(!sid){ if(list) list.innerHTML=''; return; }
+        fetch('/api/teacher/student-notes?studentId='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok||!list) return;
+          var notes=d.notes||[]; if(!notes.length){ list.innerHTML='<div class="text-xs text-slate-400">この児童のメモはまだありません</div>'; return; }
+          var s=''; for(var i=0;i<notes.length;i++){ var n=notes[i]; var kb=n.showInKarte?'<span class="text-[8px] bg-rose-100 text-rose-700 px-1 rounded ml-1">カルテ掲載</span>':''; s+='<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="text-slate-400">'+escH(n.dayKey||'')+'</span> '+escH(n.body||'')+kb+'</div>'; } list.innerHTML=s;
+        }).catch(function(e){});
+      }
+      function saveStudentNoteTab(){
+        var sid=(document.getElementById('snoteStudent')||{}).value||''; var st=document.getElementById('snoteStatus');
+        if(!sid){ if(st) st.textContent='児童を選んでください'; return; }
+        var dk=(document.getElementById('snoteDate')||{}).value||''; var body=(document.getElementById('snoteBody')||{}).value||''; var kt=(document.getElementById('snoteKarte')||{}).checked?1:0;
+        if(!body||!body.trim()){ if(st) st.textContent='メモを入力してください'; return; }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/student-notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({studentId:sid, dayKey:dk, body:body, showInKarte:kt})}).then(function(r){return r.json();}).then(function(d){
+          if(d&&d.ok){ if(st) st.textContent='✓ 保存しました'; var b=document.getElementById('snoteBody'); if(b) b.value=''; var ck=document.getElementById('snoteKarte'); if(ck) ck.checked=false; loadStudentNotesTab(); } else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
+      function saveQuickStudentNote(){
+        var sid=window._faId; if(!sid) return; var st=document.getElementById('faNoteStatus');
+        var dk=(document.getElementById('faNoteDate')||{}).value||''; var body=(document.getElementById('faNoteBody')||{}).value||''; var kt=(document.getElementById('faNoteKarte')||{}).checked?1:0;
+        if(!body||!body.trim()){ if(st) st.textContent='メモを入力してください'; return; }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/student-notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({studentId:sid, dayKey:dk, body:body, showInKarte:kt})}).then(function(r){return r.json();}).then(function(d){
+          if(d&&d.ok){ if(st) st.textContent='✓ 保存しました'; openStudentFullAnalysis(window._faId, window._faName); } else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function copyTestPrompt(){
         var NL=String.fromCharCode(10);
