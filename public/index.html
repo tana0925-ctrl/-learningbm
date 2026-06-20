@@ -3909,6 +3909,12 @@ window.claimClassMission=async function(){
       <div class="text-xs text-gray-500 mt-1">※10問以上やった単元だけ表示します。</div>
     </div>
 
+<div id="homeReviewSuggest" style="display:none">
+<div class="font-bold text-indigo-700">🔁 そろそろ復習しよう（忘れかけ）</div>
+<div class="mt-2 space-y-1" id="homeReviewSuggestList"></div>
+<div class="text-xs text-gray-500 mt-1">※前にできていた単元も、時間がたつと忘れちゃう。タップで復習に進めるよ。</div>
+</div>
+
     <div>
       <div class="flex items-center justify-between">
       <div class="font-bold text-indigo-700">よくまちがえる問題</div>
@@ -14989,6 +14995,7 @@ const rows = unitRows.filter(r=>r.total>=10).sort((a,b)=>a.acc-b.acc).slice(0,3)
       }
     }
 
+try{ if(typeof loadReviewSuggestions==='function') loadReviewSuggestions(); }catch(e){}
     const homeMisEl = document.getElementById('homeCommonMistakes');
     if(homeMisEl){
       if(learn && learn.byQuestion){
@@ -16397,6 +16404,28 @@ return;
             document.getElementById('gachaOverlay').classList.add('hidden');
         }
 
+function loadReviewSuggestions(){
+  try{
+    var card=document.getElementById('homeReviewSuggest'); if(!card) return;
+    fetch('/api/student/review-suggestions',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){ card.style.display='none'; return; }
+      var list=(d.suggestions||[]).filter(function(s){ return s.launchable && (typeof _isNewCurrId!=='function' || _isNewCurrId(s.unit)); }).slice(0,4);
+      if(!list.length){ card.style.display='none'; return; }
+      card.style.display='';
+      var inner=document.getElementById('homeReviewSuggestList'); if(!inner) return; inner.innerHTML='';
+      for(var i=0;i<list.length;i++){ (function(s){
+        var nm=(typeof _modeLabel==='function')?_modeLabel(s.unit):s.unit;
+        var safe=String(nm==null?'':nm).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
+        var badge=s.isReview?'<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:8px;margin-left:6px">復習</span>':(s.isSame?'<span style="font-size:10px;background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:8px;margin-left:6px">いまの学年</span>':'');
+        var btn=document.createElement('button'); btn.type='button';
+        btn.className='w-full flex items-center justify-between gap-2 bg-amber-50 rounded-xl border border-amber-200 px-3 py-2 hover:bg-amber-100 active:scale-95 transition text-left';
+        btn.innerHTML='<div class="font-bold text-gray-800">'+safe+badge+'</div><div class="text-sm text-amber-700 font-bold whitespace-nowrap">最終学習 '+s.daysSince+'日前 ▶</div>';
+        btn.onclick=function(){ try{ trySetMode('training'); }catch(e){} try{ selectTrainingMode(s.unit); }catch(e){} };
+        inner.appendChild(btn);
+      })(list[i]); }
+    }).catch(function(e){ if(card) card.style.display='none'; });
+  }catch(e){}
+}
         function selectTrainingMode(mode) {
             // === ネットレ化: 新IDの場合 or CURRICULUMユニットから呼ばれた場合は専用ハンドラへ ===
             console.log('[DEBUG selectMode] mode=', mode, '_isNewCurrId=', (typeof _isNewCurrId === 'function' ? _isNewCurrId(mode) : 'UNDEFINED'), '__currUnit=', window.__currUnit);
