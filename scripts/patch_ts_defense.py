@@ -11,7 +11,8 @@ def patch_file(path, edits):
     open(path,'wb').write(data.encode('utf-8'))
     print('ok', file=sys.stderr)
 EDITS=[
-  ("async function callGemini(env: any, body: any, model = 'gemini-2.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {", "async function callGemini(env: any, body: any, model = 'gemini-3.5-flash'): Promise<{ ok: boolean, text: string, source: string }> {", 'M1_model'),
+  ("const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {\n        messages: [{ role: 'user', content: prompt }],", "const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {\n        messages: [{ role: 'user', content: prompt }],", 'F1_classai_fallback'),
+  ("const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {\n          messages: [", "const aiRes: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {\n          messages: [", 'F2_comment_fallback'),
 ]
 patch_file('src/index.tsx', EDITS)
 print('DONE', file=sys.stderr)
