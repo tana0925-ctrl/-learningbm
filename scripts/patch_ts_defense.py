@@ -1,4 +1,5 @@
 import sys
+
 def patch_file(path, edits):
     with open(path, 'r', encoding='utf-8', newline='') as f:
         data = f.read()
@@ -13,9 +14,10 @@ def patch_file(path, edits):
     with open(path, 'w', encoding='utf-8', newline='') as f:
         f.write(data)
 
-SRV_EDITS = [
-    ("window.UNIT_JP = {",
-     "window.UNIT_JP = {'kuku':'九九','m3-divR':'わり算(あまりあり)','s6-hist':'歴史(6年)','m6-speed':'速さ(6年)',"),
+PUB_EDITS = [
+    ('function startGame() {',
+     "function startGame() { try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}"),
 ]
-patch_file('src/index.tsx', SRV_EDITS)
+
+patch_file('public/typeshoot.js', PUB_EDITS)
 print('DONE')
