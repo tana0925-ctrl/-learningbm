@@ -2011,6 +2011,29 @@ function _recParseText(text){
   for(var b=0;b<blocks.length;b++){ blocks[b].body=String(blocks[b].body||'').replace(/\s+$/,''); }
   return blocks;
 }
+app.post('/api/teacher/records/parse', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body.text !== 'string') return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const idx: Record<string, string> = {}
+  for (const m of roster as any[]) { if (m.name) idx[_recNorm(m.name)] = m.id; if (m.loginId) idx[_recNorm(m.loginId)] = m.id }
+  const blocks = _recParseText(body.text)
+  const rows = blocks.map((bk: any) => {
+    const keyId = _recNorm(bk.idRaw); const keyNm = _recNorm(bk.nameRaw)
+    let uid: string | null = idx[keyId] || idx[keyNm] || null
+    if (!uid && keyNm) { for (const m of roster as any[]) { const nn = _recNorm(m.name); if (nn && (nn.indexOf(keyNm) >= 0 || keyNm.indexOf(nn) >= 0)) { uid = m.id; break } } }
+    const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
+    return { idRaw: bk.idRaw, nameRaw: bk.nameRaw, title: bk.title, day: bk.day, subject: bk.subject, unit: bk.unit, body: bk.body, matchedUserId: uid, matchedName: mm ? mm.name : null }
+  })
+  return c.json({ ok: true, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
+})
 // ===== 授業メモAPI（クラス全体メモ＋児童ごとメモ・教師は自分のクラスのみ） =====
 app.get('/api/teacher/class-notes', async (c) => {
   const u = requireTeacher(c)
