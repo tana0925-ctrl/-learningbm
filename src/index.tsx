@@ -77,11 +77,13 @@ async function callGemini(env: any, body: any, model = 'gemini-3.5-flash'): Prom
     const key = keys[keyIdx]
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
+      const _ac = new AbortController(); const _to = setTimeout(() => _ac.abort(), 30000)
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      })
+        signal: _ac.signal,
+      }).finally(() => clearTimeout(_to))
       if (res.ok) {
         const json: any = await res.json()
         const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
@@ -1549,13 +1551,23 @@ app.get('/api/teacher/class-ai-analysis', async (c) => {
     if (gRes.ok) {
       analysisText = gRes.text
     }
-    // フォールバック
+    // フォールバック（タイムアウト付き・失敗しても500にしない）
     if (!analysisText) {
-      const aiResult: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1024
-      })
-      analysisText = aiResult.response || aiResult.result || ''
+      try {
+        const aiResult: any = await Promise.race([
+          c.env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 1024
+          }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('workers_ai_timeout')), 20000))
+        ])
+        analysisText = aiResult.response || aiResult.result || ''
+      } catch (fe: any) {
+        console.error('class-ai fallback failed:', fe?.message || fe)
+      }
+    }
+    if (!analysisText) {
+      return c.json({ ok: false, error: 'AI分析を生成できませんでした。少し時間をおいて再度お試しください。（管理者の方へ：解消しない場合は GEMINI_API_KEY の有効期限切れの可能性があります）' })
     }
     return c.json({ ok: true, analysis: analysisText })
   } catch (e: any) {
