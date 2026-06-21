@@ -2065,6 +2065,28 @@ app.get('/api/student/review-suggestions', async (c) => {
   return c.json({ ok: true, grade, suggestions: items.slice(0, 8) })
 })
 
+app.get('/api/student/weak-units', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  let grade: number | null = null
+  try { const gr = await c.env.DB.prepare('SELECT grade FROM users WHERE id=? LIMIT 1').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}
+  let rows: any[] = []
+  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor FROM learning_results WHERE user_id=? GROUP BY unit").bind(u.id).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
+  const ug = (id: string) => { id = String(id || ''); const c0 = id.charAt(0); if ((c0 === 'm' || c0 === 'j' || c0 === 'r' || c0 === 's') && id.charAt(2) === '-') { const dch = id.charAt(1); if (dch >= '1' && dch <= '6') return parseInt(dch, 10) } return null }
+  const items: any[] = []
+  for (const row of rows) {
+    const n = row.n || 0; if (n < 4) continue
+    const acc = n ? Math.round((row.cor || 0) / n * 100) : 0
+    if (acc >= 80) continue
+    const gu = ug(row.unit); const launchable = gu != null
+    const isReview = (grade != null && gu != null) ? (gu < grade) : false
+    const isSame = (grade != null && gu != null) ? (gu === grade) : false
+    items.push({ unit: row.unit, acc, n, gradeOfUnit: gu, isReview, isSame, launchable })
+  }
+  items.sort((a, b) => { if (a.isSame !== b.isSame) return a.isSame ? -1 : 1; if (a.isReview !== b.isReview) return a.isReview ? 1 : -1; return a.acc - b.acc })
+  return c.json({ ok: true, grade, weak: items.slice(0, 8) })
+})
+
 // ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
 app.get('/api/teacher/learning-analytics', async (c) => {
   const u = c.get('user')
