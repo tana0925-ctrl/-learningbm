@@ -15,9 +15,11 @@ def patch_file(path, edits):
         f.write(data)
 
 PUB_EDITS = [
-    ('function startGame() {',
-     "function startGame() { try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}"),
+    ('// 連続提出ごほうび：オチャ（Lv60でオチャ大魔王）（記録日カウント）',
+     'try { if (!rest && player && !player.shardBanned && player.reflectShardDate !== dayKey) { var _refb = 1; if (streakAfter >= 6) _refb = 3; else if (streakAfter >= 3) _refb = 2; bonus.shards = (Number(bonus.shards) || 0) + _refb; player.reflectShardDate = dayKey; window.__reflectBonusShards = _refb; } else { window.__reflectBonusShards = 0; } } catch(e) { window.__reflectBonusShards = 0; }\n    // 連続提出ごほうび：オチャ（Lv60でオチャ大魔王）（記録日カウント）'),
+    ("'✅ 提出完了！' + rewardText + 'ゲット！' + streakText;",
+     "'✅ 提出完了！' + rewardText + 'ゲット！' + streakText + ((window.__reflectBonusShards>0) ? ' 🔹ふりかえりボーナス かけら+'+window.__reflectBonusShards+'！' : '');"),
 ]
 
-patch_file('public/typeshoot.js', PUB_EDITS)
+patch_file('public/index.html', PUB_EDITS)
 print('DONE')
