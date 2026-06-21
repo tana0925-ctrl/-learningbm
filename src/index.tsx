@@ -1839,6 +1839,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   let testScores: any[] = []
   try { const _tsr = await c.env.DB.prepare(`SELECT id, test_name, test_date, subject, max_score, score, comment FROM student_test_scores WHERE user_id=? ORDER BY (test_date IS NULL OR test_date=''), test_date DESC, id DESC`).bind(studentId).all<any>(); testScores = (((_tsr && _tsr.results) || []) as any[]).map((r: any) => ({ id: r.id, testName: r.test_name, testDate: r.test_date, subject: r.subject, maxScore: r.max_score, score: r.score, comment: r.comment, pct: (r.max_score ? Math.round(r.score / r.max_score * 100) : null) })) } catch {}
 
+  let records: any[] = []
+  try { const _rr = await c.env.DB.prepare(`SELECT id, type, title, body, subject, unit, day_key, created_at FROM student_records WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); records = (((_rr && _rr.results) || []) as any[]).map((r: any) => ({ id: r.id, type: r.type, title: r.title, body: r.body, subject: r.subject, unit: r.unit, dayKey: r.day_key, createdAt: r.created_at })) } catch {}
   let teacherNotes: any[] = []
   try { const _tnr = await c.env.DB.prepare(`SELECT day_key, body, show_in_karte FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); teacherNotes = (((_tnr && _tnr.results) || []) as any[]).map((r: any) => ({ dayKey: r.day_key, body: r.body, showInKarte: !!r.show_in_karte })) } catch {}
   return c.json({
@@ -1860,6 +1862,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     recentSubmissions: subs.slice(0, 15),
     aiComment: aiComment2,
     testScores,
+    records,
     teacherNotes,
   })
 })
@@ -2033,6 +2036,37 @@ app.post('/api/teacher/records/parse', async (c) => {
     return { idRaw: bk.idRaw, nameRaw: bk.nameRaw, title: bk.title, day: bk.day, subject: bk.subject, unit: bk.unit, body: bk.body, matchedUserId: uid, matchedName: mm ? mm.name : null }
   })
   return c.json({ ok: true, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
+})
+app.post('/api/teacher/records/save', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body || !Array.isArray(body.rows)) return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
+  const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
+  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_records (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, class_id TEXT, type TEXT, title TEXT, body TEXT, subject TEXT, unit TEXT, day_key TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  const allowTypes = new Set(['report', 'reflect', 'other'])
+  let rtype = String(body.type || 'report'); if (!allowTypes.has(rtype)) rtype = 'other'
+  const nowIso = new Date().toISOString()
+  let saved = 0
+  for (const it of body.rows) {
+    const uid = String((it && it.userId) || '')
+    if (!uid || !allowed.has(uid)) continue
+    const title = String((it && it.title) || '').slice(0, 200)
+    const bodyTxt = String((it && it.body) || '').slice(0, 8000)
+    if (!title && !bodyTxt) continue
+    const subj = String((it && it.subject) || '').slice(0, 40)
+    const unit = String((it && it.unit) || '').slice(0, 80)
+    const day = String((it && it.day) || '').slice(0, 40)
+    await c.env.DB.prepare('INSERT INTO student_records (user_id, class_id, type, title, body, subject, unit, day_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(uid, classId, rtype, title, bodyTxt, subj, unit, day, u.id, nowIso).run()
+    saved++
+  }
+  return c.json({ ok: true, saved })
 })
 // ===== 授業メモAPI（クラス全体メモ＋児童ごとメモ・教師は自分のクラスのみ） =====
 app.get('/api/teacher/class-notes', async (c) => {
