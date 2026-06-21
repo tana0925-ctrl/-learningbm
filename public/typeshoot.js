@@ -361,7 +361,7 @@
     }
   }
 
-  function startGame() {
+  function startGame() { try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}
     build();
     S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0; S.score = 0;
     el('tsOverlay').style.display = 'flex';
