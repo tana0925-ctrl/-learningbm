@@ -2087,6 +2087,70 @@ app.get('/api/student/weak-units', async (c) => {
   return c.json({ ok: true, grade, weak: items.slice(0, 8) })
 })
 
+app.get('/api/teacher/early-alerts', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.query('classId')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  let members: any = { results: [] }
+  try { members = await c.env.DB.prepare('SELECT u.id, u.name, u.login_id FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>() } catch {}
+  const nameMap: Record<string, any> = {}
+  for (const m of (members.results || [])) nameMap[String(m.id)] = { name: m.name, loginId: m.login_id }
+  let rows: any = { results: [] }
+  try { rows = await c.env.DB.prepare("SELECT lr.user_id as uid, lr.unit as unit, lr.is_correct as ic, lr.answered_at as at FROM learning_results lr JOIN class_members cm ON cm.user_id=lr.user_id WHERE cm.class_id=? AND lr.answered_at >= datetime('now','-180 days') ORDER BY lr.user_id, lr.unit, lr.answered_at").bind(classId).all<any>() } catch {}
+  const groups: Record<string, number[]> = {}
+  for (const r of (rows.results || [])) {
+    const k = String(r.uid) + '|' + String(r.unit)
+    if (!groups[k]) groups[k] = []
+    groups[k].push(r.ic ? 1 : 0)
+  }
+  const acc = (arr: number[]) => arr.length ? Math.round(arr.reduce((s, x) => s + x, 0) / arr.length * 100) : 0
+  const alerts: any[] = []
+  const unitAgg: Record<string, { t: number, c: number, good: number, mid: number, low: number }> = {}
+  for (const k of Object.keys(groups)) {
+    const arr = groups[k]
+    const total = arr.length
+    const sep = k.indexOf('|')
+    const uid = k.slice(0, sep); const unit = k.slice(sep + 1)
+    const a = acc(arr)
+    if (total >= 4) {
+      if (!unitAgg[unit]) unitAgg[unit] = { t: 0, c: 0, good: 0, mid: 0, low: 0 }
+      unitAgg[unit].t += total
+      unitAgg[unit].c += arr.reduce((s, x) => s + x, 0)
+      if (a >= 80) unitAgg[unit].good++; else if (a >= 60) unitAgg[unit].mid++; else unitAgg[unit].low++
+    }
+    const signals: string[] = []
+    if (total >= 4) {
+      const last3 = arr.slice(-3)
+      if (last3.length === 3 && last3[0] === 0 && last3[1] === 0 && last3[2] === 0) signals.push('consec')
+    }
+    if (total >= 8) {
+      const half = Math.floor(total / 2)
+      const ea = acc(arr.slice(0, half)); const ra = acc(arr.slice(half))
+      if (ea - ra >= 15) signals.push('drop')
+      if (ea >= 80 && ra < 70) signals.push('regress')
+    }
+    if (signals.length) {
+      const half = Math.floor(total / 2)
+      const ra = total >= 8 ? acc(arr.slice(half)) : null
+      const nm = nameMap[uid] || {}
+      alerts.push({ studentId: uid, name: nm.name || '', loginId: nm.loginId || '', unit, signals, acc: a, recentAcc: ra, total })
+    }
+  }
+  alerts.sort((x, y) => (y.signals.length - x.signals.length) || (x.acc - y.acc))
+  const mastery = Object.keys(unitAgg).map(unit => {
+    const g = unitAgg[unit]
+    const classAcc = g.t ? Math.round(g.c / g.t * 100) : 0
+    const tier = classAcc >= 80 ? 'good' : (classAcc >= 60 ? 'mid' : 'low')
+    return { unit, classAcc, tier, n: g.good + g.mid + g.low, counts: { good: g.good, mid: g.mid, low: g.low } }
+  }).filter(m => m.n >= 1).sort((a, b) => a.classAcc - b.classAcc).slice(0, 14)
+  return c.json({ ok: true, alerts: alerts.slice(0, 40), mastery })
+})
+
 // ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
 app.get('/api/teacher/learning-analytics', async (c) => {
   const u = c.get('user')
@@ -6449,6 +6513,7 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ①: クラス全体（ラーニングアナリティクス） -->
         <div id="anPane_overview" class="space-y-3">
+          <div class="bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-200 rounded-xl p-4 space-y-3" id="earlyAlertCard"><div class="flex items-center justify-between flex-wrap gap-2"><div class="font-bold text-sm text-rose-800">⚠️ 早期対応リスト ＋ 習熟ライン</div><button onclick="loadEarlyAlerts()" id="btnEarlyAlerts" class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-rose-700">🔍 つまずきをチェック</button></div><p class="text-xs text-rose-600">「3回連続まちがい」「正答率の急落」「できていた単元の低下」を検出。単元の定着ライン（定着／あと一歩／要サポート）も色分け表示します。タップでその子の分析へ。</p><div id="earlyAlertContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「つまずきをチェック」を押してください</p></div></div>
           <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center gap-2 flex-wrap mb-3">
               <h3 class="font-bold text-slate-700">📈 ラーニングアナリティクス</h3>
@@ -9252,6 +9317,56 @@ wrap.innerHTML = '';
       }
 
 
+      function _eaEsc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+      function _eaUnitName(u){ try{ return (typeof _unitJa==='function')?_unitJa(u):u; }catch(e){ return u; } }
+      async function loadEarlyAlerts(){
+        var sel=document.getElementById('laClassSelect')||document.getElementById('analyticsClassFilter');
+        var classId=sel?sel.value:'';
+        var box=document.getElementById('earlyAlertContent');
+        if(!classId){ if(box) box.innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; }
+        var btn=document.getElementById('btnEarlyAlerts'); if(btn){ btn.disabled=true; btn.textContent='チェック中...'; }
+        if(box) box.innerHTML='<p class="text-xs text-rose-500 animate-pulse">🔍 つまずきの兆候をさがしています...</p>';
+        try{
+          var res=await fetch('/api/teacher/early-alerts?classId='+encodeURIComponent(classId));
+          var d=await res.json();
+          if(!d||!d.ok){ if(box) box.innerHTML='<p class="text-xs text-red-500">取得に失敗しました'+(d&&d.error?'：'+_eaEsc(d.error):'')+'</p>'; return; }
+          var html='';
+          var mastery=d.mastery||[];
+          html+='<div class="mb-3"><div class="font-bold text-xs text-slate-700 mb-1">📶 習熟ライン（単元ごと・クラス平均）</div>';
+          if(mastery.length){ html+='<div class="space-y-1">';
+            for(var i=0;i<mastery.length;i++){ var mu=mastery[i];
+              var tcol=mu.tier==='good'?'#16a34a':(mu.tier==='mid'?'#f59e0b':'#dc2626');
+              var tlab=mu.tier==='good'?'定着':(mu.tier==='mid'?'あと一歩':'要サポート');
+              var w=Math.max(mu.classAcc,4);
+              html+='<div class="flex items-center gap-2"><span class="text-xs font-bold text-slate-600" style="width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_eaEsc(_eaUnitName(mu.unit))+'</span>';
+              html+='<div class="flex-1 bg-slate-100 rounded-full h-4"><div style="width:'+w+'%;background:'+tcol+'" class="rounded-full h-4 text-white flex items-center justify-center font-bold"><span style="font-size:10px">'+mu.classAcc+'%</span></div></div>';
+              html+='<span class="font-bold" style="font-size:10px;color:'+tcol+'">'+tlab+'</span>';
+              html+='<span class="text-slate-400 whitespace-nowrap" style="font-size:10px">🟢'+(mu.counts?mu.counts.good:0)+' 🟡'+(mu.counts?mu.counts.mid:0)+' 🔴'+(mu.counts?mu.counts.low:0)+'</span></div>';
+            } html+='</div>';
+          } else { html+='<p class="text-xs text-slate-400">まだ十分なデータがありません。</p>'; }
+          html+='</div>';
+          var alerts=d.alerts||[];
+          html+='<div><div class="font-bold text-xs text-rose-700 mb-1">⚠️ 早期対応リスト（'+alerts.length+'件）</div>';
+          if(alerts.length){ html+='<div class="space-y-2">';
+            for(var a=0;a<alerts.length;a++){ var al=alerts[a];
+              var nm=(typeof resolveStudentName==='function')?resolveStudentName(al.loginId,al.name):(al.name||'');
+              var badges='';
+              for(var b=0;b<(al.signals||[]).length;b++){ var sg=al.signals[b];
+                var bc=sg==='consec'?'background:#fee2e2;color:#b91c1c':(sg==='drop'?'background:#ffedd5;color:#c2410c':'background:#fef9c3;color:#a16207');
+                var bl=sg==='consec'?'3回連続まちがい':(sg==='drop'?'急落':'できていたのに低下');
+                badges+='<span style="font-size:10px;padding:1px 7px;border-radius:8px;margin-right:4px;'+bc+'">'+bl+'</span>';
+              }
+              html+='<div onclick="openStudentFullAnalysis(&#39;'+al.studentId+'&#39;,&#39;'+_eaEsc(nm)+'&#39;)" class="bg-white rounded-lg border border-rose-200 p-2 cursor-pointer hover:bg-rose-50">';
+              html+='<div class="flex items-center justify-between gap-2"><div class="font-bold text-sm text-slate-800">'+_eaEsc(nm)+'</div><div class="text-slate-400" style="font-size:10px">タップで分析 ▶</div></div>';
+              html+='<div class="text-xs text-slate-600" style="margin-top:2px">'+_eaEsc(_eaUnitName(al.unit))+'（正答率 '+al.acc+'%'+(al.recentAcc!=null?' ／ 直近 '+al.recentAcc+'%':'')+'）</div>';
+              html+='<div style="margin-top:4px">'+badges+'</div></div>';
+            } html+='</div>';
+          } else { html+='<p class="text-xs text-emerald-600">いまは大きなつまずきの兆候はありません 🎉</p>'; }
+          html+='</div>';
+          if(box) box.innerHTML=html;
+        } catch(e){ if(box) box.innerHTML='<p class="text-xs text-red-500">エラー：'+_eaEsc(e.message)+'</p>'; }
+        finally{ if(btn){ btn.disabled=false; btn.textContent='🔍 つまずきをチェック'; } }
+      }
       // AIクラス分析（Gemini対応＋児童リスト・ヒートマップ連動）
       async function loadAIAnalysis(){
         const classId = document.getElementById('analyticsClassFilter').value;
