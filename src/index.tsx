@@ -2305,6 +2305,94 @@ app.get('/api/teacher/early-alerts', async (c) => {
   return c.json({ ok: true, alerts: alerts.slice(0, 40), mastery })
 })
 
+app.get('/api/teacher/factor-analysis', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const now = new Date(); const y = now.getUTCFullYear(); const mo = now.getUTCMonth() + 1
+  const fyStart = ((mo >= 4) ? y : y - 1) + '-04-01'
+  const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
+  const perLR: Record<string, any> = {}
+  try {
+    const q = "WITH r AS (SELECT user_id, is_correct, answered_at, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY answered_at ASC) rn, COUNT(*) OVER (PARTITION BY user_id) cnt FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ?) SELECT user_id, COUNT(*) total, CAST(ROUND(AVG(is_correct*100.0)) AS INT) acc, CAST(ROUND(AVG(CASE WHEN rn<=cnt*0.3 THEN is_correct*100.0 END)) AS INT) early, CAST(ROUND(AVG(CASE WHEN rn>cnt*0.7 THEN is_correct*100.0 END)) AS INT) late, SUM(CASE WHEN CAST(strftime('%H', datetime(answered_at,'+9 hours')) AS INT) < 12 THEN 1 ELSE 0 END) morning FROM r GROUP BY user_id"
+    const rows = (((await c.env.DB.prepare(q).bind(classId, fyStart).all<any>()).results) || [])
+    for (const r of rows) perLR[r.user_id] = r
+  } catch {}
+  const subsByStu: Record<string, any[]> = {}
+  try {
+    const rows = (((await c.env.DB.prepare("SELECT user_id, day_key, minutes, end_weather, weather_reason, next_improve FROM homework_submissions WHERE user_id IN " + memQ + " AND day_key >= ?").bind(classId, fyStart).all<any>()).results) || [])
+    for (const r of rows) (subsByStu[r.user_id] = subsByStu[r.user_id] || []).push(r)
+  } catch {}
+  const DAY = 86400000
+  const dms = (d: string) => new Date(d + 'T00:00:00Z').getTime()
+  const nowMs = Date.now()
+  const isWd = (ms: number) => { const w = new Date(ms).getUTCDay(); return w >= 1 && w <= 5 }
+  const wdCount = (a: number, b: number) => { if (b < a) return 0; let n = 0; for (let t = a; t <= b; t += DAY) { if (isWd(t)) n++ } return n }
+  const memberIds = (((await c.env.DB.prepare('SELECT user_id FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || []).map((r: any) => r.user_id)
+  const students: any[] = []
+  for (const uid of memberIds) {
+    const lr = perLR[uid]; const subs = subsByStu[uid] || []
+    const days = (Array.from(new Set(subs.map((s: any) => s.day_key).filter(Boolean))) as string[]).sort()
+    const f: any = {}
+    if (days.length) {
+      const firstMs = dms(days[0]); const exp = wdCount(firstMs, nowMs)
+      f.subRate = exp > 0 ? Math.min(100, Math.round(days.length / exp * 100)) : null
+      let maxStreak = 0, run = 0, prev = ''
+      for (const dk of days) { if (prev && Math.round((dms(dk) - dms(prev)) / DAY) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
+      f.streak = maxStreak
+      const totMin = subs.reduce((a: number, s: any) => a + Number(s.minutes || 0), 0)
+      f.totMin = totMin; f.avgMin = subs.length ? Math.round(totMin / subs.length) : null
+      let sun = 0, wt = 0; for (const s of subs) { if (s.end_weather) { wt++; if (s.end_weather === 'sun') sun++ } }
+      f.sunRate = wt ? Math.round(sun / wt * 100) : null
+      let chars = 0, cn = 0; for (const s of subs) { chars += (String(s.weather_reason || '').length + String(s.next_improve || '').length); cn++ }
+      f.reflectChars = cn ? Math.round(chars / cn) : null
+    }
+    let accuracy: number | null = null, growth: number | null = null
+    if (lr && lr.total >= 20) {
+      f.problems = lr.total
+      f.morningRate = lr.total ? Math.round((lr.morning || 0) / lr.total * 100) : null
+      accuracy = lr.acc
+      growth = (lr.early != null && lr.late != null) ? (lr.late - lr.early) : null
+    }
+    students.push({ uid, f, accuracy, growth })
+  }
+  const factorDefs = [
+    { key: 'subRate', label: '提出率' }, { key: 'avgMin', label: '1回の学習時間' }, { key: 'totMin', label: '学習時間の合計' },
+    { key: 'streak', label: '連続提出日数' }, { key: 'morningRate', label: '午前中に学習する割合' }, { key: 'reflectChars', label: '振り返りの記入量' },
+    { key: 'problems', label: '取り組んだ問題数' }, { key: 'sunRate', label: '学習の満足度（☀の割合）' },
+  ]
+  const outcomeDefs = [{ key: 'accuracy', label: '正答率' }, { key: 'growth', label: '4月からの伸び' }]
+  const pearson = (xs: number[], ys: number[]) => { const n = xs.length; if (n < 3) return null; const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy } if (sxx <= 0 || syy <= 0) return null; return sxy / Math.sqrt(sxx * syy) }
+  const MINN = 6
+  const corrs: any[] = []
+  for (const fd of factorDefs) for (const od of outcomeDefs) {
+    const xs: number[] = [], ys: number[] = []
+    for (const s of students) { const fv = s.f[fd.key]; const ov = (s as any)[od.key]; if (fv != null && ov != null && isFinite(fv) && isFinite(ov)) { xs.push(fv); ys.push(ov) } }
+    if (xs.length >= MINN) { const r = pearson(xs, ys); if (r != null) corrs.push({ factorKey: fd.key, factorLabel: fd.label, outcomeKey: od.key, outcomeLabel: od.label, r: Math.round(r * 100) / 100, n: xs.length }) }
+  }
+  corrs.sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+  const validN = students.filter((s: any) => s.accuracy != null).length
+  const enough = validN >= MINN
+  const sugMap: Record<string, string> = {
+    subRate: '毎日の提出習慣づくり（朝の声かけ・提出チェック・カレンダーに○）', avgMin: '1回の学習で集中して取り組む時間を少しのばす（タイマー活用）',
+    totMin: 'トータルの学習量を確保する声かけ', streak: '連続記録を見える化して「続ける」を応援する', morningRate: '朝の短時間学習をすすめる',
+    reflectChars: '振り返りガイドで「できた・むずかしい・次どうする」を書く習慣を', problems: '演習量を増やす導線（ミニ復習・おすすめ単元）', sunRate: '小さな成功体験を増やして前向きさを高める',
+  }
+  const strengthWord = (ar: number) => ar >= 0.5 ? '強い' : ar >= 0.3 ? 'はっきりした' : ar >= 0.15 ? 'ゆるやかな' : 'ごく弱い'
+  const insights: string[] = []; const suggestions: string[] = []
+  if (enough) {
+    for (const c2 of corrs.slice(0, 3)) { const ar = Math.abs(c2.r); if (ar < 0.15) continue; const dir = c2.r >= 0 ? '高い' : '低い'; insights.push('このクラスは「' + c2.factorLabel + 'が高い子ほど' + c2.outcomeLabel + 'も' + dir + '」傾向（相関 ' + (c2.r >= 0 ? '+' : '') + c2.r + '・' + strengthWord(ar) + '関係）。') }
+    const top = corrs.filter((c2: any) => c2.r >= 0.15).slice(0, 2)
+    for (const t of top) { if (sugMap[t.factorKey] && suggestions.indexOf(sugMap[t.factorKey]) < 0) suggestions.push(sugMap[t.factorKey]) }
+    if (!suggestions.length && corrs.length && sugMap[corrs[0].factorKey]) suggestions.push(sugMap[corrs[0].factorKey])
+  }
+  const note = '※相関は「関係の強さ」であり、因果（それをやれば必ず上がる）ではありません。クラスの人数や記録が少ないと、数字は参考程度です。'
+  return c.json({ ok: true, classId, n: validN, enough, correlations: corrs.slice(0, 8), insights, suggestions, note })
+})
+
 // ===== ラーニングアナリティクスAPI（クラス学習履歴の本格分析・集計値は再利用可能） =====
 app.get('/api/teacher/learning-analytics', async (c) => {
   const u = c.get('user')
@@ -6770,6 +6858,14 @@ app.get('/teacher', (c) => {
             </div>
             <div id="laContent"><p class="text-xs text-slate-400">クラスを選んで「分析する」を押してください</p></div>
           </div>
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="flex items-center gap-2 flex-wrap mb-3">
+              <h3 class="font-bold text-slate-700">🔍 要因分析（何をすると伸びる？）</h3>
+              <button onclick="loadFactorAnalysis()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 要因をチェック</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-2">「提出率・学習時間・連続提出・振り返り量・満足度…」などの要因が、正答率や4月からの伸びと、どれくらい関係しているかを調べます（上の「ラーニングアナリティクス」と同じクラス選択を使います）。</p>
+            <div id="factorContent"><p class="text-xs text-slate-400">クラスを選んで「要因をチェック」を押してください</p></div>
+          </div>
         </div>
 
         <!-- サブタブ②: 教科の定着 -->
@@ -9489,6 +9585,8 @@ wrap.innerHTML = '';
       async function saveAllAiComments(){ var ta=document.getElementById('allAiPaste'); var raw=ta?ta.value:''; var status=document.getElementById('allAiStatus'); if(!raw||!raw.trim()){ if(status) status.textContent='AIの結果を貼り付けてください'; return; } var students=window._lastStudentSummaries||[]; var map={}; for(var i=0;i<students.length;i++){ var s=students[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; } var blocks=_parseAiBlocks(raw); var comments=[]; var unmatched=[]; for(var b=0;b<blocks.length;b++){ var uid=map[_normId(blocks[b].id)]; if(uid&&blocks[b].body){ comments.push({studentId:uid,comment:blocks[b].body}); } else { unmatched.push(blocks[b].id); } } if(!comments.length){ if(status) status.textContent='目印 === [児童ID] === が見つかりませんでした（'+blocks.length+'ブロック検出）'; return; } if(status) status.textContent='保存中...'; try{ var res=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:comments})}); var d=await res.json(); if(d&&d.ok){ if(status) status.textContent='✓ '+d.saved+'人分を保存しました'+(unmatched.length?'（未一致: '+unmatched.join(', ')+'）':''); } else { if(status) status.textContent='保存に失敗しました'; } }catch(e){ if(status) status.textContent='エラー: '+e.message; } }
       async function downloadAllKartes(){ var students=window._lastStudentSummaries||[]; var status=document.getElementById('allAiStatus'); if(!students.length){ if(status) status.textContent='先に児童一覧を表示してください'; return; } if(status) status.textContent='カルテを作成中...(0/'+students.length+')'; var savedD=window._faData, savedN=window._faName; var docs=[]; for(var i=0;i<students.length;i++){ var s=students[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId||s.name)); var data=await res.json(); if(data&&data.ok){ window._faData=data; window._faName=nm; docs.push(_buildKarteHtml()); } }catch(e){} if(status) status.textContent='カルテを作成中...('+(i+1)+'/'+students.length+')'; } window._faData=savedD; window._faName=savedN; if(!docs.length){ if(status) status.textContent='データがありませんでした'; return; } var style=''; var sm=docs[0].match(/<style>[\\s\\S]*?<\\/style>/); if(sm) style=sm[0]; var bodies=docs.map(function(doc){ var m=doc.match(/<body>([\\s\\S]*?)<\\/body>/); return '<div style="page-break-after:always">'+(m?m[1]:'')+'</div>'; }); var html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ（全員分）</title>'+style+'</head><body>'+bodies.join('')+'</body></html>'; var w=window.open('','_blank'); if(!w){ if(status) status.textContent='ポップアップを許可してください'; return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 800); if(status) status.textContent='✓ '+docs.length+'人分のカルテを開きました'; }
       function initLearnAnalytics(){ var sel=document.getElementById('laClassSelect'); if(!sel || sel.getAttribute('data-init')) return; fetch('/api/teacher/classes').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok&&d.classes&&d.classes.length){ sel.innerHTML=''; for(var i=0;i<d.classes.length;i++){ var o=document.createElement('option'); o.value=d.classes[i].id; o.textContent=d.classes[i].name; sel.appendChild(o); } sel.setAttribute('data-init','1'); } }).catch(function(e){}); }
+      function loadFactorAnalysis(){ var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:''; var el=document.getElementById('factorContent'); if(!el) return; if(!cid){ el.innerHTML='<p class="text-xs text-slate-400">クラスを選んでください</p>'; return; } el.innerHTML='<p class="text-xs text-teal-500 animate-pulse">🔍 要因と成果の関係を計算しています...</p>'; fetch('/api/teacher/factor-analysis?classId='+encodeURIComponent(cid)).then(function(r){return r.json();}).then(function(d){ if(!d||!d.ok){ el.innerHTML='<p class="text-xs text-red-500">取得エラー</p>'; return; } el.innerHTML=_factorRender(d); }).catch(function(e){ el.innerHTML='<p class="text-xs text-red-500">エラー: '+e.message+'</p>'; }); }
+      function _factorRender(d){ var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}; var h=''; if(!d.enough){ h+='<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-2">📉 データが少なく（有効データ '+(d.n||0)+'人）、傾向は参考程度です。記録がたまるほど精度が上がります。</div>'; } var cs=d.correlations||[]; if(!cs.length){ h+='<p class="text-xs text-slate-400 mt-2">相関を出せるデータがまだありません（最低6人ぶんの記録が必要です）。</p>'; return h; } h+='<div class="text-xs text-slate-500 mb-2">クラスの児童をデータ点として、各「要因」と「成果」の関係（相関）を強い順に表示します（有効 '+(d.n||0)+'人）。</div>'; for(var i=0;i<cs.length;i++){ var c=cs[i]; var ar=Math.abs(c.r); var w=Math.round(ar*100); var pos=c.r>=0; var col=pos?'#10b981':'#ef4444'; var sign=pos?'+':''; h+='<div class="mb-2">'; h+='<div class="flex items-center justify-between text-xs"><span class="font-bold text-slate-700">'+esc(c.factorLabel)+' <span class="text-slate-400">×</span> '+esc(c.outcomeLabel)+'</span><span class="font-black" style="color:'+col+'">'+sign+c.r+'</span></div>'; h+='<div class="mt-1 h-2.5 rounded-full bg-slate-100 overflow-hidden"><div style="width:'+w+'%;height:100%;background:'+col+'"></div></div>'; h+='<div class="text-[10px] text-slate-400 mt-0.5">'+(pos?'正の関係（高いほど成果も高い）':'負の関係（高いほど成果は低い）')+'・対象 '+c.n+'人</div>'; h+='</div>'; } if(d.insights&&d.insights.length){ h+='<div class="mt-3 bg-indigo-50 border border-indigo-200 rounded-lg p-3"><div class="font-bold text-xs text-indigo-800 mb-1">📖 先生向けの読み解き</div>'; for(var j=0;j<d.insights.length;j++){ h+='<div class="text-xs text-slate-700 mb-1">'+esc(d.insights[j])+'</div>'; } h+='</div>'; } if(d.suggestions&&d.suggestions.length){ h+='<div class="mt-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3"><div class="font-bold text-xs text-emerald-800 mb-1">🎯 次の打ち手（効きそうな順）</div><ul class="list-disc pl-4">'; for(var k=0;k<d.suggestions.length;k++){ h+='<li class="text-xs text-slate-700">'+esc(d.suggestions[k])+'</li>'; } h+='</ul></div>'; } if(d.note){ h+='<div class="mt-2 text-[10px] text-slate-400">'+esc(d.note)+'</div>'; } return h; }
       function loadLearnAnalytics(){ var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:''; var el=document.getElementById('laContent'); if(!cid){ el.innerHTML='<p class="text-xs text-slate-400">クラスを選んでください</p>'; return; } el.innerHTML='<p class="text-xs text-indigo-500 animate-pulse">📈 学習データを集計しています...</p>'; fetch('/api/teacher/learning-analytics?classId='+encodeURIComponent(cid)).then(function(r){return r.json();}).then(function(d){ if(!d.ok){ el.innerHTML='<p class="text-xs text-red-500">取得エラー</p>'; return; } window._laData=d; el.innerHTML=_laRender(d); }).catch(function(e){ el.innerHTML='<p class="text-xs text-red-500">エラー: '+e.message+'</p>'; }); }
       function _laCard(title, inner){ return '<div class="bg-white rounded-xl border border-slate-200 p-4 mb-3"><div class="font-bold text-sm text-slate-700 mb-2">'+title+'</div>'+inner+'</div>'; }
       function _laVBars(items, getV, getLabel, color){ var max=1,i; for(i=0;i<items.length;i++){ var v=getV(items[i]); if(v>max)max=v; } var h='<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height:130px">'; for(i=0;i<items.length;i++){ var v=getV(items[i]); var pct=Math.max(Math.round(v/max*100),2); h+='<div class="flex flex-col items-center justify-end min-w-[26px]" style="height:100%"><div class="text-[8px] text-slate-500 mb-0.5">'+v+'</div><div class="w-5 rounded-t" style="height:'+pct+'%;background:'+color+'"></div><div class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">'+escH(String(getLabel(items[i])))+'</div></div>'; } h+='</div>'; return h; }
