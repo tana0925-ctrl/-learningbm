@@ -3658,7 +3658,10 @@ app.get('/api/student/weekly-plan-status', async (c) => {
            reflection_reward_coins as reflectionRewardCoins
     FROM student_weekly_plans WHERE user_id=? AND week_key=?
   `).bind(u.id, weekKey).first<any>()
-  return c.json({ ok: true, status: row || null })
+  let planAiComment: any = null
+  try { const _pc = await c.env.DB.prepare('SELECT plan_ai_comment as planAiComment FROM student_weekly_plans WHERE user_id=? AND week_key=?').bind(u.id, weekKey).first<any>(); if (_pc) planAiComment = _pc.planAiComment || null } catch {}
+  const status2 = row ? { ...row, planAiComment } : (planAiComment ? { planAiComment } : null)
+  return c.json({ ok: true, status: status2 })
 })
 
 // 生徒：週間計画を提出（修正履歴付き・自己調整記録）
@@ -4381,6 +4384,33 @@ app.get('/api/teacher/weekly-plan/:id/revisions', async (c) => {
 })
 
 // 先生：クラスの生徒の週間計画を取得
+app.post('/api/teacher/plan-ai-comments', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  try { await c.env.DB.prepare('ALTER TABLE student_weekly_plans ADD COLUMN plan_ai_comment TEXT').run() } catch {}
+  try { await c.env.DB.prepare('ALTER TABLE student_weekly_plans ADD COLUMN plan_ai_comment_at TEXT').run() } catch {}
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !Array.isArray(body.comments)) return jsonError(c, 400, 'invalid')
+  const weekKey = String(body.weekKey || getWeekKey()).slice(0, 10)
+  let saved = 0
+  for (const it of body.comments) {
+    const sid = String(it.studentId || '')
+    const comment = String(it.comment || '').slice(0, 4000)
+    if (!sid || !comment) continue
+    const own = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? LIMIT 1').bind(sid).first<any>()
+      : await c.env.DB.prepare('SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, sid).first<any>()
+    if (!own) continue
+    const ex = await c.env.DB.prepare('SELECT id FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, weekKey).first<any>()
+    if (ex) {
+      await c.env.DB.prepare("UPDATE student_weekly_plans SET plan_ai_comment=?, plan_ai_comment_at=datetime('now') WHERE user_id=? AND week_key=?").bind(comment, sid, weekKey).run()
+    } else {
+      await c.env.DB.prepare("INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at, plan_ai_comment, plan_ai_comment_at) VALUES (?,?,?,?,?,datetime('now'))").bind(sid, weekKey, '{}', Date.now(), comment).run()
+    }
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
+
 app.get('/api/teacher/weekly-plans', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -7299,7 +7329,7 @@ app.get('/teacher', (c) => {
             <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
             <button onclick="aiPlanCheck()" class="bg-red-500 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90" id="aiPlanCheckBtn">🤖 AI計画チェック</button>
           </div>
-          <div id="aiPlanCheckResult" class="hidden bg-white border border-red-200 rounded-lg p-2 space-y-1"></div>
+          <div id="aiPlanCheckResult" class="hidden bg-white border border-red-200 rounded-lg p-2 space-y-1"></div><div class="bg-white border border-violet-200 rounded-lg p-2 space-y-2 mt-2"><div class="font-bold text-xs text-violet-800">📋 外部AIで計画チェック（全員分まとめて）</div><p class="text-[11px] text-violet-600">①「AI用にコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて返却」。各児童の計画に先生（AI）アドバイスが保存され、子ども側に表示されます。</p><div class="flex flex-wrap gap-2 items-center"><button onclick="copyPlansForAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 全員分の今週の計画をAI用にコピー</button><span id="planAiStatus" class="text-xs text-violet-700 font-bold"></span></div><textarea id="planAiPaste" rows="4" placeholder="ここにAIの出力を全部貼り付け（=== [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea><div><button onclick="savePlanAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-violet-700">💬 まとめて返却（計画コメント保存）</button></div></div>
           <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
@@ -8322,6 +8352,8 @@ app.get('/teacher', (c) => {
         }
       }
 
+      async function copyPlansForAi(){ var cf=document.getElementById('hwClassFilter'); var cid=cf?cf.value:''; var st=document.getElementById('planAiStatus'); var wk=getWeekKeyLocal(); if(st) st.textContent='計画を集めています...'; var plans=[]; try{ var qs='?weekKey='+encodeURIComponent(wk)+(cid?('&classId='+encodeURIComponent(cid)):''); var data=await api('/api/teacher/weekly-plans'+qs); plans=(data&&data.plans)||[]; }catch(e){ if(st) st.textContent='取得に失敗しました'; return; } if(!plans.length){ if(st) st.textContent='今週の計画がまだありません'; return; } var NL=String.fromCharCode(10); var L=[]; var roster=[]; L.push('あなたは小学校の先生のサポート役です。各児童の\u201C今週の計画\u201Dについて、\u2460よい点 \u2461もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか）\u2462子どもへのひとことアドバイス、を、子どもにそのまま返せるやさしい日本語で。各児童の === [児童ID] 名前 === の目印は変えずに残してください。'); L.push(''); var dayLabels=['月','火','水','木','金']; for(var i=0;i<plans.length;i++){ var p=plans[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(p.loginId,p.studentName):(p.studentName||''); var id=p.loginId||p.userId; roster.push({userId:p.userId, loginId:p.loginId, name:nm}); L.push('=== ['+id+'] '+nm+' ==='); var parsed={}; try{ parsed=JSON.parse(p.plansJson||'{}'); }catch(_e){} var keys=[]; for(var k in parsed){ if(k!=='_modified') keys.push(k); } var anyTxt=false; for(var dI=0; dI<5; dI++){ var kk=keys[dI]||''; var val=kk?parsed[kk]:''; var txt=(typeof val==='object'&&val)?(val.free||''):(val||''); if(txt&&String(txt).trim()){ L.push(dayLabels[dI]+'：'+txt); anyTxt=true; } } if(!anyTxt){ L.push('（計画の記入がありません）'); } L.push(''); } window._planAiRoster=roster; var out=L.join(NL); var done=function(){ if(st) st.textContent='\u2713 '+plans.length+'人分をコピーしました。AIに貼り付けてください'; }; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(out).then(done,function(){ if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }); } else { if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); } }
+      async function savePlanAiComments(){ var st=document.getElementById('planAiStatus'); var ta=document.getElementById('planAiPaste'); var raw=ta?ta.value:''; if(!raw||!raw.trim()){ if(st) st.textContent='AIの結果を貼り付けてください'; return; } var roster=window._planAiRoster||[]; if(!roster.length){ if(st) st.textContent='先に「AI用にコピー」を押してください'; return; } var map={}; for(var i=0;i<roster.length;i++){ var s=roster[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; } var blocks=_parseAiBlocks(raw); var comments=[]; var unmatched=[]; for(var b=0;b<blocks.length;b++){ var uid=map[_normId(blocks[b].id)]; if(uid&&blocks[b].body){ comments.push({studentId:uid, comment:blocks[b].body}); } else { unmatched.push(blocks[b].id); } } if(!comments.length){ if(st) st.textContent='目印 === [児童ID] === が見つかりませんでした（'+blocks.length+'ブロック検出）'; return; } if(st) st.textContent='保存中...'; try{ var wk=getWeekKeyLocal(); var res=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk, comments:comments})}); var d=await res.json(); if(d&&d.ok){ if(st) st.textContent='\u2713 '+d.saved+'人分の計画コメントを保存しました'+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':''); } else { if(st) st.textContent='保存に失敗しました'; } }catch(e){ if(st) st.textContent='エラー: '+(e&&e.message?e.message:e); } }
       async function loadStudentPlans(){
         const wrap = document.getElementById('studentPlansList');
         if(!wrap) return;

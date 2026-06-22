@@ -41030,6 +41030,7 @@ async function hwRenderWeekView(){
       const notice = document.getElementById('hwRewardNotice');
       if(notice && st){
         let html = '';
+        if(st.planAiComment){ html += '<div class="bg-violet-50 border-2 border-violet-300 rounded-xl p-3 space-y-1"><div class="font-bold text-violet-700 text-sm">\uD83D\uDCCB 先生（AI）からの計画アドバイス</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planAiComment)+'</div></div>'; }
         // 計画承認報酬
         if(st.planApproved && !localStorage.getItem('hwPlanReward_'+weekKey)){
           html += '<div class="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 space-y-1">'
