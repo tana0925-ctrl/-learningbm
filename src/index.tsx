@@ -9391,6 +9391,7 @@ wrap.innerHTML = '';
         fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
           window._recParsed=d;
+          try{ _matchRosterRows(d, cid); }catch(_e){}
           if(st) st.textContent='✓ '+d.rows.length+'件を読み取りました。内容を確認して保存してください';
           _recRenderPreview(d);
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
@@ -9403,10 +9404,11 @@ wrap.innerHTML = '';
         var unmatched=0; var h='';
         h+='<div class="space-y-2 max-h-96 overflow-y-auto">';
         for(var i=0;i<d.rows.length;i++){
-          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;
-          h+='<div class="border rounded-lg p-2 '+(warn?'bg-amber-50':'bg-slate-50')+'">';
+          var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
+          var _bg=(ms==='auto')?'bg-slate-50':(ms==='cand')?'bg-amber-50':'bg-red-50'; var _bd=(ms==='auto')?'<span class="text-green-600">✓自動</span>':(ms==='cand')?'<span class="text-amber-600">≈候補(要確認)</span>':'<span class="text-red-600">⚠未マッチ</span>';
+          h+='<div class="border rounded-lg p-2 '+_bg+'">';
           h+='<div class="flex items-center gap-1 flex-wrap mb-1">';
-          h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+(warn?' <span class="text-amber-600">⚠未マッチ</span>':'')+'</span>';
+          h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+' '+_bd+'</span>';
           h+='<select id="recRow_'+i+'_user" class="border rounded p-1 text-xs">'+opts(r.matchedUserId)+'</select>';
           h+='</div>';
           h+='<div class="grid grid-cols-3 gap-1 mb-1">';
@@ -9496,9 +9498,10 @@ wrap.innerHTML = '';
         var unmatched=0;
         h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th></tr></thead><tbody>';
         for(var i=0;i<d.rows.length;i++){
-          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;
-          h+='<tr class="'+(warn?'bg-amber-50':'')+'">';
-          h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+(warn?' <span class="text-[9px] text-amber-600">⚠未マッチ</span>':'')+'</td>';
+          var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
+          var _bd=(ms==='auto')?' <span class="text-[9px] text-green-600">✓自動</span>':(ms==='cand')?' <span class="text-[9px] text-amber-600">≈候補(要確認)</span>':' <span class="text-[9px] text-red-600">⚠未マッチ</span>';
+          h+='<tr class="'+((ms==='auto')?'':(ms==='cand')?'bg-amber-50':'bg-red-50')+'">';
+          h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+'</td>';
           h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select></td>';
           h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
           h+='</tr>';
