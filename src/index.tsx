@@ -2241,6 +2241,82 @@ app.get('/api/student/weak-units', async (c) => {
   return c.json({ ok: true, grade, weak: items.slice(0, 8) })
 })
 
+app.get('/api/teacher/risk-scores', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const now = new Date(); const y = now.getUTCFullYear(); const mo = now.getUTCMonth() + 1
+  const fyStart = ((mo >= 4) ? y : y - 1) + '-04-01'
+  const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
+  const members = (((await c.env.DB.prepare('SELECT u.id, u.name, u.login_id as loginId FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const perLR: Record<string, any> = {}
+  try {
+    const q = "WITH r AS (SELECT user_id, is_correct, answered_at, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY answered_at ASC) rn, COUNT(*) OVER (PARTITION BY user_id) cnt FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ?) SELECT user_id, COUNT(*) total, CAST(ROUND(AVG(is_correct*100.0)) AS INT) acc, CAST(ROUND(AVG(CASE WHEN rn<=cnt*0.3 THEN is_correct*100.0 END)) AS INT) early, CAST(ROUND(AVG(CASE WHEN rn>cnt*0.7 THEN is_correct*100.0 END)) AS INT) late FROM r GROUP BY user_id"
+    const rows = (((await c.env.DB.prepare(q).bind(classId, fyStart).all<any>()).results) || [])
+    for (const r of rows) perLR[r.user_id] = r
+  } catch {}
+  const subsByStu: Record<string, any[]> = {}
+  try {
+    const rows = (((await c.env.DB.prepare("SELECT user_id, day_key, end_weather FROM homework_submissions WHERE user_id IN " + memQ + " AND day_key >= ?").bind(classId, fyStart).all<any>()).results) || [])
+    for (const r of rows) (subsByStu[r.user_id] = subsByStu[r.user_id] || []).push(r)
+  } catch {}
+  const DAY = 86400000
+  const dms = (d: string) => new Date(d + 'T00:00:00Z').getTime()
+  const nowMs = Date.now()
+  const isWd = (ms: number) => { const w = new Date(ms).getUTCDay(); return w >= 1 && w <= 5 }
+  const wdCount = (a: number, b: number) => { if (b < a) return 0; let n = 0; for (let t = a; t <= b; t += DAY) { if (isWd(t)) n++ } return n }
+  const rateBetween = (days: string[], a: number, b: number) => { const exp = wdCount(a, b); if (exp <= 0) return null; let sub = 0; for (const d of days) { const m = dms(d); if (m >= a && m <= b) sub++ } return Math.min(100, Math.round(sub / exp * 100)) }
+  const sugFor = (kind: string) => {
+    if (kind === 'gap') return 'まず一声かけて再スタート。今日1件だけ出すことから始めよう'
+    if (kind === 'rate') return '提出のハードルを下げる（量より継続）。週2〜3回からでOKと伝える'
+    if (kind === 'accdrop') return 'つまずいた単元のミニ復習・まちがい直しを一緒に。できる1問から'
+    if (kind === 'activity') return '最近の取り組みを認めつつ、短時間でも毎日の習慣に戻す声かけ'
+    if (kind === 'lowacc') return '土台の単元から、できる問題で自信を取り戻す'
+    if (kind === 'sun') return 'できたことを具体的にほめて、成功体験を増やす'
+    return 'いまの調子を認めつつ、引き続き見守りで'
+  }
+  const list: any[] = []
+  for (const m of members) {
+    const uid = m.id
+    const lr = perLR[uid]
+    const subs = subsByStu[uid] || []
+    const days = (Array.from(new Set(subs.map((s: any) => s.day_key).filter(Boolean))) as string[]).sort()
+    const total = (lr && lr.total) ? lr.total : 0
+    const dataLow = (total < 10 && days.length < 3)
+    let score = 0; const signals: string[] = []; let topKind = 'ok'; let topW = -1
+    const bump = (w: number, sig: string, kind: string) => { score += w; signals.push(sig); if (w > topW) { topW = w; topKind = kind } }
+    let recRate: number | null = null, prevRate: number | null = null, daysSince: number | null = null
+    if (!dataLow && days.length) {
+      daysSince = Math.round((nowMs - dms(days[days.length - 1])) / DAY)
+      recRate = rateBetween(days, nowMs - 27 * DAY, nowMs)
+      prevRate = rateBetween(days, nowMs - 55 * DAY, nowMs - 28 * DAY)
+      const recent7 = days.filter(d => (nowMs - dms(d)) <= 7 * DAY).length
+      const prev7 = days.filter(d => { const a = nowMs - dms(d); return a > 7 * DAY && a <= 14 * DAY }).length
+      let sunR = 0, wt = 0
+      for (const s of subs) { const m2 = dms(s.day_key); if (m2 >= nowMs - 27 * DAY && s.end_weather) { wt++; if (s.end_weather === 'sun') sunR++ } }
+      const sunRecent = wt >= 3 ? Math.round(sunR / wt * 100) : null
+      if (daysSince != null) { if (daysSince >= 10) bump(25, '提出が' + daysSince + '日とだえている', 'gap'); else if (daysSince >= 5) bump(12, '提出が' + daysSince + '日空いている', 'gap') }
+      if (recRate != null) { if (recRate < 40) bump(20, '最近の提出率が低い(' + recRate + '%)', 'rate'); else if (recRate < 60) bump(10, '最近の提出率がやや低い(' + recRate + '%)', 'rate') }
+      if (recRate != null && prevRate != null && recRate <= prevRate - 15) bump(15, '提出率が低下(' + prevRate + '%→' + recRate + '%)', 'rate')
+      if (total >= 20 && lr.early != null && lr.late != null && (lr.early - lr.late) >= 15) bump(20, '正答率が急落(' + lr.early + '%→' + lr.late + '%)', 'accdrop')
+      if (total >= 20 && lr.acc != null && lr.acc < 50) bump(10, '全体の正答率が低い(' + lr.acc + '%)', 'lowacc')
+      if (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) bump(15, '最近の活動が減っている', 'activity')
+      if (sunRecent != null && sunRecent < 30) bump(8, '最近の満足度が低い', 'sun')
+    }
+    score = Math.min(100, score)
+    const level = dataLow ? 'unknown' : (score >= 50 ? 'high' : score >= 25 ? 'mid' : 'low')
+    list.push({ userId: uid, loginId: m.loginId, name: m.name, riskScore: score, level, signals, suggestion: dataLow ? '' : sugFor(topKind), dataLow, problems: total, submissions: days.length })
+  }
+  const order = (s: any) => s.dataLow ? -1 : s.riskScore
+  list.sort((a, b) => order(b) - order(a))
+  const counts = { high: list.filter(s => s.level === 'high').length, mid: list.filter(s => s.level === 'mid').length, low: list.filter(s => s.level === 'low').length, unknown: list.filter(s => s.level === 'unknown').length }
+  const note = '※これは「兆候のスコア化」であり、確実な予測ではありません。記録が少ない子は判定できないため別表示にしています。気になる子はタップして個人カルテで確かめてください。'
+  return c.json({ ok: true, classId, counts, students: list, note })
+})
+
 app.get('/api/teacher/early-alerts', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -6849,7 +6925,7 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ①: クラス全体（ラーニングアナリティクス） -->
         <div id="anPane_overview" class="space-y-3">
-          <div class="bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-200 rounded-xl p-4 space-y-3" id="earlyAlertCard"><div class="flex items-center justify-between flex-wrap gap-2"><div class="font-bold text-sm text-rose-800">⚠️ 早期対応リスト ＋ 習熟ライン</div><button onclick="loadEarlyAlerts()" id="btnEarlyAlerts" class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-rose-700">🔍 つまずきをチェック</button></div><p class="text-xs text-rose-600">「3回連続まちがい」「正答率の急落」「できていた単元の低下」を検出。単元の定着ライン（定着／あと一歩／要サポート）も色分け表示します。タップでその子の分析へ。</p><div id="earlyAlertContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「つまずきをチェック」を押してください</p></div></div>
+          <div class="bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-200 rounded-xl p-4 space-y-3" id="earlyAlertCard"><div class="flex items-center justify-between flex-wrap gap-2"><div class="font-bold text-sm text-rose-800">⚠️ 早期対応リスト ＋ 習熟ライン</div><button onclick="loadEarlyAlerts()" id="btnEarlyAlerts" class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-rose-700">🔍 つまずきをチェック</button></div><p class="text-xs text-rose-600">「3回連続まちがい」「正答率の急落」「できていた単元の低下」を検出。単元の定着ライン（定着／あと一歩／要サポート）も色分け表示します。タップでその子の分析へ。</p><div id="earlyAlertContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「つまずきをチェック」を押してください</p></div></div><div class="bg-gradient-to-br from-fuchsia-50 to-violet-50 border border-violet-200 rounded-xl p-4 space-y-3" id="riskCard"><div class="flex items-center justify-between flex-wrap gap-2"><div class="font-bold text-sm text-violet-800">🔮 つまずき・離脱リスク予測</div><button onclick="loadRiskScores()" id="btnRiskScores" class="bg-violet-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-violet-700">🔮 リスクを予測</button></div><p class="text-xs text-violet-600">提出率の低下・正答率の急落・連続提出の途切れ・活動減・満足度低下などの危険サインを重みづけスコア化し、🔴高/🟡中/🟢低でならべます。タップでその子のカルテへ。記録が少ない子は判定しません。</p><div id="riskContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「リスクを予測」を押してください</p></div></div>
           <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center gap-2 flex-wrap mb-3">
               <h3 class="font-bold text-slate-700">📈 ラーニングアナリティクス</h3>
@@ -9975,6 +10051,8 @@ wrap.innerHTML = '';
 
       function _eaEsc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
       function _eaUnitName(u){ try{ return (typeof _unitJa==='function')?_unitJa(u):u; }catch(e){ return u; } }
+      async function loadRiskScores(){ var sel=document.getElementById('laClassSelect')||document.getElementById('analyticsClassFilter'); var classId=sel?sel.value:''; var box=document.getElementById('riskContent'); if(!box) return; if(!classId){ box.innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; } var btn=document.getElementById('btnRiskScores'); if(btn){ btn.disabled=true; btn.textContent='予測中...'; } box.innerHTML='<p class="text-xs text-violet-500 animate-pulse">🔮 危険サインを集計しています...</p>'; try{ var res=await fetch('/api/teacher/risk-scores?classId='+encodeURIComponent(classId)); var d=await res.json(); if(!d||!d.ok){ box.innerHTML='<p class="text-xs text-red-500">取得に失敗しました</p>'; return; } box.innerHTML=_riskRender(d); }catch(e){ box.innerHTML='<p class="text-xs text-red-500">エラー: '+(e&&e.message?e.message:e)+'</p>'; } finally { if(btn){ btn.disabled=false; btn.textContent='🔮 リスクを予測'; } } }
+      function _riskRender(d){ var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}; var rn=function(loginId,name){ return (typeof resolveStudentName==='function')?resolveStudentName(loginId,name):(name||loginId||''); }; var sts=d.students||[]; var cc=d.counts||{}; var h=''; h+='<div class="flex gap-2 flex-wrap text-xs mb-2"><span class="bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">🔴 高 '+(cc.high||0)+'</span><span class="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-bold">🟡 中 '+(cc.mid||0)+'</span><span class="bg-emerald-100 text-emerald-700 rounded-full px-2 py-0.5 font-bold">🟢 低 '+(cc.low||0)+'</span>'+((cc.unknown)?'<span class="bg-slate-100 text-slate-500 rounded-full px-2 py-0.5 font-bold">⚪ 判定不可 '+cc.unknown+'</span>':'')+'</div>'; var shown=0; for(var i=0;i<sts.length;i++){ var s=sts[i]; if(s.dataLow) continue; shown++; var lv=s.level; var bg=lv==='high'?'bg-red-50 border-red-200':lv==='mid'?'bg-amber-50 border-amber-200':'bg-emerald-50 border-emerald-200'; var dot=lv==='high'?'🔴':lv==='mid'?'🟡':'🟢'; var bar=lv==='high'?'#ef4444':lv==='mid'?'#f59e0b':'#10b981'; var nm=rn(s.loginId,s.name); h+='<div class="'+bg+' border rounded-lg p-2 mb-1.5 cursor-pointer" onclick="showStudentKarte(&#39;'+esc(s.userId)+'&#39;,&#39;'+esc(nm)+'&#39;)">'; h+='<div class="flex items-center justify-between gap-2"><span class="font-bold text-sm text-slate-700">'+dot+' '+esc(nm)+'</span><span class="text-xs font-black" style="color:'+bar+'">リスク '+s.riskScore+'</span></div>'; h+='<div class="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div style="width:'+s.riskScore+'%;height:100%;background:'+bar+'"></div></div>'; if(s.signals&&s.signals.length){ h+='<div class="mt-1 flex flex-wrap gap-1">'; for(var j=0;j<s.signals.length;j++){ h+='<span class="text-[10px] bg-white/70 border border-slate-200 rounded px-1.5 text-slate-600">'+esc(s.signals[j])+'</span>'; } h+='</div>'; } if(s.suggestion){ h+='<div class="mt-1 text-xs text-slate-700">💡 '+esc(s.suggestion)+'</div>'; } h+='</div>'; } if(!shown){ h+='<p class="text-xs text-slate-400">いまのところ目立ったリスクの子はいません（または記録が少なく判定できません）。</p>'; } var low=sts.filter(function(x){return x.dataLow;}); if(low.length){ h+='<div class="mt-2 text-[10px] text-slate-400">⚪ 記録が少なく判定できない子：'+low.length+'人</div>'; } if(d.note){ h+='<div class="mt-2 text-[10px] text-slate-400">'+esc(d.note)+'</div>'; } return h; }
       async function loadEarlyAlerts(){
         var sel=document.getElementById('laClassSelect')||document.getElementById('analyticsClassFilter');
         var classId=sel?sel.value:'';
