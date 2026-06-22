@@ -15,11 +15,11 @@ def patch_file(path, edits):
         f.write(data)
 
 SRC_EDITS = [
-    ("        L.push('本文:');\n        L.push('（児童が書いた文章をそのまま。複数行でよい）');\n        L.push('');\n        L.push('【ルール】児童IDは名簿のログインID。わからなければ [名前] のように名前を入れる。1人ずつ「=== [..] .. ===」で区切る。本文は「本文:」の次の行からブロックの終わり（次の===）まで。要約や講評を勝手に足さず、児童の記述を尊重する。読み取れない児童は飛ばしてよい。');",
-     "        L.push('本文:');\n        L.push('（児童が書いた文章・成果物をそのまま。複数行でよい）');\n        L.push('振り返り: （児童の振り返りがあれば。なければ空欄。複数行でよい）');\n        L.push('評価: （先生の評価があれば ◎ / ○ / △ のどれか。なければ空欄）');\n        L.push('評価コメント: （先生の評価コメントがあれば。なければ空欄）');\n        L.push('');\n        L.push('【ルール】児童IDは名簿のログインID。わからなければ [名前] のように名前を入れる。1人ずつ「=== [..] .. ===」で区切る。本文・振り返りはそれぞれの見出しの次の行から次の見出しか次の===まで。成果物と振り返りがセットなら両方入れる。評価・振り返りが無ければ空欄でよい。要約や講評を勝手に足さず、児童の記述を尊重する。読み取れない児童は飛ばしてよい。');"),
-    ("          var uid=gv('recRow_'+i+'_user');\n          var title=gv('recRow_'+i+'_title'); var bodyTxt=gv('recRow_'+i+'_body');\n          if(!uid){ skipped++; continue; }\n          if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())){ skipped++; continue; }\n          rows.push({userId:uid, title:title, body:bodyTxt, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});",
-     "          var uid=gv('recRow_'+i+'_user');\n          var title=gv('recRow_'+i+'_title'); var bodyTxt=gv('recRow_'+i+'_body');\n          var refl=gv('recRow_'+i+'_reflection'); var er=gv('recRow_'+i+'_eval'); var ec=gv('recRow_'+i+'_evalc');\n          if(!uid){ skipped++; continue; }\n          if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ skipped++; continue; }\n          rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});"),
+    ('      function _recRenderPreview(d){',
+     '      function _recEvalOpts(sel){ var o=[[\'\',\'評価なし\'],[\'◎\',\'◎\'],[\'○\',\'○\'],[\'△\',\'△\']]; var s=\'\'; for(var i=0;i<o.length;i++){ s+=\'<option value="\'+o[i][0]+\'"\'+(o[i][0]===(sel||\'\')?\' selected\':\'\')+\'>\'+o[i][1]+\'</option>\'; } return s; }\n      function _recRenderPreview(d){'),
+    ('          h+=\'<textarea id="recRow_\'+i+\'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文">\'+escH(r.body||\'\')+\'</textarea>\';',
+     '          h+=\'<textarea id="recRow_\'+i+\'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文（成果物）">\'+escH(r.body||\'\')+\'</textarea>\';\n          h+=\'<textarea id="recRow_\'+i+\'_reflection" rows="2" class="w-full border rounded p-1 text-xs mt-1" placeholder="振り返り（任意）">\'+escH(r.reflection||\'\')+\'</textarea>\';\n          h+=\'<div class="flex items-center gap-1 mt-1"><span class="text-[10px] text-slate-500">評価:</span><select id="recRow_\'+i+\'_eval" class="border rounded p-1 text-xs">\'+_recEvalOpts(r.evalRank)+\'</select><input id="recRow_\'+i+\'_evalc" class="border rounded p-1 text-xs flex-1" placeholder="評価コメント（任意）" value="\'+escH(r.evalComment||\'\')+\'"></div>\';'),
 ]
 
 patch_file('src/index.tsx', SRC_EDITS)
-print('DONE PD')
+print('DONE PE')
