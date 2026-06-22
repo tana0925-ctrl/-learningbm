@@ -9440,6 +9440,7 @@ wrap.innerHTML = '';
           var refl=gv('recRow_'+i+'_reflection'); var er=gv('recRow_'+i+'_eval'); var ec=gv('recRow_'+i+'_evalc');
           if(!uid){ skipped++; continue; }
           if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ skipped++; continue; }
+          try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].nameRaw)||'', uid); }catch(_e){}
           rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});
         }
         if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと内容を確認）'; return; }
@@ -9522,6 +9523,7 @@ wrap.innerHTML = '';
           var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
           if(!uid){ skipped++; continue; }
           if(score===''||score==null){ skipped++; continue; }
+          try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}
           rows.push({userId:uid, score:parseInt(score,10), comment:(d.rows[i].comment||'')});
         }
         if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと点数を確認）'; return; }
