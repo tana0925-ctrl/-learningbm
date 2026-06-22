@@ -15,13 +15,11 @@ def patch_file(path, edits):
         f.write(data)
 
 SRC_EDITS = [
-    ('          window._recParsed=d;',
-     '          window._recParsed=d;\n          try{ _matchRosterRows(d, cid); }catch(_e){}'),
-    ('          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;\n          h+=\'<div class="border rounded-lg p-2 \'+(warn?\'bg-amber-50\':\'bg-slate-50\')+\'">\';\n          h+=\'<div class="flex items-center gap-1 flex-wrap mb-1">\';\n          h+=\'<span class="text-[10px] text-slate-400">読取: \'+escH(r.idRaw||\'\')+\' \'+escH(r.nameRaw||\'\')+(warn?\' <span class="text-amber-600">⚠未マッチ</span>\':\'\')+\'</span>\';',
-     '          var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?\'auto\':\'none\'); if(ms===\'none\') unmatched++;\n          var _bg=(ms===\'auto\')?\'bg-slate-50\':(ms===\'cand\')?\'bg-amber-50\':\'bg-red-50\'; var _bd=(ms===\'auto\')?\'<span class="text-green-600">✓自動</span>\':(ms===\'cand\')?\'<span class="text-amber-600">≈候補(要確認)</span>\':\'<span class="text-red-600">⚠未マッチ</span>\';\n          h+=\'<div class="border rounded-lg p-2 \'+_bg+\'">\';\n          h+=\'<div class="flex items-center gap-1 flex-wrap mb-1">\';\n          h+=\'<span class="text-[10px] text-slate-400">読取: \'+escH(r.idRaw||\'\')+\' \'+escH(r.nameRaw||\'\')+\' \'+_bd+\'</span>\';'),
-    ('          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;\n          h+=\'<tr class="\'+(warn?\'bg-amber-50\':\'\')+\'">\';\n          h+=\'<td class="p-1 font-bold text-slate-700">\'+escH(r.rawName||\'\')+(warn?\' <span class="text-[9px] text-amber-600">⚠未マッチ</span>\':\'\')+\'</td>\';',
-     '          var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?\'auto\':\'none\'); if(ms===\'none\') unmatched++;\n          var _bd=(ms===\'auto\')?\' <span class="text-[9px] text-green-600">✓自動</span>\':(ms===\'cand\')?\' <span class="text-[9px] text-amber-600">≈候補(要確認)</span>\':\' <span class="text-[9px] text-red-600">⚠未マッチ</span>\';\n          h+=\'<tr class="\'+((ms===\'auto\')?\'\':(ms===\'cand\')?\'bg-amber-50\':\'bg-red-50\')+\'">\';\n          h+=\'<td class="p-1 font-bold text-slate-700">\'+escH(r.rawName||\'\')+_bd+\'</td>\';'),
+    ("          rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});",
+     "          try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].nameRaw)||'', uid); }catch(_e){}\n          rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});"),
+    ("          rows.push({userId:uid, score:parseInt(score,10), comment:(d.rows[i].comment||'')});",
+     "          try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}\n          rows.push({userId:uid, score:parseInt(score,10), comment:(d.rows[i].comment||'')});"),
 ]
 
 patch_file('src/index.tsx', SRC_EDITS)
-print('DONE QB')
+print('DONE QC')
