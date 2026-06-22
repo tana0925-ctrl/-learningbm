@@ -41318,6 +41318,26 @@ function hwSubmitReflection(){
     }
     hwSavePlanForWeek(weekKey, plan);
 
+    // 毎日のふりかえり提出 → かけら付与（サーバ冪等・1日1回・内容ありが条件）
+    try{
+      if(reflection && reflection.length>0){
+        fetch('/api/student/weekly-reflection',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ weekKey: weekKey, dayKey: todayKey, freeText: reflection })})
+          .then(function(rr){ return rr.json(); })
+          .then(function(rj){
+            try{
+              var rs = rj && rj.reflectionShards;
+              if(rs && rs.awarded>0){
+                if(typeof labAddShards==='function') labAddShards(rs.awarded);
+                try{ var _se=document.getElementById('labShardCount'); if(_se && typeof labGetShards==='function') _se.textContent=String(labGetShards()); }catch(_e){}
+                try{ if(typeof saveData==='function') saveData(); }catch(_e){}
+                var _rm=document.getElementById('hwReflectionMsg');
+                if(_rm){ _rm.textContent='\uD83D\uDFE6 \u304B\u3051\u3089 +'+rs.awarded+' \u3082\u3089\u3048\u305F\uFF01'+((rs.bonus>0)?'\uFF08\u308C\u3093\u305E\u304F\u30DC\u30FC\u30CA\u30B9 +'+rs.bonus+'\uFF09':''); setTimeout(function(){ try{ if(_rm) _rm.textContent=''; }catch(_e){} }, 5000); }
+              }
+            }catch(_e){}
+          }).catch(function(){});
+      }
+    }catch(_e){}
+
     const msg = document.getElementById('hwReflectionMsg');
     // サーバーにも送信
     try{

@@ -3560,7 +3560,51 @@ app.post('/api/student/weekly-reflection', async (c) => {
       free_text=excluded.free_text, created_at=excluded.created_at
   `).bind(u.id, weekKey, concentration, goodPoint, improvePoint, nextAction, freeText, now).run()
 
-  return c.json({ ok: true })
+  // === 毎日のふりかえり提出で「かけら」付与（1日1回・冪等・内容ありが条件）===
+  let reflectionShards: any = { awarded: 0, base: 0, bonus: 0, streak: 0, newTotal: null, alreadyAwarded: false, eligible: false }
+  try {
+    const hasContent = !!(goodPoint.trim() || improvePoint.trim() || nextAction.trim() || freeText.trim())
+    reflectionShards.eligible = hasContent
+    if (hasContent) {
+      await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS daily_reflection_rewards (user_id TEXT NOT NULL, day_key TEXT NOT NULL, shards INTEGER NOT NULL DEFAULT 0, base INTEGER DEFAULT 0, bonus INTEGER DEFAULT 0, created_at TEXT, PRIMARY KEY(user_id, day_key))").run().catch(() => {})
+      const dayKey = String(body.dayKey || weekKey).slice(0, 10)
+      const exists = await c.env.DB.prepare("SELECT shards FROM daily_reflection_rewards WHERE user_id=? AND day_key=? LIMIT 1").bind(u.id, dayKey).first<any>()
+      if (exists) {
+        reflectionShards.alreadyAwarded = true
+      } else {
+        const _dms = (d: string) => new Date(d + 'T00:00:00Z').getTime()
+        let streak = 1
+        for (let k = 1; k <= 30; k++) {
+          const prev = new Date(_dms(dayKey) - k * 86400000).toISOString().slice(0, 10)
+          const pr = await c.env.DB.prepare("SELECT 1 FROM daily_reflection_rewards WHERE user_id=? AND day_key=? LIMIT 1").bind(u.id, prev).first<any>()
+          if (pr) { streak++ } else { break }
+        }
+        const base = 1
+        const bonus = (streak % 5 === 0) ? 1 : 0
+        const total = base + bonus
+        const ins = await c.env.DB.prepare("INSERT OR IGNORE INTO daily_reflection_rewards (user_id, day_key, shards, base, bonus, created_at) VALUES (?,?,?,?,?,datetime('now'))").bind(u.id, dayKey, total, base, bonus).run()
+        if (ins.meta && ins.meta.changes === 1) {
+          let newTotal: number | null = null
+          try {
+            const prog = await c.env.DB.prepare("SELECT state_json FROM progress WHERE user_id=?").bind(u.id).first<any>()
+            if (prog && prog.state_json) {
+              const state = JSON.parse(prog.state_json)
+              if (!state.lab || typeof state.lab !== 'object') state.lab = { shards: 0, use: {} }
+              state.lab.shards = (Number(state.lab.shards) || 0) + total
+              try { if (state.decimalFest) state.decimalFest.totalShards = state.lab.shards } catch (_e) {}
+              try { if (state.fractionFest) state.fractionFest.totalShards = state.lab.shards } catch (_e) {}
+              newTotal = state.lab.shards
+              await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
+            }
+          } catch (_e) {}
+          reflectionShards = { awarded: total, base, bonus, streak, newTotal, alreadyAwarded: false, eligible: true }
+        } else {
+          reflectionShards.alreadyAwarded = true
+        }
+      }
+    }
+  } catch (_e) {}
+  return c.json({ ok: true, reflectionShards })
 })
 
 // 生徒：自分の構造化ふりかえりを取得
