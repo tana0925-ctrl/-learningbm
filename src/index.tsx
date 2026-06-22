@@ -6753,6 +6753,36 @@ app.get('/teacher', (c) => {
               <span id="recParseStatus" class="text-xs text-slate-500"></span>
             </div>
             <div id="recPreview" class="mt-3"></div>
+            <div class="mt-3 border-t border-slate-200 pt-3">
+              <div class="font-bold text-slate-700 mb-1 text-sm">✍ 直接入力（1件ずつ手で追加）</div>
+              <div class="text-xs text-slate-500 mb-2">児童をえらんで入力。成果物（本文）・振り返り・評価はそれぞれ任意で、ある分だけでOK。日付・教科・単元も任意（日付は未指定なら今日）。</div>
+              <div class="flex items-center gap-2 flex-wrap mb-2">
+                <select id="recDirStudent" class="border p-1.5 rounded text-xs bg-white"><option value="">（児童をえらぶ）</option></select>
+                <button onclick="recDirLoadRoster()" class="bg-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold hover:bg-slate-300">🔄 名簿を読み込む</button>
+                <select id="recDirType" class="border p-1.5 rounded text-xs bg-white">
+                  <option value="report">まとめ・レポート</option>
+                  <option value="reflect">振り返り</option>
+                  <option value="other">その他</option>
+                </select>
+              </div>
+              <input id="recDirTitle" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="タイトル（例：平安文化のキャッチフレーズ）">
+              <textarea id="recDirBody" rows="3" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="本文・成果物（児童が作った文など。任意）"></textarea>
+              <textarea id="recDirReflection" rows="2" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="振り返り（任意）"></textarea>
+              <div class="flex items-center gap-2 flex-wrap mb-1">
+                <span class="text-xs text-slate-500">評価:</span>
+                <select id="recDirEval" class="border p-1.5 rounded text-xs bg-white"><option value="">評価なし</option><option value="◎">◎</option><option value="○">○</option><option value="△">△</option></select>
+                <input id="recDirEvalC" class="border rounded p-1 text-xs flex-1" placeholder="評価コメント（任意）">
+              </div>
+              <div class="grid grid-cols-3 gap-1 mb-2">
+                <input id="recDirSubject" class="border rounded p-1 text-xs" placeholder="教科（任意）">
+                <input id="recDirUnit" class="border rounded p-1 text-xs" placeholder="単元（任意）">
+                <input id="recDirDay" type="date" class="border rounded p-1 text-xs">
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="saveDirectRecord()" class="bg-rose-600 text-white rounded-lg px-4 py-1.5 text-xs font-bold hover:bg-rose-700">💾 保存</button>
+                <span id="recDirStatus" class="text-xs font-bold text-rose-600"></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -9295,6 +9325,34 @@ wrap.innerHTML = '';
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function _recTypeLabel(t){ if(t==='reflect') return '振り返り'; if(t==='other') return 'その他'; return 'まとめ・レポート'; }
+      function recDirLoadRoster(){
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var st=document.getElementById('recDirStatus');
+        if(!cid){ if(st) st.textContent='先に「クラス」を選んでください'; return; }
+        if(st) st.textContent='名簿を読み込み中...';
+        fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:''})}).then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok){ if(st) st.textContent='読み込み失敗（クラス権限を確認）'; return; }
+          var roster=d.roster||[]; var s=document.getElementById('recDirStudent');
+          if(s){ var h='<option value="">（児童をえらぶ）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; h+='<option value="'+escH(rm.userId)+'">'+escH(_tsDispName(rm))+'</option>'; } s.innerHTML=h; }
+          if(st) st.textContent='✓ '+roster.length+'人を読み込みました';
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
+      function saveDirectRecord(){
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var st=document.getElementById('recDirStatus');
+        var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
+        if(!cid){ if(st) st.textContent='先に「クラス」を選んでください'; return; }
+        var uid=gv('recDirStudent'); if(!uid){ if(st) st.textContent='児童をえらんでください'; return; }
+        var title=gv('recDirTitle'); var body=gv('recDirBody'); var refl=gv('recDirReflection'); var er=gv('recDirEval'); var ec=gv('recDirEvalC');
+        if((!title||!title.trim())&&(!body||!body.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ if(st) st.textContent='タイトル・本文・振り返り・評価のどれかを入力してください'; return; }
+        var rtype=gv('recDirType')||'report';
+        var row={userId:uid, title:title, body:body, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recDirSubject'), unit:gv('recDirUnit'), day:gv('recDirDay')};
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, type:rtype, rows:[row]})}).then(function(r){return r.json();}).then(function(res){
+          if(res&&res.ok&&res.saved>0){ if(st) st.textContent='✓ 保存しました。個人分析のポートフォリオに反映されます'; var ids=['recDirTitle','recDirBody','recDirReflection','recDirEvalC']; for(var k=0;k<ids.length;k++){ var el=document.getElementById(ids[k]); if(el) el.value=''; } }
+          else { if(st) st.textContent='保存できませんでした（児童の割り当てを確認）'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
       function copyRecordPrompt(){
         var NL=String.fromCharCode(10);
         var sel=document.getElementById('recType'); var t=sel?sel.value:'report';
