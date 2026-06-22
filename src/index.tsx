@@ -1868,6 +1868,36 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
 })
 
 // 児童AIコメントの一括保存API
+app.post('/api/teacher/class-ai-summary', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  try { await c.env.DB.prepare('CREATE TABLE IF NOT EXISTS class_ai_summary (class_id TEXT PRIMARY KEY, overview TEXT, updated_at TEXT, updated_by TEXT)').run() } catch {}
+  const overview = String(body.overview || '').slice(0, 20000)
+  await c.env.DB.prepare("INSERT INTO class_ai_summary (class_id, overview, updated_at, updated_by) VALUES (?,?,datetime('now'),?) ON CONFLICT(class_id) DO UPDATE SET overview=excluded.overview, updated_at=datetime('now'), updated_by=excluded.updated_by").bind(classId, overview, u.id).run()
+  return c.json({ ok: true })
+})
+app.get('/api/teacher/ai-summary', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  try { await c.env.DB.prepare('CREATE TABLE IF NOT EXISTS class_ai_summary (class_id TEXT PRIMARY KEY, overview TEXT, updated_at TEXT, updated_by TEXT)').run() } catch {}
+  let overview = '', overviewUpdatedAt = ''
+  try { const o = await c.env.DB.prepare('SELECT overview, updated_at as updatedAt FROM class_ai_summary WHERE class_id=? LIMIT 1').bind(classId).first<any>(); if (o) { overview = o.overview || ''; overviewUpdatedAt = o.updatedAt || '' } } catch {}
+  const rows = (((await c.env.DB.prepare("SELECT u.id as userId, u.login_id as loginId, u.name, sac.comment, sac.updated_at as updatedAt FROM class_members cm JOIN users u ON u.id=cm.user_id LEFT JOIN student_ai_comments sac ON sac.user_id=u.id WHERE cm.class_id=? ORDER BY (sac.updated_at IS NULL), sac.updated_at DESC").bind(classId).all<any>()).results) || [])
+  const comments = (rows as any[]).map((r: any) => ({ userId: r.userId, loginId: r.loginId, name: r.name, comment: r.comment || '', updatedAt: r.updatedAt || '' }))
+  return c.json({ ok: true, overview, overviewUpdatedAt, comments })
+})
 app.post('/api/teacher/student-ai-comments', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
