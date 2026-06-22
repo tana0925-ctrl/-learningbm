@@ -3537,6 +3537,56 @@ app.post('/api/student/weekly-plan', async (c) => {
 })
 
 // 生徒：構造化ふりかえりを提出
+app.get('/api/student/growth-story', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 403, 'forbidden')
+  const now = new Date(); const y = now.getUTCFullYear(); const mo = now.getUTCMonth() + 1
+  const fyY = (mo >= 4) ? y : y - 1
+  const fyStart = fyY + '-04-01'
+  let rows: any[] = []
+  try { rows = (((await c.env.DB.prepare("SELECT unit, is_correct, answered_at FROM learning_results WHERE user_id=? AND answered_at >= ? ORDER BY answered_at ASC").bind(u.id, fyStart).all<any>()).results) || []) } catch {}
+  const totalProblems = rows.length
+  const correctAll = rows.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0)
+  const overallRate = totalProblems ? Math.round(correctAll / totalProblems * 100) : null
+  const byUnitRows: Record<string, any[]> = {}
+  for (const r of rows) { (byUnitRows[r.unit] = byUnitRows[r.unit] || []).push(r) }
+  const improved: any[] = []
+  let masteredCount = 0
+  for (const unit of Object.keys(byUnitRows)) {
+    const arr = byUnitRows[unit]; const n = arr.length
+    if (n >= 10) {
+      const nowU = Math.round(arr.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0) / n * 100)
+      if (nowU >= 80) masteredCount++
+      if (n >= 16) {
+        const k = Math.max(5, Math.floor(n * 0.4))
+        const early = arr.slice(0, k); const late = arr.slice(n - k)
+        const eRate = Math.round(early.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0) / early.length * 100)
+        const lRate = Math.round(late.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0) / late.length * 100)
+        if (lRate - eRate >= 10) improved.push({ unit, from: eRate, to: lRate, delta: lRate - eRate })
+      }
+    }
+  }
+  improved.sort((a, b) => b.delta - a.delta)
+  let startRate: number | null = null, nowRate: number | null = null
+  if (totalProblems >= 20) {
+    const k = Math.max(10, Math.floor(totalProblems * 0.3))
+    const e = rows.slice(0, k), l = rows.slice(totalProblems - k)
+    startRate = Math.round(e.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0) / e.length * 100)
+    nowRate = Math.round(l.reduce((a: number, r: any) => a + (r.is_correct ? 1 : 0), 0) / l.length * 100)
+  }
+  let subRows: any[] = []
+  try { subRows = (((await c.env.DB.prepare("SELECT day_key FROM homework_submissions WHERE user_id=? AND day_key >= ? ORDER BY day_key ASC").bind(u.id, fyStart).all<any>()).results) || []) } catch {}
+  const days = Array.from(new Set(subRows.map((s: any) => s.day_key).filter(Boolean))).sort() as string[]
+  const submissions = days.length
+  let maxStreak = 0, run = 0, prev = ''
+  const dms = (d: string) => new Date(d + 'T00:00:00Z').getTime()
+  for (const dk of days) { if (prev && Math.round((dms(dk) - dms(prev)) / 86400000) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
+  const show = (totalProblems >= 30) || (submissions >= 5)
+  let message = 'これからも少しずつ続けよう！'
+  if (improved.length >= 1) message = 'すごい！前よりできるようになった単元があるよ🎉'
+  else if (masteredCount >= 3) message = 'マスター単元がいっぱい！この調子💪'
+  else if (submissions >= 10) message = '毎日コツコツ続けてるね。えらい！✨'
+  return c.json({ ok: true, show, periodLabel: fyY + '年度（4月〜）', start: { rate: startRate }, now: { rate: nowRate }, improved: improved.slice(0, 4), masteredCount, overallRate, totalProblems, submissions, maxStreak, message })
+})
 app.post('/api/student/weekly-reflection', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
