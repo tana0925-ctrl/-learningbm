@@ -4384,6 +4384,27 @@ app.get('/api/teacher/weekly-plan/:id/revisions', async (c) => {
 })
 
 // 先生：クラスの生徒の週間計画を取得
+app.post('/api/teacher/reflection-comments', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !Array.isArray(body.comments)) return jsonError(c, 400, 'invalid')
+  const weekKey = String(body.weekKey || getWeekKey()).slice(0, 10)
+  let saved = 0
+  for (const it of body.comments) {
+    const sid = String(it.studentId || ''); const comment = String(it.comment || '').slice(0, 1000)
+    if (!sid || !comment) continue
+    const own = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? LIMIT 1').bind(sid).first<any>()
+      : await c.env.DB.prepare('SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, sid).first<any>()
+    if (!own) continue
+    const row = await c.env.DB.prepare('SELECT id, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, weekKey).first<any>()
+    if (!row || row.reflection_returned_at) continue
+    await c.env.DB.prepare('UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?').bind(comment, Date.now(), 300, row.id).run()
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
+
 app.post('/api/teacher/plan-ai-comments', async (c) => {
   const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
   try { await c.env.DB.prepare('ALTER TABLE student_weekly_plans ADD COLUMN plan_ai_comment TEXT').run() } catch {}
@@ -7021,12 +7042,13 @@ app.get('/teacher', (c) => {
           </div>
           <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
             <div class="font-bold text-sm text-violet-800">🤖 AI分析（まとめて）— ワンストップ</div>
-            <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「保存」。クラス全体の所見と各児童の個人カルテコメントを一度にまとめて反映＆常時表示します。</p>
+            <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて保存」。クラス所見・個人カルテ・今週の計画・週の振り返り返却を、1回のコピー＆貼り付けで各保存先に振り分けます（常時表示にも反映）。</p>
+            <div class="flex flex-wrap gap-3 text-xs text-violet-700 items-center"><span class="font-bold">含める種類:</span><label class="flex items-center gap-1"><input type="checkbox" id="uniOptClass" checked> クラス所見</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptKarte" checked> 個人カルテ</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptPlan" checked> 今週の計画</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptReflect" checked> 振り返り返却</label></div>
             <div class="flex flex-wrap gap-2 items-center">
               <button onclick="copyUnifiedAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-700">📋 まとめてコピー（クラス＋全児童）</button>
               <span id="unifiedAiStatus" class="text-xs text-violet-700 font-bold"></span>
             </div>
-            <textarea id="unifiedAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付け（=== [CLASS] クラス全体 === / === [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
+            <textarea id="unifiedAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付け（=== [CLASS] === / === [KARTE:児童ID] === / === [PLAN:児童ID] === / === [REFLECT:児童ID] === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
             <div><button onclick="saveUnifiedAi()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 まとめて保存（クラス所見＋個人コメント）</button></div>
           </div>
           <!-- AIクラス分析 -->
@@ -9635,23 +9657,30 @@ wrap.innerHTML = '';
       async function copyUnifiedAi(){
         var cid=_aiClassId(); var st=document.getElementById('unifiedAiStatus');
         if(!cid){ if(st) st.textContent='クラスを選んでください'; return; }
+        var _opt=function(idd){ var e=document.getElementById(idd); return e?!!e.checked:true; };
+        var optClass=_opt('uniOptClass'), optKarte=_opt('uniOptKarte'), optPlan=_opt('uniOptPlan'), optReflect=_opt('uniOptReflect');
         if(st) st.textContent='名簿を取得中...';
         var roster=[];
         try{ var rr=await fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:''})}); var rd=await rr.json(); roster=(rd&&rd.roster)||[]; }catch(e){}
         if(!roster.length){ if(st) st.textContent='名簿が取得できませんでした'; return; }
         var NL=String.fromCharCode(10); var L=[];
-        L.push('あなたは小学校担任のAIアシスタント兼、修行エリアの関西弁応援キャラ「阪神マン」です。次のクラスのデータをもとに、指定の形式で日本語出力してください。目印（=== [..] === の行）は絶対に変えないこと。前置きや説明は不要。');
-        L.push('(1) まず「=== [CLASS] クラス全体 ===」の行に続けて、クラス全体の所見を5〜8行で（良い傾向／気になる点／来週の手立て）。先生向けのていねいな文体。');
-        L.push('(2) 続けて各児童ごとに「=== [児童ID] 名前 ===」の行をそのまま残し、その下に阪神マン風（関西弁・前向き）で ①ええところ ②気になるところ ③おすすめの学習・声かけ を、児童本人が読んで前向きになれるように。学年に合わせて声かけを変える。なお、以下のデータは各児童とも今年度（4月1日〜現在）の全期間の集計です。直近だけでなく年度を通した成長・傾向を踏まえること。成果物（ポートフォリオ）には先生の評価（◎○△）と評価コメントも付くので、評価も踏まえてコメントすること。なお、データが見せる課題は正直に伝えてええ。提出率がひくい・さいきん下がってる・学年そうとうの単元が未定着のときは、ぼかさず具体的に言うたって（例：さいきん提出が◯％に下がってるで）、かならず次の一歩（例：まずは週◯回を目標にしよ）とセットにする。相手は小学生やから、正直でも突き放さず前向きに。ええときは今までどおりしっかりほめる。');
+        L.push('あなたは小学校担任のAIアシスタント兼、修行エリアの関西弁応援キャラ「阪神マン」です。次のクラスのデータを読み、各ブロックの目印（=== [..] === の行）は絶対に変えずに残し、各目印の直後に指定の内容を日本語で書いてください。前置きや説明は不要。');
+        L.push('【目印の種類と書く内容】');
+        if(optClass) L.push('・=== [CLASS] === … クラス全体の所見を5〜8行（良い傾向／気になる点／来週の手立て）。先生向けのていねいな文体。');
+        if(optKarte) L.push('・=== [KARTE:児童ID] 名前 === … 阪神マン風（関西弁・前向き）で ①ええところ ②気になるところ ③おすすめの学習・声かけ。今年度（4月〜）全期間の傾向と成果物の評価（◎○△）も踏まえ、課題は正直に＋次の一歩とセットで。');
+        if(optPlan) L.push('・=== [PLAN:児童ID] 名前 === … その子の「今週の計画」へ ①よい点 ②もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか）③ひとことアドバイス。子どもにそのまま返せるやさしい言葉で。');
+        if(optReflect) L.push('・=== [REFLECT:児童ID] 名前 === … その子の「今週の振り返り」への返却コメント。がんばりを認めつつ次につながる一言を、やさしい言葉で。');
         L.push('');
-        var totSub=0, totMin=0, n=roster.length; var childBlocks=[];
-        for(var i=0;i<roster.length;i++){ var s=roster[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); var id=s.loginId||s.userId; var blk=['=== ['+id+'] '+nm+' ===']; try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId)); var data=await res.json(); if(data&&data.ok){ var ov=data.overview||{}; totSub+=(ov.totalSubmissions||0); totMin+=(ov.totalMinutes||0); blk=blk.concat(_aiBodyLines(data)); } else { blk.push('(データ取得失敗)'); } }catch(e){ blk.push('(エラー)'); } childBlocks.push(blk); if(st) st.textContent='データ収集中...('+(i+1)+'/'+n+')'; }
-        L.push('=== [CLASS] クラス全体 ===');
-        L.push('（クラスの集計：児童数 '+n+'人 / 提出のべ '+totSub+'回 / 学習のべ '+Math.round(totMin/60)+'時間。下の各児童データを総合してクラス所見を書いてください）');
-        L.push('');
-        for(var b=0;b<childBlocks.length;b++){ L=L.concat(childBlocks[b]); L.push(''); }
+        var totSub=0, totMin=0, n=roster.length; var karteBlocks=[];
+        if(optKarte){ for(var i=0;i<roster.length;i++){ var s=roster[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); var id=s.loginId||s.userId; var blk=['=== [KARTE:'+id+'] '+nm+' ===']; try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId)); var data=await res.json(); if(data&&data.ok){ var ov=data.overview||{}; totSub+=(ov.totalSubmissions||0); totMin+=(ov.totalMinutes||0); blk=blk.concat(_aiBodyLines(data)); } else { blk.push('(データ取得失敗)'); } }catch(e){ blk.push('(エラー)'); } karteBlocks.push(blk); if(st) st.textContent='データ収集中...('+(i+1)+'/'+n+')'; } }
+        if(optClass){ L.push('=== [CLASS] ==='); L.push('（クラスの集計：児童数 '+n+'人 / 提出のべ '+totSub+'回 / 学習のべ '+Math.round(totMin/60)+'時間。下の各児童データを総合してクラス所見を書いてください）'); L.push(''); }
+        for(var b=0;b<karteBlocks.length;b++){ L=L.concat(karteBlocks[b]); L.push(''); }
+        if(optPlan||optReflect){ if(st) st.textContent='今週の計画・振り返りを取得中...'; var wk=(typeof getWeekKeyLocal==='function')?getWeekKeyLocal():''; var plans=[]; try{ var pd=await api('/api/teacher/weekly-plans?weekKey='+encodeURIComponent(wk)+'&classId='+encodeURIComponent(cid)); plans=(pd&&pd.plans)||[]; }catch(e){} var dayLabels=['月','火','水','木','金'];
+          if(optPlan){ for(var pi=0;pi<plans.length;pi++){ var p=plans[pi]; var pnm=(typeof resolveStudentName==='function')?resolveStudentName(p.loginId,p.studentName):(p.studentName||''); var pid=p.loginId||p.userId; var parsed={}; try{parsed=JSON.parse(p.plansJson||'{}');}catch(_e){} var keys=[]; for(var k in parsed){ if(k!=='_modified') keys.push(k); } var planLines=[]; for(var dI=0;dI<5;dI++){ var kk=keys[dI]||''; var val=kk?parsed[kk]:''; var txt2=(typeof val==='object'&&val)?(val.free||''):(val||''); if(txt2&&String(txt2).trim()) planLines.push(dayLabels[dI]+'：'+txt2); } if(planLines.length){ L.push('=== [PLAN:'+pid+'] '+pnm+' ==='); L=L.concat(planLines); L.push(''); } } }
+          if(optReflect){ for(var ri=0;ri<plans.length;ri++){ var rp=plans[ri]; if(rp.reflectionReturnedAt) continue; var rnm=(typeof resolveStudentName==='function')?resolveStudentName(rp.loginId,rp.studentName):(rp.studentName||''); var rid=rp.loginId||rp.userId; var rparsed={}; try{rparsed=JSON.parse(rp.plansJson||'{}');}catch(_e){} var rkeys=[]; for(var k2 in rparsed){ if(k2!=='_modified') rkeys.push(k2); } var friK=rkeys[4]||''; var friV=friK?rparsed[friK]:''; var refl=(typeof friV==='object'&&friV)?(friV.reflection||''):''; if(refl&&String(refl).trim()){ L.push('=== [REFLECT:'+rid+'] '+rnm+' ==='); L.push(refl); L.push(''); } } }
+        }
         var txt=L.join(NL);
-        var done=function(){ if(st) st.textContent='✓ クラス＋'+n+'人分をコピーしました。AIに貼り付けてください'; };
+        var done=function(){ if(st) st.textContent='✓ まとめてコピーしました。AIに貼り付けてください'; };
         if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
       }
       async function saveUnifiedAi(){
@@ -9663,13 +9692,15 @@ wrap.innerHTML = '';
         var roster=[];
         try{ var rr=await fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:''})}); var rd=await rr.json(); roster=(rd&&rd.roster)||[]; }catch(e){}
         var map={}; for(var i=0;i<roster.length;i++){ var s=roster[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; var dn=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):''; if(dn) map[_normId(dn)]=s.userId; }
-        var blocks=_parseAiBlocks(raw); var comments=[]; var classOverview=''; var unmatched=[];
-        for(var b=0;b<blocks.length;b++){ var bid=String(blocks[b].id||''); var nid=_normId(bid); if(nid==='class'||bid.indexOf('CLASS')>=0||bid.indexOf('クラス')>=0){ classOverview=blocks[b].body; continue; } var uid=map[nid]; if(uid&&blocks[b].body){ comments.push({studentId:uid,comment:blocks[b].body}); } else { unmatched.push(bid); } }
-        var msgs=[];
-        if(classOverview){ try{ var cr=await fetch('/api/teacher/class-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,overview:classOverview})}); var cd=await cr.json(); if(cd&&cd.ok) msgs.push('クラス所見を保存'); }catch(e){} }
-        if(comments.length){ try{ var sr=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:comments})}); var sd=await sr.json(); if(sd&&sd.ok) msgs.push(sd.saved+'人分のコメントを保存'); }catch(e){} }
-        if(!msgs.length){ if(st) st.textContent='保存できる内容がありませんでした（目印 === [CLASS] === や === [児童ID] === を確認）'; return; }
-        if(st) st.textContent='✓ '+msgs.join(' / ')+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':'');
+        var blocks=_parseAiBlocks(raw); var karteC=[]; var planC=[]; var reflectC=[]; var classOverview=''; var unmatched=[];
+        for(var b=0;b<blocks.length;b++){ var bidRaw=String(blocks[b].id||''); var body=blocks[b].body; if(!body) continue; var typ='KARTE'; var idPart=bidRaw; var ci=bidRaw.indexOf(':'); if(ci>=0){ typ=bidRaw.slice(0,ci).toUpperCase().replace(/[^A-Z]/g,''); idPart=bidRaw.slice(ci+1); } else { var up=bidRaw.toUpperCase(); if(up.indexOf('CLASS')>=0||bidRaw.indexOf('クラス')>=0) typ='CLASS'; } if(typ==='CLASS'){ classOverview=body; continue; } var uid=map[_normId(idPart)]; if(!uid){ unmatched.push(bidRaw); continue; } if(typ==='PLAN'){ planC.push({studentId:uid,comment:body}); } else if(typ==='REFLECT'){ reflectC.push({studentId:uid,comment:body}); } else { karteC.push({studentId:uid,comment:body}); } }
+        var msgs=[]; var wk=(typeof getWeekKeyLocal==='function')?getWeekKeyLocal():'';
+        if(classOverview){ try{ var cr=await fetch('/api/teacher/class-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,overview:classOverview})}); var cd=await cr.json(); if(cd&&cd.ok) msgs.push('クラス所見'); }catch(e){} }
+        if(karteC.length){ try{ var sr=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:karteC})}); var sd=await sr.json(); if(sd&&sd.ok) msgs.push('カルテ'+sd.saved+'人'); }catch(e){} }
+        if(planC.length){ try{ var pr=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:planC})}); var pd2=await pr.json(); if(pd2&&pd2.ok) msgs.push('計画'+pd2.saved+'人'); }catch(e){} }
+        if(reflectC.length){ try{ var fr=await fetch('/api/teacher/reflection-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:reflectC})}); var fd=await fr.json(); if(fd&&fd.ok) msgs.push('振り返り返却'+fd.saved+'人'); }catch(e){} }
+        if(!msgs.length){ if(st) st.textContent='保存できる内容がありませんでした（目印 === [CLASS] === / === [KARTE:児童ID] === などを確認）'; return; }
+        if(st) st.textContent='✓ 保存: '+msgs.join(' / ')+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':'');
         try{ loadAiSummary(); }catch(e){}
       }
       async function loadAiSummary(){
