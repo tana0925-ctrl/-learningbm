@@ -2050,6 +2050,9 @@ app.post('/api/teacher/records/save', async (c) => {
   const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
   const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
   try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_records (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, class_id TEXT, type TEXT, title TEXT, body TEXT, subject TEXT, unit TEXT, day_key TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN reflection TEXT").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN eval_rank TEXT").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN eval_comment TEXT").run() } catch {}
   const allowTypes = new Set(['report', 'reflect', 'other'])
   let rtype = String(body.type || 'report'); if (!allowTypes.has(rtype)) rtype = 'other'
   const nowIso = new Date().toISOString()
@@ -2059,11 +2062,14 @@ app.post('/api/teacher/records/save', async (c) => {
     if (!uid || !allowed.has(uid)) continue
     const title = String((it && it.title) || '').slice(0, 200)
     const bodyTxt = String((it && it.body) || '').slice(0, 8000)
-    if (!title && !bodyTxt) continue
+    const reflection = String((it && it.reflection) || '').slice(0, 8000)
+    const evalRankRaw = String((it && it.evalRank) || '').trim(); const _ranks = new Set(['◎','○','△']); const evalRank = _ranks.has(evalRankRaw) ? evalRankRaw : ''
+    const evalComment = String((it && it.evalComment) || '').slice(0, 2000)
+    if (!title && !bodyTxt && !reflection && !evalRank && !evalComment) continue
     const subj = String((it && it.subject) || '').slice(0, 40)
     const unit = String((it && it.unit) || '').slice(0, 80)
     const day = String((it && it.day) || '').slice(0, 40)
-    await c.env.DB.prepare('INSERT INTO student_records (user_id, class_id, type, title, body, subject, unit, day_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(uid, classId, rtype, title, bodyTxt, subj, unit, day, u.id, nowIso).run()
+    await c.env.DB.prepare('INSERT INTO student_records (user_id, class_id, type, title, body, reflection, eval_rank, eval_comment, subject, unit, day_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uid, classId, rtype, title, bodyTxt, reflection, evalRank, evalComment, subj, unit, day, u.id, nowIso).run()
     saved++
   }
   return c.json({ ok: true, saved })
