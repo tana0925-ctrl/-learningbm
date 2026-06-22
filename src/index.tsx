@@ -9334,6 +9334,7 @@ wrap.innerHTML = '';
           _recRenderPreview(d);
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
+      function _recEvalOpts(sel){ var o=[['','評価なし'],['◎','◎'],['○','○'],['△','△']]; var s=''; for(var i=0;i<o.length;i++){ s+='<option value="'+o[i][0]+'"'+(o[i][0]===(sel||'')?' selected':'')+'>'+o[i][1]+'</option>'; } return s; }
       function _recRenderPreview(d){
         var el=document.getElementById('recPreview'); if(!el) return;
         var roster=d.roster||[];
@@ -9353,7 +9354,9 @@ wrap.innerHTML = '';
           h+='<input id="recRow_'+i+'_subject" class="border rounded p-1 text-xs" placeholder="教科" value="'+escH(r.subject||'')+'">';
           h+='<input id="recRow_'+i+'_unit" class="border rounded p-1 text-xs col-span-2" placeholder="単元（任意）" value="'+escH(r.unit||'')+'">';
           h+='</div>';
-          h+='<textarea id="recRow_'+i+'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文">'+escH(r.body||'')+'</textarea>';
+          h+='<textarea id="recRow_'+i+'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文（成果物）">'+escH(r.body||'')+'</textarea>';
+          h+='<textarea id="recRow_'+i+'_reflection" rows="2" class="w-full border rounded p-1 text-xs mt-1" placeholder="振り返り（任意）">'+escH(r.reflection||'')+'</textarea>';
+          h+='<div class="flex items-center gap-1 mt-1"><span class="text-[10px] text-slate-500">評価:</span><select id="recRow_'+i+'_eval" class="border rounded p-1 text-xs">'+_recEvalOpts(r.evalRank)+'</select><input id="recRow_'+i+'_evalc" class="border rounded p-1 text-xs flex-1" placeholder="評価コメント（任意）" value="'+escH(r.evalComment||'')+'"></div>';
           h+='</div>';
         }
         h+='</div>';
