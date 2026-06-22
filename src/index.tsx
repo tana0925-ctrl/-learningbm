@@ -9040,7 +9040,7 @@ wrap.innerHTML = '';
             var tss=data.testScores||[];
             for(var ti=0; ti<tss.length; ti++){ var t2=tss[ti]; pf.push({kind:'test', day:(t2.testDate||''), subject:(t2.subject||''), unit:'', title:(t2.testName||''), score:t2.score, maxScore:t2.maxScore, pct:t2.pct, body:''}); }
             var rcs=data.records||[];
-            for(var ri=0; ri<rcs.length; ri++){ var rc=rcs[ri]; pf.push({kind:(rc.type||'other'), day:(rc.dayKey||''), subject:(rc.subject||''), unit:(rc.unit||''), title:(rc.title||''), body:(rc.body||'')}); }
+            for(var ri=0; ri<rcs.length; ri++){ var rc=rcs[ri]; pf.push({kind:(rc.type||'other'), day:(rc.dayKey||''), subject:(rc.subject||''), unit:(rc.unit||''), title:(rc.title||''), body:(rc.body||''), reflection:(rc.reflection||''), evalRank:(rc.evalRank||''), evalComment:(rc.evalComment||'')}); }
             if(pf.length>0){
               pf.sort(function(a,b){ var x=String(a.day||''); var y=String(b.day||''); if(x===y) return 0; if(!x) return 1; if(!y) return -1; return x<y?1:-1; });
               var meta=function(k){ if(k==='test') return {icon:'📝',label:'テスト',cls:'bg-blue-100 text-blue-700',bar:'border-blue-300'}; if(k==='report') return {icon:'🔍',label:'まとめ',cls:'bg-green-100 text-green-700',bar:'border-green-300'}; if(k==='reflect') return {icon:'🪞',label:'振り返り',cls:'bg-amber-100 text-amber-700',bar:'border-amber-300'}; return {icon:'📌',label:'その他',cls:'bg-slate-100 text-slate-600',bar:'border-slate-300'}; };
@@ -9059,6 +9059,8 @@ wrap.innerHTML = '';
                 if(it.kind==='test'){ var tp=(it.pct==null)?'':(' ('+it.pct+'%)'); html += '<span class="font-bold text-slate-700 whitespace-nowrap">'+(it.score==null?'-':it.score)+' / '+(it.maxScore||100)+tp+'</span>'; }
                 html += '</div>';
                 if(it.body && it.body.trim()){ html += '<div class="mt-1 text-xs text-slate-600 whitespace-pre-wrap border-t border-slate-200 pt-1">'+escH(it.body)+'</div>'; }
+                if(it.reflection && it.reflection.trim()){ html += '<div class="mt-1 text-xs text-amber-700 whitespace-pre-wrap"><span class="font-bold">🪞 振り返り:</span> '+escH(it.reflection)+'</div>'; }
+                if(it.evalRank || (it.evalComment && it.evalComment.trim())){ var _ec=(it.evalRank==='◎')?'bg-pink-100 text-pink-700':(it.evalRank==='○')?'bg-green-100 text-green-700':(it.evalRank==='△')?'bg-orange-100 text-orange-700':'bg-slate-100 text-slate-600'; html += '<div class="mt-1 text-xs"><span class="'+_ec+' px-1.5 rounded font-bold">評価 '+escH(it.evalRank||'-')+'</span>'+((it.evalComment&&it.evalComment.trim())?' <span class="text-slate-600">'+escH(it.evalComment)+'</span>':'')+'</div>'; }
                 html += '</div>';
               }
               html += '</div></div>';
