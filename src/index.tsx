@@ -6691,6 +6691,24 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ③: AI分析 -->
         <div id="anPane_ai" class="hidden space-y-3">
+          <!-- 🤖 AI分析（まとめて）＋常時表示 -->
+          <div class="bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200 rounded-xl p-4 space-y-2">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-sky-800">🤖 最新のAI分析（保存済み・いつでも表示）</div>
+              <button onclick="loadAiSummary()" class="bg-sky-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-sky-700">🔄 更新</button>
+            </div>
+            <div id="aiSummaryBox" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選ぶと、保存済みのAI分析がここに表示されます</p></div>
+          </div>
+          <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
+            <div class="font-bold text-sm text-violet-800">🤖 AI分析（まとめて）— ワンストップ</div>
+            <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「保存」。クラス全体の所見と各児童の個人カルテコメントを一度にまとめて反映＆常時表示します。</p>
+            <div class="flex flex-wrap gap-2 items-center">
+              <button onclick="copyUnifiedAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-700">📋 まとめてコピー（クラス＋全児童）</button>
+              <span id="unifiedAiStatus" class="text-xs text-violet-700 font-bold"></span>
+            </div>
+            <textarea id="unifiedAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付け（=== [CLASS] クラス全体 === / === [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
+            <div><button onclick="saveUnifiedAi()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 まとめて保存（クラス所見＋個人コメント）</button></div>
+          </div>
           <!-- AIクラス分析 -->
           <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
@@ -7584,6 +7602,7 @@ app.get('/teacher', (c) => {
         var tabs = ['overview','subject','homework','ai','tests','notes'];
         var colors = {overview:'indigo',subject:'purple',homework:'indigo',ai:'purple',tests:'rose',notes:'teal'};
         if(sub==='notes' && typeof initNotesTab==='function') initNotesTab();
+        if(sub==='ai' && typeof loadAiSummary==='function'){ try{ loadAiSummary(); }catch(_e){} }
         tabs.forEach(function(t){
           var pane = document.getElementById('anPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
