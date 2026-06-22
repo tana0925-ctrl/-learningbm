@@ -9308,6 +9308,54 @@ wrap.innerHTML = '';
           _recRenderPreview(d);
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
+      function _recRenderPreview(d){
+        var el=document.getElementById('recPreview'); if(!el) return;
+        var roster=d.roster||[];
+        var opts=function(selId){ var s='<option value="">（未割り当て）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; s+='<option value="'+escH(rm.userId)+'"'+(rm.userId===selId?' selected':'')+'>'+escH(_tsDispName(rm))+'</option>'; } return s; };
+        var unmatched=0; var h='';
+        h+='<div class="space-y-2 max-h-96 overflow-y-auto">';
+        for(var i=0;i<d.rows.length;i++){
+          var r=d.rows[i]; var warn=!r.matchedUserId; if(warn) unmatched++;
+          h+='<div class="border rounded-lg p-2 '+(warn?'bg-amber-50':'bg-slate-50')+'">';
+          h+='<div class="flex items-center gap-1 flex-wrap mb-1">';
+          h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+(warn?' <span class="text-amber-600">⚠未マッチ</span>':'')+'</span>';
+          h+='<select id="recRow_'+i+'_user" class="border rounded p-1 text-xs">'+opts(r.matchedUserId)+'</select>';
+          h+='</div>';
+          h+='<div class="grid grid-cols-3 gap-1 mb-1">';
+          h+='<input id="recRow_'+i+'_title" class="border rounded p-1 text-xs col-span-2" placeholder="タイトル" value="'+escH(r.title||'')+'">';
+          h+='<input id="recRow_'+i+'_day" class="border rounded p-1 text-xs" placeholder="YYYY-MM-DD" value="'+escH(r.day||'')+'">';
+          h+='<input id="recRow_'+i+'_subject" class="border rounded p-1 text-xs" placeholder="教科" value="'+escH(r.subject||'')+'">';
+          h+='<input id="recRow_'+i+'_unit" class="border rounded p-1 text-xs col-span-2" placeholder="単元（任意）" value="'+escH(r.unit||'')+'">';
+          h+='</div>';
+          h+='<textarea id="recRow_'+i+'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文">'+escH(r.body||'')+'</textarea>';
+          h+='</div>';
+        }
+        h+='</div>';
+        h+='<div class="flex items-center gap-2 mt-2"><button onclick="saveRecords()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-rose-700">💾 保存</button>';
+        h+='<span id="recSaveStatus" class="text-xs font-bold text-amber-600">'+(unmatched?('未マッチ '+unmatched+'件は児童を選ぶと保存されます'):'')+'</span></div>';
+        el.innerHTML=h;
+      }
+      function saveRecords(){
+        var d=window._recParsed; if(!d) return;
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var tsel=document.getElementById('recType'); var rtype=tsel?tsel.value:'report';
+        var st=document.getElementById('recSaveStatus');
+        var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
+        var rows=[]; var skipped=0;
+        for(var i=0;i<d.rows.length;i++){
+          var uid=gv('recRow_'+i+'_user');
+          var title=gv('recRow_'+i+'_title'); var bodyTxt=gv('recRow_'+i+'_body');
+          if(!uid){ skipped++; continue; }
+          if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())){ skipped++; continue; }
+          rows.push({userId:uid, title:title, body:bodyTxt, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});
+        }
+        if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと内容を確認）'; return; }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, type:rtype, rows:rows})}).then(function(r){return r.json();}).then(function(res){
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+'。個人分析のポートフォリオに反映されます'; }
+          else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+      }
       function copyTestPrompt(){
         var NL=String.fromCharCode(10);
         var L=[];
