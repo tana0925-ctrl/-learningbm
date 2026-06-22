@@ -576,7 +576,7 @@
         if (m && m.from === V.role) continue;
         if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal');
       }
-      if (!V.synced) V.synced = true;
+      if (!V.synced && evs.length < 50) V.synced = true;
       if (room.status === 'finished' || room.winner) vFinish(room.winner);
     }).catch(function () {});
   }
