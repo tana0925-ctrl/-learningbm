@@ -8994,23 +8994,36 @@ wrap.innerHTML = '';
           html += '</div>';
           html += '</div>';
 
-          // === テスト結果 ===
-          if(data.testScores && data.testScores.length > 0){
-            html += '<div class="bg-white rounded-xl border p-4 mb-4">';
-            html += '<div class="font-bold text-sm text-slate-700 mb-3">📝 テスト結果</div>';
-            html += '<div class="space-y-1 max-h-64 overflow-y-auto">';
-            for(var tsi=0; tsi<data.testScores.length; tsi++){
-              var ts2 = data.testScores[tsi];
-              var tpct = (ts2.pct==null) ? '' : (' ('+ts2.pct+'%)');
-              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border flex items-center gap-1">';
-              html += '<span class="text-slate-400">'+escH(ts2.testDate||'')+'</span> ';
-              html += (ts2.subject ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1 rounded">'+escH(ts2.subject)+'</span> ' : '');
-              html += '<span class="text-slate-600 flex-1 truncate">'+escH(ts2.testName||'')+'</span> ';
-              html += '<span class="font-bold text-slate-700 whitespace-nowrap">'+(ts2.score==null?'-':ts2.score)+' / '+(ts2.maxScore||100)+tpct+'</span>';
-              html += '</div>';
+          // === 学習の記録（ポートフォリオ） ===
+          (function(){
+            var pf=[];
+            var tss=data.testScores||[];
+            for(var ti=0; ti<tss.length; ti++){ var t2=tss[ti]; pf.push({kind:'test', day:(t2.testDate||''), subject:(t2.subject||''), unit:'', title:(t2.testName||''), score:t2.score, maxScore:t2.maxScore, pct:t2.pct, body:''}); }
+            var rcs=data.records||[];
+            for(var ri=0; ri<rcs.length; ri++){ var rc=rcs[ri]; pf.push({kind:(rc.type||'other'), day:(rc.dayKey||''), subject:(rc.subject||''), unit:(rc.unit||''), title:(rc.title||''), body:(rc.body||'')}); }
+            if(pf.length>0){
+              pf.sort(function(a,b){ var x=String(a.day||''); var y=String(b.day||''); if(x===y) return 0; if(!x) return 1; if(!y) return -1; return x<y?1:-1; });
+              var meta=function(k){ if(k==='test') return {icon:'📝',label:'テスト',cls:'bg-blue-100 text-blue-700',bar:'border-blue-300'}; if(k==='report') return {icon:'🔍',label:'まとめ',cls:'bg-green-100 text-green-700',bar:'border-green-300'}; if(k==='reflect') return {icon:'🪞',label:'振り返り',cls:'bg-amber-100 text-amber-700',bar:'border-amber-300'}; return {icon:'📌',label:'その他',cls:'bg-slate-100 text-slate-600',bar:'border-slate-300'}; };
+              html += '<div class="bg-white rounded-xl border p-4 mb-4">';
+              html += '<div class="font-bold text-sm text-slate-700 mb-3">📚 学習の記録（ポートフォリオ） <span class="text-[10px] text-slate-400 font-normal">'+pf.length+'件</span></div>';
+              html += '<div class="space-y-2 max-h-96 overflow-y-auto">';
+              for(var pi=0; pi<pf.length; pi++){
+                var it=pf[pi]; var mt=meta(it.kind);
+                html += '<div class="border-l-4 '+mt.bar+' bg-slate-50 rounded p-2">';
+                html += '<div class="flex items-center gap-1 flex-wrap text-xs">';
+                html += '<span class="text-slate-400">'+escH(it.day||'(日付なし)')+'</span>';
+                html += '<span class="text-[10px] '+mt.cls+' px-1.5 rounded font-bold">'+mt.icon+' '+mt.label+'</span>';
+                html += (it.subject ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1 rounded">'+escH(it.subject)+'</span>' : '');
+                html += (it.unit ? '<span class="text-[10px] text-slate-500">'+escH(it.unit)+'</span>' : '');
+                html += '<span class="text-slate-700 font-bold flex-1 truncate">'+escH(it.title||'(無題)')+'</span>';
+                if(it.kind==='test'){ var tp=(it.pct==null)?'':(' ('+it.pct+'%)'); html += '<span class="font-bold text-slate-700 whitespace-nowrap">'+(it.score==null?'-':it.score)+' / '+(it.maxScore||100)+tp+'</span>'; }
+                html += '</div>';
+                if(it.body && it.body.trim()){ html += '<div class="mt-1 text-xs text-slate-600 whitespace-pre-wrap border-t border-slate-200 pt-1">'+escH(it.body)+'</div>'; }
+                html += '</div>';
+              }
+              html += '</div></div>';
             }
-            html += '</div></div>';
-          }
+          })();
 
           // === 直近の学習記録 ===
           if(data.recentSubmissions && data.recentSubmissions.length > 0){
