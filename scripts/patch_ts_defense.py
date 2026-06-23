@@ -14,11 +14,11 @@ def patch_file(path, edits):
     with open(path,'w',encoding='utf-8',newline='') as f:
         f.write(data)
 
-# Fix: edit #7 left if(reflectC.length) unclosed; add one closing brace
+# Fix2: suggestC save must be a SIBLING of reflectC (not nested inside if(reflectC.length))
 SRC_EDITS = [
-    ("if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} }",
-     "if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} } }"),
+    ("'振り返り返却'+fd.saved+'人'); }catch(e){}\n        if(suggestC.length){ try{ var sgr=await fetch('/api/teacher/plan-suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:suggestC})}); var sgd=await sgr.json(); if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} } }",
+     "'振り返り返却'+fd.saved+'人'); }catch(e){} }\n        if(suggestC.length){ try{ var sgr=await fetch('/api/teacher/plan-suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:suggestC})}); var sgd=await sgr.json(); if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} }"),
 ]
 
 patch_file('src/index.tsx', SRC_EDITS)
-print('DONE FIX')
+print('DONE FIX2')
