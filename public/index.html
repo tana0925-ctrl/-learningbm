@@ -4561,6 +4561,7 @@ window.claimClassMission=async function(){
   </div>
 
   <!-- 計画入力エリア（月曜 or 未計画日） -->
+  <div id="hwPlanSuggestBox" class="hidden mb-2"></div>
   <div id="hwPlanArea" class="bg-white border-2 border-emerald-300 rounded-xl p-3 space-y-2 hidden">
     <div class="font-bold text-sm text-emerald-800" id="hwPlanTitle">✏️ 計画を立てよう</div>
     <div class="text-xs text-slate-500" id="hwPlanDesc">各曜日に何をやるか書こう（先生メニューも忘れずに！）</div>
@@ -41023,10 +41024,14 @@ async function hwRenderWeekView(){
     if(isPastWeek){
       const notice = document.getElementById('hwRewardNotice');
       if(notice){ notice.classList.add('hidden'); notice.innerHTML = ''; }
+      const sugBoxP = document.getElementById('hwPlanSuggestBox');
+      if(sugBoxP){ sugBoxP.classList.add('hidden'); sugBoxP.innerHTML = ''; }
     }
     if(!isPastWeek) try{
       const statusRes = await fetch('/api/student/weekly-plan-status?weekKey='+encodeURIComponent(weekKey)).then(r=>r.json()).catch(()=>null);
       const st = statusRes && statusRes.status;
+      const sugBox = document.getElementById('hwPlanSuggestBox');
+      if(sugBox){ if(st && st.planSuggestion){ sugBox.innerHTML = '<div class="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-3 space-y-1"><div class="font-bold text-yellow-900 text-sm">\uD83D\uDC2F 今週の阪神マンのおすすめ</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planSuggestion)+'</div><div class="text-[10px] text-slate-400">\u203B あくまで参考。自分で計画を立ててみよう！</div></div>'; sugBox.classList.remove('hidden'); } else { sugBox.innerHTML=''; sugBox.classList.add('hidden'); } }
       const notice = document.getElementById('hwRewardNotice');
       if(notice && st){
         let html = '';

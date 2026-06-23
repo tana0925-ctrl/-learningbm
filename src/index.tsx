@@ -3660,7 +3660,9 @@ app.get('/api/student/weekly-plan-status', async (c) => {
   `).bind(u.id, weekKey).first<any>()
   let planAiComment: any = null
   try { const _pc = await c.env.DB.prepare('SELECT plan_ai_comment as planAiComment FROM student_weekly_plans WHERE user_id=? AND week_key=?').bind(u.id, weekKey).first<any>(); if (_pc) planAiComment = _pc.planAiComment || null } catch {}
-  const status2 = row ? { ...row, planAiComment } : (planAiComment ? { planAiComment } : null)
+  let planSuggestion: any = null
+  try { const _ps = await c.env.DB.prepare('SELECT plan_suggestion as planSuggestion FROM student_weekly_plans WHERE user_id=? AND week_key=?').bind(u.id, weekKey).first<any>(); if (_ps) planSuggestion = _ps.planSuggestion || null } catch {}
+  const status2 = row ? { ...row, planAiComment, planSuggestion } : ((planAiComment || planSuggestion) ? { planAiComment, planSuggestion } : null)
   return c.json({ ok: true, status: status2 })
 })
 
@@ -4426,6 +4428,33 @@ app.post('/api/teacher/plan-ai-comments', async (c) => {
       await c.env.DB.prepare("UPDATE student_weekly_plans SET plan_ai_comment=?, plan_ai_comment_at=datetime('now') WHERE user_id=? AND week_key=?").bind(comment, sid, weekKey).run()
     } else {
       await c.env.DB.prepare("INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at, plan_ai_comment, plan_ai_comment_at) VALUES (?,?,?,?,?,datetime('now'))").bind(sid, weekKey, '{}', Date.now(), comment).run()
+    }
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
+
+app.post('/api/teacher/plan-suggestions', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  try { await c.env.DB.prepare('ALTER TABLE student_weekly_plans ADD COLUMN plan_suggestion TEXT').run() } catch {}
+  try { await c.env.DB.prepare('ALTER TABLE student_weekly_plans ADD COLUMN plan_suggestion_at TEXT').run() } catch {}
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !Array.isArray(body.comments)) return jsonError(c, 400, 'invalid')
+  const weekKey = String(body.weekKey || getWeekKey()).slice(0, 10)
+  let saved = 0
+  for (const it of body.comments) {
+    const sid = String(it.studentId || '')
+    const comment = String(it.comment || '').slice(0, 4000)
+    if (!sid || !comment) continue
+    const own = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? LIMIT 1').bind(sid).first<any>()
+      : await c.env.DB.prepare('SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, sid).first<any>()
+    if (!own) continue
+    const ex = await c.env.DB.prepare('SELECT id FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, weekKey).first<any>()
+    if (ex) {
+      await c.env.DB.prepare("UPDATE student_weekly_plans SET plan_suggestion=?, plan_suggestion_at=datetime('now') WHERE user_id=? AND week_key=?").bind(comment, sid, weekKey).run()
+    } else {
+      await c.env.DB.prepare("INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at, plan_suggestion, plan_suggestion_at) VALUES (?,?,?,?,?,datetime('now'))").bind(sid, weekKey, '{}', Date.now(), comment).run()
     }
     saved++
   }
@@ -7043,7 +7072,7 @@ app.get('/teacher', (c) => {
           <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
             <div class="font-bold text-sm text-violet-800">🤖 AI分析（まとめて）— ワンストップ</div>
             <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて保存」。クラス所見・個人カルテ・今週の計画・週の振り返り返却を、1回のコピー＆貼り付けで各保存先に振り分けます（常時表示にも反映）。</p>
-            <div class="flex flex-wrap gap-3 text-xs text-violet-700 items-center"><span class="font-bold">含める種類:</span><label class="flex items-center gap-1"><input type="checkbox" id="uniOptClass" checked> クラス所見</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptKarte" checked> 個人カルテ</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptPlan" checked> 今週の計画</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptReflect" checked> 振り返り返却</label></div>
+            <div class="flex flex-wrap gap-3 text-xs text-violet-700 items-center"><span class="font-bold">含める種類:</span><label class="flex items-center gap-1"><input type="checkbox" id="uniOptClass" checked> クラス所見</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptKarte" checked> 個人カルテ</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptPlan" checked> 今週の計画</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptReflect" checked> 振り返り返却</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptSuggest" checked> 計画おすすめ</label></div>
             <div class="flex flex-wrap gap-2 items-center">
               <button onclick="copyUnifiedAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-700">📋 まとめてコピー（クラス＋全児童）</button>
               <span id="unifiedAiStatus" class="text-xs text-violet-700 font-bold"></span>
@@ -9665,7 +9694,7 @@ wrap.innerHTML = '';
         var cid=_aiClassId(); var st=document.getElementById('unifiedAiStatus');
         if(!cid){ if(st) st.textContent='クラスを選んでください'; return; }
         var _opt=function(idd){ var e=document.getElementById(idd); return e?!!e.checked:true; };
-        var optClass=_opt('uniOptClass'), optKarte=_opt('uniOptKarte'), optPlan=_opt('uniOptPlan'), optReflect=_opt('uniOptReflect');
+        var optClass=_opt('uniOptClass'), optKarte=_opt('uniOptKarte'), optPlan=_opt('uniOptPlan'), optReflect=_opt('uniOptReflect'); var optSuggest=_opt('uniOptSuggest');
         if(st) st.textContent='名簿を取得中...';
         var roster=[];
         try{ var rr=await fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:''})}); var rd=await rr.json(); roster=(rd&&rd.roster)||[]; }catch(e){}
@@ -9677,11 +9706,15 @@ wrap.innerHTML = '';
         if(optKarte) L.push('・=== [KARTE:児童ID] 名前 === … 阪神マン風（関西弁・前向き）で ①ええところ ②気になるところ ③おすすめの学習・声かけ。今年度（4月〜）全期間の傾向と成果物の評価（◎○△）も踏まえ、課題は正直に＋次の一歩とセットで。');
         if(optPlan) L.push('・=== [PLAN:児童ID] 名前 === … その子の「今週の計画」へ ①よい点 ②もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか）③ひとことアドバイス。子どもにそのまま返せるやさしい言葉で。');
         if(optReflect) L.push('・=== [REFLECT:児童ID] 名前 === … その子の「今週の振り返り」への返却コメント。がんばりを認めつつ次につながる一言を、やさしい言葉で。');
+        if(optSuggest) L.push('・=== [SUGGEST:児童ID] 名前 === … あなたは関西弁の応援キャラ「阪神マン」。この子の苦手・復習どきの単元・今週のテスト予定・学習履歴をもとに、今週の家庭学習の「おすすめ計画」を曜日ごとに何をどれくらい（合計3〜5項目）。子どもがそのまま参考にできるやさしい関西弁で。目印の行は変えずに残してください。');
         L.push('');
         var totSub=0, totMin=0, n=roster.length; var karteBlocks=[];
         if(optKarte){ for(var i=0;i<roster.length;i++){ var s=roster[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); var id=s.loginId||s.userId; var blk=['=== [KARTE:'+id+'] '+nm+' ===']; try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(s.userId)); var data=await res.json(); if(data&&data.ok){ var ov=data.overview||{}; totSub+=(ov.totalSubmissions||0); totMin+=(ov.totalMinutes||0); blk=blk.concat(_aiBodyLines(data)); } else { blk.push('(データ取得失敗)'); } }catch(e){ blk.push('(エラー)'); } karteBlocks.push(blk); if(st) st.textContent='データ収集中...('+(i+1)+'/'+n+')'; } }
         if(optClass){ L.push('=== [CLASS] ==='); L.push('（クラスの集計：児童数 '+n+'人 / 提出のべ '+totSub+'回 / 学習のべ '+Math.round(totMin/60)+'時間。下の各児童データを総合してクラス所見を書いてください）'); L.push(''); }
         for(var b=0;b<karteBlocks.length;b++){ L=L.concat(karteBlocks[b]); L.push(''); }
+        if(optSuggest){ if(st) st.textContent='おすすめ計画用データを収集中...'; for(var si=0;si<roster.length;si++){ var ss=roster[si]; var snm=(typeof resolveStudentName==='function')?resolveStudentName(ss.loginId,ss.name):(ss.name||''); var sid2=ss.loginId||ss.userId; var sblk=['=== [SUGGEST:'+sid2+'] '+snm+' ==='];
+          try{ var sres=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(ss.userId)); var sdata=await sres.json(); if(sdata&&sdata.ok){ var subs=(sdata.subjects||[]).slice(); subs.sort(function(a,b){ return (a.rate||0)-(b.rate||0); }); var weak=[]; for(var wi=0;wi<Math.min(subs.length,4);wi++){ if(subs[wi].rate!=null) weak.push((typeof _unitJa==='function'?_unitJa(subs[wi].unit):subs[wi].unit)+'('+subs[wi].rate+'%)'); } sblk.push('【苦手・復習どきの単元（正答率の低い順）】'); sblk.push(weak.length?weak.join('、'):'（データ不足）'); sblk=sblk.concat(_aiBodyLines(sdata)); } else { sblk.push('(データ取得失敗)'); } }catch(e){ sblk.push('(エラー)'); }
+          L=L.concat(sblk); L.push(''); if(st) st.textContent='おすすめ計画データ収集中...('+(si+1)+'/'+n+')'; } }
         if(optPlan||optReflect){ if(st) st.textContent='今週の計画・振り返りを取得中...'; var wk=(typeof getWeekKeyLocal==='function')?getWeekKeyLocal():''; var plans=[]; try{ var pd=await api('/api/teacher/weekly-plans?weekKey='+encodeURIComponent(wk)+'&classId='+encodeURIComponent(cid)); plans=(pd&&pd.plans)||[]; }catch(e){} var dayLabels=['月','火','水','木','金'];
           if(optPlan){ for(var pi=0;pi<plans.length;pi++){ var p=plans[pi]; var pnm=(typeof resolveStudentName==='function')?resolveStudentName(p.loginId,p.studentName):(p.studentName||''); var pid=p.loginId||p.userId; var parsed={}; try{parsed=JSON.parse(p.plansJson||'{}');}catch(_e){} var keys=[]; for(var k in parsed){ if(k!=='_modified') keys.push(k); } var planLines=[]; for(var dI=0;dI<5;dI++){ var kk=keys[dI]||''; var val=kk?parsed[kk]:''; var txt2=(typeof val==='object'&&val)?(val.free||''):(val||''); if(txt2&&String(txt2).trim()) planLines.push(dayLabels[dI]+'：'+txt2); } if(planLines.length){ L.push('=== [PLAN:'+pid+'] '+pnm+' ==='); L=L.concat(planLines); L.push(''); } } }
           if(optReflect){ for(var ri=0;ri<plans.length;ri++){ var rp=plans[ri]; if(rp.reflectionReturnedAt) continue; var rnm=(typeof resolveStudentName==='function')?resolveStudentName(rp.loginId,rp.studentName):(rp.studentName||''); var rid=rp.loginId||rp.userId; var rparsed={}; try{rparsed=JSON.parse(rp.plansJson||'{}');}catch(_e){} var rkeys=[]; for(var k2 in rparsed){ if(k2!=='_modified') rkeys.push(k2); } var friK=rkeys[4]||''; var friV=friK?rparsed[friK]:''; var refl=(typeof friV==='object'&&friV)?(friV.reflection||''):''; if(refl&&String(refl).trim()){ L.push('=== [REFLECT:'+rid+'] '+rnm+' ==='); L.push(refl); L.push(''); } } }
@@ -9699,13 +9732,14 @@ wrap.innerHTML = '';
         var roster=[];
         try{ var rr=await fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:''})}); var rd=await rr.json(); roster=(rd&&rd.roster)||[]; }catch(e){}
         var map={}; for(var i=0;i<roster.length;i++){ var s=roster[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; var dn=(typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):''; if(dn) map[_normId(dn)]=s.userId; }
-        var blocks=_parseAiBlocks(raw); var karteC=[]; var planC=[]; var reflectC=[]; var classOverview=''; var unmatched=[];
-        for(var b=0;b<blocks.length;b++){ var bidRaw=String(blocks[b].id||''); var body=blocks[b].body; if(!body) continue; var typ='KARTE'; var idPart=bidRaw; var ci=bidRaw.indexOf(':'); if(ci>=0){ typ=bidRaw.slice(0,ci).toUpperCase().replace(/[^A-Z]/g,''); idPart=bidRaw.slice(ci+1); } else { var up=bidRaw.toUpperCase(); if(up.indexOf('CLASS')>=0||bidRaw.indexOf('クラス')>=0) typ='CLASS'; } if(typ==='CLASS'){ classOverview=body; continue; } var uid=map[_normId(idPart)]; if(!uid){ unmatched.push(bidRaw); continue; } if(typ==='PLAN'){ planC.push({studentId:uid,comment:body}); } else if(typ==='REFLECT'){ reflectC.push({studentId:uid,comment:body}); } else { karteC.push({studentId:uid,comment:body}); } }
+        var blocks=_parseAiBlocks(raw); var karteC=[]; var planC=[]; var reflectC=[]; var suggestC=[]; var classOverview=''; var unmatched=[];
+        for(var b=0;b<blocks.length;b++){ var bidRaw=String(blocks[b].id||''); var body=blocks[b].body; if(!body) continue; var typ='KARTE'; var idPart=bidRaw; var ci=bidRaw.indexOf(':'); if(ci>=0){ typ=bidRaw.slice(0,ci).toUpperCase().replace(/[^A-Z]/g,''); idPart=bidRaw.slice(ci+1); } else { var up=bidRaw.toUpperCase(); if(up.indexOf('CLASS')>=0||bidRaw.indexOf('クラス')>=0) typ='CLASS'; } if(typ==='CLASS'){ classOverview=body; continue; } var uid=map[_normId(idPart)]; if(!uid){ unmatched.push(bidRaw); continue; } if(typ==='PLAN'){ planC.push({studentId:uid,comment:body}); } else if(typ==='REFLECT'){ reflectC.push({studentId:uid,comment:body}); } else if(typ==='SUGGEST'){ suggestC.push({studentId:uid,comment:body}); } else { karteC.push({studentId:uid,comment:body}); } }
         var msgs=[]; var wk=(typeof getWeekKeyLocal==='function')?getWeekKeyLocal():'';
         if(classOverview){ try{ var cr=await fetch('/api/teacher/class-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,overview:classOverview})}); var cd=await cr.json(); if(cd&&cd.ok) msgs.push('クラス所見'); }catch(e){} }
         if(karteC.length){ try{ var sr=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:karteC})}); var sd=await sr.json(); if(sd&&sd.ok) msgs.push('カルテ'+sd.saved+'人'); }catch(e){} }
         if(planC.length){ try{ var pr=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:planC})}); var pd2=await pr.json(); if(pd2&&pd2.ok) msgs.push('計画'+pd2.saved+'人'); }catch(e){} }
-        if(reflectC.length){ try{ var fr=await fetch('/api/teacher/reflection-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:reflectC})}); var fd=await fr.json(); if(fd&&fd.ok) msgs.push('振り返り返却'+fd.saved+'人'); }catch(e){} }
+        if(reflectC.length){ try{ var fr=await fetch('/api/teacher/reflection-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:reflectC})}); var fd=await fr.json(); if(fd&&fd.ok) msgs.push('振り返り返却'+fd.saved+'人'); }catch(e){}
+        if(suggestC.length){ try{ var sgr=await fetch('/api/teacher/plan-suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:suggestC})}); var sgd=await sgr.json(); if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} }
         if(!msgs.length){ if(st) st.textContent='保存できる内容がありませんでした（目印 === [CLASS] === / === [KARTE:児童ID] === などを確認）'; return; }
         if(st) st.textContent='✓ 保存: '+msgs.join(' / ')+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':'');
         try{ loadAiSummary(); }catch(e){}
