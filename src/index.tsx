@@ -9739,7 +9739,7 @@ wrap.innerHTML = '';
         if(karteC.length){ try{ var sr=await fetch('/api/teacher/student-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comments:karteC})}); var sd=await sr.json(); if(sd&&sd.ok) msgs.push('カルテ'+sd.saved+'人'); }catch(e){} }
         if(planC.length){ try{ var pr=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:planC})}); var pd2=await pr.json(); if(pd2&&pd2.ok) msgs.push('計画'+pd2.saved+'人'); }catch(e){} }
         if(reflectC.length){ try{ var fr=await fetch('/api/teacher/reflection-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:reflectC})}); var fd=await fr.json(); if(fd&&fd.ok) msgs.push('振り返り返却'+fd.saved+'人'); }catch(e){}
-        if(suggestC.length){ try{ var sgr=await fetch('/api/teacher/plan-suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:suggestC})}); var sgd=await sgr.json(); if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} }
+        if(suggestC.length){ try{ var sgr=await fetch('/api/teacher/plan-suggestions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:suggestC})}); var sgd=await sgr.json(); if(sgd&&sgd.ok) msgs.push('おすすめ計画'+sgd.saved+'人'); }catch(e){} } }
         if(!msgs.length){ if(st) st.textContent='保存できる内容がありませんでした（目印 === [CLASS] === / === [KARTE:児童ID] === などを確認）'; return; }
         if(st) st.textContent='✓ 保存: '+msgs.join(' / ')+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':'');
         try{ loadAiSummary(); }catch(e){}
