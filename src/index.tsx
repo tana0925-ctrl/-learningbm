@@ -4655,6 +4655,44 @@ app.get('/api/teacher/weekly-plans', async (c) => {
   return c.json({ ok: true, plans: res.results, weekKey })
 })
 
+app.get('/api/teacher/student-reflection-history', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const studentId = c.req.query('studentId') || ''
+  if (!studentId) return jsonError(c, 400, 'invalid')
+  const own = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? LIMIT 1').bind(studentId).first<any>()
+    : await c.env.DB.prepare('SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, studentId).first<any>()
+  if (!own) return jsonError(c, 403, 'forbidden')
+  const weeks = Math.min(12, Math.max(1, Number(c.req.query('weeks')) || 6))
+  const plans: any[] = []
+  try {
+    const planRows = await c.env.DB.prepare('SELECT week_key as weekKey, plans_json as plansJson, reflection_comment as reflectionComment FROM student_weekly_plans WHERE user_id=? ORDER BY week_key DESC LIMIT ?').bind(studentId, weeks).all<any>()
+    const dayLabels = ['月', '火', '水', '木', '金']
+    for (const r of ((planRows && planRows.results) || [])) {
+      let parsed: any = {}
+      try { parsed = JSON.parse(r.plansJson || '{}') } catch (_e) { parsed = {} }
+      const keys = Object.keys(parsed).filter((k) => k !== '_modified')
+      const planLines: string[] = []
+      for (let d = 0; d < 5; d++) {
+        const v = keys[d] ? parsed[keys[d]] : ''
+        const txt = (v && typeof v === 'object') ? (v.free || '') : (v || '')
+        if (txt && String(txt).trim()) planLines.push(dayLabels[d] + '：' + String(txt).slice(0, 120))
+      }
+      const friV = keys[4] ? parsed[keys[4]] : ''
+      const refl = (friV && typeof friV === 'object') ? (friV.reflection || '') : ''
+      plans.push({ weekKey: r.weekKey, plan: planLines.join(' / '), reflection: String(refl || '').slice(0, 300), comment: String(r.reflectionComment || '').slice(0, 200) })
+    }
+  } catch (_e) {}
+  let reflections: any[] = []
+  try {
+    const refRows = await c.env.DB.prepare('SELECT week_key as weekKey, concentration, good_point as goodPoint, improve_point as improvePoint, next_action as nextAction, free_text as freeText FROM structured_reflections WHERE user_id=? ORDER BY week_key DESC LIMIT ?').bind(studentId, weeks).all<any>()
+    reflections = ((refRows && refRows.results) || [])
+  } catch (_e) { reflections = [] }
+  return c.json({ ok: true, plans, reflections })
+})
+
+
 // 先生：計画を承認（OKを出す）→ 生徒にコイン付与
 app.post('/api/teacher/weekly-plan/:id/approve', async (c) => {
   const u = c.get('user')
@@ -8626,13 +8664,11 @@ app.get('/teacher', (c) => {
         var cf=document.getElementById('fbClassFilter'); var cid=cf?cf.value:'';
         var st=document.getElementById('refAiStatus'); var wk=getWeekKeyLocal();
         if(!cid){ if(st) st.textContent='上の「クラスを選択」でクラスを選んでください'; return; }
-        if(st) st.textContent='振り返りを集めています...';
+        if(st) st.textContent='今週の振り返りを集めています...';
         var plans=[];
         try{ var qs='?weekKey='+encodeURIComponent(wk)+'&classId='+encodeURIComponent(cid); var data=await api('/api/teacher/weekly-plans'+qs); plans=(data&&data.plans)||[]; }
         catch(e){ if(st) st.textContent='取得に失敗しました'; return; }
-        var NL=String.fromCharCode(10); var L=[]; var roster=[]; var n=0;
-        L.push('あなたは小学校の先生のサポート役です。各児童の「今週の振り返り」（その子が週末に書いた、今週の家庭学習のふりかえり）を読んで、子どもにそのまま返せるやさしい日本語で、①よかったところ ②次に向けてのひとこと、を合わせて2〜3文で書いてください。各児童の === [児童ID] 名前 === の目印の行は、変えずにそのまま残してください。');
-        L.push('');
+        var targets=[];
         for(var i=0;i<plans.length;i++){
           var pp=plans[i];
           if(pp.reflectionReturnedAt) continue;
@@ -8641,18 +8677,45 @@ app.get('/teacher', (c) => {
           var friK=keys[4]||''; var friV=friK?parsed[friK]:'';
           var refl=(typeof friV==='object'&&friV)?(friV.reflection||''):'';
           if(!refl||!String(refl).trim()) continue;
-          var nm=(typeof resolveStudentName==='function')?resolveStudentName(pp.loginId,pp.studentName):(pp.studentName||'');
-          var id=pp.loginId||pp.userId;
-          roster.push({userId:pp.userId, loginId:pp.loginId, name:nm});
-          L.push('=== ['+id+'] '+nm+' ===');
-          L.push(String(refl));
-          L.push('');
-          n++;
+          targets.push({userId:pp.userId, loginId:pp.loginId, studentName:pp.studentName, reflection:String(refl)});
         }
-        if(!n){ if(st) st.textContent='未返却で振り返りが書かれている児童がいません'; return; }
+        if(!targets.length){ if(st) st.textContent='未返却で今週の振り返りが書かれている児童がいません'; return; }
+        var NL=String.fromCharCode(10); var L=[]; var roster=[];
+        L.push('あなたは小学校の先生のサポート役です。各児童について、その子の「今週の振り返り」だけでなく、これまでの「今週の計画」や「振り返り」の積み重ね・成長、今年度（4月〜）の学習のまとめも踏まえて、子どもにそのまま返せるやさしい日本語で、①よかったところ ②次に向けてのひとこと、を合わせて2〜3文で書いてください。各児童の === [児童ID] 名前 === の目印の行は、変えずにそのまま残してください。');
+        L.push('');
+        for(var t=0;t<targets.length;t++){
+          var tg=targets[t];
+          var nm=(typeof resolveStudentName==='function')?resolveStudentName(tg.loginId,tg.studentName):(tg.studentName||'');
+          var id=tg.loginId||tg.userId;
+          roster.push({userId:tg.userId, loginId:tg.loginId, name:nm});
+          if(st) st.textContent='データ収集中...('+(t+1)+'/'+targets.length+')';
+          L.push('=== ['+id+'] '+nm+' ===');
+          L.push('【今週の振り返り】');
+          L.push(tg.reflection);
+          try{
+            var hres=await fetch('/api/teacher/student-reflection-history?studentId='+encodeURIComponent(tg.userId)+'&weeks=6');
+            var hd=await hres.json();
+            if(hd&&hd.ok){
+              var ph=(hd.plans||[]).filter(function(x){ return x.weekKey!==wk; });
+              var planHist=ph.filter(function(x){ return x.plan; }).slice(0,4);
+              if(planHist.length){ L.push('【これまでの今週の計画（直近）】'); for(var a=0;a<planHist.length;a++){ L.push('・'+planHist[a].weekKey+'：'+planHist[a].plan); } }
+              var refRows=[];
+              var rr=(hd.reflections||[]).filter(function(x){ return x.weekKey!==wk; }).slice(0,4);
+              for(var b=0;b<rr.length;b++){ var R=rr[b]; var parts=[]; if(R.goodPoint) parts.push('よかった:'+R.goodPoint); if(R.improvePoint) parts.push('もっと:'+R.improvePoint); if(R.nextAction) parts.push('次:'+R.nextAction); if(R.freeText) parts.push('ひとこと:'+R.freeText); if(parts.length) refRows.push('・'+R.weekKey+'（集中度'+(R.concentration||'-')+'）'+parts.join(' / ')); }
+              if(!refRows.length){ var planRefl=ph.filter(function(x){ return x.reflection; }).slice(0,4); for(var c2=0;c2<planRefl.length;c2++){ refRows.push('・'+planRefl[c2].weekKey+'：'+planRefl[c2].reflection); } }
+              if(refRows.length){ L.push('【これまでの今週の振り返り（直近）】'); for(var d2=0;d2<refRows.length;d2++){ L.push(refRows[d2]); } }
+            }
+          }catch(_e){}
+          try{
+            var ares=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(tg.userId));
+            var ad=await ares.json();
+            if(ad&&ad.ok&&typeof _aiBodyLines==='function'){ L.push('【今年度（4月〜）の学習のまとめ】'); L=L.concat(_aiBodyLines(ad)); }
+          }catch(_e){}
+          L.push('');
+        }
         window._refAiRoster=roster;
         var out=L.join(NL);
-        var done=function(){ if(st) st.textContent='✓ '+n+'人分をコピーしました。AIに貼り付けてください'; };
+        var done=function(){ if(st) st.textContent='✓ '+targets.length+'人分（過去の計画・振り返り＋年度まとめ込み）をコピーしました。AIに貼り付けてください'; };
         if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(out).then(done,function(){ if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }); }
         else { if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }
       }
