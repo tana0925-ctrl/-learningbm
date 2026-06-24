@@ -484,21 +484,20 @@ app.put('/api/student/progress', async (c) => {
         try { if (_inc.fractionFest) _inc.fractionFest.totalShards = _inc.lab.shards } catch (_e) {}
         saveJson = JSON.stringify(_inc)
       }
-      // オチャ（連続提出ごほうび）：サーバ付与をクライアントの全置換保存から保護
-      const _srvOcha = Number(_srv._ochaGranted) || 0
-      const _cliOcha = Number(_inc._ochaGranted) || 0
-      if (_srvOcha === 1 && _cliOcha !== 1) {
-        if (!_inc.secret || typeof _inc.secret !== 'object') _inc.secret = {}
-        const _hasO = !!(_inc.secret.ochaGot || _inc.secret.ochaDaimaoGot || (_inc.monsters && (_inc.monsters['1042'] || _inc.monsters['1043'])))
-        if (!_hasO) {
+      // オチャ（連続提出ごほうび）：サーバが付与済みなら、クライアントの全置換保存でも必ずモンスター＋フラグを保持
+      const _srvOchaGranted = (Number(_srv._ochaGranted) || 0) === 1 || !!(_srv.secret && _srv.secret.ochaGot)
+      if (_srvOchaGranted) {
+        const _incHasMon = !!(_inc.monsters && (_inc.monsters['1042'] || _inc.monsters['1043']))
+        if (!_incHasMon) {
           if (!_inc.monsters || typeof _inc.monsters !== 'object') _inc.monsters = {}
           _inc.monsters['1042'] = { level: 8, exp: 0, nextExp: Math.floor(100 + Math.pow(8, 2.2) * 10) }
           if (!Array.isArray(_inc.pokedex)) _inc.pokedex = []
           if (!_inc.pokedex.includes(1042)) _inc.pokedex.push(1042)
           if (Array.isArray(_inc.party) && _inc.party.length < 3 && !_inc.party.includes(1042)) _inc.party.push(1042)
-          _inc.secret.ochaGot = true
-          _inc.secret.ochaDaimaoGot = true
         }
+        if (!_inc.secret || typeof _inc.secret !== 'object') _inc.secret = {}
+        _inc.secret.ochaGot = true
+        _inc.secret.ochaDaimaoGot = true
         _inc._ochaGranted = 1
         saveJson = JSON.stringify(_inc)
       }
