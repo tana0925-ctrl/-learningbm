@@ -43119,7 +43119,21 @@ function hsPhotosSelected(input) {
     fd.append('dayKey', dayKey);
     fetch('/api/homework/analyze-photo', { method: 'POST', body: fd })
       .then(function(r) { return r.json(); })
-      .then(function(j) { if (j.ok && j.analysis) _hsPhotoAnalysisResult = j.analysis; })
+      .then(function(j) {
+        if (j.ok && j.analysis) _hsPhotoAnalysisResult = j.analysis;
+        try {
+          if (j && j.photoBonus && j.photoBonus.res) {
+            var pb = j.photoBonus;
+            if (pb.res === "shards") { if (typeof labAddShards === "function") { labAddShards(pb.amount); } else { if (!player.lab || typeof player.lab !== "object") player.lab = { shards: 0, use: {} }; player.lab.shards = (Number(player.lab.shards) || 0) + pb.amount; } }
+            else { player[pb.res] = (Number(player[pb.res]) || 0) + pb.amount; }
+            if (j.photoBonusApplied) player._photoBonusApplied = j.photoBonusApplied;
+            try { if (typeof saveData === "function") saveData(); } catch (_e) {}
+            var _msg = "\uD83D\uDCF7 \u5199\u771f\u30dc\u30fc\u30ca\u30b9\uff01 " + (pb.label || "") + "\u3092 " + pb.amount + "\u3053 \u30b2\u30c3\u30c8\uff01";
+            var _ps = document.getElementById("hsPhotoStatus"); if (_ps) { _ps.textContent = _msg; }
+            try { alert(_msg); } catch (_e2) {}
+          }
+        } catch (_e3) {}
+      })
       .catch(function(e) { console.warn('[photo-analysis]', e); });
   }
 }
