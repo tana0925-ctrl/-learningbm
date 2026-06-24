@@ -7669,6 +7669,17 @@ app.get('/teacher', (c) => {
             <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
           </div>
         </div>
+          <!-- 外部AIで今週の振り返りに返却 -->
+          <div class="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
+            <div class="font-bold text-sm text-violet-800">📋 外部AIで今週の振り返りにコメント（全員分まとめて）</div>
+            <p class="text-[11px] text-violet-600">①「AI用にコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて返却」。各児童の今週の振り返りに先生（AI）コメントが返却され、子ども側に表示されます（+300コイン+5かけら）。返却済みの子はスキップ。上の「クラスを選択」を使います。</p>
+            <div class="flex flex-wrap gap-2 items-center">
+              <button onclick="copyReflectionsForAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 全員分の今週の振り返りをAI用にコピー</button>
+              <span id="refAiStatus" class="text-xs text-violet-700 font-bold"></span>
+            </div>
+            <textarea id="refAiPaste" rows="4" placeholder="ここにAIの出力を全部貼り付け（=== [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
+            <div><button onclick="saveReflectionAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-violet-700">💬 まとめて返却（振り返りコメント保存）</button></div>
+          </div>
         </div>
       </div>
 
@@ -8611,6 +8622,59 @@ app.get('/teacher', (c) => {
       async function copyOnePlanForAi(uid){ var rec=(window._planTextByUser||{})[uid]; var st=document.getElementById('planOneStatus_'+uid); if(!rec){ if(st) st.textContent='再読み込みしてください'; return; } if(st) st.textContent='学習履歴を取得中...'; var NL=String.fromCharCode(10); var L=[]; L.push('あなたは小学校の先生のサポート役です。次の児童の「今週の計画」と「これまでの学習履歴（今年度4月\u301C の集計）」の両方を踏まえて、\u2460よい点 \u2461もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか・その子の苦手や得意に合っているか）\u2462子どもへのひとことアドバイス を、子どもにそのまま返せるやさしい日本語で書いてください。前置きや説明は不要。'); L.push(''); L.push('\u25A0 児童: '+(rec.name||'')); L.push('【今週の計画】'); if(rec.lines&&rec.lines.length){ for(var i=0;i<rec.lines.length;i++) L.push(rec.lines[i]); } else { L.push('（計画の記入がありません）'); } L.push(''); L.push('【この児童の学習履歴（今年度4月\u301C の集計）】'); try{ var res=await fetch('/api/teacher/student-full-analysis?studentId='+encodeURIComponent(uid)); var data=await res.json(); if(data&&data.ok&&typeof _aiBodyLines==='function'){ L=L.concat(_aiBodyLines(data)); } else { L.push('（学習履歴の取得に失敗しました）'); } }catch(e){ L.push('（学習履歴の取得エラー）'); } var txt=L.join(NL); var done=function(){ if(st) st.textContent='\u2713 計画＋履歴をコピーしました。AIに貼り付け→結果を下に貼って保存'; }; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ if(typeof _faFallbackCopy==='function') _faFallbackCopy(txt); done(); }); } else { if(typeof _faFallbackCopy==='function') _faFallbackCopy(txt); done(); } }
       async function saveOnePlanAiComment(uid){ var st=document.getElementById('planOneStatus_'+uid); var ta=document.getElementById('planOnePaste_'+uid); var raw=ta?ta.value:''; if(!raw||!raw.trim()){ if(st) st.textContent='AIの結果を貼ってください'; return; } if(st) st.textContent='保存中...'; try{ var wk=(typeof getWeekKeyLocal==='function')?getWeekKeyLocal():''; var res=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk,comments:[{studentId:uid,comment:raw}]})}); var d=await res.json(); if(d&&d.ok&&d.saved>0){ if(st) st.textContent='\u2713 保存しました（子ども側に表示）'; } else { if(st) st.textContent='保存できませんでした（今週の計画が必要です）'; } }catch(e){ if(st) st.textContent='エラー: '+(e&&e.message?e.message:e); } }
       async function copyPlansForAi(){ var cf=document.getElementById('hwClassFilter'); var cid=cf?cf.value:''; var st=document.getElementById('planAiStatus'); var wk=getWeekKeyLocal(); if(st) st.textContent='計画を集めています...'; var plans=[]; try{ var qs='?weekKey='+encodeURIComponent(wk)+(cid?('&classId='+encodeURIComponent(cid)):''); var data=await api('/api/teacher/weekly-plans'+qs); plans=(data&&data.plans)||[]; }catch(e){ if(st) st.textContent='取得に失敗しました'; return; } if(!plans.length){ if(st) st.textContent='今週の計画がまだありません'; return; } var NL=String.fromCharCode(10); var L=[]; var roster=[]; L.push('あなたは小学校の先生のサポート役です。各児童の\u201C今週の計画\u201Dについて、\u2460よい点 \u2461もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか）\u2462子どもへのひとことアドバイス、を、子どもにそのまま返せるやさしい日本語で。各児童の === [児童ID] 名前 === の目印は変えずに残してください。'); L.push(''); var dayLabels=['月','火','水','木','金']; for(var i=0;i<plans.length;i++){ var p=plans[i]; var nm=(typeof resolveStudentName==='function')?resolveStudentName(p.loginId,p.studentName):(p.studentName||''); var id=p.loginId||p.userId; roster.push({userId:p.userId, loginId:p.loginId, name:nm}); L.push('=== ['+id+'] '+nm+' ==='); var parsed={}; try{ parsed=JSON.parse(p.plansJson||'{}'); }catch(_e){} var keys=[]; for(var k in parsed){ if(k!=='_modified') keys.push(k); } var anyTxt=false; for(var dI=0; dI<5; dI++){ var kk=keys[dI]||''; var val=kk?parsed[kk]:''; var txt=(typeof val==='object'&&val)?(val.free||''):(val||''); if(txt&&String(txt).trim()){ L.push(dayLabels[dI]+'：'+txt); anyTxt=true; } } if(!anyTxt){ L.push('（計画の記入がありません）'); } L.push(''); } window._planAiRoster=roster; var out=L.join(NL); var done=function(){ if(st) st.textContent='\u2713 '+plans.length+'人分をコピーしました。AIに貼り付けてください'; }; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(out).then(done,function(){ if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }); } else { if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); } }
+      async function copyReflectionsForAi(){
+        var cf=document.getElementById('fbClassFilter'); var cid=cf?cf.value:'';
+        var st=document.getElementById('refAiStatus'); var wk=getWeekKeyLocal();
+        if(!cid){ if(st) st.textContent='上の「クラスを選択」でクラスを選んでください'; return; }
+        if(st) st.textContent='振り返りを集めています...';
+        var plans=[];
+        try{ var qs='?weekKey='+encodeURIComponent(wk)+'&classId='+encodeURIComponent(cid); var data=await api('/api/teacher/weekly-plans'+qs); plans=(data&&data.plans)||[]; }
+        catch(e){ if(st) st.textContent='取得に失敗しました'; return; }
+        var NL=String.fromCharCode(10); var L=[]; var roster=[]; var n=0;
+        L.push('あなたは小学校の先生のサポート役です。各児童の「今週の振り返り」（その子が週末に書いた、今週の家庭学習のふりかえり）を読んで、子どもにそのまま返せるやさしい日本語で、①よかったところ ②次に向けてのひとこと、を合わせて2〜3文で書いてください。各児童の === [児童ID] 名前 === の目印の行は、変えずにそのまま残してください。');
+        L.push('');
+        for(var i=0;i<plans.length;i++){
+          var pp=plans[i];
+          if(pp.reflectionReturnedAt) continue;
+          var parsed={}; try{ parsed=JSON.parse(pp.plansJson||'{}'); }catch(_e){}
+          var keys=[]; for(var k in parsed){ if(k!=='_modified') keys.push(k); }
+          var friK=keys[4]||''; var friV=friK?parsed[friK]:'';
+          var refl=(typeof friV==='object'&&friV)?(friV.reflection||''):'';
+          if(!refl||!String(refl).trim()) continue;
+          var nm=(typeof resolveStudentName==='function')?resolveStudentName(pp.loginId,pp.studentName):(pp.studentName||'');
+          var id=pp.loginId||pp.userId;
+          roster.push({userId:pp.userId, loginId:pp.loginId, name:nm});
+          L.push('=== ['+id+'] '+nm+' ===');
+          L.push(String(refl));
+          L.push('');
+          n++;
+        }
+        if(!n){ if(st) st.textContent='未返却で振り返りが書かれている児童がいません'; return; }
+        window._refAiRoster=roster;
+        var out=L.join(NL);
+        var done=function(){ if(st) st.textContent='✓ '+n+'人分をコピーしました。AIに貼り付けてください'; };
+        if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(out).then(done,function(){ if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }); }
+        else { if(typeof _faFallbackCopy==='function') _faFallbackCopy(out); done(); }
+      }
+
+      async function saveReflectionAiComments(){
+        var st=document.getElementById('refAiStatus'); var ta=document.getElementById('refAiPaste'); var raw=ta?ta.value:'';
+        if(!raw||!raw.trim()){ if(st) st.textContent='AIの結果を貼り付けてください'; return; }
+        var roster=window._refAiRoster||[]; if(!roster.length){ if(st) st.textContent='先に「AI用にコピー」を押してください'; return; }
+        var map={}; for(var i=0;i<roster.length;i++){ var sObj=roster[i]; if(sObj.loginId) map[_normId(sObj.loginId)]=sObj.userId; if(sObj.userId) map[_normId(sObj.userId)]=sObj.userId; if(sObj.name) map[_normId(sObj.name)]=sObj.userId; }
+        var blocks=_parseAiBlocks(raw); var comments=[]; var unmatched=[];
+        for(var b=0;b<blocks.length;b++){ var uid=map[_normId(blocks[b].id)]; if(uid&&blocks[b].body){ comments.push({studentId:uid, comment:blocks[b].body}); } else { unmatched.push(blocks[b].id); } }
+        if(!comments.length){ if(st) st.textContent='目印 === [児童ID] === が見つかりませんでした（'+blocks.length+'ブロック検出）'; return; }
+        if(st) st.textContent='保存中...';
+        try{
+          var wk=getWeekKeyLocal();
+          var res=await fetch('/api/teacher/reflection-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk, comments:comments})});
+          var d=await res.json();
+          if(d&&d.ok){ if(st) st.textContent='✓ '+d.saved+'人に今週の振り返りコメントを返却しました'+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':''); if(typeof loadStudentPlans==='function'){ try{ loadStudentPlans(); }catch(_e){} } }
+          else { if(st) st.textContent='保存に失敗しました'; }
+        }catch(e){ if(st) st.textContent='エラー: '+(e&&e.message?e.message:e); }
+      }
+
       async function savePlanAiComments(){ var st=document.getElementById('planAiStatus'); var ta=document.getElementById('planAiPaste'); var raw=ta?ta.value:''; if(!raw||!raw.trim()){ if(st) st.textContent='AIの結果を貼り付けてください'; return; } var roster=window._planAiRoster||[]; if(!roster.length){ if(st) st.textContent='先に「AI用にコピー」を押してください'; return; } var map={}; for(var i=0;i<roster.length;i++){ var s=roster[i]; if(s.loginId) map[_normId(s.loginId)]=s.userId; if(s.userId) map[_normId(s.userId)]=s.userId; if(s.name) map[_normId(s.name)]=s.userId; } var blocks=_parseAiBlocks(raw); var comments=[]; var unmatched=[]; for(var b=0;b<blocks.length;b++){ var uid=map[_normId(blocks[b].id)]; if(uid&&blocks[b].body){ comments.push({studentId:uid, comment:blocks[b].body}); } else { unmatched.push(blocks[b].id); } } if(!comments.length){ if(st) st.textContent='目印 === [児童ID] === が見つかりませんでした（'+blocks.length+'ブロック検出）'; return; } if(st) st.textContent='保存中...'; try{ var wk=getWeekKeyLocal(); var res=await fetch('/api/teacher/plan-ai-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weekKey:wk, comments:comments})}); var d=await res.json(); if(d&&d.ok){ if(st) st.textContent='\u2713 '+d.saved+'人分の計画コメントを保存しました'+(unmatched.length?'（未一致: '+unmatched.slice(0,5).join(', ')+'）':''); } else { if(st) st.textContent='保存に失敗しました'; } }catch(e){ if(st) st.textContent='エラー: '+(e&&e.message?e.message:e); } }
       async function loadStudentPlans(){
         const wrap = document.getElementById('studentPlansList');
