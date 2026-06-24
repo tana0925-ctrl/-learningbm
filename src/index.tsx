@@ -501,6 +501,27 @@ app.put('/api/student/progress', async (c) => {
         _inc._ochaGranted = 1
         saveJson = JSON.stringify(_inc)
       }
+
+      // 📷 写真ボーナス：サーバ付与をクライアントの全置換保存から保護（リソース別の適用台帳）
+      const _srvPB = (_srv && _srv._photoBonusApplied) || {}
+      const _cliPB = (_inc && _inc._photoBonusApplied) || {}
+      const _pbKeys = ['coins', 'shards', 'herbs', 'balls', 'upgradeTickets']
+      let _pbChanged = false
+      for (const _k of _pbKeys) {
+        const _sv = Number(_srvPB[_k]) || 0
+        const _cv = Number(_cliPB[_k]) || 0
+        if (_sv > _cv) {
+          const _d = _sv - _cv
+          if (_k === 'shards') { if (!_inc.lab || typeof _inc.lab !== 'object') _inc.lab = { shards: 0, use: {} }; _inc.lab.shards = (Number(_inc.lab.shards) || 0) + _d }
+          else { _inc[_k] = (Number(_inc[_k]) || 0) + _d }
+          _pbChanged = true
+        }
+      }
+      if (_pbChanged) {
+        if (!_inc._photoBonusApplied || typeof _inc._photoBonusApplied !== 'object') _inc._photoBonusApplied = {}
+        for (const _k of _pbKeys) _inc._photoBonusApplied[_k] = Math.max(Number(_srvPB[_k]) || 0, Number(_cliPB[_k]) || 0)
+        saveJson = JSON.stringify(_inc)
+      }
     }
   } catch { /* 補填失敗時はそのまま保存 */ }
 
@@ -3159,6 +3180,39 @@ app.post('/api/homework/analyze-photo', async (c) => {
       console.error('D1 photo save error:', dbErr?.message || dbErr)
     }
 
+    // 📷 写真ボーナス（有効画像のとき1日1回・サーバ冪等・全置換でも保護）
+    let photoBonus: any = null
+    let photoBonusApplied: any = null
+    try {
+      const validImg = photo.size >= 8192 && /^image\/(png|jpe?g|webp|gif|heic|heif)$/i.test(mimeType)
+      if (validImg) {
+        await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS photo_bonus_rewards (user_id TEXT NOT NULL, day_key TEXT NOT NULL, res TEXT, amount INTEGER, created_at TEXT, PRIMARY KEY(user_id, day_key))").run().catch(() => {})
+        const _roll = Math.random() * 100
+        let _res = 'coins', _amt = 30
+        if (_roll < 40) { _res = 'coins'; _amt = 30 }
+        else if (_roll < 65) { _res = 'shards'; _amt = 2 }
+        else if (_roll < 80) { _res = 'herbs'; _amt = 5 }
+        else if (_roll < 92) { _res = 'balls'; _amt = 3 }
+        else if (_roll < 97) { _res = 'coins'; _amt = 100 }
+        else { _res = 'upgradeTickets'; _amt = 1 }
+        const _ins = await c.env.DB.prepare("INSERT OR IGNORE INTO photo_bonus_rewards (user_id, day_key, res, amount, created_at) VALUES (?,?,?,?,datetime('now'))").bind(u.id, dayKey, _res, _amt).run()
+        if (_ins.meta && _ins.meta.changes === 1) {
+          const prog = await c.env.DB.prepare("SELECT state_json FROM progress WHERE user_id=?").bind(u.id).first<any>()
+          if (prog?.state_json) {
+            const state = JSON.parse(prog.state_json)
+            if (_res === 'shards') { if (!state.lab || typeof state.lab !== 'object') state.lab = { shards: 0, use: {} }; state.lab.shards = (Number(state.lab.shards) || 0) + _amt }
+            else { state[_res] = (Number(state[_res]) || 0) + _amt }
+            if (!state._photoBonusApplied || typeof state._photoBonusApplied !== 'object') state._photoBonusApplied = {}
+            state._photoBonusApplied[_res] = (Number(state._photoBonusApplied[_res]) || 0) + _amt
+            await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
+            const _labels: Record<string, string> = { coins: 'コイン', shards: 'かけら', herbs: 'やくそう', balls: 'モンスタボール', upgradeTickets: '強化チケット' }
+            photoBonus = { res: _res, amount: _amt, label: _labels[_res] || _res }
+            photoBonusApplied = state._photoBonusApplied
+          }
+        }
+      }
+    } catch (e) { console.error('photo bonus error:', e) }
+
     try {
       let binary = ''
       for (let i = 0; i < imageBytes.length; i += 8192) {
@@ -3236,7 +3290,7 @@ app.post('/api/homework/analyze-photo', async (c) => {
 
     // Lazy cleanup: 180日経過した写真をバックグラウンドで削除
     try { (c as any).executionCtx?.waitUntil?.(cleanupOldPhotos(c)) } catch {}
-    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText })
+    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText, photoBonus, photoBonusApplied })
   } catch (e: any) {
     console.error('analyze-photo error:', e)
     return c.json({ ok: true, analysis: '', saved: false })
