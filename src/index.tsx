@@ -6406,6 +6406,7 @@ app.get('/admin', (c) => {
       <!-- ランキング設定 -->
       <div class="bg-white rounded-xl shadow p-6">
         <h2 class="font-bold mb-3">🏆 ランキング設定</h2>
+        <p class="text-xs text-slate-500 mt-1 mb-2 leading-relaxed">週間ランキング：正解pt・図鑑・タイプシュート・野生バトルの「今週分」で各上位3位に「かけら」を自動配布（1位10/2位6/3位3こ、1人最大2種目、毎週金曜17:00 JST締め・土日ノーカウント）。</p>
         <div class="space-y-3 text-sm">
           <div class="flex items-center gap-3">
             <span class="font-bold">表示範囲：</span>
