@@ -3342,6 +3342,28 @@ app.post('/api/homework/:id/claim', async (c) => {
 })
 
 // 教師：クラスの提出一覧を取得
+app.get('/api/teacher/class/:classId/photos', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const rows = await c.env.DB.prepare(`
+    SELECT hp.user_id as userId, hp.day_key as dayKey, hp.mime_type as mimeType, hp.byte_size as byteSize,
+           u.login_id as loginId, u.name as studentName,
+           hs.work_photo_analysis as analysis
+    FROM homework_photos hp
+    JOIN class_members cm ON cm.user_id = hp.user_id AND cm.class_id = ?
+    JOIN users u ON u.id = hp.user_id
+    LEFT JOIN homework_submissions hs ON hs.user_id = hp.user_id AND hs.day_key = hp.day_key
+    ORDER BY hp.day_key DESC, u.name
+    LIMIT 500
+  `).bind(classId).all<any>()
+  return c.json({ ok: true, class: cls, photos: ((rows && rows.results) || []) })
+})
+
 app.get('/api/teacher/homework', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -7505,6 +7527,15 @@ app.get('/teacher', (c) => {
               <p class="text-xs text-slate-400">クラスを選んで「提出状況を表示」を押してください</p>
             </div>
           </div>
+
+          <div class="bg-white rounded-xl shadow p-4">
+            <div class="flex gap-2 mb-3 flex-wrap items-center">
+              <div class="font-bold text-sm text-slate-700">📷 提出写真ギャラリー（読み取り）</div>
+              <button onclick="loadPhotoGallery()" class="bg-cyan-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90 ml-auto">🖼 写真を表示</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-2">上の「クラスを選択」で選んだクラスの、児童が家庭学習で提出した成果物写真を一覧表示します。サムネイルをタップで拡大。</p>
+            <div id="photoGalleryContent"><p class="text-xs text-slate-400">クラスを選んで「写真を表示」を押してください</p></div>
+          </div>
         </div>
 
         <!-- サブタブ①: 先生メニュー -->
@@ -9202,6 +9233,46 @@ wrap.innerHTML = '';
         var sel = document.getElementById('dashWeekSelector');
         if(sel) sel.value = _dashCurrentWeek;
         loadSubmissionDashboard(_dashCurrentWeek);
+      }
+
+      async function loadPhotoGallery(){
+        var cf=document.getElementById('dashClassFilter'); var cid=cf?cf.value:'';
+        var wrap=document.getElementById('photoGalleryContent');
+        if(!wrap) return;
+        if(!cid){ wrap.innerHTML='<p class="text-xs text-slate-400">上の「クラスを選択」でクラスを選んでください</p>'; return; }
+        wrap.innerHTML='<p class="text-xs text-slate-400">読み込み中... ⏳</p>';
+        var data;
+        try{ data=await api('/api/teacher/class/'+encodeURIComponent(cid)+'/photos'); }
+        catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー: '+escH(String(e.message||e))+'</p>'; return; }
+        var ph=(data&&data.photos)||[];
+        if(!ph.length){ wrap.innerHTML='<p class="text-xs text-slate-400">提出写真はまだありません</p>'; return; }
+        var html='<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">';
+        for(var i=0;i<ph.length;i++){
+          var p=ph[i];
+          var nm=(typeof resolveStudentName==='function')?resolveStudentName(p.loginId,p.studentName):(p.studentName||p.loginId||'');
+          var src='/api/photo/'+encodeURIComponent(p.userId)+'/'+encodeURIComponent(p.dayKey);
+          var cap=escH(nm+' / '+(p.dayKey||''));
+          html+='<div class="border rounded-lg overflow-hidden bg-white">'
+            +'<img src="'+src+'" data-cap="'+cap+'" loading="lazy" class="hwPhotoThumb w-full h-28 object-cover cursor-pointer hover:opacity-90 bg-slate-50" alt="提出写真"/>'
+            +'<div class="px-1.5 py-1 text-[10px] text-slate-600 truncate"><b>'+escH(nm)+'</b> '+escH(p.dayKey||'')+'</div>'
+            +'</div>';
+        }
+        html+='</div><p class="text-[10px] text-slate-400 mt-1">'+ph.length+'枚 / 読み取り表示のみ（写真は変更されません）</p>';
+        wrap.innerHTML=html;
+        var thumbs=wrap.querySelectorAll('.hwPhotoThumb');
+        for(var t=0;t<thumbs.length;t++){
+          thumbs[t].addEventListener('click',function(){ openPhotoModal(this.getAttribute('src'), this.getAttribute('data-cap')||''); });
+          thumbs[t].addEventListener('error',function(){ this.style.display='none'; var ph2=document.createElement('div'); ph2.className='w-full h-28 flex items-center justify-center text-[10px] text-slate-400 bg-slate-100'; ph2.textContent='画像を表示できません'; if(this.parentElement) this.parentElement.insertBefore(ph2,this); });
+        }
+      }
+
+      function openPhotoModal(src, caption){
+        var ov=document.createElement('div');
+        ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+        ov.addEventListener('click',function(){ try{ document.body.removeChild(ov); }catch(_e){} });
+        var im=document.createElement('img'); im.src=src; im.style.cssText='max-width:95%;max-height:85%;border-radius:8px;box-shadow:0 6px 30px rgba(0,0,0,0.5)';
+        var cap=document.createElement('div'); cap.style.cssText='color:#fff;margin-top:10px;font-size:13px;text-align:center'; cap.textContent=caption||'';
+        ov.appendChild(im); ov.appendChild(cap); document.body.appendChild(ov);
       }
 
       async function loadSubmissionDashboard(selectedWeek){
