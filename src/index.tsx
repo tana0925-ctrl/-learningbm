@@ -502,6 +502,22 @@ app.put('/api/student/progress', async (c) => {
         saveJson = JSON.stringify(_inc)
       }
 
+      // 😇 聖なる神（超激レア）：サーバが付与済みなら、クライアントの全置換保存でも必ず復元
+      const _srvHoly = (Number(_srv._holyGodGranted) || 0) === 1 || !!(_srv.secret && _srv.secret.holyGodGot)
+      if (_srvHoly) {
+        if (!(_inc.monsters && _inc.monsters['1300'])) {
+          if (!_inc.monsters || typeof _inc.monsters !== 'object') _inc.monsters = {}
+          _inc.monsters['1300'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
+          if (!Array.isArray(_inc.pokedex)) _inc.pokedex = []
+          if (!_inc.pokedex.includes(1300)) _inc.pokedex.push(1300)
+          if (Array.isArray(_inc.party) && _inc.party.length < 3 && !_inc.party.includes(1300)) _inc.party.push(1300)
+        }
+        if (!_inc.secret || typeof _inc.secret !== 'object') _inc.secret = {}
+        _inc.secret.holyGodGot = true
+        _inc._holyGodGranted = 1
+        saveJson = JSON.stringify(_inc)
+      }
+
       // 📷 写真ボーナス：サーバ付与をクライアントの全置換保存から保護（リソース別の適用台帳）
       const _srvPB = (_srv && _srv._photoBonusApplied) || {}
       const _cliPB = (_inc && _inc._photoBonusApplied) || {}
@@ -3183,6 +3199,7 @@ app.post('/api/homework/analyze-photo', async (c) => {
     // 📷 写真ボーナス（有効画像のとき1日1回・サーバ冪等・全置換でも保護）
     let photoBonus: any = null
     let photoBonusApplied: any = null
+    let photoLegend: any = null
     try {
       const validImg = photo.size >= 8192 && /^image\/(png|jpe?g|webp|gif|heic|heif)$/i.test(mimeType)
       if (validImg) {
@@ -3204,6 +3221,21 @@ app.post('/api/homework/analyze-photo', async (c) => {
             else { state[_res] = (Number(state[_res]) || 0) + _amt }
             if (!state._photoBonusApplied || typeof state._photoBonusApplied !== 'object') state._photoBonusApplied = {}
             state._photoBonusApplied[_res] = (Number(state._photoBonusApplied[_res]) || 0) + _amt
+            // ✨ 超激レア（0.1%＝1/1000）：聖なる神（一度きり・冪等・全置換でも保護）。通常ボーナスとは別判定。
+            if (Math.random() < 0.001) {
+              if (!state.secret || typeof state.secret !== 'object') state.secret = {}
+              const _hasHoly = !!(state.secret.holyGodGot || (state.monsters && state.monsters['1300']))
+              if (!_hasHoly) {
+                if (!state.monsters || typeof state.monsters !== 'object') state.monsters = {}
+                state.monsters['1300'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
+                if (!Array.isArray(state.pokedex)) state.pokedex = []
+                if (!state.pokedex.includes(1300)) state.pokedex.push(1300)
+                if (Array.isArray(state.party) && state.party.length < 3 && !state.party.includes(1300)) state.party.push(1300)
+                state.secret.holyGodGot = true
+                state._holyGodGranted = 1
+                photoLegend = { id: 1300, name: '聖なる神', sprite: '😇' }
+              }
+            }
             await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
             const _labels: Record<string, string> = { coins: 'コイン', shards: 'かけら', herbs: 'やくそう', balls: 'モンスタボール', upgradeTickets: '強化チケット' }
             photoBonus = { res: _res, amount: _amt, label: _labels[_res] || _res }
@@ -3290,7 +3322,7 @@ app.post('/api/homework/analyze-photo', async (c) => {
 
     // Lazy cleanup: 180日経過した写真をバックグラウンドで削除
     try { (c as any).executionCtx?.waitUntil?.(cleanupOldPhotos(c)) } catch {}
-    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText, photoBonus, photoBonusApplied })
+    return c.json({ ok: true, analysis: analysisText || '', saved: !!analysisText, photoBonus, photoBonusApplied, photoLegend })
   } catch (e: any) {
     console.error('analyze-photo error:', e)
     return c.json({ ok: true, analysis: '', saved: false })
