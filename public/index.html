@@ -6526,6 +6526,27 @@ MONSTERS.push({
         { name: '緊急停止', type: 'unique', pow: 0, acc: 0.90, effect: 'stun', stunMs: 1800, desc: '相手を少し停止させる' }
     ]
 });
+
+// === 写真ボーナス超激レア：聖なる神（1/1000）===
+const HOLY_GOD_ID = 1300;
+MONSTERS.push({
+    id: HOLY_GOD_ID,
+    name: '聖なる神',
+    sprite: '😇',
+    hp: 540, atk: 155, def: 130, spd: 120,
+    buff: 'guard',
+    elementType: 'fairy',
+    stage: 1,
+    gacha: false,
+    nextId: null,
+    evoLevel: null,
+    desc: '天の光をまといし、聖なる存在。……なのだが、実はかなりのはずかしがりやで、1000まいに1まいの写真にしか姿を見せない。後光がまぶしすぎて、自分でもたまに目がチカチカするらしい。やさしい心でコツコツ学ぶ子のことが、どうやら大好物。',
+    skills: [
+        { name: 'ホーリーレイ', type: 'normal', pow: 35, acc: 0.95, element: 'fairy', desc: 'まばゆい光のビーム。まぶしすぎて相手も自分もちょっとびっくりする。' },
+        { name: 'ディヴァイン・ジャッジ', type: 'heavy', pow: 70, acc: 0.78, element: 'fairy', desc: '天からの裁きの光。「ちこくはダメだよ」と言いながら放つ。' },
+        { name: '神の祝福', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_def_party', element: 'fairy', desc: '自分となかまを守る光をまとう（守り強化）。なぜか宿題のやる気もちょっとだけ出る。' }
+    ]
+});
         MONSTERS.push({
             id: 155, name: '阪神マン（分身）', sprite: '🐯', hp: 100, atk: 25, def: 25, spd: 25, buff: 'lucky', elementType: 'fighting', evoLevel: null, nextId: null, stage: 1, desc: '修行の果てに認めてくれた阪神マンの分身。レベル1から育てよう！'
         , skills: [
@@ -43133,6 +43154,24 @@ function hsPhotosSelected(input) {
             try { alert(_msg); } catch (_e2) {}
           }
         } catch (_e3) {}
+        try {
+          if (j && j.photoLegend && j.photoLegend.id) {
+            var lg = j.photoLegend;
+            if (!player.secret || typeof player.secret !== 'object') player.secret = {};
+            if (!player.secret.holyGodGot) {
+              if (!player.monsters || typeof player.monsters !== 'object') player.monsters = {};
+              if (!player.monsters[lg.id] && !player.monsters[String(lg.id)]) { player.monsters[lg.id] = { level: 50, exp: 0, nextExp: (typeof calculateNextExp === 'function' ? calculateNextExp(50) : 54660) }; }
+              if (!Array.isArray(player.pokedex)) player.pokedex = [];
+              if (player.pokedex.indexOf(lg.id) < 0) player.pokedex.push(lg.id);
+              if (Array.isArray(player.party) && player.party.length < 3 && player.party.indexOf(lg.id) < 0) player.party.push(lg.id);
+              player.secret.holyGodGot = true;
+              player._holyGodGranted = 1;
+            }
+            try { if (typeof saveData === 'function') saveData(); } catch (_eL1) {}
+            try { alert('✨🎉 超激レア！「' + (lg.name || '聖なる神') + '」が舞い降りた！'); } catch (_eL2) {}
+            var _psL = document.getElementById('hsPhotoStatus'); if (_psL) { _psL.textContent = '✨ 超激レア！聖なる神をゲット！'; }
+          }
+        } catch (_e4) {}
       })
       .catch(function(e) { console.warn('[photo-analysis]', e); });
   }
