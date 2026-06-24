@@ -1439,6 +1439,41 @@ app.get('/api/teacher/class/:classId/ranking', async (c) => {
   return c.json({ ok: true, class: cls, members: res.results })
 })
 
+app.get('/api/teacher/class/:classId/items', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare(`SELECT id, name FROM classes WHERE id=? LIMIT 1`).bind(classId).first<any>()
+    : await c.env.DB.prepare(`SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const members = await c.env.DB.prepare(`
+    SELECT u.id, u.login_id as loginId, u.name, p.state_json as stateJson
+    FROM class_members cm
+    JOIN users u ON u.id = cm.user_id
+    LEFT JOIN progress p ON p.user_id = cm.user_id
+    WHERE cm.class_id = ?
+    ORDER BY u.name
+  `).bind(classId).all<any>()
+  const num = (v: any) => { const n = Number(v); return (isFinite(n) && n > 0) ? Math.floor(n) : 0 }
+  const students: any[] = []
+  for (const m of ((members && members.results) || [])) {
+    let st: any = {}
+    try { if (m.stateJson) st = JSON.parse(m.stateJson) } catch (_e) { st = {} }
+    students.push({
+      id: m.id, loginId: m.loginId, name: m.name,
+      coins: num(st.coins),
+      shards: num(st && st.lab ? st.lab.shards : 0),
+      herbs: num(st.herbs),
+      balls: num(st.balls),
+      gymTickets: num(st.gymTickets),
+      upgradeTickets: num(st.upgradeTickets),
+    })
+  }
+  return c.json({ ok: true, class: cls, students })
+})
+
+
 // -------------------- API: teacher (学習分析) --------------------
 app.get('/api/teacher/class/:classId/unit-analytics', async (c) => {
   const u = requireTeacher(c)
@@ -7167,6 +7202,8 @@ app.get('/teacher', (c) => {
             </div>
             <div id="analyticsContent"><p class="text-xs text-slate-400">クラスを選んで「分析を表示」を押してください</p></div>
           </div>
+
+          <div class="bg-teal-50 border border-teal-200 rounded-xl p-4"><div class="flex items-center justify-between flex-wrap gap-2 mb-3"><div class="font-bold text-sm text-teal-800">🎒 所持アイテム一覧（読み取り専用）</div><button onclick="loadItemInventory()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🎒 所持数を表示</button></div><p class="text-xs text-teal-600 mb-2">クラスの児童ごとに、コイン・かけら・やくそう・ボール・バトルチケット・強化チケットの所持数を表示します（上と同じクラス選択を使います）。</p><div id="itemInventoryContent"><p class="text-xs text-slate-400">クラスを選んで「所持数を表示」を押してください</p></div></div>
           <!-- 非アクティブ生徒の警告 -->
           <div id="inactiveStudentsCard" class="bg-orange-50 border border-orange-200 rounded-xl p-4 hidden">
             <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
@@ -8022,6 +8059,40 @@ app.get('/teacher', (c) => {
       }
 
       document.getElementById('activityClassFilter').onchange = function(){ loadActivitySummary(); };
+
+      async function loadItemInventory(){
+        const wrap = document.getElementById('itemInventoryContent');
+        const classId = document.getElementById('analyticsClassFilter').value;
+        if(!classId){ wrap.innerHTML='<p class="text-slate-400 text-sm">クラスを選択してください</p>'; return; }
+        wrap.innerHTML='<p class="text-slate-400 text-sm">読み込み中... ⏳</p>';
+        let data;
+        try{ data = await api('/api/teacher/class/'+encodeURIComponent(classId)+'/items'); }
+        catch(e){ wrap.innerHTML='<p class="text-red-600 text-sm">読み込みエラー: '+escH(String(e.message||e))+'</p>'; return; }
+        const students = data.students || [];
+        if(!students.length){ wrap.innerHTML='<p class="text-slate-400 text-sm">まだ生徒がいません</p>'; return; }
+        const cols = [
+          {k:'coins', label:'💰コイン'},
+          {k:'shards', label:'🔹かけら'},
+          {k:'herbs', label:'🌿やくそう'},
+          {k:'balls', label:'🔴ボール'},
+          {k:'gymTickets', label:'🎫バトル券'},
+          {k:'upgradeTickets', label:'🎟️強化券'}
+        ];
+        let html='<div class="overflow-x-auto"><table class="w-full text-xs border-collapse">';
+        html+='<thead><tr class="bg-slate-50"><th class="border px-2 py-1 text-left sticky left-0 bg-slate-50">名前</th>';
+        cols.forEach(function(col){ html+='<th class="border px-2 py-1 text-right whitespace-nowrap">'+col.label+'</th>'; });
+        html+='</tr></thead><tbody>';
+        students.forEach(function(stu,i){
+          const nm = (typeof resolveStudentName==='function')?resolveStudentName(stu.loginId, stu.name):(stu.name||stu.loginId||'');
+          html+='<tr class="'+(i%2===0?'':'bg-slate-50')+'">';
+          html+='<td class="border px-2 py-1 font-bold sticky left-0 '+(i%2===0?'bg-white':'bg-slate-50')+'">'+escH(nm)+'</td>';
+          cols.forEach(function(col){ const v=Number(stu[col.k]||0); html+='<td class="border px-2 py-1 text-right '+(v>0?'text-slate-700':'text-slate-300')+'">'+v.toLocaleString()+'</td>'; });
+          html+='</tr>';
+        });
+        html+='</tbody></table></div>';
+        html+='<p class="text-[10px] text-slate-400 mt-1">'+students.length+'人 / 読み取り専用（このデータは変更されません）</p>';
+        wrap.innerHTML=html;
+      }
 
       async function loadUnitAnalytics(){
         const wrap = document.getElementById('analyticsContent');
