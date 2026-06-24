@@ -43273,6 +43273,15 @@ async function hsSubmitAndExport(){
       });
       entry.dbSubmitted = true;
       try { entry.dbId = r.id || null; } catch(e) {}
+      // サーバ側オチャ付与（連続提出ごほうび）の確実反映＆通知（全置換対策）
+      try {
+        if (r && r.ochaGranted) {
+          if (!player.secret || typeof player.secret !== 'object') player.secret = {};
+          if (!player.secret.ochaGot) { try { grantOcha(); } catch(_e) {} player.secret.ochaGot = true; player.secret.ochaDaimaoGot = true; }
+          player._ochaGranted = 1;
+          unlockedOcha = true;
+        }
+      } catch(_e) {}
       // 提出即コイン：サーバーで付与済み → クライアントにも即反映
       hsGrantRewards(reward, bonus);
       // 写真をクリア
