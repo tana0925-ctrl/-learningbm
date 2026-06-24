@@ -3225,7 +3225,9 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     const headers = new Headers()
     headers.set('Content-Type', row.mime_type || 'image/jpeg')
     headers.set('Cache-Control', 'private, max-age=3600')
-    return new Response(row.bytes as ArrayBuffer, { headers })
+    const _raw: any = row.bytes
+    const _body = (_raw instanceof ArrayBuffer) ? _raw : new Uint8Array(_raw)
+    return new Response(_body, { headers })
   } catch (e: any) {
     console.error('photo fetch error:', e?.message || e)
     return jsonError(c, 500, 'photo_error')
