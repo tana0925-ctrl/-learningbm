@@ -484,6 +484,24 @@ app.put('/api/student/progress', async (c) => {
         try { if (_inc.fractionFest) _inc.fractionFest.totalShards = _inc.lab.shards } catch (_e) {}
         saveJson = JSON.stringify(_inc)
       }
+      // オチャ（連続提出ごほうび）：サーバ付与をクライアントの全置換保存から保護
+      const _srvOcha = Number(_srv._ochaGranted) || 0
+      const _cliOcha = Number(_inc._ochaGranted) || 0
+      if (_srvOcha === 1 && _cliOcha !== 1) {
+        if (!_inc.secret || typeof _inc.secret !== 'object') _inc.secret = {}
+        const _hasO = !!(_inc.secret.ochaGot || _inc.secret.ochaDaimaoGot || (_inc.monsters && (_inc.monsters['1042'] || _inc.monsters['1043'])))
+        if (!_hasO) {
+          if (!_inc.monsters || typeof _inc.monsters !== 'object') _inc.monsters = {}
+          _inc.monsters['1042'] = { level: 8, exp: 0, nextExp: Math.floor(100 + Math.pow(8, 2.2) * 10) }
+          if (!Array.isArray(_inc.pokedex)) _inc.pokedex = []
+          if (!_inc.pokedex.includes(1042)) _inc.pokedex.push(1042)
+          if (Array.isArray(_inc.party) && _inc.party.length < 3 && !_inc.party.includes(1042)) _inc.party.push(1042)
+          _inc.secret.ochaGot = true
+          _inc.secret.ochaDaimaoGot = true
+        }
+        _inc._ochaGranted = 1
+        saveJson = JSON.stringify(_inc)
+      }
     }
   } catch { /* 補填失敗時はそのまま保存 */ }
 
@@ -3070,7 +3088,33 @@ app.post('/api/homework/submit', async (c) => {
     await c.env.DB.prepare(`UPDATE homework_submissions SET reward_claimed=1, reward_claimed_at=? WHERE id=?`).bind(Date.now(), id).run()
   } catch (e) { console.error('instant reward mark error:', e) }
 
-  return c.json({ ok: true, id, instantReward: true })
+  // オチャ（連続提出ごほうび）：10日連続提出でサーバ側で確実に付与（冪等・全置換でも保護）
+  let ochaGranted = false
+  try {
+    if (Number(body.streakAfter || 0) >= 10) {
+      const prog = await c.env.DB.prepare(`SELECT state_json FROM progress WHERE user_id=?`).bind(u.id).first<any>()
+      if (prog?.state_json) {
+        const state = JSON.parse(prog.state_json)
+        if (!state.secret || typeof state.secret !== 'object') state.secret = {}
+        const hasOcha = !!(state.secret.ochaGot || state.secret.ochaDaimaoGot
+          || (state.monsters && (state.monsters['1042'] || state.monsters['1043'])))
+        if (!hasOcha) {
+          if (!state.monsters || typeof state.monsters !== 'object') state.monsters = {}
+          state.monsters['1042'] = { level: 8, exp: 0, nextExp: Math.floor(100 + Math.pow(8, 2.2) * 10) }
+          if (!Array.isArray(state.pokedex)) state.pokedex = []
+          if (!state.pokedex.includes(1042)) state.pokedex.push(1042)
+          if (Array.isArray(state.party) && state.party.length < 3 && !state.party.includes(1042)) state.party.push(1042)
+          state.secret.ochaGot = true
+          state.secret.ochaDaimaoGot = true
+          state._ochaGranted = 1
+          await c.env.DB.prepare(`UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`).bind(JSON.stringify(state), u.id).run()
+          ochaGranted = true
+        }
+      }
+    }
+  } catch (e) { console.error('ocha grant error:', e) }
+
+  return c.json({ ok: true, id, instantReward: true, ochaGranted })
 })
 
 // 生徒：成果物写真をAIで分析してテキスト化→DB保存
