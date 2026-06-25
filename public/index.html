@@ -5162,7 +5162,8 @@ function setupQrScanUi(){
             { id: 'ball', name: 'モンスタボール', price: 100, desc: '野生モンスターを捕まえる', icon: '🔴' },
             { id: 'gym_ticket', name: 'バトルチケット', price: 50, desc: 'ジム/タマゴバトルへの挑戦権（1日5枚まで）', icon: '🎫' },
 { id: 'upgrade_ticket', name: '強化チケット', price: 1500, desc: '城/ビーム（チャージ・威力・停止）の好きなLvを+1（最大100）', icon: '🎟️✨' },
-            { id: 'hiden_book_random', name: '秘伝の書（ランダム）', price: 250, desc: 'ランダムな秘伝の書を1冊', icon: '📜' }
+            { id: 'hiden_book_random', name: '秘伝の書（ランダム）', price: 250, desc: 'ランダムな秘伝の書を1冊', icon: '📜' },
+            { id: 'obtain_memo', name: '入手のヒントメモ', price: 100, desc: 'モンスター1体の「入手方法」を1回調べられるメモ。図鑑でナゾのモンスターを押して使おう', icon: '🔍' }
 ];
         // Element Types (for display and type effectiveness)
         const ELEMENT_TYPES = {
@@ -6528,7 +6529,7 @@ MONSTERS.push({
 });
 
 // === 写真ボーナス超激レア：聖なる神（1/1000）===
-const HOLY_GOD_ID = 1300;
+const HOLY_GOD_ID = 1500;
 MONSTERS.push({
     id: HOLY_GOD_ID,
     name: '聖なる神',
@@ -16162,6 +16163,7 @@ if (id === 'castle_ticket') return (player.castleTickets || 0);
                 if (id === 'beam_damage_ticket') return (player.beamDamageTickets || 0);
                 if (id === 'beam_stun_ticket') return (player.beamStunTickets || 0);
                 if (id === 'hiden_book_random') { try{ ensureHidenData(); return Object.values(player.hidenBooks||{}).reduce((a,b)=>a+(Number(b)||0),0); }catch(e){ return 0; } }
+                if (id === 'obtain_memo') return (player.obtainMemos || 0);
 
                 return null;
             };
@@ -16323,6 +16325,8 @@ return;
                 return;
             } else if (item.id === 'war_powercap_ticket') {
                 player.warPowerCapUp = (player.warPowerCapUp || 0) + 1;
+            } else if (item.id === 'obtain_memo') {
+                player.obtainMemos = (player.obtainMemos || 0) + 1;
             }
 
             saveData();
@@ -28803,6 +28807,38 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             container.appendChild(line);
         }
 
+        function getObtainMethod(m){
+          if(!m) return '？';
+          var id=Number(m.id);
+          try{
+            if(typeof HOLY_GOD_ID!=='undefined' && id===HOLY_GOD_ID) return '写真ボーナス（超激レア・1000まいに1まい）';
+            if((typeof OCHA_ID!=='undefined' && id===OCHA_ID)||(typeof OCHA_DAIMAO_ID!=='undefined' && id===OCHA_DAIMAO_ID)) return '家庭学習の連続提出（10日連続のごほうび）';
+            if(typeof MEWTWO_ID!=='undefined' && id===MEWTWO_ID) return 'ラボ（復活失敗でムダにしたかけらが累計50ごと）';
+            if(typeof BROCCOLI_TEACHER_ID!=='undefined' && id===BROCCOLI_TEACHER_ID) return '分数の村で7連勝';
+            if(typeof PITTARI_MAI_ID!=='undefined' && id===PITTARI_MAI_ID) return '休憩チャレンジ（隠し）';
+          }catch(e){}
+          var ob=(m.obtain||m.source||'');
+          if(ob==='egg'||ob==='eggBattle'||m.eggReward) return 'タマゴバトルのごほうび';
+          if(id>=400 && id<=415) return 'ジムリーダー（ジムバトル）';
+          if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)) return 'イベント・攻略モード';
+          if(m.uncapturable) return '特別なボス（仲間にはできない）';
+          if(m.gacha===true) return 'ガチャ';
+          try{ if(typeof MONSTERS!=='undefined'){ var prev=MONSTERS.find(function(x){return Number(x.nextId)===id;}); if(prev) return '進化（'+prev.name+'がLv'+(prev.evoLevel||'?')+'で進化）'; } }catch(e){}
+          return '野生バトル（モンスタボールで捕まえる）';
+        }
+        function revealObtain(id){
+          id=Number(id);
+          if(!Array.isArray(player.revealedObtain)) player.revealedObtain=[];
+          if(player.revealedObtain.indexOf(id)>=0){ try{ showDetail(id); }catch(e){} return; }
+          var memos=Number(player.obtainMemos||0);
+          if(memos<=0){ alert('メモが足りないよ。\nショップで「入手のヒントメモ」を買えるよ（100コイン）'); return; }
+          if(!confirm('このモンスターの入手方法を調べる？\n（入手のヒントメモを1枚つかう）')) return;
+          player.obtainMemos = memos - 1;
+          player.revealedObtain.push(id);
+          try{ if(typeof saveData==='function') saveData(); }catch(e){}
+          try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
+          try{ showDetail(id); }catch(e){}
+        }
         function showDetail(id) {
             if (detailOpenSource !== 'party' && detailOpenSource !== 'box') detailOpenSource = 'normal';
             // Clean up box action panel from previous box detail view
@@ -28995,7 +29031,19 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 skillsHtml += '</div>';
             }
 
-            statsDiv.innerHTML += skillsHtml + descHtml;
+            var obtainHtml = '';
+            try {
+              var __oid = Number(m.id);
+              var __owned = (Array.isArray(player.pokedex) && player.pokedex.indexOf(__oid)>=0) || (player.monsters && (player.monsters[__oid] || player.monsters[String(__oid)]));
+              var __revealed = (Array.isArray(player.revealedObtain) && player.revealedObtain.indexOf(__oid)>=0);
+              if (__owned || __revealed) {
+                obtainHtml = '<div class="mt-2 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800"><span class="font-bold">📍 入手方法：</span>' + escapeHtml(getObtainMethod(m)) + '</div>';
+              } else {
+                var __memos = Number(player.obtainMemos||0);
+                obtainHtml = '<div class="mt-2 px-2 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px] text-gray-500 flex items-center justify-between gap-2"><span>🔍 入手方法はナゾ…</span><button onclick="revealObtain(' + __oid + ')" class="bg-indigo-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:bg-indigo-600 shrink-0">調べる（メモ' + __memos + '枚）</button></div>';
+              }
+            } catch (e) { obtainHtml = ''; }
+            statsDiv.innerHTML += obtainHtml + skillsHtml + descHtml;
 
             try{ if(typeof renderHidenEquipPanel==='function') renderHidenEquipPanel(id); }catch(e){}
             try{ if(typeof renderHidenQuickSlots==='function') renderHidenQuickSlots(id); }catch(e){}
