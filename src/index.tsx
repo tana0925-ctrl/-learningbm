@@ -505,12 +505,12 @@ app.put('/api/student/progress', async (c) => {
       // 😇 聖なる神（超激レア）：サーバが付与済みなら、クライアントの全置換保存でも必ず復元
       const _srvHoly = (Number(_srv._holyGodGranted) || 0) === 1 || !!(_srv.secret && _srv.secret.holyGodGot)
       if (_srvHoly) {
-        if (!(_inc.monsters && _inc.monsters['1300'])) {
+        if (!(_inc.monsters && _inc.monsters['1500'])) {
           if (!_inc.monsters || typeof _inc.monsters !== 'object') _inc.monsters = {}
-          _inc.monsters['1300'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
+          _inc.monsters['1500'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
           if (!Array.isArray(_inc.pokedex)) _inc.pokedex = []
-          if (!_inc.pokedex.includes(1300)) _inc.pokedex.push(1300)
-          if (Array.isArray(_inc.party) && _inc.party.length < 3 && !_inc.party.includes(1300)) _inc.party.push(1300)
+          if (!_inc.pokedex.includes(1500)) _inc.pokedex.push(1500)
+          if (Array.isArray(_inc.party) && _inc.party.length < 3 && !_inc.party.includes(1500)) _inc.party.push(1500)
         }
         if (!_inc.secret || typeof _inc.secret !== 'object') _inc.secret = {}
         _inc.secret.holyGodGot = true
@@ -3224,16 +3224,16 @@ app.post('/api/homework/analyze-photo', async (c) => {
             // ✨ 超激レア（0.1%＝1/1000）：聖なる神（一度きり・冪等・全置換でも保護）。通常ボーナスとは別判定。
             if (Math.random() < 0.001) {
               if (!state.secret || typeof state.secret !== 'object') state.secret = {}
-              const _hasHoly = !!(state.secret.holyGodGot || (state.monsters && state.monsters['1300']))
+              const _hasHoly = !!(state.secret.holyGodGot || (state.monsters && state.monsters['1500']))
               if (!_hasHoly) {
                 if (!state.monsters || typeof state.monsters !== 'object') state.monsters = {}
-                state.monsters['1300'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
+                state.monsters['1500'] = { level: 50, exp: 0, nextExp: Math.floor(100 + Math.pow(50, 2.2) * 10) }
                 if (!Array.isArray(state.pokedex)) state.pokedex = []
-                if (!state.pokedex.includes(1300)) state.pokedex.push(1300)
-                if (Array.isArray(state.party) && state.party.length < 3 && !state.party.includes(1300)) state.party.push(1300)
+                if (!state.pokedex.includes(1500)) state.pokedex.push(1500)
+                if (Array.isArray(state.party) && state.party.length < 3 && !state.party.includes(1500)) state.party.push(1500)
                 state.secret.holyGodGot = true
                 state._holyGodGranted = 1
-                photoLegend = { id: 1300, name: '聖なる神', sprite: '😇' }
+                photoLegend = { id: 1500, name: '聖なる神', sprite: '😇' }
               }
             }
             await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
