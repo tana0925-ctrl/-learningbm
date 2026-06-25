@@ -10339,7 +10339,8 @@ function _isFestMedalQuestion(){
     const tm = (typeof trainingMode !== 'undefined') ? String(trainingMode) : '';
     const decOk = (typeof _isDecimalFestActive === 'function') && _isDecimalFestActive();
     const fracOk = (typeof _isFractionFestActive === 'function') && _isFractionFestActive();
-    return !!(decOk || fracOk);
+    const unitOk = (typeof _isUnitFestActiveHere === 'function') && _isUnitFestActiveHere();
+    return !!(decOk || fracOk || unitOk);
   }catch(e){ return false; }
 }
 
@@ -13911,7 +13912,7 @@ if (mode === 'battle') {
 
             container.innerHTML = '';
   // フェスバナー（全修行対象）
-  var _fb='';if(typeof _isFractionFestActive==='function'&&_isFractionFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-teal-600 to-emerald-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 分数フェス開催中！ \u{1F370}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isDecimalFestActive==='function'&&_isDecimalFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-sky-600 to-blue-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 小数フェス開催中！ \u{1F4A7}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(_fb)container.innerHTML=_fb;
+  var _fb='';if(typeof _isFractionFestActive==='function'&&_isFractionFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-teal-600 to-emerald-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 分数フェス開催中！ \u{1F370}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isDecimalFestActive==='function'&&_isDecimalFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-sky-600 to-blue-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 小数フェス開催中！ \u{1F4A7}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isUnitFestActive==='function'&&_isUnitFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-fuchsia-600 to-pink-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 単元フェス開催中！</span><br><span class="text-xs">「'+(typeof _festUnitNameChild==='function'?_festUnitNameChild(_unitFestTarget()):'')+'」の修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(_fb)container.innerHTML=_fb;
 
             if (subject === 'math') {
                 title.innerHTML = '🔢 算数の修行を選べ！';
@@ -26197,12 +26198,20 @@ const FRACTION_FEST = {
   shardsPerDrop:  (typeof DECIMAL_FEST !== 'undefined') ? DECIMAL_FEST.shardsPerDrop  : 1,
 };
 
-var _festStatusFromServer = { fraction_fest_active: false, decimal_fest_active: false };
+var _festStatusFromServer = { fraction_fest_active: false, decimal_fest_active: false, unit_fest_active: false, unit_fest_target: 'all' };
+try{ window._festStatusFromServer = _festStatusFromServer; }catch(_e){}
+function _isUnitFestActive(){ return !!(window._festStatusFromServer && window._festStatusFromServer.unit_fest_active); }
+function _unitFestTarget(){ try{ return (window._festStatusFromServer && window._festStatusFromServer.unit_fest_target) || 'all'; }catch(e){ return 'all'; } }
+function _currentTrainingModeStr(){ try{ return (typeof trainingMode !== 'undefined' && trainingMode!=null) ? String(trainingMode) : ''; }catch(e){ return ''; } }
+function _isUnitFestActiveForMode(mode){ if(!_isUnitFestActive()) return false; var t=_unitFestTarget(); return (t==='all') || (String(mode)===String(t)); }
+function _isUnitFestActiveHere(){ return _isUnitFestActiveForMode(_currentTrainingModeStr()); }
+function _festUnitNameChild(id){ if(!id || id==='all') return '全単元'; try{ var C=window.CURRICULUM; for(var subj in C){ var g=C[subj]; for(var gr in g){ var u=g[gr]; if(Array.isArray(u)){ for(var i=0;i<u.length;i++){ if(u[i] && u[i].id===id) return u[i].name; } } } } }catch(e){} return id; }
+function _ensureUnitFestState(){ if(!player.unitFest) player.unitFest = { totalShards:0, pity:0, shardPity:0, dayKey:'', usedToday:0 }; var st=player.unitFest; var dk=_fractionFestDayKey(); if(st.dayKey!==dk){ st.dayKey=dk; st.usedToday=0; } st.pity=Number(st.pity||0)||0; st.shardPity=Number(st.shardPity||0)||0; return st; }
 async function _fetchFestStatus(){
   try{
     var resp = await fetch('/api/fest/status');
     var data = await resp.json();
-    if(data.ok) _festStatusFromServer = data;
+    if(data.ok){ _festStatusFromServer = data; try{ window._festStatusFromServer = data; }catch(_e){} }
   }catch(e){}
 }
 
@@ -27087,6 +27096,49 @@ function handleCorrectAnswer() {
                     } catch (e) {}
 
                     msg += ` <span class="text-[10px] text-sky-200 block">${FRACTION_FEST.name}（🎟️5% / 🔹5% / 📜5%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
+                }
+                // === 単元フェス（学年→単元）：小数/分数フェスが無いときに、対象単元の修行でドロップ ===
+                if (_isUnitFestActiveHere() && !_isDecimalFestActive() && !_isFractionFestActive()) {
+                    const st = _ensureUnitFestState();
+                    st.usedToday++;
+                    const _uLabel = _festUnitNameChild(_unitFestTarget());
+                    // かけら（15% + 15問確定）
+                    let shardDropped = false, shardGuaranteed = false;
+                    st.shardPity = (Number(st.shardPity || 0) || 0) + 1;
+                    if (st.shardPity >= 15) { shardDropped = true; shardGuaranteed = true; st.shardPity = 0; }
+                    else if (Math.random() < 0.15) { shardDropped = true; st.shardPity = 0; }
+                    if (shardDropped) {
+                        labAddShards(1);
+                        const nowSh = labGetShards();
+                        msg += ` <span class="text-fuchsia-200 font-black block text-sm">🔹 かけら +1（所持${nowSh}）${shardGuaranteed ? '（15問確定）' : ''}</span>`;
+                    }
+                    // 強化チケット（5%＋天井20）
+                    if (Math.random() < 0.05) {
+                        player.upgradeTickets = (player.upgradeTickets || 0) + 1;
+                        st.pity = 0;
+                        msg += ` <span class="text-emerald-300 font-black block text-sm">🎟️✨ 強化チケット +1（単元フェス）</span>`;
+                    } else {
+                        st.pity = (Number(st.pity || 0) || 0) + 1;
+                        if (st.pity >= 20) { player.upgradeTickets = (player.upgradeTickets || 0) + 1; st.pity = 0; msg += ' <span class="text-emerald-300 font-black block text-sm">🎟️✨ 強化チケット +1（天井）</span>'; }
+                    }
+                    // 秘伝の書（5%）
+                    try {
+                        if (Math.random() < 0.05) {
+                            ensureHidenData();
+                            let key = null;
+                            try { key = (typeof hidenRandomBookKey === 'function') ? hidenRandomBookKey() : null; } catch (e) { key = null; }
+                            if (key) {
+                                hidenInvAdd(key, 1);
+                                const pk = hidenParseBookKey(key);
+                                const bn = hidenBookName(pk.type, pk.stat, pk.rank);
+                                const be = hidenBookEmoji(pk.type, pk.stat, pk.rank);
+                                msg += ` <span class="text-amber-300 font-black block text-sm">${be} ${bn} +1（秘伝の書・単元フェス）</span>`;
+                            } else {
+                                msg += ` <span class="text-amber-300 font-black block text-sm">📜 秘伝の書 +1（単元フェス）</span>`;
+                            }
+                        }
+                    } catch (e) {}
+                    msg += ` <span class="text-[10px] text-fuchsia-200 block">🎉 単元フェス・${_uLabel}（🎟️5% / 🔹15% / 📜5%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
                 }
 
             } catch (e) {}
@@ -50968,7 +51020,7 @@ function _showSubjectModes_curriculum(subject) {
 
   container.innerHTML = '';
   // フェスバナー（全修行対象）
-  var _fb='';if(typeof _isFractionFestActive==='function'&&_isFractionFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-teal-600 to-emerald-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 分数フェス開催中！ \u{1F370}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isDecimalFestActive==='function'&&_isDecimalFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-sky-600 to-blue-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 小数フェス開催中！ \u{1F4A7}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(_fb)container.innerHTML=_fb;
+  var _fb='';if(typeof _isFractionFestActive==='function'&&_isFractionFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-teal-600 to-emerald-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 分数フェス開催中！ \u{1F370}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isDecimalFestActive==='function'&&_isDecimalFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-sky-600 to-blue-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 小数フェス開催中！ \u{1F4A7}</span><br><span class="text-xs">すべての修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(typeof _isUnitFestActive==='function'&&_isUnitFestActive())_fb+='<div class="mb-3 p-3 bg-gradient-to-r from-fuchsia-600 to-pink-500 rounded-xl text-white text-center shadow-lg animate-pulse col-span-full"><span class="text-lg font-black">\u{1F389} 単元フェス開催中！</span><br><span class="text-xs">「'+(typeof _festUnitNameChild==='function'?_festUnitNameChild(_unitFestTarget()):'')+'」の修行で「かけら」「チケット」「秘伝の書」がドロップ！</span></div>';if(_fb)container.innerHTML=_fb;
   // 学年タブバー
   const bar = document.createElement('div');
   bar.className = 'flex gap-2 overflow-x-auto pb-2 mb-3 w-full col-span-full';
