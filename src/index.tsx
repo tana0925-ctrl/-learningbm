@@ -1147,15 +1147,16 @@ app.get('/api/fest/status', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   try {
     const rows = await c.env.DB.prepare(
-      `SELECT key, value FROM admin_settings WHERE key IN ('fraction_fest_active','decimal_fest_active')`
+      `SELECT key, value FROM admin_settings WHERE key IN ('fraction_fest_active','decimal_fest_active','unit_fest_active','unit_fest_target')`
     ).all<any>()
-    const result: Record<string, boolean> = { fraction_fest_active: false, decimal_fest_active: false }
+    const result: any = { fraction_fest_active: false, decimal_fest_active: false, unit_fest_active: false, unit_fest_target: 'all' }
     for (const r of rows.results) {
-      result[r.key] = r.value === '1'
+      if (r.key === 'unit_fest_target') result.unit_fest_target = String(r.value || 'all')
+      else result[r.key] = r.value === '1'
     }
     return c.json({ ok: true, ...result })
   } catch(e) {
-    return c.json({ ok: true, fraction_fest_active: false, decimal_fest_active: false })
+    return c.json({ ok: true, fraction_fest_active: false, decimal_fest_active: false, unit_fest_active: false, unit_fest_target: 'all' })
   }
 })
 
@@ -1164,6 +1165,13 @@ app.put('/api/admin/fest-toggle', async (c) => {
   if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json().catch(() => null)
   if (!body || !body.fest) return jsonError(c, 400, 'invalid_json')
+  if (body.fest === 'unit') {
+    const uactive = body.active ? '1' : '0'
+    const target = String(body.unit || 'all').slice(0, 80)
+    await c.env.DB.prepare(`INSERT INTO admin_settings (key, value, updated_at) VALUES ('unit_fest_active', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`).bind(uactive).run()
+    await c.env.DB.prepare(`INSERT INTO admin_settings (key, value, updated_at) VALUES ('unit_fest_target', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`).bind(target).run()
+    return c.json({ ok: true, unit_fest_active: !!body.active, unit_fest_target: target })
+  }
   const key = body.fest === 'fraction' ? 'fraction_fest_active' : body.fest === 'decimal' ? 'decimal_fest_active' : null
   if (!key) return jsonError(c, 400, 'invalid_fest')
   const active = body.active ? '1' : '0'
@@ -7295,6 +7303,17 @@ app.get('/teacher', (c) => {
           <button id="festDecimalBtn" onclick="toggleFest('decimal')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">💧 小数フェス OFF</button>
         </div>
         <p class="text-xs text-slate-400 mt-2">ONにすると生徒の修行画面にフェス表示が出て、かけらがドロップするようになります。</p>
+        <div class="mt-3 pt-3 border-t border-slate-100">
+          <div class="font-bold text-sm text-fuchsia-700 mb-1">🎉 単元フェス（好きな修行でフェス）</div>
+          <p class="text-xs text-slate-400 mb-2">学年→単元を選んでONにすると、その単元の修行で「かけら・チケット・秘伝の書」がドロップします（「全単元」を選ぶと全部の修行が対象）。</p>
+          <div class="flex flex-wrap gap-2 items-center">
+            <select id="unitFestGrade" onchange="fillUnitFestUnit()" class="border p-1.5 rounded text-sm bg-white"><option value="">学年…</option><option value="1">1年</option><option value="2">2年</option><option value="3">3年</option><option value="4">4年</option><option value="5">5年</option><option value="6">6年</option></select>
+            <select id="unitFestUnit" class="border p-1.5 rounded text-sm bg-white"><option value="all">全単元</option></select>
+            <button onclick="toggleUnitFest(true)" class="bg-fuchsia-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-fuchsia-700">この単元でフェスON</button>
+            <button onclick="toggleUnitFest(false)" class="bg-slate-300 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-400">フェスOFF</button>
+            <span id="unitFestStatus" class="text-xs text-fuchsia-700 font-bold"></span>
+          </div>
+        </div>
       </div>
 
       <!-- クラス作成 -->
@@ -7979,9 +7998,10 @@ app.get('/teacher', (c) => {
       async function loadFestStatus(){
         try{
           var d = await api('/api/fest/status');
-          _festState = { fraction_fest_active: !!d.fraction_fest_active, decimal_fest_active: !!d.decimal_fest_active };
+          _festState = { fraction_fest_active: !!d.fraction_fest_active, decimal_fest_active: !!d.decimal_fest_active, unit_fest_active: !!d.unit_fest_active, unit_fest_target: d.unit_fest_target || 'all' };
         }catch(e){}
         updateFestButtons();
+        try{ updateUnitFestUI(); setUnitFestSelectsFromState(); }catch(e){}
       }
       function updateFestButtons(){
         var fb = document.getElementById('festFractionBtn');
@@ -8018,6 +8038,35 @@ app.get('/teacher', (c) => {
         }catch(e){ alert('エラー: ' + String(e.message||e)); }
       }
       loadFestStatus();
+      // ===== 単元フェス =====
+      var FEST_UNITS = {"1":[{"id":"m1-add-no","name":"算数：たしざん(くり上がりなし)"},{"id":"m1-sub-no","name":"算数：ひきざん(くり下がりなし)"},{"id":"m1-add-cy","name":"算数：たしざん(くり上がり)"},{"id":"m1-sub-bo","name":"算数：ひきざん(くり下がり)"},{"id":"m1-3num","name":"算数：3つのかずのけいさん"},{"id":"j1-kanji","name":"国語：かんじ(1年80字)"}],"2":[{"id":"m2-add2","name":"算数：たし算(2けた)"},{"id":"m2-sub2","name":"算数：ひき算(2けた)"},{"id":"m2-kuku","name":"算数：九九"},{"id":"m2-length","name":"算数：長さ(cm, mm)"},{"id":"j2-kanji","name":"国語：漢字(2年160字)"}],"3":[{"id":"m3-mul1","name":"算数：かけ算(2けた×1けた)"},{"id":"m3-div0","name":"算数：わり算(あまりなし)"},{"id":"m3-divR","name":"算数：わり算(あまりあり)"},{"id":"m3-large","name":"算数：大きい数の位"},{"id":"m3-weight","name":"算数：重さ(g, kg)"},{"id":"j3-kanji","name":"国語：漢字(3年)"},{"id":"j3-kotowaza","name":"国語：ことわざ"},{"id":"j3-romaji","name":"国語：ローマ字"},{"id":"s3-map","name":"社会：地図記号"},{"id":"r3-insect","name":"理科：こん虫の体"},{"id":"r3-magnet","name":"理科：じしゃく"},{"id":"r3-light","name":"理科：光の性質"}],"4":[{"id":"rounding","name":"算数：がい数"},{"id":"division","name":"算数：わり算(暗算)"},{"id":"fraction-mixed","name":"算数：分数"},{"id":"decimal","name":"算数：小数(×÷)"},{"id":"long-division","name":"算数：筆算(わり算)"},{"id":"area","name":"算数：面積"},{"id":"brackets","name":"算数：計算の順序"},{"id":"j4-kanji","name":"国語：漢字(4年)"},{"id":"idiom","name":"国語：慣用句"},{"id":"conjunction","name":"国語：つなぎ言葉"},{"id":"yoji","name":"国語：四字熟語"},{"id":"social","name":"社会：都道府県"},{"id":"social-nagoyasouth","name":"社会：名古屋南部の開発"},{"id":"social-seto","name":"社会：瀬戸のやきもの"},{"id":"s4-water","name":"社会：水はどこから"},{"id":"s4-garbage","name":"社会：ごみのしょりと利用"},{"id":"s4-disaster","name":"社会：自然災害からくらしを守る"},{"id":"s4-inuyama","name":"社会：犬山祭り"},{"id":"s4-minamichita","name":"社会：南知多町"},{"id":"s4-toyohashi","name":"社会：豊橋市"},{"id":"science-weather","name":"理科：天気と気温"},{"id":"science-seasons","name":"理科：季節と生き物"},{"id":"science-electric","name":"理科：電池のはたらき"},{"id":"science-airwater","name":"理科：空気と水"},{"id":"science-moonstars","name":"理科：月と星"},{"id":"science-rainwater","name":"理科：雨水のゆくえ"},{"id":"science-body","name":"理科：人の体のつくり"},{"id":"science-temperature-volume","name":"理科：ものの温度と体積"},{"id":"science-heat","name":"理科：もののあたたまり方"},{"id":"science-water-change","name":"理科：すがたを変える水"}],"5":[{"id":"m5-frac-eq","name":"算数：約分と通分"},{"id":"m5-percent","name":"算数：割合(百分率)"},{"id":"m5-volume","name":"算数：体積"},{"id":"m5-polygon","name":"算数：多角形の角"},{"id":"m5-avg","name":"算数：平均"},{"id":"m5-dec-mul","name":"算数：小数×小数"},{"id":"m5-dec-div","name":"算数：小数÷小数"},{"id":"m5-speed","name":"算数：速さ"},{"id":"m5-unit-qty","name":"算数：単位量あたり"},{"id":"j5-kanji","name":"国語：漢字(5年)"},{"id":"j5-keigo","name":"国語：敬語"},{"id":"j5-homoph","name":"国語：同音異義語"},{"id":"s5-agri","name":"社会：農業"},{"id":"s5-industry","name":"社会：工業"},{"id":"s5-env","name":"社会：国土と環境"},{"id":"s5-land","name":"社会：国土の地形と気候"},{"id":"s5-fishery","name":"社会：水産業"},{"id":"s5-info","name":"社会：情報と産業"},{"id":"s5-forest","name":"社会：森林とわたしたちの生活"},{"id":"s5-disaster","name":"社会：自然災害を防ぐ"},{"id":"r5-weather","name":"理科：天気の変化"},{"id":"r5-pendulum","name":"理科：ふりこ"},{"id":"r5-dissolve","name":"理科：もののとけ方"},{"id":"r5-magnet2","name":"理科：電磁石"},{"id":"r5-plant","name":"理科：植物の発芽と成長"},{"id":"r5-flow","name":"理科：流れる水のはたらき"},{"id":"r5-medaka","name":"理科：メダカのたんじょう"},{"id":"r5-human","name":"理科：人のたんじょう"}],"6":[{"id":"m6-frac-mul","name":"算数：分数×分数"},{"id":"m6-frac-div","name":"算数：分数÷分数"},{"id":"m6-frac-int","name":"算数：分数×÷整数"},{"id":"m6-frac-mixed","name":"算数：帯分数の計算"},{"id":"m6-frac-triple","name":"算数：分数3つの計算"},{"id":"m6-frac-dec","name":"算数：小数と分数"},{"id":"m6-ratio","name":"算数：比"},{"id":"m6-circle","name":"算数：円の面積"},{"id":"m6-proportion","name":"算数：比例と反比例"},{"id":"m6-expression","name":"算数：文字と式"},{"id":"j6-kanji","name":"国語：漢字(6年)"},{"id":"j6-bunpo","name":"国語：文法まとめ"},{"id":"j6-classic","name":"国語：古典"},{"id":"s6-hist-u1","name":"社会：縄文〜古墳"},{"id":"s6-hist-u2","name":"社会：天皇の国づくり"},{"id":"s6-hist-u3","name":"社会：貴族のくらし"},{"id":"s6-hist-u4","name":"社会：武士の世の中へ"},{"id":"s6-hist-u5","name":"社会：室町文化"},{"id":"s6-hist-u6","name":"社会：天下統一"},{"id":"s6-hist-u7","name":"社会：江戸の政治"},{"id":"s6-hist-u8","name":"社会：町人文化"},{"id":"s6-hist-u9","name":"社会：明治の国づくり"},{"id":"s6-hist-u10","name":"社会：戦争と人々"},{"id":"s6-hist-u11","name":"社会：新しい日本へ"},{"id":"s6-politics","name":"社会：政治"},{"id":"s6-world","name":"社会：世界の国々"},{"id":"r6-combust","name":"理科：ものの燃え方"},{"id":"r6-body","name":"理科：体のつくり(発展)"},{"id":"r6-earth","name":"理科：大地のつくり"},{"id":"r6-aqueous","name":"理科：水溶液の性質"},{"id":"r6-moon","name":"理科：月と太陽"},{"id":"r6-lever","name":"理科：てこのはたらき"},{"id":"r6-plant","name":"理科：植物のつくりとはたらき"},{"id":"r6-electric","name":"理科：電気の利用"},{"id":"r6-environment","name":"理科：生物と地球環境"}]};
+      function fillUnitFestUnit(){
+        var g = document.getElementById('unitFestGrade').value;
+        var sel = document.getElementById('unitFestUnit'); var cur = sel.value;
+        var html = '<option value="all">全単元</option>';
+        var list = (g && FEST_UNITS[g]) ? FEST_UNITS[g] : [];
+        for(var i=0;i<list.length;i++){ html += '<option value="'+escH(list[i].id)+'">'+escH(list[i].name)+'</option>'; }
+        sel.innerHTML = html; try{ sel.value = cur; }catch(e){}
+      }
+      function _festUnitName(id){ if(!id || id==='all') return '全単元'; for(var g in FEST_UNITS){ var l=FEST_UNITS[g]; for(var i=0;i<l.length;i++){ if(l[i].id===id) return l[i].name; } } return id; }
+      function updateUnitFestUI(){
+        var st = document.getElementById('unitFestStatus'); if(!st) return;
+        if(_festState.unit_fest_active){ st.textContent = '✅ ON：' + _festUnitName(_festState.unit_fest_target); st.className='text-xs text-fuchsia-700 font-bold'; }
+        else { st.textContent = 'OFF'; st.className='text-xs text-slate-400 font-bold'; }
+      }
+      function setUnitFestSelectsFromState(){
+        try{ var t=_festState.unit_fest_target||'all'; var gsel=document.getElementById('unitFestGrade'), usel=document.getElementById('unitFestUnit'); if(!gsel||!usel) return;
+          if(t==='all'){ usel.value='all'; return; }
+          for(var g in FEST_UNITS){ var l=FEST_UNITS[g]; for(var i=0;i<l.length;i++){ if(l[i].id===t){ gsel.value=g; fillUnitFestUnit(); usel.value=t; return; } } }
+        }catch(e){}
+      }
+      async function toggleUnitFest(on){
+        var unit = document.getElementById('unitFestUnit').value || 'all';
+        try{
+          await api('/api/admin/fest-toggle',{ method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({fest:'unit', active: !!on, unit: unit}) });
+          _festState.unit_fest_active = !!on; _festState.unit_fest_target = unit; updateUnitFestUI();
+        }catch(e){ alert('エラー: '+String(e.message||e)); }
+      }
 
       function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
