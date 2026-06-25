@@ -26171,9 +26171,9 @@ const DECIMAL_FEST = {
   start: '2026-01-19',
   end: '2026-01-30',
   // フェス確率（上限なし）
-  ticketP: 0.05,   // 強化チケット
-  hidenP: 0.05,    // 秘伝の書（ランダム）
-  shardP: 0.15,    // 限定キャラのかけら
+  ticketP: 0.03,   // 強化チケット
+  hidenP: 0.03,    // 秘伝の書（ランダム）
+  shardP: 0.08,    // 限定キャラのかけら
   shardPityEvery: 15, // かけら確定（15問正解）
   pityEvery: 20,   // チケット天井（外すなら null に）
   shardMonsterId: 926,
@@ -27030,7 +27030,7 @@ function handleCorrectAnswer() {
                         }
                     } catch (e) {}
 
-                    msg += ` <span class="text-[10px] text-sky-200 block">${DECIMAL_FEST.name}（🎟️5% / 🔹5% / 📜5%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
+                    msg += ` <span class="text-[10px] text-sky-200 block">${DECIMAL_FEST.name}（🎟️3% / 🔹8% / 📜3%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
                 }
                 if (_isFractionFestActive()) {
                     const st = _ensureFractionFestState();
@@ -27095,25 +27095,25 @@ function handleCorrectAnswer() {
                         }
                     } catch (e) {}
 
-                    msg += ` <span class="text-[10px] text-sky-200 block">${FRACTION_FEST.name}（🎟️5% / 🔹5% / 📜5%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
+                    msg += ` <span class="text-[10px] text-sky-200 block">${FRACTION_FEST.name}（🎟️3% / 🔹8% / 📜3%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
                 }
                 // === 単元フェス（学年→単元）：小数/分数フェスが無いときに、対象単元の修行でドロップ ===
                 if (_isUnitFestActiveHere() && !_isDecimalFestActive() && !_isFractionFestActive()) {
                     const st = _ensureUnitFestState();
                     st.usedToday++;
                     const _uLabel = _festUnitNameChild(_unitFestTarget());
-                    // かけら（15% + 15問確定）
+                    // かけら（8% + 15問確定）
                     let shardDropped = false, shardGuaranteed = false;
                     st.shardPity = (Number(st.shardPity || 0) || 0) + 1;
                     if (st.shardPity >= 15) { shardDropped = true; shardGuaranteed = true; st.shardPity = 0; }
-                    else if (Math.random() < 0.15) { shardDropped = true; st.shardPity = 0; }
+                    else if (Math.random() < 0.08) { shardDropped = true; st.shardPity = 0; }
                     if (shardDropped) {
                         labAddShards(1);
                         const nowSh = labGetShards();
                         msg += ` <span class="text-fuchsia-200 font-black block text-sm">🔹 かけら +1（所持${nowSh}）${shardGuaranteed ? '（15問確定）' : ''}</span>`;
                     }
-                    // 強化チケット（5%＋天井20）
-                    if (Math.random() < 0.05) {
+                    // 強化チケット（3%＋天井20）
+                    if (Math.random() < 0.03) {
                         player.upgradeTickets = (player.upgradeTickets || 0) + 1;
                         st.pity = 0;
                         msg += ` <span class="text-emerald-300 font-black block text-sm">🎟️✨ 強化チケット +1（単元フェス）</span>`;
@@ -27121,9 +27121,9 @@ function handleCorrectAnswer() {
                         st.pity = (Number(st.pity || 0) || 0) + 1;
                         if (st.pity >= 20) { player.upgradeTickets = (player.upgradeTickets || 0) + 1; st.pity = 0; msg += ' <span class="text-emerald-300 font-black block text-sm">🎟️✨ 強化チケット +1（天井）</span>'; }
                     }
-                    // 秘伝の書（5%）
+                    // 秘伝の書（3%）
                     try {
-                        if (Math.random() < 0.05) {
+                        if (Math.random() < 0.03) {
                             ensureHidenData();
                             let key = null;
                             try { key = (typeof hidenRandomBookKey === 'function') ? hidenRandomBookKey() : null; } catch (e) { key = null; }
@@ -27138,7 +27138,7 @@ function handleCorrectAnswer() {
                             }
                         }
                     } catch (e) {}
-                    msg += ` <span class="text-[10px] text-fuchsia-200 block">🎉 単元フェス・${_uLabel}（🎟️5% / 🔹15% / 📜5%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
+                    msg += ` <span class="text-[10px] text-fuchsia-200 block">🎉 単元フェス・${_uLabel}（🎟️3% / 🔹8% / 📜3%） 今日:${st.usedToday}回（朝8時リセット）</span>`;
                 }
 
             } catch (e) {}
