@@ -28812,18 +28812,23 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
           var id=Number(m.id);
           try{
             if(typeof HOLY_GOD_ID!=='undefined' && id===HOLY_GOD_ID) return '写真ボーナス（超激レア・1000まいに1まい）';
-            if((typeof OCHA_ID!=='undefined' && id===OCHA_ID)||(typeof OCHA_DAIMAO_ID!=='undefined' && id===OCHA_DAIMAO_ID)) return '家庭学習の連続提出（10日連続のごほうび）';
-            if(typeof MEWTWO_ID!=='undefined' && id===MEWTWO_ID) return 'ラボ（復活失敗でムダにしたかけらが累計50ごと）';
-            if(typeof BROCCOLI_TEACHER_ID!=='undefined' && id===BROCCOLI_TEACHER_ID) return '分数の村で7連勝';
-            if(typeof PITTARI_MAI_ID!=='undefined' && id===PITTARI_MAI_ID) return '休憩チャレンジ（隠し）';
+            if(typeof OCHA_ID!=='undefined' && id===OCHA_ID) return '家庭学習の連続提出（10日連続のごほうび）';
+            if(typeof MEWTWO_ID!=='undefined' && id===MEWTWO_ID) return 'ラボ（復活失敗でムダにしたかけらが累計50ごと）に出現。倒すと仲間';
+            if(typeof BROCCOLI_TEACHER_ID!=='undefined' && id===BROCCOLI_TEACHER_ID) return '分数の村で7連勝（出てきた八百屋を倒す）';
+            if(typeof PITTARI_MAI_ID!=='undefined' && id===PITTARI_MAI_ID) return 'ちゃんと休けいしたごほうび（隠し）';
+            if(typeof SANTA_ID!=='undefined' && id===SANTA_ID) return 'クリスマス〜お正月（12/24〜1/10）に出現。倒すと仲間';
+            if(typeof NEWYEAR_ID!=='undefined' && id===NEWYEAR_ID) return 'お正月（1/1〜1/10）に出現。倒すと仲間';
+            if(typeof FURISODE_ID!=='undefined' && id===FURISODE_ID) return '成人式シーズン（1/10〜1/13）に出現。倒すと仲間';
+            if(typeof VALENTINE_ID!=='undefined' && id===VALENTINE_ID) return 'バレンタイン（2/11〜2/17）に出現。倒すと仲間';
           }catch(e){}
           var ob=(m.obtain||m.source||'');
           if(ob==='egg'||ob==='eggBattle'||m.eggReward) return 'タマゴバトルのごほうび';
           if(id>=400 && id<=415) return 'ジムリーダー（ジムバトル）';
           if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)) return 'イベント・攻略モード';
+          try{ if(typeof MONSTERS!=='undefined'){ var prev=MONSTERS.find(function(x){return Number(x.nextId)===id;}); if(prev) return '進化（'+prev.name+'がLv'+(prev.evoLevel||'?')+'で進化）'; } }catch(e){}
+          try{ if(m.desc && String(m.desc).indexOf('【入手】')>=0){ var __t=String(m.desc).split('【入手】')[1]||''; __t=__t.split('。')[0]; if(__t && __t.trim()) return __t.trim(); } }catch(e){}
           if(m.uncapturable) return '特別なボス（仲間にはできない）';
           if(m.gacha===true) return 'ガチャ';
-          try{ if(typeof MONSTERS!=='undefined'){ var prev=MONSTERS.find(function(x){return Number(x.nextId)===id;}); if(prev) return '進化（'+prev.name+'がLv'+(prev.evoLevel||'?')+'で進化）'; } }catch(e){}
           return '野生バトル（モンスタボールで捕まえる）';
         }
         function revealObtain(id){
