@@ -5163,7 +5163,7 @@ function setupQrScanUi(){
             { id: 'gym_ticket', name: 'バトルチケット', price: 50, desc: 'ジム/タマゴバトルへの挑戦権（1日5枚まで）', icon: '🎫' },
 { id: 'upgrade_ticket', name: '強化チケット', price: 1500, desc: '城/ビーム（チャージ・威力・停止）の好きなLvを+1（最大100）', icon: '🎟️✨' },
             { id: 'hiden_book_random', name: '秘伝の書（ランダム）', price: 250, desc: 'ランダムな秘伝の書を1冊', icon: '📜' },
-            { id: 'obtain_memo', name: '入手のヒントメモ', price: 100, desc: 'モンスター1体の「入手方法」を1回調べられるメモ。図鑑でナゾのモンスターを押して使おう', icon: '🔍' }
+            { id: 'obtain_memo', name: '入手のヒントメモ', price: 300, desc: 'モンスター1体の「入手方法」を1回調べられるメモ。図鑑でナゾのモンスターを押して使おう', icon: '🔍' }
 ];
         // Element Types (for display and type effectiveness)
         const ELEMENT_TYPES = {
@@ -28831,7 +28831,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
           if(!Array.isArray(player.revealedObtain)) player.revealedObtain=[];
           if(player.revealedObtain.indexOf(id)>=0){ try{ showDetail(id); }catch(e){} return; }
           var memos=Number(player.obtainMemos||0);
-          if(memos<=0){ alert('メモが足りないよ。\nショップで「入手のヒントメモ」を買えるよ（100コイン）'); return; }
+          if(memos<=0){ alert('メモが足りないよ。\nショップで「入手のヒントメモ」を買えるよ（300コイン）'); return; }
           if(!confirm('このモンスターの入手方法を調べる？\n（入手のヒントメモを1枚つかう）')) return;
           player.obtainMemos = memos - 1;
           player.revealedObtain.push(id);
