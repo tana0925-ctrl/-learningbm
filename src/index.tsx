@@ -1182,6 +1182,149 @@ app.put('/api/admin/fest-toggle', async (c) => {
   return c.json({ ok: true, [key]: body.active ? true : false })
 })
 
+// ==================== 🏰 クラス基地防衛戦（第1弾コア） ====================
+const DEFENSE_BASE_HP = 1200
+const DEFENSE_ENEMIES = [
+  { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
+  { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
+  { name: 'コウモリ',     sprite: '\u{1F987}', hp: 90,  atk: 38, def: 5, buff: 'speed',  skillPow: 10 },
+  { name: 'コウモリ',     sprite: '\u{1F987}', hp: 90,  atk: 38, def: 5, buff: 'speed',  skillPow: 10 },
+  { name: 'がいこつ',     sprite: '\u{1F480}', hp: 160, atk: 34, def: 14, buff: 'guard', skillPow: 10 },
+  { name: 'がいこつ',     sprite: '\u{1F480}', hp: 160, atk: 34, def: 14, buff: 'guard', skillPow: 10 },
+  { name: 'おおきなオーク', sprite: '\u{1F479}', hp: 260, atk: 46, def: 18, buff: 'attack', skillPow: 10 },
+  { name: 'まおう',       sprite: '\u{1F608}', hp: 520, atk: 60, def: 24, buff: 'guard', skillPow: 12 },
+]
+const DEFENSE_WIN_COINS = 20
+
+async function ensureDefenseTables(env: any) {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS defense_entries (event_key TEXT NOT NULL, user_id TEXT NOT NULL, class_id TEXT, monster_json TEXT, strategy TEXT, created_at TEXT, PRIMARY KEY(event_key, user_id))").run().catch(() => {})
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS defense_results (event_key TEXT NOT NULL, class_id TEXT NOT NULL, result TEXT, log_json TEXT, base_hp_end INTEGER, resolved_at TEXT, PRIMARY KEY(event_key, class_id))").run().catch(() => {})
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS defense_rewards (event_key TEXT NOT NULL, class_id TEXT NOT NULL, user_id TEXT NOT NULL, coins INTEGER DEFAULT 0, seen INTEGER DEFAULT 0, created_at TEXT, PRIMARY KEY(event_key, class_id, user_id))").run().catch(() => {})
+}
+
+async function defenseClassId(env: any, userId: string): Promise<string> {
+  try {
+    const cm = await env.DB.prepare("SELECT class_id FROM class_members WHERE user_id=? LIMIT 1").bind(userId).first<any>()
+    return cm && cm.class_id ? String(cm.class_id) : ''
+  } catch (_e) { return '' }
+}
+
+async function defenseSettings(env: any) {
+  const rows = await env.DB.prepare("SELECT key, value FROM admin_settings WHERE key IN ('defense_active','defense_decision_at','defense_event_key')").all<any>()
+  const s: any = {}
+  for (const r of ((rows && rows.results) || [])) s[r.key] = r.value
+  const decisionAt = String(s.defense_decision_at || '')
+  return { active: s.defense_active === '1', decisionAt, eventKey: String(s.defense_event_key || decisionAt || '') }
+}
+
+// 児童：防衛戦の状態
+app.get('/api/defense/status', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  await ensureDefenseTables(c.env)
+  const st = await defenseSettings(c.env)
+  const classId = await defenseClassId(c.env, u.id)
+  const out: any = { ok: true, active: st.active, decision_at: st.decisionAt, event_key: st.eventKey, class_id: classId, base_hp: DEFENSE_BASE_HP, enemy_squad: DEFENSE_ENEMIES, my_entry: null, decided: false, result: null, entries: null, my_reward: null }
+  if (!st.eventKey) return c.json(out)
+  const decided = !!st.decisionAt && Date.now() >= Date.parse(st.decisionAt)
+  out.decided = decided
+  try {
+    const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
+    if (e) { let mj: any = null; try { mj = JSON.parse(e.monster_json) } catch (_e) {} out.my_entry = { monster: mj, strategy: e.strategy } }
+  } catch (_e) {}
+  if (classId) {
+    try {
+      const rr = await c.env.DB.prepare("SELECT result, log_json, base_hp_end FROM defense_results WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).first<any>()
+      if (rr) { let lg: any = null; try { lg = JSON.parse(rr.log_json) } catch (_e) {} out.result = { result: rr.result, base_hp_end: rr.base_hp_end, log: lg } }
+    } catch (_e) {}
+    try {
+      const rw = await c.env.DB.prepare("SELECT coins, seen FROM defense_rewards WHERE event_key=? AND class_id=? AND user_id=?").bind(st.eventKey, classId, u.id).first<any>()
+      if (rw) out.my_reward = { coins: Number(rw.coins || 0), seen: Number(rw.seen || 0) }
+    } catch (_e) {}
+    if (decided && !out.result) {
+      try {
+        const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=?").bind(st.eventKey, classId).all<any>()
+        out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { user_id: r.uid, name: r.nm, monster: m, strategy: r.strat } })
+      } catch (_e) {}
+    }
+  }
+  return c.json(out)
+})
+
+// 児童：出陣（1体＋さくせん）を保存
+app.post('/api/defense/entry', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  if (u.role === 'teacher') return jsonError(c, 403, 'students_only')
+  await ensureDefenseTables(c.env)
+  const body = await c.req.json().catch(() => null)
+  if (!body || !body.event_key || !body.monster) return jsonError(c, 400, 'invalid_json')
+  const st = await defenseSettings(c.env)
+  if (!st.active || st.eventKey !== String(body.event_key)) return jsonError(c, 400, 'event_closed')
+  if (st.decisionAt && Date.now() >= Date.parse(st.decisionAt)) return jsonError(c, 400, 'closed')
+  const classId = await defenseClassId(c.env, u.id)
+  const mj = JSON.stringify(body.monster).slice(0, 4000)
+  const strat = String(body.strategy || 'balance').slice(0, 20)
+  await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO UPDATE SET class_id=excluded.class_id, monster_json=excluded.monster_json, strategy=excluded.strategy, created_at=datetime('now')").bind(st.eventKey, u.id, classId, mj, strat).run()
+  return c.json({ ok: true })
+})
+
+// 児童：決戦を1回だけ保存（冪等ロック）＋勝利なら参加者へ報酬記録
+app.post('/api/defense/resolve', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  await ensureDefenseTables(c.env)
+  const body = await c.req.json().catch(() => null)
+  if (!body || !body.event_key || !body.class_id || !body.result) return jsonError(c, 400, 'invalid_json')
+  const st = await defenseSettings(c.env)
+  if (st.eventKey !== String(body.event_key)) return jsonError(c, 400, 'event_mismatch')
+  if (!(st.decisionAt && Date.now() >= Date.parse(st.decisionAt))) return jsonError(c, 400, 'not_yet')
+  const classId = await defenseClassId(c.env, u.id)
+  if (!classId || classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
+  const result = (String(body.result) === 'win') ? 'win' : 'lose'
+  const logJson = JSON.stringify(body.log || null).slice(0, 100000)
+  const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
+  const lock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, result, logJson, baseHpEnd).run()
+  if (!lock.meta || lock.meta.changes === 0) return c.json({ ok: true, already: true })
+  if (result === 'win') {
+    try {
+      const es = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
+      for (const r of ((es && es.results) || [])) {
+        await c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))").bind(st.eventKey, classId, String(r.user_id), DEFENSE_WIN_COINS).run()
+      }
+    } catch (_e) {}
+  }
+  return c.json({ ok: true, resolved: true, result })
+})
+
+// 児童：報酬を1回だけ受け取り（コイン額を返すのは初回のみ）
+app.post('/api/defense/reward-claim', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  await ensureDefenseTables(c.env)
+  const body = await c.req.json().catch(() => null)
+  if (!body || !body.event_key) return jsonError(c, 400, 'invalid_json')
+  const classId = await defenseClassId(c.env, u.id)
+  if (!classId) return c.json({ ok: true, coins: 0 })
+  const row = await c.env.DB.prepare("SELECT coins FROM defense_rewards WHERE event_key=? AND class_id=? AND user_id=?").bind(String(body.event_key), classId, u.id).first<any>()
+  if (!row) return c.json({ ok: true, coins: 0 })
+  const upd = await c.env.DB.prepare("UPDATE defense_rewards SET seen=1 WHERE event_key=? AND class_id=? AND user_id=? AND seen=0").bind(String(body.event_key), classId, u.id).run()
+  const granted = (upd.meta && upd.meta.changes > 0) ? Number(row.coins || 0) : 0
+  return c.json({ ok: true, coins: granted })
+})
+
+// 教師：防衛戦の開始＋決戦時刻設定
+app.put('/api/admin/defense-toggle', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 401, 'unauthorized')
+  await ensureDefenseTables(c.env)
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const active = body.active ? '1' : '0'
+  const decisionAt = String(body.decision_at || '').slice(0, 40)
+  const eventKey = decisionAt || ('ev_' + Date.now())
+  const setKv = async (k: string, v: string) => { await c.env.DB.prepare("INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')").bind(k, v).run() }
+  await setKv('defense_active', active)
+  await setKv('defense_decision_at', decisionAt)
+  await setKv('defense_event_key', eventKey)
+  return c.json({ ok: true, active: !!body.active, decision_at: decisionAt, event_key: eventKey })
+})
+
 // -------------------- API: admin - grade management --------------------
 
 app.put('/api/admin/user-grade', async (c) => {
@@ -7316,6 +7459,18 @@ app.get('/teacher', (c) => {
         </div>
       </div>
 
+      <!-- 🏰 クラス基地防衛戦 -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-bold mb-3">🏰 クラス基地防衛戦</h2>
+        <p class="text-xs text-slate-400 mb-2">開始ONにして決戦時刻を決めると、児童が「防衛戦」でモンスター1体を出陣できます。決戦時刻を過ぎて誰かが開くと、自動で決着＋リプレイが作られます（クラス全員の1体 vs 敵軍団）。</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input id="defenseDecisionAt" type="datetime-local" class="border p-1.5 rounded text-sm bg-white">
+          <button onclick="toggleDefense(true)" class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-rose-700">この時刻で開始ON</button>
+          <button onclick="toggleDefense(false)" class="bg-slate-300 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-400">防衛戦OFF</button>
+          <span id="defenseStatus" class="text-xs text-rose-700 font-bold"></span>
+        </div>
+      </div>
+
       <!-- クラス作成 -->
       <div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-bold mb-3">クラス作成</h2>
@@ -8038,6 +8193,30 @@ app.get('/teacher', (c) => {
         }catch(e){ alert('エラー: ' + String(e.message||e)); }
       }
       loadFestStatus();
+      // ===== 🏰 クラス基地防衛戦 =====
+      async function loadDefenseStatus(){
+        try{
+          var d = await api('/api/defense/status');
+          var st = document.getElementById('defenseStatus');
+          if(st){
+            if(d.active && d.decision_at){ var dt=new Date(d.decision_at); st.textContent='\u2705 開催中：決戦 '+dt.toLocaleString(); st.className='text-xs text-rose-700 font-bold'; }
+            else { st.textContent='OFF'; st.className='text-xs text-slate-400 font-bold'; }
+          }
+          var inp=document.getElementById('defenseDecisionAt');
+          if(inp && d.decision_at){ try{ var dd=new Date(d.decision_at); var pad=function(n){return (n<10?'0':'')+n;}; inp.value=dd.getFullYear()+'-'+pad(dd.getMonth()+1)+'-'+pad(dd.getDate())+'T'+pad(dd.getHours())+':'+pad(dd.getMinutes()); }catch(e){} }
+        }catch(e){}
+      }
+      async function toggleDefense(on){
+        var inp=document.getElementById('defenseDecisionAt');
+        var val = inp ? inp.value : '';
+        var iso = '';
+        if(on){ if(!val){ alert('決戦時刻を入れてね'); return; } try{ iso=new Date(val).toISOString(); }catch(e){ alert('時刻が正しくありません'); return; } }
+        try{
+          await api('/api/admin/defense-toggle',{ method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({ active: !!on, decision_at: iso }) });
+          loadDefenseStatus();
+        }catch(e){ alert('エラー: '+String(e.message||e)); }
+      }
+      loadDefenseStatus();
       // ===== 単元フェス =====
       var FEST_UNITS = {"1":[{"id":"m1-add-no","name":"算数：たしざん(くり上がりなし)"},{"id":"m1-sub-no","name":"算数：ひきざん(くり下がりなし)"},{"id":"m1-add-cy","name":"算数：たしざん(くり上がり)"},{"id":"m1-sub-bo","name":"算数：ひきざん(くり下がり)"},{"id":"m1-3num","name":"算数：3つのかずのけいさん"},{"id":"j1-kanji","name":"国語：かんじ(1年80字)"}],"2":[{"id":"m2-add2","name":"算数：たし算(2けた)"},{"id":"m2-sub2","name":"算数：ひき算(2けた)"},{"id":"m2-kuku","name":"算数：九九"},{"id":"m2-length","name":"算数：長さ(cm, mm)"},{"id":"j2-kanji","name":"国語：漢字(2年160字)"}],"3":[{"id":"m3-mul1","name":"算数：かけ算(2けた×1けた)"},{"id":"m3-div0","name":"算数：わり算(あまりなし)"},{"id":"m3-divR","name":"算数：わり算(あまりあり)"},{"id":"m3-large","name":"算数：大きい数の位"},{"id":"m3-weight","name":"算数：重さ(g, kg)"},{"id":"j3-kanji","name":"国語：漢字(3年)"},{"id":"j3-kotowaza","name":"国語：ことわざ"},{"id":"j3-romaji","name":"国語：ローマ字"},{"id":"s3-map","name":"社会：地図記号"},{"id":"r3-insect","name":"理科：こん虫の体"},{"id":"r3-magnet","name":"理科：じしゃく"},{"id":"r3-light","name":"理科：光の性質"}],"4":[{"id":"rounding","name":"算数：がい数"},{"id":"division","name":"算数：わり算(暗算)"},{"id":"fraction-mixed","name":"算数：分数"},{"id":"decimal","name":"算数：小数(×÷)"},{"id":"long-division","name":"算数：筆算(わり算)"},{"id":"area","name":"算数：面積"},{"id":"brackets","name":"算数：計算の順序"},{"id":"j4-kanji","name":"国語：漢字(4年)"},{"id":"idiom","name":"国語：慣用句"},{"id":"conjunction","name":"国語：つなぎ言葉"},{"id":"yoji","name":"国語：四字熟語"},{"id":"social","name":"社会：都道府県"},{"id":"social-nagoyasouth","name":"社会：名古屋南部の開発"},{"id":"social-seto","name":"社会：瀬戸のやきもの"},{"id":"s4-water","name":"社会：水はどこから"},{"id":"s4-garbage","name":"社会：ごみのしょりと利用"},{"id":"s4-disaster","name":"社会：自然災害からくらしを守る"},{"id":"s4-inuyama","name":"社会：犬山祭り"},{"id":"s4-minamichita","name":"社会：南知多町"},{"id":"s4-toyohashi","name":"社会：豊橋市"},{"id":"science-weather","name":"理科：天気と気温"},{"id":"science-seasons","name":"理科：季節と生き物"},{"id":"science-electric","name":"理科：電池のはたらき"},{"id":"science-airwater","name":"理科：空気と水"},{"id":"science-moonstars","name":"理科：月と星"},{"id":"science-rainwater","name":"理科：雨水のゆくえ"},{"id":"science-body","name":"理科：人の体のつくり"},{"id":"science-temperature-volume","name":"理科：ものの温度と体積"},{"id":"science-heat","name":"理科：もののあたたまり方"},{"id":"science-water-change","name":"理科：すがたを変える水"}],"5":[{"id":"m5-frac-eq","name":"算数：約分と通分"},{"id":"m5-percent","name":"算数：割合(百分率)"},{"id":"m5-volume","name":"算数：体積"},{"id":"m5-polygon","name":"算数：多角形の角"},{"id":"m5-avg","name":"算数：平均"},{"id":"m5-dec-mul","name":"算数：小数×小数"},{"id":"m5-dec-div","name":"算数：小数÷小数"},{"id":"m5-speed","name":"算数：速さ"},{"id":"m5-unit-qty","name":"算数：単位量あたり"},{"id":"j5-kanji","name":"国語：漢字(5年)"},{"id":"j5-keigo","name":"国語：敬語"},{"id":"j5-homoph","name":"国語：同音異義語"},{"id":"s5-agri","name":"社会：農業"},{"id":"s5-industry","name":"社会：工業"},{"id":"s5-env","name":"社会：国土と環境"},{"id":"s5-land","name":"社会：国土の地形と気候"},{"id":"s5-fishery","name":"社会：水産業"},{"id":"s5-info","name":"社会：情報と産業"},{"id":"s5-forest","name":"社会：森林とわたしたちの生活"},{"id":"s5-disaster","name":"社会：自然災害を防ぐ"},{"id":"r5-weather","name":"理科：天気の変化"},{"id":"r5-pendulum","name":"理科：ふりこ"},{"id":"r5-dissolve","name":"理科：もののとけ方"},{"id":"r5-magnet2","name":"理科：電磁石"},{"id":"r5-plant","name":"理科：植物の発芽と成長"},{"id":"r5-flow","name":"理科：流れる水のはたらき"},{"id":"r5-medaka","name":"理科：メダカのたんじょう"},{"id":"r5-human","name":"理科：人のたんじょう"}],"6":[{"id":"m6-frac-mul","name":"算数：分数×分数"},{"id":"m6-frac-div","name":"算数：分数÷分数"},{"id":"m6-frac-int","name":"算数：分数×÷整数"},{"id":"m6-frac-mixed","name":"算数：帯分数の計算"},{"id":"m6-frac-triple","name":"算数：分数3つの計算"},{"id":"m6-frac-dec","name":"算数：小数と分数"},{"id":"m6-ratio","name":"算数：比"},{"id":"m6-circle","name":"算数：円の面積"},{"id":"m6-proportion","name":"算数：比例と反比例"},{"id":"m6-expression","name":"算数：文字と式"},{"id":"j6-kanji","name":"国語：漢字(6年)"},{"id":"j6-bunpo","name":"国語：文法まとめ"},{"id":"j6-classic","name":"国語：古典"},{"id":"s6-hist-u1","name":"社会：縄文〜古墳"},{"id":"s6-hist-u2","name":"社会：天皇の国づくり"},{"id":"s6-hist-u3","name":"社会：貴族のくらし"},{"id":"s6-hist-u4","name":"社会：武士の世の中へ"},{"id":"s6-hist-u5","name":"社会：室町文化"},{"id":"s6-hist-u6","name":"社会：天下統一"},{"id":"s6-hist-u7","name":"社会：江戸の政治"},{"id":"s6-hist-u8","name":"社会：町人文化"},{"id":"s6-hist-u9","name":"社会：明治の国づくり"},{"id":"s6-hist-u10","name":"社会：戦争と人々"},{"id":"s6-hist-u11","name":"社会：新しい日本へ"},{"id":"s6-politics","name":"社会：政治"},{"id":"s6-world","name":"社会：世界の国々"},{"id":"r6-combust","name":"理科：ものの燃え方"},{"id":"r6-body","name":"理科：体のつくり(発展)"},{"id":"r6-earth","name":"理科：大地のつくり"},{"id":"r6-aqueous","name":"理科：水溶液の性質"},{"id":"r6-moon","name":"理科：月と太陽"},{"id":"r6-lever","name":"理科：てこのはたらき"},{"id":"r6-plant","name":"理科：植物のつくりとはたらき"},{"id":"r6-electric","name":"理科：電気の利用"},{"id":"r6-environment","name":"理科：生物と地球環境"}]};
       function fillUnitFestUnit(){
