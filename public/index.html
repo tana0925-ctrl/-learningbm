@@ -3103,6 +3103,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-pokedex" style="background: linear-gradient(180deg, #94a3b8, #64748b);" onclick="trySetMode('pokedex')"><span class="nav3d-icon">📖</span>図鑑</button>
 <button class="nav3d" id="btn-box" style="background: linear-gradient(180deg, #22d3ee, #0891b2);" onclick="trySetMode('box')"><span class="nav3d-icon">📦</span>ボックス</button>
 <button class="nav3d" id="btn-ranking" style="background: linear-gradient(180deg, #fbbf24, #d97706);" onclick="trySetMode('ranking')"><span class="nav3d-icon">🏆</span>ランキング</button>
+<button class="nav3d" id="btn-defense" style="background: linear-gradient(180deg, #fb7185, #e11d48);" onclick="openDefense()"><span class="nav3d-icon">🏰</span>防衛戦</button>
 <div class="relative" id="sys-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #94a3b8, #475569);" onclick="toggleSysMenu(event)"><span class="nav3d-icon">⚙️</span>システム</button>
   <div id="sys-menu" class="hidden absolute bottom-0 left-full ml-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:160px">
@@ -3140,6 +3141,7 @@ function formatYMD(d){
 <button class="mnav-btn" onclick="trySetMode('pokedex')"><span class="mnav-icon">📖</span><span class="mnav-label" style="color:#4b5563">図鑑</span></button>
 <button class="mnav-btn" onclick="trySetMode('box')"><span class="mnav-icon">📦</span><span class="mnav-label" style="color:#0891b2">ボックス</span></button>
 <button class="mnav-btn" onclick="trySetMode('ranking')"><span class="mnav-icon">🏆</span><span class="mnav-label" style="color:#ca8a04">順位</span></button>
+<button class="mnav-btn" onclick="openDefense()"><span class="mnav-icon">🏰</span><span class="mnav-label" style="color:#e11d48">防衛</span></button>
 <div class="relative" id="sys-nav-mobile-wrap">
   <button class="mnav-btn" onclick="toggleSysMenuMobile(event)"><span class="mnav-icon">⚙️</span><span class="mnav-label" style="color:#4b5563">システム</span></button>
   <div id="sys-menu-mobile" class="hidden absolute bottom-full mb-1 right-0 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden" style="min-width:160px">
@@ -36081,6 +36083,59 @@ function checkOldCoinFraud() {
         // === グローバルスコープへの関数露出（onclick属性から呼び出し可能にする） ===
         window.buyItem = buyItem;
         window.revealObtain = revealObtain;
+        // === 🏰 クラス基地防衛戦（第1弾コア）===
+        var _defSelId=null,_defSelStrat='balance',_defStatus=null,_defBusy=false;
+        function openDefense(){ var m=document.getElementById('defenseModal'); if(m) m.classList.remove('hidden'); _defRender(); }
+        function closeDefense(){ var m=document.getElementById('defenseModal'); if(m) m.classList.add('hidden'); }
+        function _defEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function _defStratLabel(s){ return s==='attack'?'⚔こうげき':(s==='guard'?'🛡まもり':'⚖バランス'); }
+        function _defSnapshot(id){ try{ var base=getMonster(Number(id)); if(!base) return null; var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1}; var lvl=Math.max(1,Number(inst.level||1)); var s=getStats(base,lvl); var el=Array.isArray(base.elementType)?base.elementType[0]:(base.elementType||'normal'); return {id:Number(id),name:base.name,sprite:base.sprite,level:lvl,hp:Number(s.hp||s.maxHp||100),atk:Number(s.atk||10),def:Number(s.def||5),buff:base.buff||'lucky',elementType:el,skillPow:10}; }catch(e){ return null; } }
+        function _defBuffMul(a,d){ if(a==='lucky'||d==='lucky')return 1; if(a==='attack'&&d==='speed')return 1.3; if(a==='speed'&&d==='guard')return 1.3; if(a==='guard'&&d==='attack')return 1.3; if(a==='attack'&&d==='guard')return 0.8; if(a==='speed'&&d==='attack')return 0.8; if(a==='guard'&&d==='speed')return 0.8; return 1; }
+        function _defApplyStrat(m,strat){ var x=Object.assign({},m); if(strat==='attack'){ x.atk=Math.round(x.atk*1.2); x.def=Math.round(x.def*0.85);} else if(strat==='guard'){ x.def=Math.round(x.def*1.2); x.atk=Math.round(x.atk*0.85);} return x; }
+        function _defSim(defenders,enemies,baseHp){
+          function dmg(att,def){ var pow=att.skillPow||10; var b=att.atk*(pow/10)*(200/(200+(def.def||0))); return Math.max(1,Math.floor(b*_defBuffMul(att.buff,def.buff))); }
+          var defs=defenders.map(function(d){ return {name:d.name,sprite:d.sprite,atk:d.atk,def:d.def,buff:d.buff,skillPow:d.skillPow,hp:d.hp,maxHp:d.hp,alive:true}; });
+          var ens=enemies.map(function(e){ return {name:e.name,sprite:e.sprite,atk:e.atk,def:e.def,buff:e.buff,skillPow:e.skillPow,hp:e.hp,maxHp:e.hp,alive:true}; });
+          var base=baseHp,rounds=[],r=0;
+          while(r<80){ r++; var acts=[]; var fe=ens.find(function(e){return e.alive;});
+            if(fe){ defs.forEach(function(d){ if(!d.alive)return; if(!fe||!fe.alive) fe=ens.find(function(e){return e.alive;}); if(!fe)return; var dm=dmg(d,fe); fe.hp-=dm; acts.push(d.sprite+_defEsc(d.name)+'→'+fe.sprite+_defEsc(fe.name)+' '+dm); if(fe.hp<=0){ fe.alive=false; acts.push('💥 '+_defEsc(fe.name)+'をたおした！'); fe=ens.find(function(e){return e.alive;}); } }); }
+            ens.forEach(function(e){ if(!e.alive)return; var fd=defs.find(function(d){return d.alive;}); if(fd){ var dm=dmg(e,fd); fd.hp-=dm; acts.push(e.sprite+_defEsc(e.name)+'→'+fd.sprite+_defEsc(fd.name)+' '+dm); if(fd.hp<=0){ fd.alive=false; acts.push('😢 '+_defEsc(fd.name)+'がやられた…'); } } else { var dm=Math.max(1,e.atk); base-=dm; acts.push(e.sprite+_defEsc(e.name)+'→🏰 きち '+dm); } });
+            rounds.push({r:r,acts:acts,base:Math.max(0,Math.round(base)),enLeft:ens.filter(function(e){return e.alive;}).length});
+            if(!ens.some(function(e){return e.alive;})) return {result:'win',baseHpEnd:Math.max(0,Math.round(base)),rounds:rounds};
+            if(base<=0) return {result:'lose',baseHpEnd:0,rounds:rounds};
+          }
+          return {result:(base>0?'win':'lose'),baseHpEnd:Math.max(0,Math.round(base)),rounds:rounds};
+        }
+        async function _defFetch(){ try{ var r=await fetch('/api/defense/status'); return await r.json(); }catch(e){ return {ok:false}; } }
+        function _defHpBar(hp,max,color){ var pct=Math.max(0,Math.min(100,Math.round((hp/(max||1))*100))); return '<div style="background:#e2e8f0;border-radius:6px;height:10px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:'+(color||'#10b981')+';"></div></div>'; }
+        async function _defRender(){
+          var body=document.getElementById('defenseBody'); if(!body) return;
+          body.innerHTML='<div style="text-align:center;color:#64748b;padding:20px;">よみこみ中…</div>';
+          var d=await _defFetch(); _defStatus=d;
+          if(!d||!d.ok){ body.innerHTML='<div style="text-align:center;color:#64748b;padding:20px;">よみこみに失敗しました。</div>'; return; }
+          if(!d.active){ body.innerHTML='<div style="text-align:center;color:#64748b;padding:24px;">いまは防衛戦をやっていないよ。<br>先生が「防衛戦」をはじめると、ここで出陣できるよ！</div>'; return; }
+          var enemyHtml='<div style="font-weight:900;margin:6px 0;">👾 敵軍団（'+d.enemy_squad.length+'体）</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'+d.enemy_squad.map(function(e){ return '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:4px 6px;font-size:12px;">'+e.sprite+_defEsc(e.name)+' <span style="color:#94a3b8;">HP'+e.hp+'</span></div>'; }).join('')+'</div><div style="font-size:12px;color:#64748b;margin-bottom:8px;">🏰 基地HP: '+d.base_hp+'</div>';
+          if(d.result){ var rs=d.result; var win=rs.result==='win'; var rewardHtml=d.my_reward?'<div id="defRewardBox" style="margin-top:8px;color:#b45309;font-weight:900;text-align:center;"></div>':''; body.innerHTML='<div style="text-align:center;padding:6px 0 12px;"><div style="font-size:28px;font-weight:900;color:'+(win?'#16a34a':'#dc2626')+';">'+(win?'🎉 しょうり！':'💥 はいぼく…')+'</div><div style="color:#64748b;font-size:13px;">🏰 基地HP のこり '+rs.base_hp_end+'</div></div>'+rewardHtml+'<button onclick="_defShowReplay()" style="width:100%;background:#4f46e5;color:#fff;border:0;border-radius:10px;padding:10px;font-weight:900;cursor:pointer;">▶ リプレイを見る（観戦）</button><div id="defReplay" style="margin-top:10px;"></div>'; if(d.my_reward) _defClaimReward(); return; }
+          if(d.decided && d.entries){ if(!d.entries.length){ body.innerHTML=enemyHtml+'<div style="text-align:center;color:#64748b;padding:16px;">だれも出陣しなかったので、決戦はおこなわれません。</div>'; return; } body.innerHTML='<div style="text-align:center;padding:8px 0;"><div style="font-size:18px;font-weight:900;color:#e11d48;">⚔ 決戦の時間！</div><div style="color:#64748b;font-size:13px;">'+d.entries.length+'体のなかま vs 敵軍団</div></div>'+enemyHtml+'<button onclick="_defStartResolve()" style="width:100%;background:#e11d48;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer;">決戦をはじめる！</button>'; return; }
+          var partyIds=Array.isArray(player.party)?player.party.slice(0,3):[];
+          var snaps=partyIds.map(function(id){ return _defSnapshot(id); }).filter(function(x){return x;});
+          var decTxt=d.decision_at?new Date(d.decision_at).toLocaleString():'';
+          var head='<div style="font-size:12px;color:#64748b;margin-bottom:6px;">決戦：'+_defEsc(decTxt)+'</div>'+enemyHtml;
+          if(d.my_entry && d.my_entry.monster){ var me=d.my_entry.monster; head+='<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px;margin-bottom:8px;"><div style="font-weight:900;color:#047857;">✅ 出陣ずみ</div><div style="font-size:14px;">'+me.sprite+_defEsc(me.name)+'（Lv'+me.level+'）／'+_defStratLabel(d.my_entry.strategy)+'</div></div><div style="font-size:12px;color:#64748b;margin-bottom:6px;">出しなおすこともできるよ↓</div>'; }
+          if(!snaps.length){ body.innerHTML=head+'<div style="text-align:center;color:#64748b;padding:12px;">パーティにモンスターがいないみたい。先にパーティを決めてね。</div>'; return; }
+          if(_defSelId==null && snaps.length) _defSelId=snaps[0].id;
+          var pick='<div style="font-weight:900;margin:8px 0 4px;">① だすモンスターをえらぶ</div><div style="display:flex;flex-wrap:wrap;gap:8px;">'+snaps.map(function(s){ var sel=(Number(_defSelId)===Number(s.id)); return '<button onclick="_defPick('+s.id+')" style="border:2px solid '+(sel?'#e11d48':'#e2e8f0')+';background:'+(sel?'#fff1f2':'#fff')+';border-radius:10px;padding:6px 8px;cursor:pointer;text-align:center;min-width:90px;"><div style="font-size:24px;">'+s.sprite+'</div><div style="font-size:12px;font-weight:900;">'+_defEsc(s.name)+'</div><div style="font-size:10px;color:#64748b;">Lv'+s.level+' ⚔'+s.atk+' 🛡'+s.def+'</div></button>'; }).join('')+'</div>';
+          var strat='<div style="font-weight:900;margin:10px 0 4px;">② さくせんをえらぶ</div><div style="display:flex;gap:8px;">'+['attack','balance','guard'].map(function(st){ var sel=(_defSelStrat===st); return '<button onclick="_defSetStrat(\''+st+'\')" style="flex:1;border:2px solid '+(sel?'#e11d48':'#e2e8f0')+';background:'+(sel?'#fff1f2':'#fff')+';border-radius:10px;padding:8px;cursor:pointer;font-weight:900;">'+_defStratLabel(st)+'</button>'; }).join('')+'</div><div style="font-size:11px;color:#94a3b8;margin-top:3px;">⚔こうげき=攻↑守↓ ／ 🛡まもり=守↑攻↓ ／ ⚖バランス=そのまま</div>';
+          var submit='<button onclick="_defDoSubmit()" style="width:100%;margin-top:12px;background:#e11d48;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer;">'+(d.my_entry?'この内容で出しなおす':'⚔ 出陣する！')+'</button>';
+          body.innerHTML=head+pick+strat+submit;
+        }
+        function _defPick(id){ _defSelId=Number(id); _defRender(); }
+        function _defSetStrat(s){ _defSelStrat=s; _defRender(); }
+        async function _defDoSubmit(){ if(_defBusy)return; if(_defSelId==null){ alert('モンスターをえらんでね'); return; } var snap=_defSnapshot(_defSelId); if(!snap){ alert('そのモンスターは出せないみたい'); return; } if(!_defStatus||!_defStatus.event_key){ alert('いま出陣できません'); return; } _defBusy=true; try{ var r=await fetch('/api/defense/entry',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_key:_defStatus.event_key,monster:snap,strategy:_defSelStrat})}); var j=await r.json(); if(!j.ok) alert('出陣できませんでした（'+(j.error||'')+'）'); }catch(e){ alert('通信エラー'); } _defBusy=false; _defRender(); }
+        async function _defStartResolve(){ if(_defBusy)return; _defBusy=true; var d=_defStatus; try{ var defenders=(d.entries||[]).map(function(en){ return _defApplyStrat(en.monster,en.strategy); }).filter(function(x){return x&&x.atk;}); var sim=_defSim(defenders,d.enemy_squad,d.base_hp); var r=await fetch('/api/defense/resolve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_key:d.event_key,class_id:d.class_id,result:sim.result,base_hp_end:sim.baseHpEnd,log:sim.rounds})}); await r.json(); }catch(e){} _defBusy=false; _defRender(); }
+        async function _defClaimReward(){ try{ if(!_defStatus||!_defStatus.event_key)return; var r=await fetch('/api/defense/reward-claim',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_key:_defStatus.event_key})}); var j=await r.json(); var box=document.getElementById('defRewardBox'); if(j&&j.coins>0){ try{ player.coins=(player.coins||0)+Number(j.coins); saveData(); updatePlayerDisplay(); }catch(e){} if(box) box.textContent='🎁 ごほうび：'+j.coins+'コイン ゲット！'; } else if(box&&_defStatus.my_reward){ box.textContent='🎁 ごほうび：'+(_defStatus.my_reward.coins||0)+'コイン（受取ずみ）'; } }catch(e){} }
+        function _defShowReplay(){ var rp=document.getElementById('defReplay'); if(!rp||!_defStatus||!_defStatus.result||!_defStatus.result.log){ if(rp) rp.textContent='リプレイデータがありません。'; return; } var rounds=_defStatus.result.log; var base0=_defStatus.base_hp; rp.innerHTML=rounds.map(function(rd){ return '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:6px;"><div style="font-weight:900;font-size:12px;color:#475569;">ラウンド '+rd.r+'　🏰のこり '+rd.base+'　👾のこり '+rd.enLeft+'</div>'+_defHpBar(rd.base,base0,'#e11d48')+'<div style="font-size:12px;color:#334155;margin-top:4px;line-height:1.6;">'+rd.acts.map(function(a){return _defEsc(a);}).join('<br>')+'</div></div>'; }).join(''); }
+        window.openDefense=openDefense; window.closeDefense=closeDefense; window._defPick=_defPick; window._defSetStrat=_defSetStrat; window._defDoSubmit=_defDoSubmit; window._defStartResolve=_defStartResolve; window._defShowReplay=_defShowReplay;
         window.closeMyHome = closeMyHome;
         window.fractionMixedFocus = fractionMixedFocus;
         window.labAttemptRevive = labAttemptRevive;
@@ -52335,5 +52390,16 @@ async function _checkContactBadge(){
   }catch(e){}
 }
 </script>
+<div id="defenseModal" class="hidden" style="position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.6);overflow-y:auto;">
+  <div style="max-width:720px;margin:24px auto;padding:0 12px;">
+    <div style="background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,0.3);overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(90deg,#e11d48,#9f1239);color:#fff;">
+        <div style="font-weight:900;font-size:18px;">🏰 クラス基地防衛戦</div>
+        <button onclick="closeDefense()" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:8px;padding:4px 10px;font-weight:900;cursor:pointer;">✕ とじる</button>
+      </div>
+      <div id="defenseBody" style="padding:16px;"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
