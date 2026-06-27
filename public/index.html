@@ -43333,7 +43333,7 @@ async function completeTradeExchangePage(code) {
   try {
     var res = await apiJson('/api/trade/complete', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({code,monster}) });
     if (!res.ok) throw new Error('api error');
-    await loadDataFromDB();
+    await loadData();
     var resultEl = document.getElementById('tradeLookupResultPage');
     if (resultEl) resultEl.innerHTML = '<div class="text-sm font-bold text-emerald-700 text-center py-2">✅ 交換完了！<br>' + res.fromUserName + ' さんと交換しました！<br>' + (res.received.emoji||'❓') + ' ' + res.received.name + ' Lv.' + res.received.level + ' をゲット！</div>';
     _tradeSelectedUid = null;
@@ -43458,7 +43458,7 @@ async function completeTradeExchange(code) {
     });
     if (!res.ok) throw new Error('api error');
     // ローカルstateを最新に更新
-    await loadDataFromDB();
+    await loadData();
     const resultEl = document.getElementById('tradeLookupResult');
     if (resultEl) resultEl.innerHTML = `<div class="text-sm font-bold text-emerald-700 text-center py-2">✅ 交換完了！<br>${res.fromUserName} さんと交換しました！<br>${res.received.emoji||'❓'} ${res.received.name} Lv.${res.received.level} をゲット！</div>`;
     if (msgEl) { msgEl.textContent = ''; }
