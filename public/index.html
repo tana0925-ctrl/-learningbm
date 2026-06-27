@@ -36425,7 +36425,7 @@ function checkOldCoinFraud() {
         function _gcRenderReflect(rep){ var el=document.getElementById('gcReflect'); if(!el||!rep) return; var r=_gcBuildReflect(rep); var head=r.win?'<span style="color:#16a34a;">かったね！なぜ勝てた？</span>':'<span style="color:#dc2626;">おしい！なぜ負けた？</span>'; var chips=r.reasons.map(function(x){ return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700;margin:3px 0;">'+x+'</div>'; }).join(''); el.innerHTML='<div style="background:#f8fafc;border:2px solid '+(r.win?'#bbf7d0':'#fecaca')+';border-radius:12px;padding:8px 10px;"><div style="font-weight:900;font-size:13px;margin-bottom:4px;">🔎 バトルふりかえり：'+head+'</div>'+chips+'<div style="margin-top:5px;font-size:12px;font-weight:900;color:#4f46e5;">'+r.hint+'</div></div>'; }
         function _gcFinishReplay(){ _gcStopMover(); var rep=_gcReplay; if(!rep) return; var win=(rep.winner==='A'); var banner=document.getElementById('gcResultBanner'); var coins=_gcReward(_gcGid,win); if(rep.baseMax){ _gcSetBaseHp('A',rep.baseHpA,rep.baseMax); _gcSetBaseHp('B',rep.baseHpB,rep.baseMax); } if(rep.forts){ _gcSetFortHp('A',rep.fortHpA,rep.fortMax); _gcSetFortHp('B',rep.fortHpB,rep.fortMax); } var txt; if(rep.reason==='base'){ txt=win?'🏯 てきの きち かんらく！':'😵 きちが かんらく…'; } else { txt=win?('🎉 しょうり！'+(coins?(' ＋'+coins+'コイン'):'')):'💥 まけ…'; } if(banner){ banner.textContent=txt; banner.style.color=win?'#16a34a':'#dc2626'; } try{ _gcRenderReflect(rep); }catch(_re){} if(win){ var f=document.getElementById('gcField'); if(f){ var em=['🎉','✨','🎊','⭐','🌟']; for(var i=0;i<10;i++){ (function(k){ setTimeout(function(){ var c=document.createElement('div'); c.className='gc-confetti'; c.textContent=em[k%em.length]; c.style.left=(6+Math.random()*88)+'%'; c.style.setProperty('--dx',(Math.random()*44-22)+'px'); f.appendChild(c); setTimeout(function(){ try{ if(c.parentNode) c.parentNode.removeChild(c); }catch(_e){} },1300); },k*70); })(i); } } } }
         function _gcReward(gymId,win){ if(!win) return 0; if(!player.gymChallengeCleared) player.gymChallengeCleared={}; var first=!player.gymChallengeCleared[gymId]; /* お試し期間：コイン報酬は一旦無効化（正式運用時に下記を有効化して戻す） var coins=first?30:10; player.coins=(player.coins||0)+coins; */ var coins=0; player.gymChallengeCleared[gymId]=true; try{ saveData(); }catch(e){} try{ updatePlayerDisplay(); }catch(e){} return coins; }
-        window.openGymChallenge=openGymChallenge; window.closeGymChallenge=closeGymChallenge; window._gcRender=_gcRender; window._gcOpenGym=_gcOpenGym; window._gcTogglePick=_gcTogglePick; window._pbAddRule=_pbAddRule; window._pbDelRule=_pbDelRule; window._pbMoveRule=_pbMoveRule; window._pbTogglePick=_pbTogglePick; window._pbPick=_pbPick; window._pbSetNum=_pbSetNum; window._pbSetEditChar=_pbSetEditChar; window._pbCopyToAll=_pbCopyToAll; window._gcSetStrat=_gcSetStrat; window._gcSetAtkLane=_gcSetAtkLane; window._gcSetDefLane=_gcSetDefLane; window._gcFight=_gcFight; window._gcRenderPrep=_gcRenderPrep; window._gcSetSpeed=_gcSetSpeed; window._gcSkip=_gcSkip; window._gcFocusUnit=_gcFocusUnit; window._gcToggleProgPanel=_gcToggleProgPanel; window._pbToTree=_pbToTree; window._pbTreeReset=_pbTreeReset; window._pbTreeAdd=_pbTreeAdd; window._pbTreeDel=_pbTreeDel; window._pbTreeMove=_pbTreeMove; window._pbTreeSet=_pbTreeSet; window._pbTreeToggle=_pbTreeToggle; window._pbToggleTpl=_pbToggleTpl; window._pbApplyTpl=_pbApplyTpl;
+        window.openGymChallenge=openGymChallenge; window.closeGymChallenge=closeGymChallenge; window._gcRender=_gcRender; window._gcOpenGym=_gcOpenGym; window._gcTogglePick=_gcTogglePick; window._pbAddRule=_pbAddRule; window._pbDelRule=_pbDelRule; window._pbMoveRule=_pbMoveRule; window._pbTogglePick=_pbTogglePick; window._pbPick=_pbPick; window._pbSetNum=_pbSetNum; window._pbSetEditChar=_pbSetEditChar; window._pbCopyToAll=_pbCopyToAll; window._gcSetStrat=_gcSetStrat; window._gcSetAtkLane=_gcSetAtkLane; window._gcSetDefLane=_gcSetDefLane; function _gcPbBuildPayload(ver){ var party=Array.isArray(player.party)?player.party.slice(0,3):[]; var sel=party.filter(function(id){ return _gcSel[id]; }); if(!sel.length) return null; try{ _pbEnsureProgs(); }catch(e){} var atk=(_gcAtkLane!=null)?_GCL[_gcAtkLane]:null; var def=(_gcDefLane!=null)?_GCL[_gcDefLane]:null; var asg=_gcAssign(sel.length, atk, def); var strat=_gcStrat||'balance'; var units=sel.map(function(id,i){ var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1}; var prog=_pbProgs[String(id)]; prog=(Array.isArray(prog)&&prog.length)?JSON.parse(JSON.stringify(prog)):_pbDefaultProg(); try{ _pbEnsureIds(prog); }catch(e){} return { id:Number(id), level:Math.max(1,Number(inst.level||1)), strategy:strat, lane:asg[i].lane, role:asg[i].role, prog:prog }; }); return { mode:'pbattle', v:ver, name:(player.name||'プレイヤー'), units:units }; } function _gcPbLaunch(hostP, guestP, seed){ function sf(pl){ return { specs: pl.units.map(function(u){ return {id:u.id, level:u.level, strategy:u.strategy, lane:u.lane, role:u.role}; }), progs: pl.units.map(function(u){ return u.prog; }) }; } var A=sf(hostP), B=sf(guestP); var sd=(seed>>>0); _gcReplay=autoBattleRT(A.specs, B.specs, {bases:true,lanes:true,laneCount:3,seed:sd,program:true,programsA:A.progs,programsB:B.progs,programA:A.progs[0],programB:B.progs[0],forts:(sd%2===0),tactics:true,contact:true}); if(typeof trySetMode==='function') trySetMode('gymchallenge'); _gcRenderBattle(); return { winner:(_gcReplay&&_gcReplay.winner), ticks:(_gcReplay&&_gcReplay.ticks), n:(_gcReplay&&_gcReplay.events?_gcReplay.events.length:0) }; } function _gcPbReplayHash(){ try{ var s=JSON.stringify((_gcReplay&&_gcReplay.events)||[]); var h=2166136261>>>0; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return { h:h>>>0, n:((_gcReplay&&_gcReplay.events)?_gcReplay.events.length:0), winner:(_gcReplay&&_gcReplay.winner), ticks:(_gcReplay&&_gcReplay.ticks) }; }catch(e){ return { err:String(e) }; } } window._gcPbBuildPayload=_gcPbBuildPayload; window._gcPbLaunch=_gcPbLaunch; window._gcPbReplayHash=_gcPbReplayHash; window._gcFight=_gcFight; window._gcRenderPrep=_gcRenderPrep; window._gcSetSpeed=_gcSetSpeed; window._gcSkip=_gcSkip; window._gcFocusUnit=_gcFocusUnit; window._gcToggleProgPanel=_gcToggleProgPanel; window._pbToTree=_pbToTree; window._pbTreeReset=_pbTreeReset; window._pbTreeAdd=_pbTreeAdd; window._pbTreeDel=_pbTreeDel; window._pbTreeMove=_pbTreeMove; window._pbTreeSet=_pbTreeSet; window._pbTreeToggle=_pbTreeToggle; window._pbToggleTpl=_pbToggleTpl; window._pbApplyTpl=_pbApplyTpl;
         window.closeMyHome = closeMyHome;
         window.fractionMixedFocus = fractionMixedFocus;
         window.labAttemptRevive = labAttemptRevive;
@@ -52738,11 +52738,9 @@ async function _checkContactBadge(){
   if(typeof _origGcRender==='function') window._gcRender=function(){ _clearPrepFlag(); return _origGcRender.apply(this,arguments); };
 
   function _pbrOpenPrep(){
-    try{ _gcGid = 1; }catch(e){}
-    try{ if(typeof _pbEnsureProgs==='function') _pbEnsureProgs(); }catch(e){}
-    if(typeof window.trySetMode==='function') window.trySetMode('gymchallenge');
+    if(typeof window._gcOpenGym==='function') window._gcOpenGym(1);
     window._pbrActive=true;
-    try{ if(typeof _gcRenderPrep==='function') _gcRenderPrep(); }catch(e){}
+    try{ if(typeof window._gcRenderPrep==='function') window._gcRenderPrep(); }catch(e){}
     _pbrBanner();
   }
   function _pbrBanner(){
@@ -52764,27 +52762,7 @@ async function _checkContactBadge(){
   };
 
   function _buildPayload(){
-    var party=Array.isArray(player.party)?player.party.slice(0,3):[];
-    var sel=party.filter(function(id){ return _gcSel[id]; });
-    if(!sel.length) return null;
-    try{ if(typeof _pbEnsureProgs==='function') _pbEnsureProgs(); }catch(e){}
-    var atk=null, def=null;
-    try{
-      if(typeof _GCL!=='undefined'){
-        if(typeof _gcAtkLane!=='undefined'&&_gcAtkLane!=null) atk=_GCL[_gcAtkLane];
-        if(typeof _gcDefLane!=='undefined'&&_gcDefLane!=null) def=_GCL[_gcDefLane];
-      }
-    }catch(e){}
-    var asg=_gcAssign(sel.length, atk, def);
-    var strat=(typeof _gcStrat!=='undefined'&&_gcStrat)?_gcStrat:'balance';
-    var units=sel.map(function(id,i){
-      var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1};
-      var prog=_pbProgs[String(id)];
-      prog=(Array.isArray(prog)&&prog.length)?JSON.parse(JSON.stringify(prog)):_pbDefaultProg();
-      try{ if(typeof _pbEnsureIds==='function') _pbEnsureIds(prog); }catch(e){}
-      return { id:Number(id), level:Math.max(1,Number(inst.level||1)), strategy:strat, lane:asg[i].lane, role:asg[i].role, prog:prog };
-    });
-    return { mode:'pbattle', v:_PBR_VER, name:(player.name||'プレイヤー'), units:units };
+    return (typeof window._gcPbBuildPayload==='function') ? window._gcPbBuildPayload(_PBR_VER) : null;
   }
 
   window._pbrReady=function(){
@@ -52885,20 +52863,12 @@ async function _checkContactBadge(){
     var hostP=(_pbr.role==='host')?my:opp;
     var guestP=(_pbr.role==='guest')?my:opp;
     if(!hostP.units||!hostP.units.length||!guestP.units||!guestP.units.length){ alert('へんせいデータが そろいませんでした'); _reset(); return; }
-    var A=_specsFrom(hostP), B=_specsFrom(guestP);
     var seed=_hash(_pbr.roomId);
-    var rep;
-    try{
-      rep=autoBattleRT(A.specs, B.specs, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,
-        programsA:A.progs, programsB:B.progs, programA:A.progs[0], programB:B.progs[0],
-        forts:(seed%2===0), tactics:true, contact:true});
-    }catch(e){ alert('バトル生成エラー: '+e.message); _reset(); return; }
-    _gcReplay = rep;
-    try{ window._gcReplay = rep; }catch(e){}
     if(_pbr.roomId) fetch('/api/rt/leave/'+_pbr.roomId,{method:'POST'}).catch(function(){});
-    if(typeof window.trySetMode==='function') window.trySetMode('gymchallenge');
-    try{ _gcReplay = rep; }catch(e){}
-    try{ _gcRenderBattle(); }catch(e){ alert('描画エラー: '+e.message); }
+    try{
+      if(typeof window._gcPbLaunch==='function'){ window._gcPbLaunch(hostP, guestP, seed); }
+      else { alert('起動関数が みつかりません（ページを こうしんしてね）'); _reset(); }
+    }catch(e){ alert('バトル起動エラー: '+e.message); _reset(); }
   }
 
   function _reset(){
