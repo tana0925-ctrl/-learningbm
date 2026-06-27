@@ -3571,6 +3571,7 @@ function formatYMD(d){
 <div class="flex gap-2 mb-4">
   <button id="friendTabRT" class="flex-1 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow" onclick="switchFriendTab('rt')">⚡ リアルタイム</button>
   <button id="friendTabCode" class="flex-1 py-2 rounded-lg font-bold text-sm bg-gray-200 text-gray-700" onclick="switchFriendTab('code')">📋 合言葉</button>
+  <button id="friendTabPB" class="flex-1 py-2 rounded-lg font-bold text-sm bg-gray-200 text-gray-700" onclick="_pbrShowTab()">🧩 プログラミング</button>
 </div>
 
 <!-- ===== リアルタイムエリア ===== -->
@@ -3646,6 +3647,49 @@ function formatYMD(d){
   </div>
 
 </div><!-- /friendAreaRT -->
+
+<!-- ===== プログラミングバトル(ともだち)エリア ===== -->
+<div id="friendAreaPB" class="hidden">
+  <div id="pbrLobby">
+    <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-200 mb-3 text-xs text-gray-700">🧩 ともだちと「プログラミングバトル」！へんせいと さくせんを ようい して、へやコードで たいせんしよう。<b>両画面で同じうごき</b>になるよ。</div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="bg-purple-50 p-4 rounded-xl border border-purple-200">
+        <h3 class="font-bold text-purple-700 mb-2 text-sm">🏠 へやを つくる</h3>
+        <p class="text-xs text-gray-600 mb-3">さくせんを ようい して へやを つくる！</p>
+        <button class="bg-purple-600 text-white px-3 py-2 rounded-lg font-bold shadow w-full text-sm" onclick="_pbrStartCreate()">じゅんびして へや作成</button>
+      </div>
+      <div class="bg-green-50 p-4 rounded-xl border border-green-200">
+        <h3 class="font-bold text-green-700 mb-2 text-sm">🚪 へやに はいる</h3>
+        <input id="pbrRoomCodeInput" class="w-full border-2 border-green-300 rounded-lg p-2 text-center font-mono font-bold text-2xl mb-2 uppercase tracking-widest" maxlength="6" placeholder="XXXXXX" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,6)"/>
+        <button class="bg-green-600 text-white px-3 py-2 rounded-lg font-bold shadow w-full text-sm" onclick="_pbrStartJoin()">じゅんびして 参加</button>
+      </div>
+    </div>
+    <p id="pbrLobbyMsg" class="text-center text-sm text-red-600 min-h-[20px]"></p>
+  </div>
+  <div id="pbrWaiting" class="hidden">
+    <div class="bg-purple-50 p-4 rounded-xl border border-purple-200 text-center">
+      <div class="text-4xl mb-2">🏠</div>
+      <p class="font-bold text-purple-800 mb-1">へやを つくりました！</p>
+      <p class="text-xs text-gray-600 mb-3">このコードを ともだちに おしえてね</p>
+      <div class="text-5xl font-mono font-extrabold tracking-widest text-purple-700 bg-white border-2 border-purple-300 rounded-xl py-4 px-4 mb-3 select-all" id="pbrMyRoomCode">------</div>
+      <button class="bg-gray-500 text-white text-sm px-4 py-2 rounded-lg mr-2" onclick="_pbrCopyCode()">📋 コピー</button>
+      <div id="pbrWaitingMsg" class="animate-pulse mt-4 text-sm text-gray-500">⏳ ともだちが はいるのを まっています...</div>
+      <div id="pbrGuestJoined" class="hidden mt-4">
+        <div class="text-sm font-bold text-green-700 mb-3">✅ <span id="pbrGuestName">ともだち</span> が さんかしました！</div>
+        <button id="pbrStartBtn" class="bg-green-600 text-white px-6 py-3 rounded-xl font-extrabold text-lg shadow-lg hover:bg-green-500 active:scale-95 transition" onclick="_pbrHostStart()">⚔️ バトルスタート！</button>
+      </div>
+      <button class="mt-4 text-sm text-gray-400 underline block mx-auto" onclick="_pbrCancel()">キャンセル</button>
+    </div>
+  </div>
+  <div id="pbrGuestWait" class="hidden">
+    <div class="bg-green-50 p-4 rounded-xl border border-green-200 text-center">
+      <div class="text-4xl mb-2">🚪</div>
+      <p class="font-bold text-green-800 mb-1">へやに はいりました！</p>
+      <div class="animate-pulse mt-2 text-sm text-gray-500" id="pbrGuestWaitMsg">⏳ ホストが スタートするのを まっています...</div>
+      <button class="mt-4 text-sm text-gray-400 underline block mx-auto" onclick="_pbrCancel()">キャンセル</button>
+    </div>
+  </div>
+</div><!-- /friendAreaPB -->
 
 <!-- ===== 合言葉エリア（元のUI）===== -->
 <div id="friendAreaCode" class="hidden">
@@ -36336,7 +36380,7 @@ function checkOldCoinFraud() {
         function _gcRestrictText(g){ var r=g&&g.restrict; if(!r) return ''; var p=[]; if(r.maxLevel!=null) p.push('各キャラ Lv'+r.maxLevel+'以下'); if(r.maxTotalLevel!=null) p.push('合計 Lv'+r.maxTotalLevel+'まで'); if(r.maxStage!=null) p.push(r.maxStage===1?'進化前のみ':('進化'+r.maxStage+'段階まで')); if(r.types&&r.types.length) p.push(r.types.map(_gcTypeJa).join('・')+' タイプのみ'); if(r.exactCount!=null) p.push(r.exactCount+'体ちょうど'); else if(r.maxCount!=null) p.push(r.maxCount+'体まで'); return p.join(' ／ '); }
         function _gcRender(){ _gcStopMover(); var body=document.getElementById('gymChallengeBody'); if(!body) return; if(_gcTimer){ clearInterval(_gcTimer); _gcTimer=null; } var cleared=player.gymChallengeCleared||{}; var html='<div style="font-size:12px;color:#64748b;margin-bottom:8px;">ブロックを組んで作戦をプログラム！🧩 パーティ最大3体でステージの敵チームに挑戦しよう。</div>'; html+=gyms.map(function(g){ var done=cleared[g.id]; var enem=_gcEnemies(g).map(function(e){ var m=getMonster(e.monsterId); return (m?m.sprite:'❓'); }).join(''); return '<button onclick="_gcOpenGym('+g.id+')" style="width:100%;text-align:left;border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;"><div><div style="font-weight:900;">'+(done?'✅ ':'')+_defEsc(g.name)+'</div><div style="font-size:11px;color:#64748b;">'+_defEsc(g.leader||'')+'／'+_defEsc(g.recommended||'')+'</div></div><div style="font-size:20px;">'+enem+'</div></button>'; }).join(''); body.innerHTML=html; }
         function _gcOpenGym(gid){ _gcGid=gid; var g=gyms.find(function(x){return x.id===gid;}); if(!g) return; var party=Array.isArray(player.party)?player.party.slice(0,3):[]; _gcSel={}; party.forEach(function(id){ _gcSel[id]=!(g&&_gcUnitViolation(g,_gcUnitInfo(id))); }); _gcRenderPrep(); }
-        function _gcRenderPrep(){ _gcStopMover(); if(_gcTimer){ clearInterval(_gcTimer); _gcTimer=null; } var body=document.getElementById('gymChallengeBody'); if(!body) return; var g=gyms.find(function(x){return x.id===_gcGid;}); if(!g) return; var party=Array.isArray(player.party)?player.party.slice(0,3):[]; var snaps=party.map(function(id){ var b=getMonster(id); if(!b) return null; var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1}; return {id:id,name:b.name,sprite:b.sprite,level:Math.max(1,Number(inst.level||1))}; }).filter(Boolean); var enemyHtml=_gcEnemies(g).map(function(e){ var m=getMonster(e.monsterId); return '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:4px 6px;font-size:12px;">'+(m?m.sprite:'❓')+(m?_defEsc(m.name):'?')+' <span style="color:#94a3b8;">Lv'+e.level+'</span></div>'; }).join(''); var pick=snaps.map(function(s){ var sel=!!_gcSel[s.id]; var _vi=_gcUnitViolation(g,_gcUnitInfo(s.id)); if(_vi){ return '<div style="border:2px dashed #fca5a5;background:#f8fafc;border-radius:10px;padding:6px 8px;text-align:center;min-width:84px;opacity:.55;filter:grayscale(.7);"><div style="font-size:24px;">'+s.sprite+'</div><div style="font-size:12px;font-weight:900;">'+_defEsc(s.name)+'</div><div style="font-size:10px;color:#64748b;">Lv'+s.level+'</div><div style="font-size:9px;color:#dc2626;font-weight:900;">🚫'+_vi+'</div></div>'; } return '<button onclick="_gcTogglePick('+s.id+')" style="border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:10px;padding:6px 8px;cursor:pointer;text-align:center;min-width:84px;"><div style="font-size:24px;">'+s.sprite+'</div><div style="font-size:12px;font-weight:900;">'+_defEsc(s.name)+'</div><div style="font-size:10px;color:#64748b;">Lv'+s.level+(sel?' ✅':'')+'</div></button>'; }).join(''); var strat=['attack','guard','weakness'].map(function(st){ var lab=st==='attack'?'⚔こうげき':(st==='guard'?'🛡まもり':'🎯弱点'); var sel=_gcStrat===st; return '<button onclick="_gcSetStrat(\''+st+'\')" style="flex:1;border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:10px;padding:8px;cursor:pointer;font-weight:900;">'+lab+'</button>'; }).join(''); var _laneBtns=function(cur,fn,o2){ return o2.map(function(o){ var sel=((cur||'')===o.v); return '<button onclick="'+fn+'(\''+o.v+'\')" style="flex:1;border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:8px;padding:6px 4px;cursor:pointer;font-weight:900;font-size:12px;">'+o.l+'</button>'; }).join(''); }; var _atkUI=_laneBtns(_gcAtkLane,'_gcSetAtkLane',[{v:'L',l:'左'},{v:'C',l:'中央'},{v:'R',l:'右'},{v:'',l:'おまかせ'}]); var _defUI=_laneBtns(_gcDefLane,'_gcSetDefLane',[{v:'L',l:'左'},{v:'C',l:'中央'},{v:'R',l:'右'},{v:'',l:'なし'}]); var _hint=g.hint?('<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:12px;color:#1e40af;font-weight:700;">💡 '+g.hint+'</div>'):''; var _rBanner=_gcRestrictText(g)?'<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:10px;padding:8px 10px;margin:8px 0;"><span style="font-weight:900;color:#b45309;font-size:14px;">🎯 出撃じょうけん：</span><span style="font-weight:900;font-size:14px;">'+_gcRestrictText(g)+'</span></div>':''; var _selIds=snaps.filter(function(s){return !!_gcSel[s.id];}).map(function(s){return s.id;}); var _val=_gcPartyValidity(g,_selIds); var _fightBtn=_val.ok?'<button onclick="_gcFight()" style="width:100%;margin-top:12px;background:#4f46e5;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer;">⚔ 挑戦する！</button>':'<button disabled style="width:100%;margin-top:12px;background:#cbd5e1;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:not-allowed;">⚔ 挑戦する！</button><div style="text-align:center;color:#dc2626;font-weight:900;font-size:12px;margin-top:4px;">⚠ '+_val.reason+'</div>'; body.innerHTML='<button onclick="_gcRender()" style="background:none;border:0;color:#4f46e5;font-weight:900;cursor:pointer;padding:0 0 6px;">← ステージ一覧</button><div style="font-weight:900;font-size:16px;">'+_defEsc(g.name)+'</div>'+_rBanner+_hint+'<div style="font-weight:900;margin:8px 0 4px;">👾 敵チーム</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'+enemyHtml+'</div><div style="font-weight:900;margin:8px 0 4px;">① だすモンスター（最大3体）</div><div style="display:flex;flex-wrap:wrap;gap:8px;">'+(pick||'<span style="color:#64748b;font-size:12px;">パーティが空です</span>')+'</div><div style="font-weight:900;margin:10px 0 4px;">② さくせん</div><div style="display:flex;gap:8px;">'+strat+'</div><div style="font-size:11px;color:#94a3b8;margin-top:3px;">⚔=最大威力＋攻↑ ／ 🛡=高命中＋守↑ ／ 🎯=弱点をつく</div>' + _pbRenderEditor(snaps.filter(function(s){return !!_gcSel[s.id];})) + _fightBtn; }
+        function _gcRenderPrep(){ _gcStopMover(); if(_gcTimer){ clearInterval(_gcTimer); _gcTimer=null; } var body=document.getElementById('gymChallengeBody'); if(!body) return; var g=gyms.find(function(x){return x.id===_gcGid;}); if(!g) return; var party=Array.isArray(player.party)?player.party.slice(0,3):[]; var snaps=party.map(function(id){ var b=getMonster(id); if(!b) return null; var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1}; return {id:id,name:b.name,sprite:b.sprite,level:Math.max(1,Number(inst.level||1))}; }).filter(Boolean); var enemyHtml=_gcEnemies(g).map(function(e){ var m=getMonster(e.monsterId); return '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:4px 6px;font-size:12px;">'+(m?m.sprite:'❓')+(m?_defEsc(m.name):'?')+' <span style="color:#94a3b8;">Lv'+e.level+'</span></div>'; }).join(''); var pick=snaps.map(function(s){ var sel=!!_gcSel[s.id]; var _vi=_gcUnitViolation(g,_gcUnitInfo(s.id)); if(_vi){ return '<div style="border:2px dashed #fca5a5;background:#f8fafc;border-radius:10px;padding:6px 8px;text-align:center;min-width:84px;opacity:.55;filter:grayscale(.7);"><div style="font-size:24px;">'+s.sprite+'</div><div style="font-size:12px;font-weight:900;">'+_defEsc(s.name)+'</div><div style="font-size:10px;color:#64748b;">Lv'+s.level+'</div><div style="font-size:9px;color:#dc2626;font-weight:900;">🚫'+_vi+'</div></div>'; } return '<button onclick="_gcTogglePick('+s.id+')" style="border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:10px;padding:6px 8px;cursor:pointer;text-align:center;min-width:84px;"><div style="font-size:24px;">'+s.sprite+'</div><div style="font-size:12px;font-weight:900;">'+_defEsc(s.name)+'</div><div style="font-size:10px;color:#64748b;">Lv'+s.level+(sel?' ✅':'')+'</div></button>'; }).join(''); var strat=['attack','guard','weakness'].map(function(st){ var lab=st==='attack'?'⚔こうげき':(st==='guard'?'🛡まもり':'🎯弱点'); var sel=_gcStrat===st; return '<button onclick="_gcSetStrat(\''+st+'\')" style="flex:1;border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:10px;padding:8px;cursor:pointer;font-weight:900;">'+lab+'</button>'; }).join(''); var _laneBtns=function(cur,fn,o2){ return o2.map(function(o){ var sel=((cur||'')===o.v); return '<button onclick="'+fn+'(\''+o.v+'\')" style="flex:1;border:2px solid '+(sel?'#4f46e5':'#e2e8f0')+';background:'+(sel?'#eef2ff':'#fff')+';border-radius:8px;padding:6px 4px;cursor:pointer;font-weight:900;font-size:12px;">'+o.l+'</button>'; }).join(''); }; var _atkUI=_laneBtns(_gcAtkLane,'_gcSetAtkLane',[{v:'L',l:'左'},{v:'C',l:'中央'},{v:'R',l:'右'},{v:'',l:'おまかせ'}]); var _defUI=_laneBtns(_gcDefLane,'_gcSetDefLane',[{v:'L',l:'左'},{v:'C',l:'中央'},{v:'R',l:'右'},{v:'',l:'なし'}]); var _hint=g.hint?('<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:12px;color:#1e40af;font-weight:700;">💡 '+g.hint+'</div>'):''; var _rBanner=_gcRestrictText(g)?'<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:10px;padding:8px 10px;margin:8px 0;"><span style="font-weight:900;color:#b45309;font-size:14px;">🎯 出撃じょうけん：</span><span style="font-weight:900;font-size:14px;">'+_gcRestrictText(g)+'</span></div>':''; var _selIds=snaps.filter(function(s){return !!_gcSel[s.id];}).map(function(s){return s.id;}); var _val=_gcPartyValidity(g,_selIds); var _fightBtn=_val.ok?(window._pbrActive?'<button onclick="_pbrReady()" style="width:100%;margin-top:12px;background:#16a34a;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer;">✅ じゅんび完了！（ともだち対戦）</button>':'<button onclick="_gcFight()" style="width:100%;margin-top:12px;background:#4f46e5;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer;">⚔ 挑戦する！</button>'):'<button disabled style="width:100%;margin-top:12px;background:#cbd5e1;color:#fff;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:not-allowed;">⚔ 挑戦する！</button><div style="text-align:center;color:#dc2626;font-weight:900;font-size:12px;margin-top:4px;">⚠ '+_val.reason+'</div>'; body.innerHTML='<button onclick="_gcRender()" style="background:none;border:0;color:#4f46e5;font-weight:900;cursor:pointer;padding:0 0 6px;">← ステージ一覧</button><div style="font-weight:900;font-size:16px;">'+_defEsc(g.name)+'</div>'+_rBanner+_hint+'<div style="font-weight:900;margin:8px 0 4px;">👾 敵チーム</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'+enemyHtml+'</div><div style="font-weight:900;margin:8px 0 4px;">① だすモンスター（最大3体）</div><div style="display:flex;flex-wrap:wrap;gap:8px;">'+(pick||'<span style="color:#64748b;font-size:12px;">パーティが空です</span>')+'</div><div style="font-weight:900;margin:10px 0 4px;">② さくせん</div><div style="display:flex;gap:8px;">'+strat+'</div><div style="font-size:11px;color:#94a3b8;margin-top:3px;">⚔=最大威力＋攻↑ ／ 🛡=高命中＋守↑ ／ 🎯=弱点をつく</div>' + _pbRenderEditor(snaps.filter(function(s){return !!_gcSel[s.id];})) + _fightBtn; }
         function _gcTogglePick(id){ var g=gyms.find(function(x){return x.id===_gcGid;}); if(g&&_gcUnitViolation(g,_gcUnitInfo(id))){ return; } _gcSel[id]=!_gcSel[id]; _gcRenderPrep(); }
         function _gcSetStrat(s){ _gcStrat=s; _gcRenderPrep(); } function _gcSetAtkLane(v){ _gcAtkLane=(v===''?null:v); _gcRenderPrep(); } function _gcSetDefLane(v){ _gcDefLane=(v===''?null:v); _gcRenderPrep(); }
         var _GCL={'L':0,'C':1,'R':2}; function _gcAssign(n,atkIdx,defIdx){ var res=[]; for(var i=0;i<n;i++) res.push({lane:1,role:'mid'}); var idx=0; if(atkIdx!=null){ var na=(defIdx!=null&&defIdx!==atkIdx)?Math.max(1,n-1):Math.max(1,Math.ceil(n*0.7)); for(var a=0;a<na&&idx<n;a++){ res[idx++]={lane:atkIdx,role:'atk'}; } } if(defIdx!=null&&defIdx!==atkIdx&&idx<n){ res[idx++]={lane:defIdx,role:'def'}; } var fill=[1,0,2],fi=0; while(idx<n){ res[idx++]={lane:(atkIdx!=null?atkIdx:fill[fi%3]),role:'mid'}; fi++; } return res; } function _gcFight(){ var g=gyms.find(function(x){return x.id===_gcGid;}); if(!g) return; var party=Array.isArray(player.party)?player.party.slice(0,3):[]; var mySpecs=party.filter(function(id){return _gcSel[id];}).map(function(id){ var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1}; return {id:id,level:Math.max(1,Number(inst.level||1)),strategy:_gcStrat}; }); if(!mySpecs.length){ alert('1体いじょうえらんでね'); return; } var _gv=_gcPartyValidity(g,party.filter(function(id){return _gcSel[id];})); if(!_gv.ok){ alert(_gv.reason); return; } var _fcEn=_gcEnemies(g); var enemySpecs=_fcEn.map(function(e,i){ return {id:e.monsterId,level:e.level,strategy:(i===_fcEn.length-1?'attack':'balance')}; }); var _atk=(_gcAtkLane!=null)?_GCL[_gcAtkLane]:null; var _def=(_gcDefLane!=null)?_GCL[_gcDefLane]:null; var _aAsg=_gcAssign(mySpecs.length,_atk,_def); mySpecs.forEach(function(s,i){ s.lane=_aAsg[i].lane; s.role=_aAsg[i].role; }); var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0); var _erng=_abRng((_seed^0x9a3b)>>>0); var _eAtk=Math.floor(_erng()*3); var _eDef=Math.floor(_erng()*3); var _bAsg=_gcAssign(enemySpecs.length,_eAtk,_eDef); enemySpecs.forEach(function(s,i){ s.lane=_bAsg[i].lane; s.role=_bAsg[i].role; }); _pbEnsureProgs(); var _progsA=mySpecs.map(function(s){ var p=_pbProgs[String(s.id)]; return (Array.isArray(p)&&p.length)?JSON.parse(JSON.stringify(p)):_pbDefaultProg(); }); _pbPersist(); try{ for(var _pe2=0;_pe2<_progsA.length;_pe2++) _pbEnsureIds(_progsA[_pe2]); }catch(_eE){} var _progA=_progsA[0]||_pbDefaultProg(); var _EPROGS=[ [{c:'always',a:'attackBase'}], [{c:'allyBaseBelow',cn:40,a:'returnBase'},{c:'always',a:'laneC'}], [{c:'selfHpBelow',cn:30,a:'fleeLane'},{c:'always',a:'attackBase'}], [{c:'openPointNear',a:'goPoint'},{c:'always',a:'attackBase'}] ]; var _progB=_EPROGS[_seed % _EPROGS.length]; _pbProgB=_progB; _gcReplay=autoBattleRT(mySpecs,enemySpecs,{bases:true,lanes:true,laneCount:3,seed:_seed,program:true,programA:_progA,programsA:_progsA,programB:_progB,forts:(_seed%2===0),tactics:true,contact:true}); _gcRenderBattle(); }
@@ -52655,5 +52699,226 @@ async function _checkContactBadge(){
   </div>
 </div>
 
+
+<script>
+(function(){
+  // ===== プログラミングバトル・ルーム型 友達対戦 (PBR) =====
+  // 既存RTルームAPI(/api/rt/*)を流用。サーバ無編集。決定論オートシミュを共有seedで両者が手元実行。
+  var _PBR_VER = 'pbr-1';
+  var _pbr = { role:null, roomId:null, joinCode:null, myPayload:null, oppPayload:null, poll:null, started:false };
+  function $(id){ return document.getElementById(id); }
+  function _msg(t){ var m=$('pbrLobbyMsg'); if(m) m.textContent=t||''; }
+  function _hash(s){ s=String(s||''); var h=2166136261>>>0; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  var TAB_OFF='flex-1 py-2 rounded-lg font-bold text-sm bg-gray-200 text-gray-700';
+  var TAB_ON='flex-1 py-2 rounded-lg font-bold text-sm bg-indigo-600 text-white shadow';
+
+  function _pbrShowTab(){
+    var rt=$('friendAreaRT'), code=$('friendAreaCode'), pb=$('friendAreaPB');
+    if(rt) rt.classList.add('hidden');
+    if(code) code.classList.add('hidden');
+    if(pb) pb.classList.remove('hidden');
+    var tRT=$('friendTabRT'), tC=$('friendTabCode'), tP=$('friendTabPB');
+    if(tRT) tRT.className=TAB_OFF;
+    if(tC) tC.className=TAB_OFF;
+    if(tP) tP.className=TAB_ON;
+  }
+  window._pbrShowTab=_pbrShowTab;
+
+  var _origSFT = window.switchFriendTab;
+  window.switchFriendTab = function(tab){
+    var pb=$('friendAreaPB'); if(pb) pb.classList.add('hidden');
+    var tP=$('friendTabPB'); if(tP) tP.className=TAB_OFF;
+    if(typeof _origSFT==='function') return _origSFT(tab);
+  };
+
+  function _clearPrepFlag(){ window._pbrActive=false; var bn=$('pbrPrepBanner'); if(bn&&bn.remove) bn.remove(); }
+  var _origOpenGym=window._gcOpenGym;
+  if(typeof _origOpenGym==='function') window._gcOpenGym=function(){ _clearPrepFlag(); return _origOpenGym.apply(this,arguments); };
+  var _origGcRender=window._gcRender;
+  if(typeof _origGcRender==='function') window._gcRender=function(){ _clearPrepFlag(); return _origGcRender.apply(this,arguments); };
+
+  function _pbrOpenPrep(){
+    try{ _gcGid = 1; }catch(e){}
+    try{ if(typeof _pbEnsureProgs==='function') _pbEnsureProgs(); }catch(e){}
+    if(typeof window.trySetMode==='function') window.trySetMode('gymchallenge');
+    window._pbrActive=true;
+    try{ if(typeof _gcRenderPrep==='function') _gcRenderPrep(); }catch(e){}
+    _pbrBanner();
+  }
+  function _pbrBanner(){
+    var b=$('gymChallengeBody'); if(!b) return;
+    if($('pbrPrepBanner')) return;
+    var d=document.createElement('div');
+    d.id='pbrPrepBanner';
+    d.style.cssText='background:#eef2ff;border:2px solid #6366f1;border-radius:10px;padding:8px 10px;margin-bottom:8px;font-weight:900;color:#4338ca;font-size:13px;';
+    d.innerHTML='🧩 ともだち対戦・じゅんび：へんせい（さいだい3たい）と さくせんを きめて「✅ じゅんび完了！」をおしてね。あいては ともだち！';
+    b.insertBefore(d,b.firstChild);
+  }
+
+  window._pbrStartCreate=function(){ _pbr.role='host'; _pbr.joinCode=null; _pbr.oppPayload=null; _pbrOpenPrep(); };
+  window._pbrStartJoin=function(){
+    var el=$('pbrRoomCodeInput');
+    var c=(el&&el.value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    if(c.length!==6){ _msg('へやコードは6もじだよ'); return; }
+    _pbr.role='guest'; _pbr.joinCode=c; _pbr.oppPayload=null; _pbrOpenPrep();
+  };
+
+  function _buildPayload(){
+    var party=Array.isArray(player.party)?player.party.slice(0,3):[];
+    var sel=party.filter(function(id){ return _gcSel[id]; });
+    if(!sel.length) return null;
+    try{ if(typeof _pbEnsureProgs==='function') _pbEnsureProgs(); }catch(e){}
+    var atk=null, def=null;
+    try{
+      if(typeof _GCL!=='undefined'){
+        if(typeof _gcAtkLane!=='undefined'&&_gcAtkLane!=null) atk=_GCL[_gcAtkLane];
+        if(typeof _gcDefLane!=='undefined'&&_gcDefLane!=null) def=_GCL[_gcDefLane];
+      }
+    }catch(e){}
+    var asg=_gcAssign(sel.length, atk, def);
+    var strat=(typeof _gcStrat!=='undefined'&&_gcStrat)?_gcStrat:'balance';
+    var units=sel.map(function(id,i){
+      var inst=(player.monsters&&(player.monsters[id]||player.monsters[String(id)]))||{level:1};
+      var prog=_pbProgs[String(id)];
+      prog=(Array.isArray(prog)&&prog.length)?JSON.parse(JSON.stringify(prog)):_pbDefaultProg();
+      try{ if(typeof _pbEnsureIds==='function') _pbEnsureIds(prog); }catch(e){}
+      return { id:Number(id), level:Math.max(1,Number(inst.level||1)), strategy:strat, lane:asg[i].lane, role:asg[i].role, prog:prog };
+    });
+    return { mode:'pbattle', v:_PBR_VER, name:(player.name||'プレイヤー'), units:units };
+  }
+
+  window._pbrReady=function(){
+    var pl=_buildPayload();
+    if(!pl){ alert('1たい いじょう えらんでね'); return; }
+    _pbr.myPayload=pl;
+    _clearPrepFlag();
+    if(typeof window.trySetMode==='function') window.trySetMode('friend');
+    _pbrShowTab();
+    if(_pbr.role==='host') _doCreate(pl); else _doJoin(pl);
+  };
+
+  function _showOnly(which){
+    var ids=['pbrLobby','pbrWaiting','pbrGuestWait'];
+    ids.forEach(function(id){ var e=$(id); if(e){ if(id===which) e.classList.remove('hidden'); else e.classList.add('hidden'); } });
+  }
+
+  function _doCreate(pl){
+    _showOnly(null);
+    fetch('/api/rt/create',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ party:pl, name:pl.name, area:'pbattle', battleType:'gym' })})
+      .then(function(r){return r.json();}).then(function(res){
+        if(!res.ok){ _msg('エラー: '+(res.error||'?')); _showOnly('pbrLobby'); return; }
+        _pbr.roomId=res.roomId;
+        var c=$('pbrMyRoomCode'); if(c) c.textContent=res.roomId;
+        _showOnly('pbrWaiting');
+        _startPoll();
+      }).catch(function(e){ _msg('ネットワークエラー'); _showOnly('pbrLobby'); });
+  }
+  function _doJoin(pl){
+    _showOnly(null);
+    fetch('/api/rt/join/'+_pbr.joinCode,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ party:pl, name:pl.name })})
+      .then(function(r){return r.json();}).then(function(res){
+        if(!res.ok){
+          var em={room_not_found:'へやが みつかりません',room_not_available:'その へやには もう はいれません',cannot_join_own_room:'じぶんの へやには はいれません'};
+          _msg(em[res.error]||('エラー: '+res.error)); _showOnly('pbrLobby'); return;
+        }
+        _pbr.roomId=res.roomId;
+        _pbr.oppPayload=res.hostParty||null;
+        if(!_verCheck(_pbr.oppPayload)) return;
+        _showOnly('pbrGuestWait');
+        fetch('/api/rt/ready/'+res.roomId,{method:'POST'}).catch(function(){});
+        _startPoll();
+      }).catch(function(e){ _msg('ネットワークエラー'); _showOnly('pbrLobby'); });
+  }
+
+  function _verCheck(p){
+    if(p && p.v && p.v!==_PBR_VER){
+      alert('あいてと アプリのバージョンが ちがいます。\nページを こうしん（リロード）してね。');
+      _leave();
+      return false;
+    }
+    return true;
+  }
+
+  function _startPoll(){ _stopPoll(); _pbr.poll=setInterval(_poll,1000); }
+  function _stopPoll(){ if(_pbr.poll){ clearInterval(_pbr.poll); _pbr.poll=null; } }
+  function _poll(){
+    if(!_pbr.roomId||_pbr.started){ _stopPoll(); return; }
+    fetch('/api/rt/room/'+_pbr.roomId+'?after=0').then(function(r){return r.json();}).then(function(res){
+      if(!res.ok){ if(res.error==='room_not_found'){ _stopPoll(); alert('へやが なくなりました'); _reset(); } return; }
+      var room=res.room;
+      if(_pbr.started){ _stopPoll(); return; }
+      if(_pbr.role==='host'){
+        if(room.status==='ready' && room.guestName && !_pbr.oppPayload){
+          _pbr.oppPayload=room.opponentParty||null;
+          if(!_verCheck(_pbr.oppPayload)) return;
+          var gn=$('pbrGuestName'); if(gn) gn.textContent=room.guestName;
+          var wm=$('pbrWaitingMsg'); if(wm) wm.classList.add('hidden');
+          var gj=$('pbrGuestJoined'); if(gj) gj.classList.remove('hidden');
+        }
+        if(room.status==='playing'){ _stopPoll(); if(room.opponentParty)_pbr.oppPayload=room.opponentParty; _launch(); }
+      } else {
+        if(room.status==='playing'){ _stopPoll(); if(room.opponentParty)_pbr.oppPayload=room.opponentParty; _launch(); }
+      }
+    }).catch(function(e){});
+  }
+
+  window._pbrHostStart=function(){
+    if(_pbr.role!=='host'||_pbr.started) return;
+    if(!_pbr.oppPayload) return;
+    var b=$('pbrStartBtn'); if(b){ b.disabled=true; b.textContent='きどう中...'; }
+    fetch('/api/rt/ready/'+_pbr.roomId,{method:'POST'}).catch(function(){ if(b){ b.disabled=false; b.textContent='⚔️ バトルスタート！'; } });
+  };
+
+  function _specsFrom(pl){
+    return {
+      specs: pl.units.map(function(u){ return {id:u.id, level:u.level, strategy:u.strategy, lane:u.lane, role:u.role}; }),
+      progs: pl.units.map(function(u){ return u.prog; })
+    };
+  }
+  function _launch(){
+    if(_pbr.started) return; _pbr.started=true; _stopPoll();
+    var my, opp;
+    try{ my=JSON.parse(JSON.stringify(_pbr.myPayload||{units:[]})); opp=JSON.parse(JSON.stringify(_pbr.oppPayload||{units:[]})); }
+    catch(e){ alert('データエラー'); _reset(); return; }
+    var hostP=(_pbr.role==='host')?my:opp;
+    var guestP=(_pbr.role==='guest')?my:opp;
+    if(!hostP.units||!hostP.units.length||!guestP.units||!guestP.units.length){ alert('へんせいデータが そろいませんでした'); _reset(); return; }
+    var A=_specsFrom(hostP), B=_specsFrom(guestP);
+    var seed=_hash(_pbr.roomId);
+    var rep;
+    try{
+      rep=autoBattleRT(A.specs, B.specs, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,
+        programsA:A.progs, programsB:B.progs, programA:A.progs[0], programB:B.progs[0],
+        forts:(seed%2===0), tactics:true, contact:true});
+    }catch(e){ alert('バトル生成エラー: '+e.message); _reset(); return; }
+    _gcReplay = rep;
+    try{ window._gcReplay = rep; }catch(e){}
+    if(_pbr.roomId) fetch('/api/rt/leave/'+_pbr.roomId,{method:'POST'}).catch(function(){});
+    if(typeof window.trySetMode==='function') window.trySetMode('gymchallenge');
+    try{ _gcReplay = rep; }catch(e){}
+    try{ _gcRenderBattle(); }catch(e){ alert('描画エラー: '+e.message); }
+  }
+
+  function _reset(){
+    _stopPoll();
+    _pbr={ role:null, roomId:null, joinCode:null, myPayload:null, oppPayload:null, poll:null, started:false };
+    window._pbrActive=false;
+    _showOnly('pbrLobby');
+    var gj=$('pbrGuestJoined'); if(gj) gj.classList.add('hidden');
+    var wm=$('pbrWaitingMsg'); if(wm) wm.classList.remove('hidden');
+    var ci=$('pbrRoomCodeInput'); if(ci) ci.value='';
+    var sb=$('pbrStartBtn'); if(sb){ sb.disabled=false; sb.textContent='⚔️ バトルスタート！'; }
+    _msg('');
+  }
+  function _leave(){ if(_pbr.roomId) fetch('/api/rt/leave/'+_pbr.roomId,{method:'POST'}).catch(function(){}); _reset(); }
+  window._pbrCancel=function(){ _leave(); };
+  window._pbrCopyCode=function(){ var c=_pbr.roomId||''; if(!c) return; try{ navigator.clipboard.writeText(c); alert('コードをコピーしました: '+c); }catch(e){ alert('コード: '+c); } };
+
+  window._pbrDebug=function(){ return { role:_pbr.role, roomId:_pbr.roomId, seed:(_pbr.roomId?_hash(_pbr.roomId):null), started:_pbr.started, my:(_pbr.myPayload?_pbr.myPayload.units.length:0), opp:(_pbr.oppPayload&&_pbr.oppPayload.units?_pbr.oppPayload.units.length:0) }; };
+})();
+
+</script>
 </body>
 </html>
