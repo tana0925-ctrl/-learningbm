@@ -52724,12 +52724,8 @@ async function _checkContactBadge(){
   }
   window._pbrShowTab=_pbrShowTab;
 
-  var _origSFT = window.switchFriendTab;
-  window.switchFriendTab = function(tab){
-    var pb=$('friendAreaPB'); if(pb) pb.classList.add('hidden');
-    var tP=$('friendTabPB'); if(tP) tP.className=TAB_OFF;
-    if(typeof _origSFT==='function') return _origSFT(tab);
-  };
+  function _pbrHidePB(){ var pb=$('friendAreaPB'); if(pb) pb.classList.add('hidden'); var tP=$('friendTabPB'); if(tP) tP.className=TAB_OFF; }
+  try{ ['friendTabRT','friendTabCode'].forEach(function(id){ var b=$(id); if(b) b.addEventListener('click', _pbrHidePB); }); }catch(e){}
 
   function _clearPrepFlag(){ window._pbrActive=false; var bn=$('pbrPrepBanner'); if(bn&&bn.remove) bn.remove(); }
   var _origOpenGym=window._gcOpenGym;
