@@ -444,7 +444,17 @@ app.get('/api/student/progress', async (c) => {
     .bind(u.id)
     .first<any>()
 
-  return c.json({ ok: true, progress: row ? { stateJson: row.stateJson, updatedAt: row.updatedAt } : null })
+  let _stateJson = row ? row.stateJson : null
+  if (_stateJson) {
+    try {
+      const _dv = await c.env.DB.prepare(`SELECT give_uid, recv_monster_json FROM trade_deliveries WHERE user_id=? AND status='pending'`).bind(u.id).all<any>()
+      if (_dv && _dv.results && _dv.results.length) {
+        const _st = JSON.parse(_stateJson)
+        if (applyTradeDeliveries(_st, _dv.results as any[])) _stateJson = JSON.stringify(_st)
+      }
+    } catch (_e) {}
+  }
+  return c.json({ ok: true, progress: row ? { stateJson: _stateJson, updatedAt: row.updatedAt } : null })
 })
 
 app.put('/api/student/progress', async (c) => {
@@ -538,6 +548,31 @@ app.put('/api/student/progress', async (c) => {
         for (const _k of _pbKeys) _inc._photoBonusApplied[_k] = Math.max(Number(_srvPB[_k]) || 0, Number(_cliPB[_k]) || 0)
         saveJson = JSON.stringify(_inc)
       }
+      // 🔄 友達交換：保留中の交換を冪等再適用（全置換保存からの巻き戻り防止）
+      try {
+        const _dv = await c.env.DB.prepare(`SELECT id, give_uid, recv_monster_json FROM trade_deliveries WHERE user_id=? AND status='pending'`).bind(u.id).all<any>()
+        if (_dv && _dv.results && _dv.results.length) {
+          if (!Array.isArray(_inc.boxes)) _inc.boxes = Array.from({ length: 10 }, () => Array(100).fill(null))
+          let _tChanged = false
+          for (const _d of _dv.results as any[]) {
+            const _give = _d.give_uid
+            let _recv: any = null
+            try { _recv = JSON.parse(_d.recv_monster_json) } catch { continue }
+            if (!_recv || !_recv.uid) continue
+            let _hadGive = false
+            for (let _bi = 0; _bi < _inc.boxes.length; _bi++) { const _bx = _inc.boxes[_bi]; if (!Array.isArray(_bx)) continue; for (let _si = 0; _si < _bx.length; _si++) { if (_bx[_si] && _bx[_si].uid === _give) { _bx[_si] = null; _hadGive = true; _tChanged = true } } }
+            let _hasRecv = false
+            for (let _bi = 0; _bi < _inc.boxes.length && !_hasRecv; _bi++) { const _bx = _inc.boxes[_bi]; if (!Array.isArray(_bx)) continue; for (let _si = 0; _si < _bx.length; _si++) { if (_bx[_si] && _bx[_si].uid === _recv.uid) { _hasRecv = true; break } } }
+            if (!_hasRecv) {
+              let _placed = false
+              for (let _bi = 0; _bi < _inc.boxes.length && !_placed; _bi++) { if (!Array.isArray(_inc.boxes[_bi])) _inc.boxes[_bi] = []; for (let _si = 0; _si < 100; _si++) { if (!_inc.boxes[_bi][_si]) { _inc.boxes[_bi][_si] = { ..._recv, tradedAt: Date.now() }; _placed = true; _tChanged = true; break } } }
+              if (!_placed) { _inc.boxes[0].push({ ..._recv, tradedAt: Date.now() }); _tChanged = true }
+            }
+            if (!_hadGive && _hasRecv) { try { await c.env.DB.prepare(`UPDATE trade_deliveries SET status='delivered', delivered_at=? WHERE id=?`).bind(Date.now(), _d.id).run() } catch (_e) {} }
+          }
+          if (_tChanged) saveJson = JSON.stringify(_inc)
+        }
+      } catch (_e) {}
     }
   } catch { /* 補填失敗時はそのまま保存 */ }
 
@@ -5494,6 +5529,36 @@ app.delete('/api/battle/cleanup', async (c) => {
 
 // -------------------- API: trade (合言葉交換) --------------------
 
+function applyTradeDeliveries(state: any, deliveries: any[]): boolean {
+  if (!state || !Array.isArray(deliveries) || !deliveries.length) return false
+  if (!Array.isArray(state.boxes)) state.boxes = Array.from({ length: 10 }, () => Array(100).fill(null))
+  let changed = false
+  for (const d of deliveries) {
+    const giveUid = d.give_uid
+    let recv: any = null
+    try { recv = JSON.parse(d.recv_monster_json) } catch { continue }
+    if (!recv || !recv.uid) continue
+    for (let bi = 0; bi < state.boxes.length; bi++) {
+      const bx = state.boxes[bi]; if (!Array.isArray(bx)) continue
+      for (let si = 0; si < bx.length; si++) { if (bx[si] && bx[si].uid === giveUid) { bx[si] = null; changed = true } }
+    }
+    let hasRecv = false
+    for (let bi = 0; bi < state.boxes.length && !hasRecv; bi++) {
+      const bx = state.boxes[bi]; if (!Array.isArray(bx)) continue
+      for (let si = 0; si < bx.length; si++) { if (bx[si] && bx[si].uid === recv.uid) { hasRecv = true; break } }
+    }
+    if (!hasRecv) {
+      let placed = false
+      for (let bi = 0; bi < state.boxes.length && !placed; bi++) {
+        if (!Array.isArray(state.boxes[bi])) state.boxes[bi] = []
+        for (let si = 0; si < 100; si++) { if (!state.boxes[bi][si]) { state.boxes[bi][si] = { ...recv, tradedAt: Date.now() }; placed = true; changed = true; break } }
+      }
+      if (!placed) { state.boxes[0].push({ ...recv, tradedAt: Date.now() }); changed = true }
+    }
+  }
+  return changed
+}
+
 function genTradeCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
@@ -5658,6 +5723,14 @@ app.post('/api/trade/complete', async (c) => {
   await c.env.DB.prepare(
     `UPDATE trade_offers SET status='completed', to_user_id=?, to_monster_json=?, completed_at=? WHERE id=?`
   ).bind(u.id, JSON.stringify(toMonster), Date.now(), offer.id).run()
+
+  // 🔄 交換の保留配信を記録（オフライン側の全置換保存からの巻き戻りを防止・冪等）
+  try {
+    await c.env.DB.prepare(`INSERT INTO trade_deliveries (id, user_id, offer_id, give_uid, recv_monster_json, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`)
+      .bind(crypto.randomUUID(), offer.from_user_id, offer.id, fromMonster.uid, JSON.stringify(toMonster), Date.now()).run()
+    await c.env.DB.prepare(`INSERT INTO trade_deliveries (id, user_id, offer_id, give_uid, recv_monster_json, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`)
+      .bind(crypto.randomUUID(), u.id, offer.id, toMonster.uid, JSON.stringify(fromMonster), Date.now()).run()
+  } catch (_e) {}
 
   return c.json({
     ok: true,
