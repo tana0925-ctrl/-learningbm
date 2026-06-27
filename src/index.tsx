@@ -6755,6 +6755,28 @@ app.get('/admin', (c) => {
             <p id="adminPwMsg" class="text-sm"></p>
           </div>
         </div>
+        <div class="bg-white rounded-xl shadow p-6">
+          <h2 class="font-bold mb-2">📝 報告・要望 <span id="rptBadge" style="font-size:12px;color:#dc2626;font-weight:bold;"></span></h2>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+            <select id="rptFilterStatus" onchange="rptAdminLoad()" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;font-size:13px;">
+              <option value="all">すべての状態</option>
+              <option value="open">未対応</option>
+              <option value="in_progress">対応中</option>
+              <option value="resolved">対応済み</option>
+              <option value="closed">クローズ</option>
+            </select>
+            <select id="rptFilterCat" onchange="rptAdminRender()" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;font-size:13px;">
+              <option value="all">すべてのカテゴリ</option>
+              <option value="bug">🐛 バグ</option>
+              <option value="request">💡 要望</option>
+              <option value="other">💬 その他</option>
+            </select>
+            <button onclick="rptAdminLoad()" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:bold;cursor:pointer;">🔄 更新</button>
+          </div>
+          <div id="rptAdminList"><p style="color:#94a3b8;font-size:13px;">読み込み中...</p></div>
+        </div>
+        <script src="/admin-reports.js?v=1"></script>
+
 
         <div class="bg-white rounded-xl shadow p-6">
           <h2 class="font-bold mb-2">CSVエクスポート</h2>
