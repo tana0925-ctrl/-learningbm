@@ -52738,6 +52738,7 @@ async function _checkContactBadge(){
   if(typeof _origGcRender==='function') window._gcRender=function(){ _clearPrepFlag(); return _origGcRender.apply(this,arguments); };
 
   function _pbrOpenPrep(){
+    if(typeof window.trySetMode==='function') window.trySetMode('gymchallenge');
     if(typeof window._gcOpenGym==='function') window._gcOpenGym(1);
     window._pbrActive=true;
     try{ if(typeof window._gcRenderPrep==='function') window._gcRenderPrep(); }catch(e){}
