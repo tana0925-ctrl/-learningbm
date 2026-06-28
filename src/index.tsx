@@ -6002,6 +6002,40 @@ app.delete('/api/rt/cleanup', async (c) => {
   return c.json({ ok: true })
 })
 
+// egg2p リアルタイム中継（ホスト権威・副作用なし）: kind=snap(ホスト→ゲスト) / in(ゲスト→ホスト)
+// rt_events を中継バッファとして流用。HP/status等は一切変更しない（既存damageロジック非干渉）。
+app.post('/api/rt/relay/:roomId', async (c) => {
+  const u = requireAuth(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  if (!rateLimit(`rtrelay:${u.id}`, 90, 10)) return jsonError(c, 429, 'too_many_requests')
+  const roomId = c.req.param('roomId').toUpperCase()
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+
+  const room = await c.env.DB.prepare(`SELECT id, host_user_id, guest_user_id, status FROM rt_rooms WHERE id=? LIMIT 1`).bind(roomId).first<any>()
+  if (!room) return jsonError(c, 404, 'room_not_found')
+  const isHost = room.host_user_id === u.id
+  const isGuest = room.guest_user_id === u.id
+  if (!isHost && !isGuest) return jsonError(c, 403, 'not_a_participant')
+  if (room.status !== 'playing') return jsonError(c, 409, 'not_playing')
+
+  const kind = (body.kind === 'snap') ? 'egg_snap' : (body.kind === 'in') ? 'egg_in' : null
+  if (!kind) return jsonError(c, 400, 'invalid_kind')
+  // 権威の越権防止：snapはホストのみ、inはゲストのみ
+  if (kind === 'egg_snap' && !isHost) return jsonError(c, 403, 'snap_host_only')
+  if (kind === 'egg_in' && !isGuest) return jsonError(c, 403, 'in_guest_only')
+
+  const seq = Math.max(0, Math.min(2_000_000_000, Math.floor(Number(body.seq || 0))))
+  const data = typeof body.data === 'string' ? body.data.slice(0, 3500) : ''
+
+  const result = await c.env.DB.prepare(`
+    INSERT INTO rt_events (room_id, user_id, event_type, value, monster_id, meta_json)
+    VALUES (?, ?, ?, ?, 0, ?)
+  `).bind(roomId, u.id, kind, seq, data).run()
+
+  return c.json({ ok: true, eventId: (result.meta as any).last_row_id })
+})
+
 
 // -------------------- Messages (teacher <-> student) --------------------
 
