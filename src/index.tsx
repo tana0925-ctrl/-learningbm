@@ -6758,16 +6758,27 @@ app.get('/sticker.js', (c) => {
   return new Response(STICKER_JS, { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } })
 })
 
+// 🐛 プログラミングバトルのサドンデス（t>700で両基地が非接触で減少→陥落）を「基地HP多い方の判定勝ち（減算なし）」に修正。接触してない基地はダメージを受けない。
+const SUDDEN_OLD = "if(CONTACT && !ended && t>700){ var _sd=(t-700)*0.015; baseHpA-=_sd; baseHpB-=_sd; if(baseHpA<=0){ baseHpA=0; winner='B'; reason='base'; ended=true; } else if(baseHpB<=0){ baseHpB=0; winner='A'; reason='base'; ended=true; } }"
+const SUDDEN_NEW = "if(CONTACT && !ended && t>700){ if(baseHpA!==baseHpB){ winner=(baseHpA>baseHpB?'A':'B'); reason='judge'; ended=true; } else if(t>860){ var _sdA=0,_sdB=0,_sdI; for(_sdI=0;_sdI<A.length;_sdI++){if(A[_sdI].alive&&A[_sdI].hp>0)_sdA+=A[_sdI].hp;} for(_sdI=0;_sdI<B.length;_sdI++){if(B[_sdI].alive&&B[_sdI].hp>0)_sdB+=B[_sdI].hp;} winner=(_sdA>=_sdB?'A':'B'); reason='judge'; ended=true; } }"
+let _rootHtmlCache: string | null = null
+
 app.get('/', async (c) => {
-  // @ts-ignore - Cloudflare Pages provides a static assets binding.
-  const asset = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
-  if (!asset) return c.text('index.html not found', 404)
   try {
-    return new HTMLRewriter()
-      .on('body', { element(el: any) { el.append('<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script>', { html: true }) } })
-      .transform(asset)
+    if (!_rootHtmlCache) {
+      // @ts-ignore - Cloudflare Pages provides a static assets binding.
+      const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
+      if (!a) return c.text('index.html not found', 404)
+      let t = await a.text()
+      t = t.replace(SUDDEN_OLD, SUDDEN_NEW)
+      t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script></body>')
+      _rootHtmlCache = t
+    }
+    return c.html(_rootHtmlCache)
   } catch (e) {
-    return asset
+    // @ts-ignore - Cloudflare Pages provides a static assets binding.
+    const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
+    return a || c.text('index.html not found', 404)
   }
 })
 
