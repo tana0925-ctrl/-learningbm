@@ -6770,7 +6770,7 @@ app.get('/', async (c) => {
       const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
       if (!a) return c.text('index.html not found', 404)
       let t = await a.text()
-      t = t.replace(SUDDEN_OLD, SUDDEN_NEW)
+      t = t.replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);")
       t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script></body>')
       _rootHtmlCache = t
     }
