@@ -3743,6 +3743,8 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
   ).run()
 
   // ── 先生ボーナス：返却時に自動でコインを付与 ──
+  const noReward = (body && body.noReward === true)
+  if (!noReward) {
   const TEACHER_BONUS = 150
   const PHYSICAL_BONUS = 100  // 成果物ありなら追加
   try {
@@ -3757,6 +3759,7 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
       }
     }
   } catch (e) { console.error('teacher bonus error:', e) }
+  }
 
   return c.json({ ok: true })
 })
@@ -11394,7 +11397,8 @@ wrap.innerHTML = '';
             formDiv.innerHTML = '<div class="text-xs font-bold text-slate-600">先生コメント（任意）</div>'
               + '<textarea class="w-full border rounded p-2 text-xs" rows="2" placeholder="よく頑張りました！など" id="hwComment_'+s.id+'"></textarea>'
               + '<label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="hwPhysical_'+s.id+'"/> <span>成果物（ノートなど）も提出あり ⭐</span></label>'
-              + '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="returnHomework(&#39;'+escH(s.id)+'&#39;, this)">✅ 返却する</button>';
+              + '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="returnHomework(&#39;'+escH(s.id)+'&#39;, this)">✅ 返却する</button>'
+              + '<button class="bg-slate-500 text-white rounded px-3 py-1 text-xs font-bold ml-1" onclick="returnHomeworkNoReward(&#39;'+escH(s.id)+'&#39;, this)">🚫 報酬なしで返す</button>';
             card.appendChild(formDiv);
           } else if(s.teacherComment) {
             const commentDiv = document.createElement('div');
@@ -11406,12 +11410,13 @@ wrap.innerHTML = '';
         }
       }
 
-      async function returnHomework(id, btn){
+      async function returnHomeworkNoReward(id, btn){ if(!confirm('この ていしゅつを 報酬なし（やりなおし）で かえします。よろしいですか？')) return; return returnHomework(id, btn, true); }
+      async function returnHomework(id, btn, noReward){
         btn.disabled = true;
         const comment = (document.getElementById('hwComment_'+id)||{}).value || '';
         const hasPhysical = (document.getElementById('hwPhysical_'+id)||{}).checked || false;
         try{
-          await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment,hasPhysical})});
+          await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment,hasPhysical,noReward:!!noReward})});
           await loadHomework();
         }catch(e){
           btn.disabled=false;
