@@ -6771,7 +6771,7 @@ app.get('/', async (c) => {
       if (!a) return c.text('index.html not found', 404)
       let t = await a.text()
       t = t.replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);").replace("分子は？',ans:n}", "分子は？',ans:n/_gcd(n,d)}").replace("分母は？',ans:d}", "分母は？',ans:d/_gcd(n,d)}").replace("var base=getMonster(Number(spec.id)); if(!base) return null;", "var base=getMonster(Number(spec.id)); if(spec&&spec.raw){var R=spec.raw;base={name:R.name||'てき',sprite:R.sprite||'',buff:R.buff||'attack',elementType:'normal',skills:[{name:'こうげき',pow:Number(R.skillPow||12),acc:0.95,element:'normal'}]};} if(!base) return null;").replace("var lvl=Math.max(1,Number(spec.level||1)); var s=getStats(base,lvl);", "var lvl=Math.max(1,Number(spec.level||1)); var s=(spec&&spec.raw)?{atk:Number(spec.raw.atk||10),def:Number(spec.raw.def||5),spd:Number(spec.raw.spd||10),hp:Number(spec.raw.hp||100),maxHp:Number(spec.raw.hp||100)}:getStats(base,lvl);").replace("window._defShowReplay=_defShowReplay;", "window._defShowReplay=_defShowReplay;window._defRenderBattle=function(rep){try{_gcReplay=rep;_gcPlayIdx=0;if(!_gcSpeed)_gcSpeed=1;_gcRenderBattle();}catch(e){}};")
-      t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=2"></script></body>')
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
