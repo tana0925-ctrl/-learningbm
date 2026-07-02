@@ -6761,7 +6761,7 @@ app.get('/sticker.js', (c) => {
 // 🐛 プログラミングバトルのサドンデス（t>700で両基地が非接触で減少→陥落）を「基地HP多い方の判定勝ち（減算なし）」に修正。接触してない基地はダメージを受けない。
 const SUDDEN_OLD = "if(CONTACT && !ended && t>700){ var _sd=(t-700)*0.015; baseHpA-=_sd; baseHpB-=_sd; if(baseHpA<=0){ baseHpA=0; winner='B'; reason='base'; ended=true; } else if(baseHpB<=0){ baseHpB=0; winner='A'; reason='base'; ended=true; } }"
 const SUDDEN_NEW = "if(CONTACT && !ended && t>700){ if(baseHpA!==baseHpB){ winner=(baseHpA>baseHpB?'A':'B'); reason='judge'; ended=true; } else if(t>860){ var _sdA=0,_sdB=0,_sdI; for(_sdI=0;_sdI<A.length;_sdI++){if(A[_sdI].alive&&A[_sdI].hp>0)_sdA+=A[_sdI].hp;} for(_sdI=0;_sdI<B.length;_sdI++){if(B[_sdI].alive&&B[_sdI].hp>0)_sdB+=B[_sdI].hp;} winner=(_sdA>=_sdB?'A':'B'); reason='judge'; ended=true; } }"
-let _rootHtmlCache: string | null = null
+app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defense2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) });let _rootHtmlCache: string | null = null
 
 app.get('/', async (c) => {
   try {
