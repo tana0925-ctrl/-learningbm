@@ -1266,7 +1266,7 @@ app.get('/api/defense/status', async (c) => {
     const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
     if (e) { let mj: any = null; try { mj = JSON.parse(e.monster_json) } catch (_e) {} out.my_entry = { monster: mj, strategy: e.strategy } }
   } catch (_e) {}
-  if (classId) {
+  if (classId != null) {
     try {
       const rr = await c.env.DB.prepare("SELECT result, log_json, base_hp_end FROM defense_results WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).first<any>()
       if (rr) { let lg: any = null; try { lg = JSON.parse(rr.log_json) } catch (_e) {} out.result = { result: rr.result, base_hp_end: rr.base_hp_end, log: lg } }
@@ -1307,12 +1307,12 @@ app.post('/api/defense/resolve', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   await ensureDefenseTables(c.env)
   const body = await c.req.json().catch(() => null)
-  if (!body || !body.event_key || !body.class_id || !body.result) return jsonError(c, 400, 'invalid_json')
+  if (!body || !body.event_key || body.class_id == null || !body.result) return jsonError(c, 400, 'invalid_json')
   const st = await defenseSettings(c.env)
   if (st.eventKey !== String(body.event_key)) return jsonError(c, 400, 'event_mismatch')
   if (!(st.decisionAt && Date.now() >= Date.parse(st.decisionAt))) return jsonError(c, 400, 'not_yet')
   const classId = await defenseClassId(c.env, u.id)
-  if (!classId || classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
+  if (classId == null || classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
   const result = (String(body.result) === 'win') ? 'win' : 'lose'
   const logJson = JSON.stringify(body.log || null).slice(0, 100000)
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
