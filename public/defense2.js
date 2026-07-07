@@ -86,7 +86,37 @@
       return {list:list, total:total, denom:denom, pct:pct};
     }catch(e){ return {list:[],total:0,denom:1,pct:0}; }
   }
-  function def2HypeHtml(log, st){
+  function def2EnhanceReplay(log){
+  try{
+    window.__def2Rep = (log && log.replay) || null;
+    if(!document.getElementById('def2UxCss')){
+      var st=document.createElement('style'); st.id='def2UxCss';
+      st.textContent='#def2Anim .gc-now{font-size:8px !important;line-height:1.05 !important;opacity:.55 !important;max-width:52px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;}';
+      document.head.appendChild(st);
+    }
+    var host=document.getElementById('def2Anim'); if(!host) return;
+    var label=host.previousElementSibling;
+    if(!document.getElementById('def2ReplayBar')){
+      var bar=document.createElement('div'); bar.id='def2ReplayBar'; bar.style.cssText='text-align:center;margin:10px 0 6px;';
+      bar.innerHTML='<button id="def2ReplayBtn" style="background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;border:none;border-radius:12px;padding:12px 22px;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 3px 10px rgba(79,70,229,.45);">▶ リプレイをもう一度見る</button>';
+      (label||host).parentNode.insertBefore(bar,(label||host));
+    }
+    function fit(){ try{
+      var wrapW=host.clientWidth||360;
+      var cands=host.querySelectorAll('*'); var map=null,mw=0;
+      for(var i=0;i<cands.length;i++){ var w=cands[i].offsetWidth; if(w>mw){mw=w;map=cands[i];} }
+      if(map && mw>wrapW+4){ var sc=wrapW/mw; map.style.transformOrigin='top left'; map.style.transform='scale('+sc+')'; map.style.marginBottom=(-(map.offsetHeight*(1-sc)))+'px'; }
+      else if(map){ map.style.transform=''; map.style.marginBottom=''; }
+    }catch(e){} }
+    function toBattle(){ try{ (document.getElementById('def2ReplayBar')||host).scrollIntoView({block:'start',behavior:'smooth'}); }catch(e){} }
+    var btn=document.getElementById('def2ReplayBtn');
+    if(btn) btn.onclick=function(){ var h=document.getElementById('def2Anim'); if(h){ try{ relocateGymInto(h); }catch(e){} try{ window._defRenderBattle(window.__def2Rep); }catch(e){} setTimeout(function(){fit();toBattle();},90); } };
+    setTimeout(function(){ fit(); toBattle(); },350);
+    if(!window.__def2Rsz){ window.__def2Rsz=1; window.addEventListener('resize',function(){try{fit();}catch(e){}}); }
+  }catch(e){ try{console.error('def2 enhance',e);}catch(_){} }
+}
+
+function def2HypeHtml(log, st){
     try{
       var rep = (log && log.replay) || {};
       var baseMax = (st && st.base_hp) || rep.baseHpMaxA || null;
@@ -190,7 +220,7 @@
           var mvpHtml = log.mvp ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px;margin:8px 0;font-weight:900;color:#b45309;">🏆 MVP：'+esc(log.mvp.sprite||'')+esc(log.mvp.name||'')+'</div>' : '';
           rp.innerHTML=def2HypeHtml(log,st)+'<div style="margin-bottom:6px;"><div style="font-weight:900;font-size:13px;color:#334155;margin-bottom:4px;">🙋 エントリーした人（'+((log.entrants||[]).length)+'人）</div><div>'+entrantsHtml+'</div></div>'+''
             +'<div style="font-weight:900;font-size:13px;color:#334155;margin:6px 0;">⚔️ みんなで見る決戦リプレイ</div><div id="def2Anim" style="position:relative;width:100%;min-height:320px;background:#0b1220;border-radius:10px;overflow:hidden;"></div>';
-          var host=document.getElementById('def2Anim'); if(host && window._defRenderBattle){ relocateGymInto(host); try{ window._defRenderBattle(log.replay); }catch(e){ console.error(e); } }
+          var host=document.getElementById('def2Anim'); if(host && window._defRenderBattle){ relocateGymInto(host); try{ window._defRenderBattle(log.replay); try{def2EnhanceReplay(log);}catch(_e){} }catch(e){ console.error(e); } }
         });
       }catch(e){ console.error('def2 replay',e); if(typeof orig==='function') return orig.apply(self,args); }
     };
