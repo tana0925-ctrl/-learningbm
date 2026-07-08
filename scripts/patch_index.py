@@ -141,6 +141,26 @@ if search3b in content:
 else:
     print("SKIP: Change 3b anchor not found (already applied?)", file=sys.stderr)
 
+# ── Change 4: PB(_gcFight) hash undefined fix + deterministic seed ──
+pb_hash_marker = '/*__PB_HASH_FIX__*/'
+pb_hash_fn = pb_hash_marker + 'function _hash(s){s=String(s==null?"":s);var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}'
+pb_anchor = 'function _gcFight(){'
+if pb_hash_marker not in content and pb_anchor in content:
+    content = content.replace(pb_anchor, pb_hash_fn + pb_anchor, 1)
+    print("Change 4a applied (global _hash before _gcFight)", file=sys.stderr)
+    changes_applied += 1
+else:
+    print("SKIP: Change 4a (marker present or anchor not found)", file=sys.stderr)
+
+pb_seed_old = 'var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0); var _erng=_abRng((_seed^0x9a3b)>>>0);'
+pb_seed_new = 'var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0); var _erng=_abRng((_seed^0x9a3b)>>>0);'
+if pb_seed_old in content:
+    content = content.replace(pb_seed_old, pb_seed_new, 1)
+    print("Change 4b applied (deterministic PB seed)", file=sys.stderr)
+    changes_applied += 1
+else:
+    print("SKIP: Change 4b (seed anchor not found / already applied)", file=sys.stderr)
+
 # ================================================================
 
 print(f"Changes applied: {changes_applied}", file=sys.stderr)
