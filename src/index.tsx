@@ -5575,6 +5575,7 @@ app.post('/api/trade/offer', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json<any>().catch(() => null)
   if (!body?.monster) return jsonError(c, 400, 'monster_required')
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(body.monster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 既存の有効なオファーがあればキャンセル
   await c.env.DB.prepare(
@@ -5645,6 +5646,7 @@ app.post('/api/trade/complete', async (c) => {
 
   const fromMonster = JSON.parse(offer.from_monster_json)
   const toMonster = body.monster
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(fromMonster)||_sp(toMonster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 申請者(from)のstateを取得してモンスターを入れ替え
   const fromProgress = await c.env.DB.prepare(
@@ -5681,7 +5683,7 @@ app.post('/api/trade/complete', async (c) => {
     }
   }
   if (fromBoxI === -1) return jsonError(c, 400, 'from_monster_not_in_box')
-  fromState.boxes[fromBoxI][fromSlotI] = null
+  const _realFrom = fromState.boxes[fromBoxI][fromSlotI]; fromState.boxes[fromBoxI][fromSlotI] = null
 
   // toMonsterをtoStateのboxesから探して削除し、fromMonsterを追加
   if (!Array.isArray(toState.boxes)) return jsonError(c, 400, 'to_box_invalid')
@@ -5697,7 +5699,7 @@ app.post('/api/trade/complete', async (c) => {
     }
   }
   if (toBoxI === -1) return jsonError(c, 400, 'to_monster_not_in_box')
-  toState.boxes[toBoxI][toSlotI] = null
+  const _realTo = toState.boxes[toBoxI][toSlotI]; toState.boxes[toBoxI][toSlotI] = null
 
   // 空きスロットに相手のモンスターを入れる
   const placeInBoxes = (boxes: any[][], monster: any) => {
@@ -5710,8 +5712,8 @@ app.post('/api/trade/complete', async (c) => {
     // 全スロット埋まっていたらbox0の末尾に追加
     boxes[0].push({ ...monster, tradedAt: Date.now() })
   }
-  placeInBoxes(fromState.boxes, toMonster)
-  placeInBoxes(toState.boxes, fromMonster)
+  placeInBoxes(fromState.boxes, _realTo || toMonster)
+  placeInBoxes(toState.boxes, _realFrom || fromMonster)
 
   // 両者のstateを保存
   await c.env.DB.prepare(
