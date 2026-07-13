@@ -223,9 +223,25 @@ app.use('*', async (c, next) => {
   if (!_dbMigrated) {
     _dbMigrated = true
     try { await c.env.DB.exec(`ALTER TABLE homework_submissions ADD COLUMN work_photo_key TEXT DEFAULT ''`) } catch (_) {}
+    try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_question TEXT`) } catch (_) {}
+    try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_hash TEXT`) } catch (_) {}
+    try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_salt TEXT`) } catch (_) {}
   }
   return next()
 })
+
+// -------------------- password recovery helpers (added) --------------------
+function normalizeAnswer(s: string): string {
+  let t = String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+  t = t.replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
+  return t
+}
+function genKidPassword(): string {
+  const words = ['sora','hana','mori','kaze','yama','umi','tori','hoshi','niji','yuki','tuki','kawa','sakura','ringo','nami']
+  const a = new Uint32Array(2); crypto.getRandomValues(a)
+  return words[a[0] % words.length] + String(10 + (a[1] % 90))
+}
+const _recoverAttempts = new Map<string, { n: number, t: number }>()
 
 // -------------------- auth middleware --------------------
 app.use('/api/*', async (c, next) => {
@@ -934,6 +950,100 @@ app.post('/api/admin/reset-password/:id', async (c) => {
     .run()
 
   return c.json({ ok: true, tempPassword: temp })
+})
+
+// -------------------- 教師：児童パスワード再設定（担任クラスのみ／adminは全児童） --------------------
+app.post('/api/teacher/reset-student-password/:studentId', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const studentId = c.req.param('studentId')
+  if (u.role !== 'admin') {
+    const owned = await c.env.DB.prepare(
+      `SELECT 1 FROM class_members cm JOIN classes cl ON cl.id = cm.class_id
+       WHERE cm.user_id = ? AND cl.teacher_id = ? LIMIT 1`
+    ).bind(studentId, u.id).first<any>()
+    if (!owned) return jsonError(c, 403, 'not_your_student')
+  }
+  const target = await c.env.DB.prepare(`SELECT id, role FROM users WHERE id = ? LIMIT 1`).bind(studentId).first<any>()
+  if (!target || target.role !== 'student') return jsonError(c, 404, 'student_not_found')
+  const body = await c.req.json().catch(() => ({} as any))
+  let newPassword = String((body && body.newPassword) || '').trim()
+  if (newPassword && newPassword.length < 4) return jsonError(c, 400, 'password_too_short')
+  if (!newPassword) newPassword = genKidPassword()
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(newPassword, salt)
+  await c.env.DB.prepare(
+    `UPDATE users SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=0
+     WHERE id=? AND role='student'`
+  ).bind(hash, salt, studentId).run()
+  return c.json({ ok: true, tempPassword: newPassword })
+})
+
+// -------------------- 児童：ひみつのしつもん（登録／状態確認・本人のみ） --------------------
+app.get('/api/student/secret-question', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const row = await c.env.DB.prepare(`SELECT secret_question as q FROM users WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+  return c.json({ ok: true, registered: !!(row && row.q), question: (row && row.q) || null })
+})
+
+app.post('/api/student/secret-question', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const question = String(body.question || '').trim().slice(0, 100)
+  const answerNorm = normalizeAnswer(String(body.answer || ''))
+  if (!question) return jsonError(c, 400, 'question_required')
+  if (answerNorm.length < 1) return jsonError(c, 400, 'answer_required')
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(answerNorm, salt)
+  await c.env.DB.prepare(
+    `UPDATE users SET secret_question=?, secret_answer_hash=?, secret_answer_salt=? WHERE id=? AND role='student'`
+  ).bind(question, hash, salt, u.id).run()
+  return c.json({ ok: true })
+})
+
+// -------------------- 自己復旧：ひみつのしつもんでパスワード再設定（未ログイン可） --------------------
+app.post('/api/auth/recover/question', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const loginId = String((body && body.loginId) || '').trim()
+  if (!loginId) return jsonError(c, 400, 'missing_login_id')
+  const row = await c.env.DB.prepare(
+    `SELECT secret_question as q FROM users WHERE login_id = ? AND role='student' LIMIT 1`
+  ).bind(loginId).first<any>()
+  if (!row || !row.q) return jsonError(c, 404, 'no_secret_question')
+  return c.json({ ok: true, question: row.q })
+})
+
+app.post('/api/auth/recover/reset', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const loginId = String((body && body.loginId) || '').trim()
+  const answer = String((body && body.answer) || '')
+  const newPassword = String((body && body.newPassword) || '')
+  if (!loginId || !answer || !newPassword) return jsonError(c, 400, 'missing_fields')
+  if (newPassword.length < 4) return jsonError(c, 400, 'new_password_too_short')
+  const now = Date.now()
+  const rec = _recoverAttempts.get(loginId)
+  if (rec && (now - rec.t) < 10 * 60 * 1000 && rec.n >= 5) return jsonError(c, 429, 'too_many_attempts')
+  const row = await c.env.DB.prepare(
+    `SELECT id, secret_answer_hash as ah, secret_answer_salt as asalt FROM users WHERE login_id = ? AND role='student' LIMIT 1`
+  ).bind(loginId).first<any>()
+  if (!row || !row.ah || !row.asalt) return jsonError(c, 404, 'no_secret_question')
+  const calc = await pbkdf2Hash(normalizeAnswer(answer), row.asalt)
+  if (calc !== row.ah) {
+    const base = (rec && (now - rec.t) < 10 * 60 * 1000) ? rec : { n: 0, t: now }
+    base.n += 1; base.t = now; _recoverAttempts.set(loginId, base)
+    return jsonError(c, 401, 'wrong_answer')
+  }
+  _recoverAttempts.delete(loginId)
+  const salt = randomHex(16)
+  const hash = await pbkdf2Hash(newPassword, salt)
+  await c.env.DB.prepare(
+    `UPDATE users SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=0
+     WHERE id=? AND role='student'`
+  ).bind(hash, salt, row.id).run()
+  return c.json({ ok: true })
 })
 
 app.delete('/api/admin/delete/:id', async (c) => {
@@ -6779,6 +6889,8 @@ app.get('/', async (c) => {
       let t = await a.text()
       t = t.replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);").replace("function genMoonSun6(){return _pickBank(_SB.ms6);}", "function genMoonSun6(){return _pickBank(_SB.ms6);}function genElectric6(){return _pickBank([{q:'手回し発電機のハンドルを速く回すと、豆電球の明るさはどうなる？',correct:'明るくなる',wrongs:['暗くなる','変わらない','消える']},{q:'コンデンサーのはたらきは？',correct:'電気をためる',wrongs:['電気を消す','音を出す','光を強くする']},{q:'同じ電気の量で長く光り続けるのはどっち？',correct:'LED',wrongs:['豆電球','どちらも同じ','どちらも光らない']},{q:'電気を「光」に変えて使う道具は？',correct:'電灯（LED・豆電球）',wrongs:['電子オルゴール','モーター','電熱線']},{q:'光電池（太陽光パネル）に強い光を当てるとどうなる？',correct:'電気が作られる',wrongs:['電気をためる','音が出る','回路が切れる']},{q:'電気を「熱」に変えて使っているものは？',correct:'電熱線（トースターなど）',wrongs:['豆電球','モーター','スピーカー']}]);}try{window.genElectric6=genElectric6;}catch(e){}function genEnvironment6(){return _pickBank([{q:'生き物どうしの「食べる・食べられる」のつながりを何という？',correct:'食物連鎖',wrongs:['光合成','蒸散','燃焼']},{q:'食物連鎖の出発点になるのは？',correct:'植物',wrongs:['草食動物','肉食動物','分解者']},{q:'植物が出し、動物が呼吸で取り入れる気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']},{q:'動物や植物が呼吸で出す気体は？',correct:'二酸化炭素',wrongs:['酸素','水素','ヘリウム']},{q:'水が蒸発→雲→雨とすがたを変えて自然をめぐることを何という？',correct:'水の循環',wrongs:['食物連鎖','光合成','発電']},{q:'人が環境を守るためにできることは？',correct:'ごみを減らす・リサイクル',wrongs:['木を全部切る','よごれた水を流す','生き物を捕りつくす']}]);}try{window.genEnvironment6=genEnvironment6;}catch(e){}function genPlant6(){return _pickBank([{q:'植物が日光を受けて養分（でんぷん）を作るはたらきを何という？',correct:'光合成',wrongs:['呼吸','蒸散','消化']},{q:'光合成に必要なものは？',correct:'日光・水・二酸化炭素',wrongs:['月の光・油','電気・砂','塩・氷']},{q:'光合成で作られる養分は？',correct:'でんぷん',wrongs:['水','二酸化炭素','酸素']},{q:'でんぷんがあるか調べる薬品は？',correct:'ヨウ素液',wrongs:['石灰水','リトマス紙','食塩水']},{q:'植物の葉から水が水蒸気となって出ていくことを何という？',correct:'蒸散',wrongs:['光合成','発芽','受粉']},{q:'光合成で植物が出す気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']}]);}try{window.genPlant6=genPlant6;}catch(e){}").replace("return '野生バトル（モンスタボールで捕まえる）';", "return (function(){try{var _a=[];for(var _k in WILD_AREA_POOLS){var _p=WILD_AREA_POOLS[_k];for(var _d in _p){if(Array.isArray(_p[_d])&&_p[_d].indexOf(id)>=0){if(_a.indexOf(_k)<0)_a.push(_k);break;}}}if(_a.length){var _S={math:'算数',jp:'国語',soc:'社会',science:'理科',sci:'理科'};var _ls=[];for(var _j=0;_j<_a.length;_j++){var _m=null;for(var _i=0;_i<PVE_AREAS.length;_i++){if(PVE_AREAS[_i].id===_a[_j]){_m=PVE_AREAS[_i];break;}}if(_m)_ls.push((_S[_m.subject]||'')+(_m.grade?'（'+_m.grade+'年）':'')+'「'+(_m.name||_a[_j])+'」');}if(_ls.length){return _ls.slice(0,2).join('／')+(_ls.length>2?('など計'+_ls.length+'か所'):'')+'の野生バトル（モンスタボールで捕まえる）';}}}catch(e){}return '野生バトル（モンスタボールで捕まえる）';})();").replace("if (m.isBoss) continue;", "if (m.isBoss) continue; if (m.uncapturable) continue;").replace("else if(f.adv>=1-CR&&enemyBaseHp>0){ structKind='base'; }", "else if(f.adv>=1-CR&&enemyBaseHp>0&&(function(){var _ff=(f.side==='A')?B:A,_fl=(f.curLn!=null?f.curLn:f.lane);for(var _k=0;_k<_ff.length;_k++){var _e=_ff[_k];if(!_e.alive||_e.hp<=0)continue;if(Math.abs(_fl-(_e.curLn!=null?_e.curLn:_e.lane))<=1.05&&(1-_e.adv)>=0.85){return false;}}return true;})()){ structKind='base'; }").replace('function _gcFight(){', '/*__PB_HASH_FIX__*/function _hash(s){s=String(s==null?"":s);var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}function _gcFight(){').replace("分子は？',ans:n}", "分子は？',ans:n/_gcd(n,d)}").replace("分母は？',ans:d}", "分母は？',ans:d/_gcd(n,d)}").replace("var base=getMonster(Number(spec.id)); if(!base) return null;", "var base=getMonster(Number(spec.id)); if(spec&&spec.raw){var R=spec.raw;base={name:R.name||'てき',sprite:R.sprite||'',buff:R.buff||'attack',elementType:'normal',skills:[{name:'こうげき',pow:Number(R.skillPow||12),acc:0.95,element:'normal'}]};} if(!base) return null;").replace("var lvl=Math.max(1,Number(spec.level||1)); var s=getStats(base,lvl);", "var lvl=Math.max(1,Number(spec.level||1)); var s=(spec&&spec.raw)?{atk:Number(spec.raw.atk||10),def:Number(spec.raw.def||5),spd:Number(spec.raw.spd||10),hp:Number(spec.raw.hp||100),maxHp:Number(spec.raw.hp||100)}:getStats(base,lvl);").replace("window._defShowReplay=_defShowReplay;", "window._defShowReplay=_defShowReplay;window._defRenderBattle=function(rep){try{_gcReplay=rep;_gcPlayIdx=0;if(!_gcSpeed)_gcSpeed=1;_gcRenderBattle();}catch(e){}};")
       t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=5"></script></body>')
+      // 追加: パスワード復旧用「ひみつのしつもん」への入口をゲーム画面に小さく常設
+      t = t.replace('</body>', '<a href="/himitsu" style="position:fixed;left:8px;bottom:8px;z-index:2147483000;background:rgba(254,243,199,.95);color:#b45309;border:1px solid #fcd34d;border-radius:9999px;padding:5px 10px;font-size:11px;font-weight:bold;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.2)" title="パスワードを忘れたとき用のひみつのしつもん">🔒ひみつのしつもん</a></body>')
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
@@ -6814,6 +6926,7 @@ app.get('/login', (c) => {
         <input id="password" type="password" class="w-full border p-2 rounded" placeholder="パスワード"/>
         <button id="btn" class="w-full bg-blue-600 text-white rounded p-2">ログイン</button>
         <p id="msg" class="text-sm text-red-600"></p>
+        <div class="pt-1"><a class="text-sm text-rose-700 underline font-bold" href="/recover">🔑 パスワードを忘れたとき</a></div>
         <a class="text-sm text-blue-700 underline" href="/signup">児童 新規登録</a>
         <span class="text-sm text-slate-400 mx-1">｜</span>
         <a class="text-sm text-emerald-700 underline" href="/teacher-signup">教師 アカウント申請</a>
@@ -6839,6 +6952,121 @@ app.get('/login', (c) => {
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
         if(me.user && me.user.role === 'teacher') { location.href = '/teacher'; }
         else { location.href = '/'; }
+      };
+    </script>
+  </body></html>`)
+})
+
+app.get('/recover', (c) => {
+  return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>パスワードを忘れたとき</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <body class="min-h-screen bg-slate-100 p-4">
+    <div class="max-w-md mx-auto bg-white rounded-xl shadow p-6">
+      <h1 class="text-xl font-bold mb-1">🔑 パスワードを忘れたとき</h1>
+      <p class="text-xs text-slate-600 mb-4">「ひみつのしつもん」を登録している人は、ここで新しいパスワードを作れます。</p>
+      <div id="step1" class="space-y-3">
+        <input id="loginId" class="w-full border p-2 rounded" placeholder="ログインID"/>
+        <button id="btnQ" class="w-full bg-blue-600 text-white rounded p-2">つぎへ</button>
+      </div>
+      <div id="step2" class="space-y-3 hidden">
+        <p class="text-sm text-slate-700">しつもん：<span id="qtext" class="font-bold"></span></p>
+        <input id="answer" class="w-full border p-2 rounded" placeholder="こたえ"/>
+        <input id="newPw" type="password" class="w-full border p-2 rounded" placeholder="新しいパスワード（4文字以上）"/>
+        <input id="newPw2" type="password" class="w-full border p-2 rounded" placeholder="新しいパスワード（もう一度）"/>
+        <button id="btnR" class="w-full bg-emerald-600 text-white rounded p-2">新しいパスワードにする</button>
+      </div>
+      <p id="msg" class="text-sm mt-3"></p>
+      <div class="mt-4"><a class="text-sm text-blue-700 underline" href="/login">← ログインにもどる</a></div>
+      <p class="text-xs text-slate-400 mt-3">ひみつのしつもんを登録していない人は、先生にパスワードの再設定をおねがいしてください。</p>
+    </div>
+    <script>
+      var msg=document.getElementById('msg');
+      function setMsg(t,ok){ msg.textContent=t; msg.className='text-sm mt-3 '+(ok?'text-emerald-700':'text-red-600'); }
+      document.getElementById('btnQ').onclick=async function(){
+        setMsg('',true);
+        var loginId=document.getElementById('loginId').value.trim();
+        if(!loginId){ setMsg('ログインIDを入力してください',false); return; }
+        var r=await fetch('/api/auth/recover/question',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({loginId:loginId})});
+        var j=await r.json().catch(function(){return {};});
+        if(!r.ok){ setMsg(j.error==='no_secret_question'?'ひみつのしつもんが登録されていません。先生に再設定をおねがいしてください。':'見つかりませんでした',false); return; }
+        document.getElementById('qtext').textContent=j.question;
+        document.getElementById('step1').classList.add('hidden');
+        document.getElementById('step2').classList.remove('hidden');
+      };
+      document.getElementById('btnR').onclick=async function(){
+        setMsg('',true);
+        var loginId=document.getElementById('loginId').value.trim();
+        var answer=document.getElementById('answer').value;
+        var np=document.getElementById('newPw').value;
+        var np2=document.getElementById('newPw2').value;
+        if(!answer){ setMsg('こたえを入力してください',false); return; }
+        if(np.length<4){ setMsg('新しいパスワードは4文字以上にしてください',false); return; }
+        if(np!==np2){ setMsg('新しいパスワードが一致しません',false); return; }
+        var r=await fetch('/api/auth/recover/reset',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({loginId:loginId,answer:answer,newPassword:np})});
+        var j=await r.json().catch(function(){return {};});
+        if(!r.ok){
+          var m={wrong_answer:'こたえが違います',too_many_attempts:'まちがいが多いです。しばらくしてからもう一度ためしてください。',new_password_too_short:'パスワードは4文字以上にしてください',no_secret_question:'ひみつのしつもんが登録されていません'};
+          setMsg(m[j.error]||('うまくいきませんでした: '+(j.error||r.status)),false); return;
+        }
+        setMsg('新しいパスワードにしました！ログインしてください。',true);
+        document.getElementById('step2').classList.add('hidden');
+      };
+    </script>
+  </body></html>`)
+})
+
+app.get('/himitsu', (c) => {
+  return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ひみつのしつもんの登録</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <body class="min-h-screen bg-slate-100 p-4">
+    <div class="max-w-md mx-auto bg-white rounded-xl shadow p-6">
+      <h1 class="text-xl font-bold mb-1">🔒 ひみつのしつもんの登録</h1>
+      <p class="text-xs text-slate-600 mb-4">パスワードを忘れたときに、自分で新しいパスワードを作れるようになります。こたえは他の人には見えません（先生にも見えません）。</p>
+      <div id="notLogged" class="hidden text-sm text-red-600">ログインしてから登録してください。 <a class="underline text-blue-700" href="/login">ログインへ</a></div>
+      <div id="form" class="space-y-3 hidden">
+        <p id="status" class="text-xs font-bold"></p>
+        <label class="block text-sm">しつもんをえらぶ</label>
+        <select id="qsel" class="w-full border p-2 rounded">
+          <option value="すきな どうぶつ は？">すきな どうぶつ は？</option>
+          <option value="すきな たべもの は？">すきな たべもの は？</option>
+          <option value="すきな 色 は？">すきな 色 は？</option>
+          <option value="かっている ペットの 名前 は？">かっている ペットの 名前 は？</option>
+          <option value="いちばん すきな 教科 は？">いちばん すきな 教科 は？</option>
+          <option value="__custom__">じぶんで つくる…</option>
+        </select>
+        <input id="qcustom" class="w-full border p-2 rounded hidden" placeholder="しつもんを じぶんで 書く"/>
+        <label class="block text-sm">こたえ</label>
+        <input id="answer" class="w-full border p-2 rounded" placeholder="こたえ"/>
+        <p class="text-xs text-slate-400">※ひらがな・カタカナ・大文字小文字・スペースのちがいは気にしなくてOKです。忘れないこたえにしてね。</p>
+        <button id="save" class="w-full bg-emerald-600 text-white rounded p-2">登録する</button>
+        <p id="msg" class="text-sm"></p>
+      </div>
+      <div class="mt-4"><a class="text-sm text-blue-700 underline" href="/">← ゲームにもどる</a></div>
+    </div>
+    <script>
+      var msg=document.getElementById('msg');
+      function setMsg(t,ok){ msg.textContent=t; msg.className='text-sm '+(ok?'text-emerald-700':'text-red-600'); }
+      var qsel=document.getElementById('qsel'), qcustom=document.getElementById('qcustom');
+      qsel.onchange=function(){ if(qsel.value==='__custom__'){ qcustom.classList.remove('hidden'); } else { qcustom.classList.add('hidden'); } };
+      (async function(){
+        var me=await fetch('/api/auth/me').then(function(r){return r.json();}).catch(function(){return {};});
+        if(!me.user || me.user.role!=='student'){ document.getElementById('notLogged').classList.remove('hidden'); return; }
+        document.getElementById('form').classList.remove('hidden');
+        var st=await fetch('/api/student/secret-question').then(function(r){return r.json();}).catch(function(){return {};});
+        var sEl=document.getElementById('status');
+        if(st.registered){ sEl.textContent='✅ 登録ずみ（しつもん：'+st.question+'）。変えることもできます。'; sEl.className='text-xs font-bold text-emerald-700'; }
+        else { sEl.textContent='まだ登録されていません。'; sEl.className='text-xs font-bold text-slate-500'; }
+      })();
+      document.getElementById('save').onclick=async function(){
+        setMsg('',true);
+        var q = qsel.value==='__custom__' ? qcustom.value.trim() : qsel.value;
+        var a = document.getElementById('answer').value;
+        if(!q){ setMsg('しつもんを入力してください',false); return; }
+        if(!a.trim()){ setMsg('こたえを入力してください',false); return; }
+        var r=await fetch('/api/student/secret-question',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:q,answer:a})});
+        var j=await r.json().catch(function(){return {};});
+        if(!r.ok){ setMsg('うまくいきませんでした: '+(j.error||r.status),false); return; }
+        setMsg('登録しました！これでパスワードを忘れても自分で直せます。',true);
       };
     </script>
   </body></html>`)
@@ -7661,6 +7889,48 @@ app.get('/teacher', (c) => {
           <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
         </div>
       </div>
+
+      <!-- 🔑 パスワード再設定（追加） -->
+      <div class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-bold mb-3">🔑 児童のパスワード再設定</h2>
+        <p class="text-xs text-slate-400 mb-2">パスワードを忘れた児童のパスワードを新しくします（担任クラスの児童のみ）。新しいパスワードは画面に表示されるので、本人に伝えてください。</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <select id="pwResetStudent" class="border p-1.5 rounded text-sm bg-white min-w-[220px]"><option value="">児童をえらぶ…</option></select>
+          <input id="pwResetNew" class="border p-1.5 rounded text-sm" placeholder="新パスワード(空欄で自動生成)">
+          <button id="pwResetBtn" class="bg-slate-800 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-black">パスワードを再設定</button>
+        </div>
+        <p id="pwResetResult" class="text-sm font-bold mt-2"></p>
+      </div>
+      <script>
+      (function(){
+        var sel=document.getElementById('pwResetStudent');
+        fetch('/api/teacher/all-students').then(function(r){return r.json();}).then(function(j){
+          if(!j||!j.students) return;
+          j.students.forEach(function(x){
+            var o=document.createElement('option'); o.value=x.userId;
+            var label=(x.name&&x.name!==x.loginId)?(x.name+'（'+x.loginId+'）'):x.loginId;
+            o.textContent=(x.grade?('['+x.grade+'年'+(x.className||'')+'] '):'')+label;
+            sel.appendChild(o);
+          });
+        }).catch(function(){});
+        document.getElementById('pwResetBtn').onclick=async function(){
+          var res=document.getElementById('pwResetResult');
+          res.className='text-sm font-bold mt-2 text-slate-600'; res.textContent='';
+          var id=sel.value;
+          if(!id){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='児童をえらんでください'; return; }
+          var np=document.getElementById('pwResetNew').value.trim();
+          if(!confirm('この児童のパスワードを再設定します。よろしいですか？')) return;
+          try{
+            var r=await fetch('/api/teacher/reset-student-password/'+id,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({newPassword:np})});
+            var j=await r.json().catch(function(){return {};});
+            if(!r.ok){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='失敗: '+(j.error||r.status); return; }
+            res.className='text-sm font-bold mt-2 text-emerald-700';
+            res.textContent='新しいパスワード: '+j.tempPassword+' （本人に伝えてください）';
+            document.getElementById('pwResetNew').value='';
+          }catch(e){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='通信エラー'; }
+        };
+      })();
+      </script>
 
       <!-- イベント管理 -->
       <div class="bg-white rounded-xl shadow p-4">
