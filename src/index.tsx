@@ -478,6 +478,8 @@ app.put('/api/student/progress', async (c) => {
       const _srv = JSON.parse(_cur.state_json)
       const _srvApplied = Number(_srv._contactCoinsApplied) || 0
       const _inc: any = body.state ?? body
+      // stale端末による本物progressの破壊的上書き防止：既存が実プレイ済み(pokedex>=15 かつ len>=40000)、かつ受信が大幅退行(pokedex半減以下/level低下/長さ半減)のときは保存をスキップし既存を保持
+      try { const _oldDex = Array.isArray(_srv.pokedex) ? _srv.pokedex.length : 0; const _newDex = Array.isArray(_inc.pokedex) ? _inc.pokedex.length : 0; const _oldLen = (_cur.state_json || '').length; const _newLen = stateJson.length; const _oldLv = Number(_srv.level) || 0; const _newLv = Number(_inc.level) || 0; if ((_oldDex >= 15 && _oldLen >= 40000) && ((_newDex <= _oldDex * 0.5) || (_newLv < _oldLv) || (_newLen < _oldLen * 0.5))) { console.log('[progress] destructive overwrite blocked ' + JSON.stringify({ user_id: u.id, oldDex: _oldDex, newDex: _newDex, oldLv: _oldLv, newLv: _newLv, oldLen: _oldLen, newLen: _newLen })); return c.json({ ok: true, skipped: 'regression_guard' }); } } catch (_e) {}
       const _cliApplied = Number(_inc._contactCoinsApplied) || 0
       if (_srvApplied > _cliApplied) {
         _inc.coins = (Number(_inc.coins) || 0) + (_srvApplied - _cliApplied)
