@@ -1697,6 +1697,67 @@ app.get('/api/teacher/class/:classId/members', async (c) => {
   ).bind(classId).all<any>()
   return c.json({ ok: true, members: rows.results })
 })
+
+app.get('/api/teacher/class/:classId/report-card', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=?').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class not found')
+  try { await c.env.DB.prepare('ALTER TABLE users ADD COLUMN roster_no INTEGER').run() } catch (_) {}
+  try { await c.env.DB.prepare('ALTER TABLE student_test_scores ADD COLUMN eval_knowledge TEXT').run() } catch (_) {}
+  try { await c.env.DB.prepare('ALTER TABLE student_test_scores ADD COLUMN eval_thinking TEXT').run() } catch (_) {}
+  try { await c.env.DB.prepare('ALTER TABLE student_test_scores ADD COLUMN eval_attitude TEXT').run() } catch (_) {}
+  const mem = await c.env.DB.prepare('SELECT u.id as userId, u.login_id as loginId, u.name, u.grade, u.roster_no as rosterNo FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? ORDER BY (u.roster_no IS NULL), u.roster_no, u.name').bind(classId).all<any>()
+  const members = (mem && mem.results) || []
+  let tests: any[] = []
+  try {
+    const tr = await c.env.DB.prepare('SELECT sts.user_id as userId, sts.subject, sts.eval_rank as evalRank, sts.eval_knowledge as evalKnowledge, sts.eval_thinking as evalThinking, sts.eval_attitude as evalAttitude, sts.score, sts.max_score as maxScore, sts.test_name as testName, sts.test_date as testDate, sts.comment, sts.created_at as createdAt FROM student_test_scores sts JOIN class_members cm ON cm.user_id=sts.user_id WHERE cm.class_id=? ORDER BY sts.created_at DESC').bind(classId).all<any>()
+    tests = (tr && tr.results) || []
+  } catch (_) {}
+  const byUser: any = {}
+  for (const m of members as any[]) byUser[m.userId] = { userId: m.userId, loginId: m.loginId, name: m.name, grade: m.grade, rosterNo: m.rosterNo, subjects: {}, tests: [] }
+  for (const t of tests as any[]) {
+    const bu = byUser[t.userId]; if (!bu) continue
+    bu.tests.push(t)
+    const sj = t.subject || 'その他'
+    if (!bu.subjects[sj]) bu.subjects[sj] = { knowledge: '', thinking: '', attitude: '', count: 0 }
+    const sJ = bu.subjects[sj]; sJ.count++
+    if (!sJ.knowledge && (t.evalKnowledge || t.evalRank)) sJ.knowledge = t.evalKnowledge || t.evalRank || ''
+    if (!sJ.thinking && t.evalThinking) sJ.thinking = t.evalThinking
+    if (!sJ.attitude && t.evalAttitude) sJ.attitude = t.evalAttitude
+  }
+  const students = (members as any[]).map((m: any) => byUser[m.userId])
+  return c.json({ ok: true, students })
+})
+
+app.post('/api/teacher/class/:classId/roster-no', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=?').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class not found')
+  const body = await c.req.json().catch(() => null)
+  if (!body || !Array.isArray(body.items)) return jsonError(c, 400, 'invalid')
+  try { await c.env.DB.prepare('ALTER TABLE users ADD COLUMN roster_no INTEGER').run() } catch (_) {}
+  const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
+  const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
+  let saved = 0
+  for (const it of body.items) {
+    const uid = String((it && it.userId) || '')
+    if (!uid || !allowed.has(uid)) continue
+    let n: number | null = parseInt(String(it && it.rosterNo), 10)
+    if (isNaN(n as any)) n = null
+    await c.env.DB.prepare('UPDATE users SET roster_no=? WHERE id=?').bind(n, uid).run()
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
+
 // クラス削除
 app.delete('/api/teacher/class/:classId', async (c) => {
   const u = requireTeacher(c)
@@ -2481,11 +2542,13 @@ function _tsParseText(text){
     if(!nm) continue;
     var scoreStr=_tsKeepNum(parts[1]);
     var sc=null; if(scoreStr!==''){ var _si=parseInt(scoreStr,10); if(!isNaN(_si)) sc=_si; }
-    var ev=''; var cm='';
-    if(parts.length>=4){ ev=_recNormRank(parts[2]); cm=parts.slice(3).join(',').trim(); }
+    var ek='',et='',ea='',ev='',cm='';
+    if(parts.length>=6){ ek=_recNormRank(parts[2]); et=_recNormRank(parts[3]); ea=_recNormRank(parts[4]); cm=parts.slice(5).join(',').trim(); }
+    else if(parts.length>=4){ ev=_recNormRank(parts[2]); cm=parts.slice(3).join(',').trim(); }
     else if(parts.length===3){ var _mb=_recNormRank(parts[2]); if(_mb){ ev=_mb; } else { cm=String(parts[2]).trim(); } }
-    if(sc===null && !ev) continue;
-    rows.push({rawName:nm, score:sc, evalRank:ev, comment:cm});
+    var _repr=ev||ek||et||ea;
+    if(sc===null && !_repr) continue;
+    rows.push({rawName:nm, score:sc, evalRank:_repr, evalKnowledge:ek, evalThinking:et, evalAttitude:ea, comment:cm});
   }
   return { testName:testName, testDate:testDate, subject:subject, maxScore:maxScore, grade:grade, rows:rows };
 }
@@ -2508,7 +2571,7 @@ app.post('/api/teacher/test-scores/parse', async (c) => {
     let uid: string | null = idx[key] || null
     if (!uid) { for (const m of roster as any[]) { const nn = _tsNorm(m.name); if (nn && (nn.indexOf(key) >= 0 || key.indexOf(nn) >= 0)) { uid = m.id; break } } }
     const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
-    return { rawName: r.rawName, score: r.score, evalRank: r.evalRank || '', comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
+    return { rawName: r.rawName, score: r.score, evalRank: r.evalRank || '', evalKnowledge: r.evalKnowledge || '', evalThinking: r.evalThinking || '', evalAttitude: r.evalAttitude || '', comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
   })
   return c.json({ ok: true, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore, grade: parsed.grade }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
 })
@@ -2525,6 +2588,9 @@ app.post('/api/teacher/test-scores/save', async (c) => {
   const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
   const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
   try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_test_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, test_name TEXT, test_date TEXT, subject TEXT, max_score INTEGER DEFAULT 100, score INTEGER, comment TEXT, eval_rank TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_test_scores ADD COLUMN eval_knowledge TEXT").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_test_scores ADD COLUMN eval_thinking TEXT").run() } catch {}
+  try { await c.env.DB.prepare("ALTER TABLE student_test_scores ADD COLUMN eval_attitude TEXT").run() } catch {}
   const testName = String(body.testName || '').slice(0, 120)
   const testDate = String(body.testDate || '').slice(0, 40)
   const subject = String(body.subject || '').slice(0, 40)
@@ -2534,11 +2600,14 @@ app.post('/api/teacher/test-scores/save', async (c) => {
   for (const it of body.rows) {
     const uid = String((it && it.userId) || '')
     if (!uid || !allowed.has(uid)) continue
-    const evalRank = _recNormRank(String((it && it.evalRank) || ''))
+    const evalKnowledge = _recNormRank(String((it && it.evalKnowledge) || ''))
+    const evalThinking = _recNormRank(String((it && it.evalThinking) || ''))
+    const evalAttitude = _recNormRank(String((it && it.evalAttitude) || ''))
+    const evalRank = _recNormRank(String((it && it.evalRank) || '')) || evalKnowledge || evalThinking || evalAttitude
     let sc: number | null = parseInt(String(it && it.score), 10)
     if (isNaN(sc as any)) sc = null
     if (sc === null && !evalRank) continue
-    await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, eval_rank, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), evalRank, u.id, nowIso).run()
+    await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, eval_rank, eval_knowledge, eval_thinking, eval_attitude, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), evalRank, evalKnowledge, evalThinking, evalAttitude, u.id, nowIso).run()
     saved++
   }
   return c.json({ ok: true, saved })
@@ -8141,6 +8210,18 @@ app.get('/teacher', (c) => {
             </div>
           </div>
 
+          <!-- 通知表（先生用・観点別◎○△） -->
+          <div class="bg-white border border-indigo-200 rounded-xl p-4 space-y-3 mb-4" id="reportCardPanel">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-indigo-800">📋 通知表（先生用・観点別）</div>
+              <div class="flex gap-2">
+                <button onclick="loadReportCard()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-indigo-700">📋 評価一覧</button>
+                <button onclick="loadRosterEditor()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-300">🔢 出席番号を編集</button>
+              </div>
+            </div>
+            <p class="text-xs text-indigo-600">テスト採点でつけた観点別評価（◎○△）を、児童（出席番号順）×教科×3観点で集約します。<b>先生だけが見る画面です（児童には表示されません）。</b>「クラス全体」で選んだクラスが対象。</p>
+            <div id="reportCardContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「評価一覧」を押してください</p></div>
+          </div>
           <!-- 個人カルテ -->
           <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
@@ -10851,7 +10932,7 @@ wrap.innerHTML = '';
         var includeName = true; var cb = document.getElementById('faIncludeName'); if(cb) includeName = !!cb.checked;
         var name = includeName ? (window._faName || '児童') : '（匿名児童）';
         var NL = String.fromCharCode(10); var L = [];
-        L.push('あなたはアプリの修行エリアにいる関西弁の応援キャラ「阪神マン」です。以下の児童の家庭学習データをもとに、①ええところ（取り組みの良い点）②気になるところ③おすすめの学習・声かけ、を関西弁で、子どもが読んで前向きになれるようにやさしくまとめてください。学年に合わせて声かけを変えること：【下の学年の復習】は「ようがんばって復習できたな！次はいまの学年の◯◯に進もか」、【いまの学年（学年相当）】は出来をしっかりほめる、【先取り（上の学年）】は「まだ習ってへんのにスゴいやん！」と認める。おすすめは具体的に——単元名・つまずきやすいポイント・次の一歩（何を何分やるか）まで書く。下の学年が未定着なら「まず◯年の◯◯を復習→いまの学年へ」と段階で示す。やりすぎず、先生がそのまま児童に渡せる文章にしてください。なお、データが見せる課題は正直に伝えてええ。提出率がひくい・さいきん下がってる・学年そうとうの単元が未定着のときは、ぼかさず具体的に言うたって（例：さいきん提出が◯％に下がってるで）、かならず次の一歩（例：まずは週◯回を目標にしよ）とセットにする。相手は小学生やから、正直でも突き放さず前向きに。ええときは今までどおりしっかりほめる。以下のデータは今年度（4月1日〜現在）の全期間の集計です。一時的な直近だけでなく、年度を通した成長・傾向を踏まえてコメントしてください。成果物（ポートフォリオ）には先生の評価（◎○△）と評価コメントも付いています。評価も踏まえてコメント・アドバイスしてください。');
+        L.push('あなたはアプリの修行エリアにいる関西弁の応援キャラ「阪神マン」です。以下の児童の家庭学習データをもとに、①ええところ（取り組みの良い点）②気になるところ③おすすめの学習・声かけ、を関西弁で、子どもが読んで前向きになれるようにやさしくまとめてください。学年に合わせて声かけを変えること：【下の学年の復習】は「ようがんばって復習できたな！次はいまの学年の◯◯に進もか」、【いまの学年（学年相当）】は出来をしっかりほめる、【先取り（上の学年）】は「まだ習ってへんのにスゴいやん！」と認める。おすすめは具体的に——単元名・つまずきやすいポイント・次の一歩（何を何分やるか）まで書く。下の学年が未定着なら「まず◯年の◯◯を復習→いまの学年へ」と段階で示す。やりすぎず、先生がそのまま児童に渡せる文章にしてください。なお、データが見せる課題は正直に伝えてええ。提出率がひくい・さいきん下がってる・学年そうとうの単元が未定着のときは、ぼかさず具体的に言うたって（例：さいきん提出が◯％に下がってるで）、かならず次の一歩（例：まずは週◯回を目標にしよ）とセットにする。相手は小学生やから、正直でも突き放さず前向きに。ええときは今までどおりしっかりほめる。以下のデータは今年度（4月1日〜現在）の全期間の集計です。一時的な直近だけでなく、年度を通した成長・傾向を踏まえてコメントしてください。成果物（ポートフォリオ）には先生の評価（◎○△）と評価コメントも付いています。評価も踏まえてコメント・アドバイスしてください。ただし、児童に渡す文章には◎○△などの評価記号は書かず、ほめ言葉やアドバイスの言葉で伝えてください。');
         L.push('');
         L.push('■ 児童: ' + name);
         var _sg3=(data.student&&data.student.grade)||null; if(_sg3) L.push('■ 学年: ' + _sg3 + '年生（各単元の「対象学年」は教科別に明記。対象学年が本人より下＝復習、同じ＝学年相当、上＝先取り）');
@@ -10952,7 +11033,7 @@ wrap.innerHTML = '';
         s+='</svg>'; return s;
       }
       function _kHowToLearn(d){ d=d||{}; var ov=d.overview||{}; var sg=(d.student&&d.student.grade)||null; var subj=(d.subjects||[]).slice(); var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var cl=function(u){ return _gradeClass(sg,_unitGrade(u)); }; var review=subj.filter(function(s){return cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewWeak=review.filter(function(s){return s.rate<70;}).slice(0,3); var grow=subj.filter(function(s){return s.rate<70&&s.total>=5&&cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}); if(!grow.length){ grow=subj.filter(function(s){return s.rate<70&&s.total>=5&&cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}); } grow=grow.slice(0,3); var good=subj.filter(function(s){return s.rate>=80&&s.total>=20&&cl(s.unit)==='same';}).sort(function(a,b){return b.rate-a.rate;}); var uL=function(s){ var g=_unitGrade(s.unit); return (g?g+'年 ':'')+_unitJa(s.unit); }; var methodFor=function(u){ var a=_subjectArea(u); if(a==='math') return '1日3〜5問ずつ、まちがえた問題はやり方を声に出してもう一度'; if(a==='jp') return '音読と漢字を毎日5分、まちがえた言葉はノートに書き出す'; if(a==='soc') return '用語を声に出して説明し、ミニクイズで確かめる'; if(a==='sci') return '図や実験を思い出しながら、用語をクイズで確かめる'; return '少しずつ毎日、まちがい直しを大切に'; }; var spacingFor=function(r){ return (r>=60)?'1回10分 × 週2〜3回、日をあけて（分散学習）':'1回10分を3日つづけて → 数日あけてもう1回'; }; var one=''; if(reviewWeak.length){ var t0=reviewWeak[0]; one='まず土台から。<b>'+esc(uL(t0))+'</b>（いま '+t0.rate+'%）を復習しよう。'+esc(methodFor(t0.unit))+'。'; } else if(grow.length){ var g0=grow[0]; one='<b>'+esc(_unitJa(g0.unit))+'</b>（いまの学年・'+g0.rate+'%）をもう一度ていねいに。'+esc(methodFor(g0.unit))+'。'; } else if(good.length){ one='いまの学年はバッチリ！<b>'+esc(_unitJa(good[0].unit))+'</b>をさらに伸ばすか、上の学年の先取りに挑戦してみよう。'; } else { one='今のペースで、毎日つづけることを大切に。続けることが一番の力だよ。'; } var pool=reviewWeak.concat(grow).slice(0,4); var revList=[]; for(var i=0;i<pool.length;i++){ var p=pool[i]; revList.push('<li style="margin:4px 0"><b>'+esc(uL(p))+'</b>（'+p.rate+'%）… '+esc(spacingFor(p.rate))+'。'+esc(methodFor(p.unit))+'</li>'); } var voices=[]; if((ov.maxStreak||0)>=5) voices.push('毎日つづけられる力がすごいね。続けられること自体が、もう立派な才能だよ。'); voices.push('「できた／できない」より「どうやってできたか」を一緒に話そう。やり方に目を向けると次に活きるよ。'); if(reviewWeak.length) voices.push('むずかしい所に挑戦できたね。まちがいは「のびるチャンス」。直せたら100点と同じだよ。'); else voices.push('ここまでよく積み上げたね。次の一歩を自分で選べたら、もっと強くなるよ。'); voices=voices.slice(0,3); var plans=(d.plans||[]); var refs=(d.reflections||[]); var hasGoal=plans.length>0; var hasDo=(ov.totalSubmissions||0)>0; var hasReflect=refs.filter(function(r){return r.nextAction||r.goodPoint||r.improvePoint;}).length>0; var loopMsg=''; if(!hasGoal){ loopMsg='まず「今週はこれをやる」と一つ決めてから始めると、ぐっと続けやすくなるよ。'; } else if(!hasReflect){ loopMsg='目標→実行はできている。ふりかえりに「次はこうする」を一言足すと、サイクルが回り出すよ。'; } else { loopMsg='目標→実行→ふりかえりがしっかり回っている。この習慣こそ、一番の学ぶ力だよ。'; } var bdg=function(on,txt){ return '<span style="display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin:0 4px 4px 0;'+(on?'background:#dcfce7;color:#15803d':'background:#f1f5f9;color:#94a3b8')+'">'+(on?'✓ ':'')+txt+'</span>'; }; var H=[]; H.push('<div style="border:2px solid #c7d2fe;border-radius:14px;padding:12px 14px;margin-bottom:11px;background:#eef2ff">'); H.push('<div style="font-weight:800;font-size:16px;color:#4338ca;margin-bottom:8px">📚 どう学ぶといいか（おうちでの学び方）</div>'); H.push('<div style="background:#fff;border-radius:10px;padding:9px 12px;margin-bottom:8px"><div style="font-weight:800;color:#4338ca;font-size:13px">🎯 今週の一手（これだけでOK）</div><div style="margin-top:3px;color:#334155">'+one+'</div></div>'); if(revList.length){ H.push('<div style="margin-bottom:8px"><div style="font-weight:800;color:#0369a1;font-size:13px">🔁 復習する単元とやり方（分散学習）</div><ul style="margin:4px 0;padding-left:20px;color:#334155">'+revList.join('')+'</ul></div>'); } H.push('<div><div style="font-weight:800;color:#b45309;font-size:13px">🔄 目標 → 実行 → ふりかえり のループ</div><div style="margin:5px 0">'+bdg(hasGoal,'目標を立てる')+bdg(hasDo,'実行する')+bdg(hasReflect,'ふりかえる')+'</div><div style="color:#7c2d12">'+esc(loopMsg)+'</div></div>'); H.push('</div>'); return H.join(''); }
-      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var _sg=(d.student&&d.student.grade)||null; var _cl=function(u){return _gradeClass(_sg,_unitGrade(u));}; var good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)==='same';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); if(!good.length){ good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)!=='review';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); } var _rev=subjects.filter(function(s){return _cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewGood=_rev.filter(function(s){return s.rate>=80;}).slice(0,3); var reviewWeak=_rev.filter(function(s){return s.rate<70;}).slice(0,3); var ahead=subjects.filter(function(s){return _cl(s.unit)==='ahead'&&s.rate>=70&&s.total>=10;}).sort(function(a,b){return (b.rate-a.rate);}).slice(0,3); var grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); if(!grow.length){ grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); } var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん'+(_sg?'（'+_sg+'年生）':'')+'</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); var _areas=[{key:'jp',label:'国語'},{key:'math',label:'算数'},{key:'sci',label:'理科'},{key:'soc',label:'社会'}]; var _agg=function(arr){ var tot=0,cor=0; for(var ai=0;ai<arr.length;ai++){ var it=arr[ai]; var cc=(typeof it.correct==='number')?it.correct:Math.round((it.rate||0)/100*(it.total||0)); tot+=(it.total||0); cor+=cc; } return tot? Math.round(cor/tot*100):null; }; var _radar=_areas.map(function(a){ var same=subjects.filter(function(s){ return _subjectArea(s.unit)===a.key && _cl(s.unit)==='same'; }); var all=subjects.filter(function(s){ return _subjectArea(s.unit)===a.key; }); var v=_agg(same); var nd=false; if(v==null){ v=_agg(all); } if(v==null){ v=0; nd=true; } return {label:a.label, value:v, noData:nd}; }); var _mt=(d.monthlyTrends||[]).slice(-6); var _barItems=_mt.map(function(m){ return {label:String(m.month||'').slice(5), value:m.count||0}; }); H.push('<div class="sec"><h2>📊 学習の見える化</h2><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-around">'); H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">教科の定着（いまの学年）</div>'+_kRadar(_radar)+'</div>'); H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">月ごとの提出回数</div>'+_kBars(_barItems)+'</div>'); var _rItems=_mt.filter(function(m){return m.rate!=null;}).map(function(m){ return {label:String(m.month||'').slice(5), value:m.rate}; }); if(ov.submissionRate && ov.submissionRate.show && _rItems.length){ H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">月ごとの提出率(%)</div>'+_kBars(_rItems)+'</div>'); } H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">きもちの割合</div>'+_kDonut(ov.sunCount,ov.cloudCount,ov.rainCount)+'</div>'); H.push('</div>'); var goodBars=good.map(function(s){return {label:_unitJa(s.unit),rate:s.rate,total:s.total};}); var growBars=grow.map(function(s){return {label:_unitJa(s.unit),rate:s.rate,total:s.total};}); var revBars=reviewWeak.map(function(s){var rg=_unitGrade(s.unit); return {label:(rg?rg+'年 ':'')+_unitJa(s.unit),rate:s.rate,total:s.total};}); H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px">'); H.push('<div style="font-weight:800;color:#16a34a;font-size:12px;margin-bottom:2px">💪 とくいな単元（いまの学年）</div>'+_kHBar(goodBars,'#22c55e')); H.push('<div style="font-weight:800;color:#ea580c;font-size:12px;margin:6px 0 2px">🌱 これから伸ばす単元（いまの学年）</div>'+_kHBar(growBars,'#f97316')); if(revBars.length){ H.push('<div style="font-weight:800;color:#0369a1;font-size:12px;margin:6px 0 2px">🔁 下の学年の復習（まずここから）</div>'+_kHBar(revBars,'#3b82f6')); } H.push('</div>'); H.push('</div>'); var _srx=(ov.submissionRate||{}); if(_srx.show){ var _trTxt=_srx.trend==='down'?'↓ さいきん下がってきています':_srx.trend==='up'?'↑ さいきん上がってきています':'→ ほぼ横ばい'; var _trCol=_srx.trend==='down'?'#dc2626':_srx.trend==='up'?'#16a34a':'#64748b'; var _low=(_srx.overall!=null&&_srx.overall<60)||_srx.trend==='down'; var _box='<div class="sec" style="border-color:'+(_low?'#fca5a5':'#bbf7d0')+';background:'+(_low?'#fef2f2':'#f0fdf4')+'"><h2>📊 家庭学習の提出率</h2>'; _box+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center"><div style="font-size:30px;font-weight:900;color:'+(_low?'#dc2626':'#16a34a')+'">'+(_srx.overall!=null?_srx.overall+'%':'-')+'</div><div style="font-size:12px;color:'+_trCol+';font-weight:700">'+_trTxt+'<div style="font-size:10px;color:#94a3b8;font-weight:400">直近約4週 '+(_srx.recent!=null?_srx.recent+'%':'-')+' / その前 '+(_srx.prev!=null?_srx.prev+'%':'-')+'</div></div></div>'; if(_low){ var _goal=(_srx.recent!=null&&_srx.recent<40)?'まずは週2回':'まずは週3〜4回'; _box+='<div style="margin-top:8px;background:#fff;border-radius:10px;padding:9px 12px;color:#7f1d1d;font-weight:700">📣 正直に伝えると、いま提出が'+(_srx.trend==='down'?'下がってきている':'少なめ')+'よ。でも、ここからがチャンス！　👉 次の一歩：'+_goal+'の提出を目標にしよう。出した日はカレンダーに○をつけると続けやすいよ。</div>'; } else { _box+='<div style="margin-top:8px;background:#fff;border-radius:10px;padding:9px 12px;color:#166534;font-weight:700">🎉 よく続けられているね！この提出ペースは大きな力になっているよ。この調子！</div>'; } _box+='</div>'; H.push(_box); } H.push(_kHowToLearn(d)); H.push('<div class="sec good"><h2>💪 とくいな教科'+(_sg?'（いまの学年）':'')+'</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } if(reviewGood.length){ var _rg=[]; for(var rgi=0;rgi<reviewGood.length;rgi++){ var _rgu=reviewGood[rgi]; var _rgg=_unitGrade(_rgu.unit); _rg.push((_rgg?_rgg+'年 ':'')+esc(_unitJa(_rgu.unit))+'('+_rgu.rate+'%)'); } H.push('<div style="margin-top:8px;font-size:12px;color:#0369a1;font-weight:700">🔁 下の学年の復習もバッチリ … '+_rg.join('、')+'</div>'); } if(ahead.length){ var _ag=[]; for(var agi=0;agi<ahead.length;agi++){ var _agu=ahead[agi]; var _agg=_unitGrade(_agu.unit); _ag.push((_agg?_agg+'年 ':'')+esc(_unitJa(_agu.unit))+'('+_agu.rate+'%)'); } H.push('<div style="margin-top:6px;font-size:12px;color:#7c3aed;font-weight:700">🚀 先取りもチャレンジ … '+_ag.join('、')+'</div>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いまの学年・正答率 '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>いまの学年の単元は よくできています。すばらしい！</p>'); } if(reviewWeak.length){ H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px"><div style="font-weight:800;color:#b45309;font-size:13px">📥 まずは下の学年の復習から（土台づくり）</div>'); for(var rw=0;rw<reviewWeak.length;rw++){ var _rwu=reviewWeak[rw]; var _rwg=_unitGrade(_rwu.unit); H.push('<div class="it"><div class="t">'+(_rwg?_rwg+'年 ':'')+esc(_unitJa(_rwu.unit))+'（いま '+_rwu.rate+'%）</div><div class="tip">👉 まず'+(_rwg?_rwg+'年の':'')+esc(_unitJa(_rwu.unit))+'を復習して、できるようになってから いまの学年へ進もう。'+esc(_kStudyTip(_rwu.unit))+'</div></div>'); } H.push('</div>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } var tsc=(d.testScores||[]); if(tsc.length){ H.push('<div class="sec"><h2>📝 テストの記録</h2><ul>'); for(var ti=0;ti<tsc.length;ti++){ var tt=tsc[ti]; var tp=(tt.pct==null)?'':('（'+tt.pct+'%）'); H.push('<li>'+esc(tt.testDate||'')+' '+esc(tt.subject||'')+' '+esc(tt.testName||'')+' … '+(tt.score==null?'-':tt.score)+'/'+(tt.maxScore||100)+'点'+tp+'</li>'); } H.push('</ul></div>'); } var _tn=(d.teacherNotes||[]).filter(function(n){return n.showInKarte;}); if(_tn.length){ H.push('<div class="sec"><h2>📝 先生からの記録</h2><ul>'); for(var ni=0;ni<_tn.length;ni++){ var nn=_tn[ni]; H.push('<li>'+esc(nn.dayKey||'')+' '+esc(nn.body||'')+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🐯 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
+      function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var _sg=(d.student&&d.student.grade)||null; var _cl=function(u){return _gradeClass(_sg,_unitGrade(u));}; var good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)==='same';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); if(!good.length){ good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)!=='review';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); } var _rev=subjects.filter(function(s){return _cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewGood=_rev.filter(function(s){return s.rate>=80;}).slice(0,3); var reviewWeak=_rev.filter(function(s){return s.rate<70;}).slice(0,3); var ahead=subjects.filter(function(s){return _cl(s.unit)==='ahead'&&s.rate>=70&&s.total>=10;}).sort(function(a,b){return (b.rate-a.rate);}).slice(0,3); var grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); if(!grow.length){ grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); } var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='よく がんばっているね！この調子で つづけていこう！'; if((ov.maxStreak||0)>=5) praise='なんと '+ov.maxStreak+'日も つづけて べんきょうできたね！すごい力だよ！'; else if((ov.totalSubmissions||0)>=10) praise='たくさん べんきょうを つづけているね！その努力は きっと力になるよ！'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:11px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん'+(_sg?'（'+_sg+'年生）':'')+'</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); H.push('<div class="sec"><h2>🌟 がんばりの記録</h2><div class="chips">'); H.push('<div class="chip"><div class="v">'+(ov.totalSubmissions||0)+'</div><div class="l">提出回数</div></div>'); H.push('<div class="chip"><div class="v">'+hours+'時間</div><div class="l">合計学習時間</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.avgMinutes||0)+'分</div><div class="l">1日の平均</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.maxStreak||0)+'日</div><div class="l">最長れんぞく</div></div>'); H.push('<div class="chip"><div class="v">'+(ov.sunRate||0)+'%</div><div class="l">きもち☀️</div></div>'); H.push('</div><div class="msg">'+praise+'</div></div>'); var _areas=[{key:'jp',label:'国語'},{key:'math',label:'算数'},{key:'sci',label:'理科'},{key:'soc',label:'社会'}]; var _agg=function(arr){ var tot=0,cor=0; for(var ai=0;ai<arr.length;ai++){ var it=arr[ai]; var cc=(typeof it.correct==='number')?it.correct:Math.round((it.rate||0)/100*(it.total||0)); tot+=(it.total||0); cor+=cc; } return tot? Math.round(cor/tot*100):null; }; var _radar=_areas.map(function(a){ var same=subjects.filter(function(s){ return _subjectArea(s.unit)===a.key && _cl(s.unit)==='same'; }); var all=subjects.filter(function(s){ return _subjectArea(s.unit)===a.key; }); var v=_agg(same); var nd=false; if(v==null){ v=_agg(all); } if(v==null){ v=0; nd=true; } return {label:a.label, value:v, noData:nd}; }); var _mt=(d.monthlyTrends||[]).slice(-6); var _barItems=_mt.map(function(m){ return {label:String(m.month||'').slice(5), value:m.count||0}; }); H.push('<div class="sec"><h2>📊 学習の見える化</h2><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-around">'); H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">教科の定着（いまの学年）</div>'+_kRadar(_radar)+'</div>'); H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">月ごとの提出回数</div>'+_kBars(_barItems)+'</div>'); var _rItems=_mt.filter(function(m){return m.rate!=null;}).map(function(m){ return {label:String(m.month||'').slice(5), value:m.rate}; }); if(ov.submissionRate && ov.submissionRate.show && _rItems.length){ H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">月ごとの提出率(%)</div>'+_kBars(_rItems)+'</div>'); } H.push('<div style="text-align:center"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:2px">きもちの割合</div>'+_kDonut(ov.sunCount,ov.cloudCount,ov.rainCount)+'</div>'); H.push('</div>'); var goodBars=good.map(function(s){return {label:_unitJa(s.unit),rate:s.rate,total:s.total};}); var growBars=grow.map(function(s){return {label:_unitJa(s.unit),rate:s.rate,total:s.total};}); var revBars=reviewWeak.map(function(s){var rg=_unitGrade(s.unit); return {label:(rg?rg+'年 ':'')+_unitJa(s.unit),rate:s.rate,total:s.total};}); H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:6px">'); H.push('<div style="font-weight:800;color:#16a34a;font-size:12px;margin-bottom:2px">💪 とくいな単元（いまの学年）</div>'+_kHBar(goodBars,'#22c55e')); H.push('<div style="font-weight:800;color:#ea580c;font-size:12px;margin:6px 0 2px">🌱 これから伸ばす単元（いまの学年）</div>'+_kHBar(growBars,'#f97316')); if(revBars.length){ H.push('<div style="font-weight:800;color:#0369a1;font-size:12px;margin:6px 0 2px">🔁 下の学年の復習（まずここから）</div>'+_kHBar(revBars,'#3b82f6')); } H.push('</div>'); H.push('</div>'); var _srx=(ov.submissionRate||{}); if(_srx.show){ var _trTxt=_srx.trend==='down'?'↓ さいきん下がってきています':_srx.trend==='up'?'↑ さいきん上がってきています':'→ ほぼ横ばい'; var _trCol=_srx.trend==='down'?'#dc2626':_srx.trend==='up'?'#16a34a':'#64748b'; var _low=(_srx.overall!=null&&_srx.overall<60)||_srx.trend==='down'; var _box='<div class="sec" style="border-color:'+(_low?'#fca5a5':'#bbf7d0')+';background:'+(_low?'#fef2f2':'#f0fdf4')+'"><h2>📊 家庭学習の提出率</h2>'; _box+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center"><div style="font-size:30px;font-weight:900;color:'+(_low?'#dc2626':'#16a34a')+'">'+(_srx.overall!=null?_srx.overall+'%':'-')+'</div><div style="font-size:12px;color:'+_trCol+';font-weight:700">'+_trTxt+'<div style="font-size:10px;color:#94a3b8;font-weight:400">直近約4週 '+(_srx.recent!=null?_srx.recent+'%':'-')+' / その前 '+(_srx.prev!=null?_srx.prev+'%':'-')+'</div></div></div>'; if(_low){ var _goal=(_srx.recent!=null&&_srx.recent<40)?'まずは週2回':'まずは週3〜4回'; _box+='<div style="margin-top:8px;background:#fff;border-radius:10px;padding:9px 12px;color:#7f1d1d;font-weight:700">📣 正直に伝えると、いま提出が'+(_srx.trend==='down'?'下がってきている':'少なめ')+'よ。でも、ここからがチャンス！　👉 次の一歩：'+_goal+'の提出を目標にしよう。出した日はカレンダーに○をつけると続けやすいよ。</div>'; } else { _box+='<div style="margin-top:8px;background:#fff;border-radius:10px;padding:9px 12px;color:#166534;font-weight:700">🎉 よく続けられているね！この提出ペースは大きな力になっているよ。この調子！</div>'; } _box+='</div>'; H.push(_box); } H.push(_kHowToLearn(d)); H.push('<div class="sec good"><h2>💪 とくいな教科'+(_sg?'（いまの学年）':'')+'</h2>'); if(good.length){ H.push('<ul>'); for(var i=0;i<good.length;i++){ var g=good[i]; H.push('<li><span class="b">'+esc(_unitJa(g.unit))+'</span> … 正答率 '+g.rate+'%（'+g.total+'問）よくできているね！</li>'); } H.push('</ul>'); } else { H.push('<p>これから とくいな教科を ふやしていこう！</p>'); } if(reviewGood.length){ var _rg=[]; for(var rgi=0;rgi<reviewGood.length;rgi++){ var _rgu=reviewGood[rgi]; var _rgg=_unitGrade(_rgu.unit); _rg.push((_rgg?_rgg+'年 ':'')+esc(_unitJa(_rgu.unit))+'('+_rgu.rate+'%)'); } H.push('<div style="margin-top:8px;font-size:12px;color:#0369a1;font-weight:700">🔁 下の学年の復習もバッチリ … '+_rg.join('、')+'</div>'); } if(ahead.length){ var _ag=[]; for(var agi=0;agi<ahead.length;agi++){ var _agu=ahead[agi]; var _agg=_unitGrade(_agu.unit); _ag.push((_agg?_agg+'年 ':'')+esc(_unitJa(_agu.unit))+'('+_agu.rate+'%)'); } H.push('<div style="margin-top:6px;font-size:12px;color:#7c3aed;font-weight:700">🚀 先取りもチャレンジ … '+_ag.join('、')+'</div>'); } H.push('</div>'); H.push('<div class="sec grow"><h2>🌱 これから もっと のびるところ</h2>'); if(grow.length){ for(var j=0;j<grow.length;j++){ var w=grow[j]; H.push('<div class="it"><div class="t">'+esc(_unitJa(w.unit))+'（いまの学年・正答率 '+w.rate+'%）</div><div class="tip">👉 '+esc(_kStudyTip(w.unit))+'</div></div>'); } } else { H.push('<p>いまの学年の単元は よくできています。すばらしい！</p>'); } if(reviewWeak.length){ H.push('<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px"><div style="font-weight:800;color:#b45309;font-size:13px">📥 まずは下の学年の復習から（土台づくり）</div>'); for(var rw=0;rw<reviewWeak.length;rw++){ var _rwu=reviewWeak[rw]; var _rwg=_unitGrade(_rwu.unit); H.push('<div class="it"><div class="t">'+(_rwg?_rwg+'年 ':'')+esc(_unitJa(_rwu.unit))+'（いま '+_rwu.rate+'%）</div><div class="tip">👉 まず'+(_rwg?_rwg+'年の':'')+esc(_unitJa(_rwu.unit))+'を復習して、できるようになってから いまの学年へ進もう。'+esc(_kStudyTip(_rwu.unit))+'</div></div>'); } H.push('</div>'); } H.push('</div>'); var refs=(d.recentSubmissions||[]).filter(function(s){return s.weather_reason;}).slice(0,3); if(refs.length){ H.push('<div class="sec"><h2>📝 さいきんの ふりかえり</h2><ul class="refl">'); for(var k=0;k<refs.length;k++){ var r=refs[k]; var w2=r.end_weather==='sun'?'☀️':r.end_weather==='cloud'?'☁️':r.end_weather==='rain'?'🌧️':''; H.push('<li>'+esc(r.day_key||'')+' '+w2+' '+esc(r.weather_reason)+'</li>'); } H.push('</ul></div>'); } var tsc=(d.testScores||[]); if(tsc.length){ H.push('<div class="sec"><h2>📝 テストの記録</h2><ul>'); for(var ti=0;ti<tsc.length;ti++){ var tt=tsc[ti]; var tp=(tt.pct==null)?'':('（'+tt.pct+'%）'); H.push('<li>'+esc(tt.testDate||'')+' '+esc(tt.subject||'')+' '+esc(tt.testName||'')+' … '+(tt.score==null?'-':tt.score)+'/'+(tt.maxScore||100)+'点'+tp+(tt.comment?' <span style="color:#0369a1">💬'+esc(tt.comment)+'</span>':'')+'</li>'); } H.push('</ul></div>'); } var _tn=(d.teacherNotes||[]).filter(function(n){return n.showInKarte;}); if(_tn.length){ H.push('<div class="sec"><h2>📝 先生からの記録</h2><ul>'); for(var ni=0;ni<_tn.length;ni++){ var nn=_tn[ni]; H.push('<li>'+esc(nn.dayKey||'')+' '+esc(nn.body||'')+'</li>'); } H.push('</ul></div>'); } if(d.aiComment){ H.push('<div class="sec"><h2>🐯 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); }
       function downloadKartePdf(){ try{ var html=_buildKarteHtml(); var w=window.open('','_blank'); if(!w){ alert('ポップアップがブロックされました。このサイトのポップアップを許可してください。'); return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 500); }catch(e){ alert('カルテの作成に失敗しました: '+e.message); } }
       function _aiBodyLines(data){ var ov=data.overview||{}; var _sg5=(data.student&&data.student.grade)||null; var L=[]; if(_sg5) L.push('【学年】'+_sg5+'年生'); L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); if(ov.submissionRate&&ov.submissionRate.show){ var _sr2=ov.submissionRate; L.push('・家庭学習の提出率: '+(_sr2.overall!=null?_sr2.overall+'%':'-')+'（直近約4週 '+(_sr2.recent!=null?_sr2.recent+'%':'-')+' / その前 '+(_sr2.prev!=null?_sr2.prev+'%':'-')+'）'); if(_sr2.trend==='down') L.push('・[要注意] 提出率が下がってきている → 正直に指摘し次の一歩を促す'); else if(_sr2.trend==='up') L.push('・提出率が上がってきている → 認めてほめる'); if(_sr2.overall!=null&&_sr2.overall<60) L.push('・[要注意] 提出率が低め（'+_sr2.overall+'%）→ ぼかさず具体的に、小さな目標を示す'); } var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ var _sg6=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug6=_unitGrade(su.unit); var _lab6=_gradeLabel(_gradeClass(_sg6,_ug6))||'対象学年不明'; L.push('・'+_unitJa(su.unit)+'（'+(_ug6?('対象'+_ug6+'年・'):'')+_lab6+'）: 正答率'+su.rate+'%（'+su.total+'問）'); } } if(data.teacherNotes&&data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; L.push('・'+(nt.dayKey||'')+' '+(nt.body||'')); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } if(data.testScores&&data.testScores.length){ L.push(''); L.push('【テストの記録（今年度・全期間）】'); for(var tsx=0;tsx<data.testScores.length;tsx++){ var tt2=data.testScores[tsx]; L.push('・'+(tt2.testDate||'')+' '+(tt2.subject||'')+' '+(tt2.testName||'')+'：'+(tt2.score==null?'-':tt2.score)+'/'+(tt2.maxScore||100)+(tt2.pct!=null?'（'+tt2.pct+'%）':'')+(tt2.comment?' 先生:'+tt2.comment:'')); } } if(data.records&&data.records.length){ L.push(''); L.push('【ポートフォリオ（成果物・振り返り・先生の評価◎○△）／今年度・全期間】'); var _rkj=function(k){ return k==='test'?'テスト':k==='report'?'まとめ':k==='reflect'?'振り返り':'その他'; }; for(var rpx=0;rpx<data.records.length;rpx++){ var rc2=data.records[rpx]; var _ev2=rc2.evalRank?('／評価:'+rc2.evalRank+((rc2.evalComment&&String(rc2.evalComment).trim())?'／評価コメント:'+rc2.evalComment:'')):''; var _ln2='・['+_rkj(rc2.type)+'] '+(rc2.title||'(無題)')+'（'+(rc2.dayKey||'')+(rc2.unit?'／'+rc2.unit:'')+_ev2+'）'; if(rc2.body&&String(rc2.body).trim()) _ln2+=' 本文:'+rc2.body; if(rc2.reflection&&String(rc2.reflection).trim()) _ln2+=' ／振り返り:'+rc2.reflection; L.push(_ln2); } } return L; }
       function _normId(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}).replace(/[\\s　]/g,'').toLowerCase(); }
@@ -10971,7 +11052,7 @@ wrap.innerHTML = '';
         L.push('あなたは小学校担任のAIアシスタント兼、修行エリアの関西弁応援キャラ「阪神マン」です。次のクラスのデータを読み、各ブロックの目印（=== [..] === の行）は絶対に変えずに残し、各目印の直後に指定の内容を日本語で書いてください。前置きや説明は不要。');
         L.push('【目印の種類と書く内容】');
         if(optClass) L.push('・=== [CLASS] === … クラス全体の所見を5〜8行（良い傾向／気になる点／来週の手立て）。先生向けのていねいな文体。');
-        if(optKarte) L.push('・=== [KARTE:児童ID] 名前 === … 阪神マン風（関西弁・前向き）で ①ええところ ②気になるところ ③おすすめの学習・声かけ。今年度（4月〜）全期間の傾向と成果物の評価（◎○△）も踏まえ、課題は正直に＋次の一歩とセットで。');
+        if(optKarte) L.push('・=== [KARTE:児童ID] 名前 === … 阪神マン風（関西弁・前向き）で ①ええところ ②気になるところ ③おすすめの学習・声かけ。今年度（4月〜）全期間の傾向と成果物の評価（◎○△）も踏まえ、課題は正直に＋次の一歩とセットで。※児童向けカルテ本文には◎○△などの記号は書かず、言葉で励ます。');
         if(optPlan) L.push('・=== [PLAN:児童ID] 名前 === … その子の「今週の計画」へ ①よい点 ②もっとよくする点（具体的か・無理のない量か・ふりかえりにつながるか）③ひとことアドバイス。子どもにそのまま返せるやさしい言葉で。');
         if(optReflect) L.push('・=== [REFLECT:児童ID] 名前 === … その子の「今週の振り返り」への返却コメント。がんばりを認めつつ次につながる一言を、やさしい言葉で。');
         if(optSuggest) L.push('・=== [SUGGEST:児童ID] 名前 === … あなたは関西弁の応援キャラ「阪神マン」。この子の苦手・復習どきの単元・今週のテスト予定・学習履歴をもとに、今週の家庭学習の「おすすめ計画」を曜日ごとに何をどれくらい（合計3〜5項目）。子どもがそのまま参考にできるやさしい関西弁で。目印の行は変えずに残してください。');
@@ -11279,7 +11360,7 @@ wrap.innerHTML = '';
             if(!grade){ var gc={}, best='', bn=0; for(var j=0;j<d.members.length;j++){ var gg=d.members[j].grade; if(gg){ gc[gg]=(gc[gg]||0)+1; if(gc[gg]>bn){ bn=gc[gg]; best=String(gg); } } } if(best) grade=best; }
           }
           var gtxt=grade?(grade+'年生'):'この学年';
-          var stxt=subject||'この教科';
+          var stxt=subject||'（教科はテスト内容からAIが判定）';
           var utxt=unit?('・単元「'+unit+'」'):'';
           var L=[];
           L.push('あなたは小学校の先生を助けるアシスタントです。これは【'+gtxt+'・'+stxt+utxt+'】のテスト／プリントです。アップロードした画像・PDFから、児童ごとに (1)点数 (2)'+gtxt+'の評価基準（観点別評価）に照らした評価 を読み取り／判定し、次の「出力形式」だけをそのまま出力してください。前置き・説明・コードブロックは書かないでください。');
@@ -11290,29 +11371,104 @@ wrap.innerHTML = '';
           var _evL='【'+gtxt+' '+stxt+(unit?(' '+unit):'')+'】';
           var _skMap={'算数':'算数の例：計算や数量・図形の理解と手順（知識・技能）、問題の解き方・理由の説明・式や図での表現（思考・判断・表現）。','国語':'国語の例：漢字・語句・音読や読みの正確さ（知識・技能）、要点や登場人物の気持ちの読み取り・自分の考えの記述（思考・判断・表現）。','理科':'理科の例：用語・器具の使い方・観察や実験の技能（知識・技能）、予想・考察・結果からの説明（思考・判断・表現）。','社会':'社会の例：地図・資料・用語の理解（知識・技能）、資料の読み取り・理由や関係の説明（思考・判断・表現）。','英語':'英語の例：語句や表現の理解（知識・技能）、聞く・話す・書くでのやり取りや表現（思考・判断・表現）。'};
           var _sk=_skMap[subject]||'';
+          var _EK={
+          '1':{'国語':{kt:'助詞「は・へ・を」、句読点、かぎ「」の使い方を理解して使い、語のまとまりや響きに気を付けて音読できる。',sh:'事柄の順序を考えて内容の大体を捉え、場面の様子や人物の行動を想像する。経験から書くことを見付け順序を考えて短く書く。',st:'進んで音読や説明の順序を捉え、分かったことを伝えたり身近な人に手紙を書いたりしようとする。'},'算数':{kt:'20・100までの数の構成・大小・読み書き、繰り上がり繰り下がりのある加減、時刻の読み、長さ・かさ・広さの比べ方、形の構成を理解している。',sh:'「10と幾つ」や10の補数に着目して計算の仕方を考え、合併・増加や求差などの場面をブロック操作で捉え説明できる。',st:'数量や形に親しみ進んで計算や形づくりに取り組み、計算のよさに気付いて用いようとする。'}},
+          '2':{'国語':{kt:'配当漢字や対義語・類義語、丁寧な言葉（敬体）、順序や理由を表す言葉を理解して語彙を増やし文中で使える。',sh:'理由や時間的順序を読み取り重要な語や文を選ぶ。観察の視点を明確にし事柄の順序に沿って組み立てて書く。相手の話をつなげて聞く。',st:'粘り強く言葉や順序を考え、友達と交流しながら記録・説明・お話づくり等に進んで生かそうとする。'},'算数':{kt:'（2位数）±（1位数）の暗算、繰り上がり繰り下がりの筆算、九九、1万までの数、長さ(cm/mm/m)・かさ(L/dL/mL)、三角形・四角形、簡単な分数を理解している。',sh:'十進位取りや数のまとまりを基に計算や大小比較を考え、テープ図で場面を捉え、図形の構成要素に着目して特徴や演算を説明できる。',st:'筆算・九九・図形などのよさに気付き、身の回りの数量や形を進んで調べ工夫して用いようとする。'}},
+          '3':{'国語':{kt:'様子・行動・気持ち・性格を表す語句を増やし、段落の役割や全体と中心など情報の関係、漢字・句読点・改行を理解して使える。',sh:'段落相互の関係に着目し考えと理由・事例の関係を捉える。人物の気持ちの変化を場面と結び付けて想像する。目的に応じて書く事柄を選び明確に書く。',st:'進んで叙述を基に読んだり書いたりし、学習課題に沿って感想や考えを伝え合おうとする。'},'算数':{kt:'除法・分数・小数の意味、（2,3位数）×（1,2位数）や余りのある除法の筆算・暗算、円/球・三角形の性質、重さ・長さ・時間の単位を理解し正しく計算・作図・測定できる。',sh:'数量関係や図形を数学的な見方・考え方で捉え、既習と関連付けて計算や作図の仕方を考え、図・式・言葉で筋道立てて説明できる。',st:'除法・分数・小数などのよさに気付き、日常の問題解決に進んで用い粘り強く考えようとする。'},'理科':{kt:'昆虫・植物の育ち方と体のつくり、風とゴム・光・音・磁石・電気・物の重さ・太陽と地面の性質を理解し、虫眼鏡・方位磁針・温度計・はかり等を正しく扱い記録できる。',sh:'主に差異点や共通点を基に問題を見いだし、予想・計画・観察実験・考察を通して結果を基に妥当な考えを表現できる。',st:'自然の事物・現象に進んで関わり他者と関わりながら問題解決し、生物を愛護し学びを生活に生かそうとする。'},'社会':{kt:'身近な地域や市の地形・土地利用・交通、生産や販売の仕事、消防・警察の働き、市の移り変わりを観察・調査・地図資料で調べ白地図や年表にまとめ理解している。',sh:'位置・地形・工程・時期に着目して問いを見いだし、比較・関連付けて特色や工夫を考え、自分たちにできることを選択・判断して表現できる。',st:'予想や学習計画を立て振り返りながら学習問題を追究し、地域社会の一員として協力できることを考えようとする。'}},
+          '4':{'国語':{kt:'言葉の働きに気付き、様子・行動・気持ち・性格を表す語句を増やして使い、文章全体の構成や大体を意識して音読できる。',sh:'中学年の重点「中心に気を付けて話す・聞く・読む」「段落相互の関係に注意して書く・読む」。書く内容の中心を明確に構成し、読んで感想や考えをもつ。',st:'進んで自分の考えをもち、見通しをもって人物の気持ち・情景を想像したり、経験や想像から書くことを選んで書こうとする。'},'算数':{kt:'大きな数の仕組み、わり算の筆算・角の測定・面積公式・小数の乗除・分数の加減・概数(四捨五入)などの意味と手順を理解し、正しく計算・作図・測定・処理できる。',sh:'数量や図形に着目し既習を基に筋道立てて考え、求め方やきまりを図・式・言葉で説明・表現できる。',st:'数のよさに気付き進んで工夫し、生活や学習に生かそうとする。'},'理科':{kt:'電流・空気と水・温度と体積・温まり方・水の三態・月や星の位置・体のつくり等の性質を理解し、検流計・温度計・星座早見・ガスこんろ等を正しく扱い過程と結果を記録できる。',sh:'既習や生活経験を基に根拠のある予想・仮説を発想して表現し、結果を基に考察して表現できる。',st:'進んで関わり他者と関わりながら問題解決し、学んだことを生活に生かそうとする。'},'社会':{kt:'地図帳・写真・統計・年表で調べ白地図等にまとめ、県の地理／水・ごみ／自然災害／伝統文化・先人／特色ある地域の様子を理解している。',sh:'分布・位置・協力・歴史的背景に着目して問いを見いだし、特色や関連を考え、調べる視点を偏りなく用いて表現している。',st:'疑問をもち予想・計画を立て振り返って学習問題を追究し、自分たちにできることを考えようとする。'}},
+          '5':{'国語':{kt:'心情を表す表現の工夫や比喩・反復などの技法に気付き、原因と結果の関係・文章の構成や展開を理解し、敬語を理解して語彙を充実させる。',sh:'高学年の重点「目的や意図に応じて話す・聞く・書く」「人物像や全体像を想像し表現の効果を考えて読む」。事実と感想・意見を区別して構成し、考えを広げまとめる。',st:'進んで意図に応じて内容を捉え、見通しをもって想像したことを伝え合ったり既習漢字を生かして書こうとする。'},'算数':{kt:'小数・分数の四則、体積・面積・多角形、平均・単位量あたり・速さ・割合(百分率)、合同・角柱円柱・円周率などの意味と計算・作図の技能を習得している。',sh:'既習を基に数学的な見方・考え方を働かせ、計算や求積の仕方・公式を考え、比例や割合の関係に着目して筋道立てて説明・判断できる。',st:'公式や単位量あたり等のよさに気付き進んで用い、粘り強く問題解決しようとする。'},'理科':{kt:'天気の変化、植物の発芽・成長・結実、メダカ/人の誕生、流れる水の働き、もののとけ方、振り子、電磁石の規則性を理解し、顕微鏡・電子てんびん・メスシリンダー等を正しく扱い記録できる。',sh:'見いだした問題について予想や仮説を基に条件を制御して解決方法を発想し、結果を基に考察して表現できる。',st:'進んで関わり粘り強く他者と関わりながら問題解決し、学んだことを生活に生かそうとする。'},'社会':{kt:'国土(位置・地形・気候)、食料生産(農業・水産業)、工業生産・貿易、情報産業、自然災害/森林/環境保全について地図帳・統計・写真等で調べ概要を理解しまとめている。',sh:'位置・地形・産業・情報・環境に着目して問いを見いだし、事象を関連付けて考え、社会への関わり方を選択・判断して表現している。',st:'予想や学習計画を立て振り返って学習問題を追究し、学んだことを生活に生かそうとする。'}},
+          '6':{'国語':{kt:'言葉が相手とのつながりをつくる働きに気付き、語句の関係・構成・変化を理解して語彙を豊かにし、情報と情報の関係付けや図での表し方を理解する。',sh:'高学年の重点「目的や意図に応じて話す・聞く・書く」「人物像や全体像を想像し表現の効果を考えて読む」。事実と意見を区別して構成し、叙述を基に要旨を捉え考えをまとめる。',st:'進んで語感や言葉の使い方を意識し、これまでの学習を生かして見通しをもって書いたり音読したりしようとする。'},'算数':{kt:'対称な図形・拡大縮小・比・比例反比例・円や柱体の求積・分数の乗除・場合の数・データ(代表値・ヒストグラム)などの意味や性質を理解し作図・計算・作表を正しく行える。',sh:'図形の構成要素や数量の関係に着目し既習を基に求め方・計算の仕方・きまりを考え、図・式・言葉を関連付けて説明したり目的に応じてデータを分析・判断できる。',st:'事象に関心をもち対称性・比・比例などを進んで用い、統計的解決などに粘り強く取り組もうとする。'},'理科':{kt:'燃焼、水溶液の性質、てこの規則性、電気の性質・変換、人や動物の体、植物と光・水、生物と環境、土地のつくりと変化、月と太陽を理解し、気体検知管・顕微鏡・手回し発電機等を目的に応じて操作し記録できる。',sh:'自然の事物・現象から問題を見いだし、予想や仮説を基に解決方法を発想し、多面的に調べてより妥当な考えをつくりだし表現できる。',st:'進んで関わり粘り強く他者と関わりながら問題解決し、学んだことを生活に生かそうとする。'},'社会':{kt:'日本国憲法と政治の仕組み・働き、縄文から現代までの歴史(人物・文化遺産・世の中の変化)、日本とつながりの深い国々や国際連合・国際協力を理解し、調べてまとめられる。',sh:'政治の働き・歴史の展開・国際社会での役割に着目して問いを見いだし、社会事象の意味を多角的に考え表現している。',st:'予想や学習計画を立て振り返って追究・解決し、我が国の歴史や伝統を大切にし世界の人々と共に生きる大切さを多角的に考えようとする。'}}
+          };
+          var _ek=(_EK[String(grade)]&&_EK[String(grade)][subject])||null;
           L.push('【評価のつけ方】'+_evL+'の評価基準（学習指導要領の「観点別評価」の考え方）に照らして、3段階でつけます。学年が上がるほど求める到達度も上がることを反映してください。');
           L.push('観点（この学年・教科・単元でわかる範囲で）：①知識・技能（用語・計算・手順が正しく身についているか）②思考・判断・表現（考え方・理由の説明・図や式での表現ができているか）③主体的に学習に取り組む態度（答案の取り組み・見直し・工夫からわかる範囲で）。');
-          if(_sk) L.push(_sk);
+          if(subject){
+            if(_ek){ L.push('【この学年・教科の評価規準（本校教育課程より）】'+gtxt+' '+stxt); L.push('・知識・技能：'+_ek.kt); L.push('・思考・判断・表現：'+_ek.sh); L.push('・主体的に学習に取り組む態度：'+_ek.st); L.push('※土台は学習指導要領の観点別評価（学年が上がるほど到達度が上がる）。具体的な判断は上の本校教育課程の評価規準を優先。'); }
+            else if(_sk){ L.push(_sk); }
+          } else {
+            var _EKg=_EK[String(grade)]||null; var _so=['国語','算数','理科','社会'];
+            if(_EKg){
+              L.push('【教科は自動判定】このプリントの教科をテスト内容（設問・語句・図・単元名）から判定し、下の該当教科の評価規準に照らして◎○△を付けてください。1枚に複数教科が混在する場合は、各答案の内容から教科を判定して評価します。');
+              L.push('【'+gtxt+'の主要教科の評価規準（本校教育課程より）】');
+              for(var _si=0;_si<_so.length;_si++){ var _sn=_so[_si]; var _ee=_EKg[_sn]; if(!_ee) continue; L.push('■'+_sn+'／知識・技能：'+_ee.kt+'／思考・判断・表現：'+_ee.sh+'／主体的に学習に取り組む態度：'+_ee.st); }
+              L.push('※土台は学習指導要領の観点別評価（学年が上がるほど到達度が上がる）。具体的な判断は上の本校教育課程の評価規準を優先。');
+            } else {
+              L.push('【教科は自動判定】このプリントの教科（国語・算数・理科・社会など）をテスト内容から判定し、その教科の①知識・技能②思考・判断・表現③主体的に学習に取り組む態度に照らして◎○△を付けてください。学年が上がるほど求める到達度も上がります。');
+            }
+          }
           L.push('◎ … その学年の評価基準を十分に満たす（観点をよく満たしている）');
           L.push('○ … その学年の評価基準をおおむね満たす');
           L.push('△ … 一部のみ到達・支援が必要（基礎的な観点につまずきがある）');
           L.push('※点数だけで機械的に決めず、上の観点と'+gtxt+'の到達基準に照らして総合的に判断してください。答案の中身が見えるときは観点の様子（例：計算はできるが理由の説明が弱い）も踏まえます。点数が読み取れないときは、答案の出来ぐあいから評価だけをつけてください（点数は空欄でよい）。');
           L.push('');
-          L.push('【出力形式】');
+          L.push('【出力形式】（評価は観点別に3つ。知技=知識・技能／思判表=思考・判断・表現／主体=主体的に学習に取り組む態度。各観点は ◎○△ で、そのテストで測っていない観点は空欄にします）');
           L.push('テスト名: （テストの名前）');
           L.push('実施日: （YYYY-MM-DD。わからなければ空欄）');
           L.push('教科: '+(subject||'（国語・算数・理科・社会・英語 など）'));
           L.push('学年: '+(grade||'（1〜6）'));
           L.push('満点: （数字。わからなければ100）');
           L.push('---');
-          L.push('児童名, 点数, 評価, コメント');
-          L.push('児童名, 点数, 評価, コメント');
+          L.push('児童名, 点数, 知技, 思判表, 主体, コメント');
+          L.push('児童名, 点数, 知技, 思判表, 主体, コメント');
           L.push('');
-          L.push('【ルール】各項目はカンマ（,）で区切り、1行に1人。点数は数字のみ（不明は空欄）。評価は ◎ ○ △ のいずれか。コメントは20文字以内で、'+gtxt+'の評価基準に照らして「できている観点／次に伸ばす観点」を一言で（例：計算は正確、理由の説明を伸ばそう）。児童名は必ず上の名簿の表記に合わせる。合計・平均などの余計な行は入れない。');
+          L.push('【ルール】各項目はカンマ（,）で区切り、1行に1人。点数は数字のみ（不明は空欄）。知技・思判表・主体はそれぞれ ◎ ○ △ か空欄（そのテストで測れない観点は空欄）。コメントは20文字以内で、'+gtxt+'の評価規準に照らして「できている観点／次に伸ばす観点」を一言で。児童名は必ず上の名簿の表記に合わせる。合計・平均などの余計な行は入れない。');
           var txt=L.join(NL);
           var done=function(){ if(st) st.textContent='✓ コピーしました。AIに画像と一緒に貼り付けてください'; };
           if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
         }).catch(function(e){ if(st) st.textContent='名簿の読み込みに失敗しました（クラス選択を確認）'; });
+      }
+      function _rcRankGlyph(r){ return r==='◎'?'<span class="text-pink-600 font-black">◎</span>':r==='○'?'<span class="text-green-600 font-black">○</span>':r==='△'?'<span class="text-orange-600 font-black">△</span>':'<span class="text-slate-300">・</span>'; }
+      function _rcName(s){ return (typeof resolveStudentName==='function')?resolveStudentName(s.loginId,s.name):(s.name||''); }
+      function loadReportCard(){
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var box=document.getElementById('reportCardContent');
+        if(!cid){ if(box) box.innerHTML='<p class="text-xs text-red-500">先に「クラス全体」でクラスを選んでください</p>'; return; }
+        if(box) box.innerHTML='<p class="text-xs text-indigo-500 animate-pulse">集計中...</p>';
+        fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/report-card').then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok){ if(box) box.innerHTML='<p class="text-xs text-red-500">取得に失敗しました（クラス権限などを確認）</p>'; return; }
+          if(box) box.innerHTML=_rcRender(d);
+        }).catch(function(e){ if(box) box.innerHTML='<p class="text-xs text-red-500">エラー: '+(e&&e.message?e.message:e)+'</p>'; });
+      }
+      function _rcRender(d){
+        var sts=d.students||[]; if(!sts.length) return '<p class="text-xs text-slate-400">児童がいません。</p>';
+        var subs=['国語','算数','理科','社会']; var kk=[['knowledge','知技'],['thinking','思判'],['attitude','主体']];
+        var h='<div class="text-[10px] text-slate-400 mb-1">◎十分/○おおむね/△要支援・「・」=未評価。教科ごとに 知技=知識技能／思判=思考判断表現／主体=主体的態度。直近テストの評価。児童は出席番号順。</div>';
+        h+='<div class="overflow-x-auto"><table class="text-xs border-collapse" style="min-width:620px"><thead>';
+        h+='<tr class="text-slate-500"><th rowspan="2" class="p-1 border">No</th><th rowspan="2" class="p-1 border text-left">児童</th>';
+        for(var si=0;si<subs.length;si++){ h+='<th colspan="3" class="p-1 border text-center bg-slate-50">'+subs[si]+'</th>'; }
+        h+='<th rowspan="2" class="p-1 border">テスト数</th></tr><tr class="text-[9px] text-slate-400">';
+        for(var si2=0;si2<subs.length;si2++){ for(var ki=0;ki<kk.length;ki++){ h+='<th class="p-1 border">'+kk[ki][1]+'</th>'; } }
+        h+='</tr></thead><tbody>';
+        for(var i=0;i<sts.length;i++){ var s=sts[i]; if(!s) continue;
+          h+='<tr class="border"><td class="p-1 border text-center text-slate-500">'+(s.rosterNo!=null?escH(String(s.rosterNo)):'-')+'</td><td class="p-1 border font-bold text-slate-700 whitespace-nowrap">'+escH(_rcName(s))+(s.grade?' <span class="text-[9px] text-slate-400">'+escH(String(s.grade))+'年</span>':'')+'</td>';
+          for(var j=0;j<subs.length;j++){ var sj=s.subjects&&s.subjects[subs[j]]; for(var k=0;k<kk.length;k++){ h+='<td class="p-1 border text-center">'+(sj?_rcRankGlyph(sj[kk[k][0]]):'<span class="text-slate-300">・</span>')+'</td>'; } }
+          h+='<td class="p-1 border text-center text-slate-500">'+((s.tests&&s.tests.length)||0)+'</td></tr>';
+        }
+        h+='</tbody></table></div>';
+        return h;
+      }
+      function loadRosterEditor(){
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        var box=document.getElementById('reportCardContent');
+        if(!cid){ if(box) box.innerHTML='<p class="text-xs text-red-500">先に「クラス全体」でクラスを選んでください</p>'; return; }
+        fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/report-card').then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok){ if(box) box.innerHTML='<p class="text-xs text-red-500">取得に失敗しました</p>'; return; }
+          var sts=d.students||[]; window._rcStudents=sts;
+          var h='<div class="text-[10px] text-slate-500 mb-1">各児童の出席番号を入力して保存すると、通知表がその番号順に並びます（空欄は名前順）。</div>';
+          h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><tbody>';
+          for(var i=0;i<sts.length;i++){ var s=sts[i]; if(!s) continue; h+='<tr class="border-b"><td class="p-1 w-20"><input id="rn_'+escH(s.userId)+'" type="number" min="1" class="border rounded p-1 w-16 text-center" value="'+escH(s.rosterNo!=null?String(s.rosterNo):'')+'"></td><td class="p-1 font-bold text-slate-700">'+escH(_rcName(s))+'</td></tr>'; }
+          h+='</tbody></table></div><div class="mt-2"><button onclick="saveRosterNo()" class="bg-indigo-600 text-white rounded-lg px-4 py-2 text-xs font-bold hover:bg-indigo-700">💾 出席番号を保存</button> <span id="rnSaveStatus" class="text-xs text-amber-600"></span></div>';
+          if(box) box.innerHTML=h;
+        }).catch(function(e){ if(box) box.innerHTML='<p class="text-xs text-red-500">エラー: '+(e&&e.message?e.message:e)+'</p>'; });
+      }
+      function saveRosterNo(){
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:''; var st=document.getElementById('rnSaveStatus');
+        var sts=window._rcStudents||[]; var items=[];
+        for(var i=0;i<sts.length;i++){ var s=sts[i]; if(!s) continue; var el=document.getElementById('rn_'+s.userId); if(!el) continue; var v=el.value; items.push({userId:s.userId, rosterNo:(v===''?null:parseInt(v,10))}); }
+        if(st) st.textContent='保存中...';
+        fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/roster-no',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:items})}).then(function(r){return r.json();}).then(function(res){
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分の番号を保存しました'; loadReportCard(); } else { if(st) st.textContent='保存に失敗しました'; }
+        }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function parseTestScores(){
         var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
@@ -11341,7 +11497,7 @@ wrap.innerHTML = '';
         h+='<label class="flex flex-col text-slate-500">満点<input id="tsHdrMax" type="number" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(String(hd.maxScore||100))+'"></label>';
         h+='</div></div>';
         var unmatched=0;
-        h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th><th class="p-1">評価</th><th class="text-left p-1">コメント</th></tr></thead><tbody>';
+        h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th><th class="p-1">知技</th><th class="p-1">思判表</th><th class="p-1">主体</th><th class="text-left p-1">コメント</th></tr></thead><tbody>';
         for(var i=0;i<d.rows.length;i++){
           var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
           var _pred=((r.comment||'').indexOf('推定')>=0);
@@ -11351,8 +11507,11 @@ wrap.innerHTML = '';
           h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+_pb+'</td>';
           h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select></td>';
           h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
-          var _evv=r.evalRank||''; var _eo=function(vv){ var a=[['',''],['◎','◎'],['○','○'],['△','△']]; var o=''; for(var _z=0;_z<a.length;_z++){ o+='<option value="'+a[_z][0]+'"'+(a[_z][0]===vv?' selected':'')+'>'+a[_z][1]+'</option>'; } return o; };
-          h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_eval" class="border rounded p-1">'+_eo(_evv)+'</select></td>';
+          var _eo=function(vv){ var a=[['',''],['◎','◎'],['○','○'],['△','△']]; var o=''; for(var _z=0;_z<a.length;_z++){ o+='<option value="'+a[_z][0]+'"'+(a[_z][0]===vv?' selected':'')+'>'+a[_z][1]+'</option>'; } return o; };
+          var _ekv=r.evalKnowledge||r.evalRank||''; var _etv=r.evalThinking||''; var _eav=r.evalAttitude||'';
+          h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_ek" class="border rounded p-1">'+_eo(_ekv)+'</select></td>';
+          h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_et" class="border rounded p-1">'+_eo(_etv)+'</select></td>';
+          h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_ea" class="border rounded p-1">'+_eo(_eav)+'</select></td>';
           h+='<td class="p-1"><input id="tsRow_'+i+'_comment" class="border rounded p-1 w-full" value="'+escH(r.comment||'')+'"></td>';
           h+='</tr>';
         }
@@ -11371,11 +11530,12 @@ wrap.innerHTML = '';
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
           if(!uid){ skipped++; continue; }
-          var _ev=gv('tsRow_'+i+'_eval'); var _cm=gv('tsRow_'+i+'_comment');
+          var _ek=gv('tsRow_'+i+'_ek'); var _et=gv('tsRow_'+i+'_et'); var _ea=gv('tsRow_'+i+'_ea'); var _cm=gv('tsRow_'+i+'_comment');
+          var _ev=_ek||_et||_ea;
           var _hasScore=!(score===''||score==null);
           if(!_hasScore && !_ev){ skipped++; continue; }
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}
-          rows.push({userId:uid, score:(_hasScore?parseInt(score,10):null), evalRank:_ev, comment:_cm});
+          rows.push({userId:uid, score:(_hasScore?parseInt(score,10):null), evalRank:_ev, evalKnowledge:_ek, evalThinking:_et, evalAttitude:_ea, comment:_cm});
         }
         if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと点数を確認）'; return; }
         if(st) st.textContent='保存中...';
