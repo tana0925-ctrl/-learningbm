@@ -5763,7 +5763,7 @@ app.post('/api/trade/offer', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json<any>().catch(() => null)
   if (!body?.monster) return jsonError(c, 400, 'monster_required')
-  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(body.monster)) return jsonError(c, 400, 'cannot_trade_special'); }
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(body.monster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 既存の有効なオファーがあればキャンセル
   await c.env.DB.prepare(
@@ -5834,7 +5834,7 @@ app.post('/api/trade/complete', async (c) => {
 
   const fromMonster = JSON.parse(offer.from_monster_json)
   const toMonster = body.monster
-  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(fromMonster)||_sp(toMonster)) return jsonError(c, 400, 'cannot_trade_special'); }
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(fromMonster)||_sp(toMonster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 申請者(from)のstateを取得してモンスターを入れ替え
   const fromProgress = await c.env.DB.prepare(
