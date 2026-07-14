@@ -2478,13 +2478,13 @@ function _tsParseText(text){
     var parts=norm.split(',');
     if(parts.length<2) continue;
     var nm=String(parts[0]).trim();
+    if(!nm) continue;
     var scoreStr=_tsKeepNum(parts[1]);
-    if(!nm||scoreStr==='') continue;
-    var sc=parseInt(scoreStr,10);
-    if(isNaN(sc)) continue;
+    var sc=null; if(scoreStr!==''){ var _si=parseInt(scoreStr,10); if(!isNaN(_si)) sc=_si; }
     var ev=''; var cm='';
     if(parts.length>=4){ ev=_recNormRank(parts[2]); cm=parts.slice(3).join(',').trim(); }
     else if(parts.length===3){ var _mb=_recNormRank(parts[2]); if(_mb){ ev=_mb; } else { cm=String(parts[2]).trim(); } }
+    if(sc===null && !ev) continue;
     rows.push({rawName:nm, score:sc, evalRank:ev, comment:cm});
   }
   return { testName:testName, testDate:testDate, subject:subject, maxScore:maxScore, grade:grade, rows:rows };
