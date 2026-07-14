@@ -226,6 +226,7 @@ app.use('*', async (c, next) => {
     try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_question TEXT`) } catch (_) {}
     try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_hash TEXT`) } catch (_) {}
     try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_salt TEXT`) } catch (_) {}
+    try { await c.env.DB.exec(`ALTER TABLE student_test_scores ADD COLUMN eval_rank TEXT`) } catch (_) {}
   }
   return next()
 })
@@ -1692,7 +1693,7 @@ app.get('/api/teacher/class/:classId/members', async (c) => {
   const cls = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class not found')
   const rows = await c.env.DB.prepare(
-    'SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
+    'SELECT u.id as userId, u.login_id as loginId, u.name, u.grade FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? ORDER BY u.name'
   ).bind(classId).all<any>()
   return c.json({ ok: true, members: rows.results })
 })
@@ -2454,6 +2455,7 @@ function _tsParseText(text){
   var NL=String.fromCharCode(10);
   var lines=String(text||'').split(NL);
   var testName='', testDate='', subject='', maxScore=100;
+  var grade=null;
   var rows=[];
   for(var i=0;i<lines.length;i++){
     var line=String(lines[i]==null?'':lines[i]).trim();
@@ -2469,6 +2471,7 @@ function _tsParseText(text){
       else if(k.indexOf('実施日')>=0||k.indexOf('日付')>=0||k.indexOf('日時')>=0){ testDate=_tsHalf(v).split('年').join('-').split('月').join('-').split('日').join('').split('/').join('-').split('.').join('-').trim(); if(testDate.charAt(testDate.length-1)==='-') testDate=testDate.slice(0,-1); }
       else if(k.indexOf('教科')>=0||k.indexOf('科目')>=0){ subject=v; }
       else if(k.indexOf('満点')>=0||k.indexOf('配点')>=0){ var mn=parseInt(_tsKeepNum(v),10); if(!isNaN(mn)&&mn>0) maxScore=mn; }
+      else if(k.indexOf('学年')>=0){ var gn=parseInt(_tsKeepNum(v),10); if(!isNaN(gn)&&gn>=1&&gn<=6) grade=gn; }
       continue;
     }
     var norm=line.split('，').join(',').split('、').join(',');
@@ -2479,10 +2482,12 @@ function _tsParseText(text){
     if(!nm||scoreStr==='') continue;
     var sc=parseInt(scoreStr,10);
     if(isNaN(sc)) continue;
-    var cm=parts.slice(2).join(',').trim();
-    rows.push({rawName:nm, score:sc, comment:cm});
+    var ev=''; var cm='';
+    if(parts.length>=4){ ev=_recNormRank(parts[2]); cm=parts.slice(3).join(',').trim(); }
+    else if(parts.length===3){ var _mb=_recNormRank(parts[2]); if(_mb){ ev=_mb; } else { cm=String(parts[2]).trim(); } }
+    rows.push({rawName:nm, score:sc, evalRank:ev, comment:cm});
   }
-  return { testName:testName, testDate:testDate, subject:subject, maxScore:maxScore, rows:rows };
+  return { testName:testName, testDate:testDate, subject:subject, maxScore:maxScore, grade:grade, rows:rows };
 }
 app.post('/api/teacher/test-scores/parse', async (c) => {
   const u = c.get('user')
@@ -2503,9 +2508,9 @@ app.post('/api/teacher/test-scores/parse', async (c) => {
     let uid: string | null = idx[key] || null
     if (!uid) { for (const m of roster as any[]) { const nn = _tsNorm(m.name); if (nn && (nn.indexOf(key) >= 0 || key.indexOf(nn) >= 0)) { uid = m.id; break } } }
     const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
-    return { rawName: r.rawName, score: r.score, comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
+    return { rawName: r.rawName, score: r.score, evalRank: r.evalRank || '', comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
   })
-  return c.json({ ok: true, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
+  return c.json({ ok: true, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore, grade: parsed.grade }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
 })
 app.post('/api/teacher/test-scores/save', async (c) => {
   const u = c.get('user')
@@ -2519,7 +2524,7 @@ app.post('/api/teacher/test-scores/save', async (c) => {
   if (!cls) return jsonError(c, 404, 'class_not_found')
   const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || [])
   const allowed = new Set((mem as any[]).map((r: any) => String(r.uid)))
-  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_test_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, test_name TEXT, test_date TEXT, subject TEXT, max_score INTEGER DEFAULT 100, score INTEGER, comment TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
+  try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS student_test_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, test_name TEXT, test_date TEXT, subject TEXT, max_score INTEGER DEFAULT 100, score INTEGER, comment TEXT, eval_rank TEXT, created_by TEXT, created_at TEXT)").run() } catch {}
   const testName = String(body.testName || '').slice(0, 120)
   const testDate = String(body.testDate || '').slice(0, 40)
   const subject = String(body.subject || '').slice(0, 40)
@@ -2529,9 +2534,11 @@ app.post('/api/teacher/test-scores/save', async (c) => {
   for (const it of body.rows) {
     const uid = String((it && it.userId) || '')
     if (!uid || !allowed.has(uid)) continue
-    const sc = parseInt(String(it && it.score), 10)
-    if (isNaN(sc)) continue
-    await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), u.id, nowIso).run()
+    const evalRank = _recNormRank(String((it && it.evalRank) || ''))
+    let sc: number | null = parseInt(String(it && it.score), 10)
+    if (isNaN(sc as any)) sc = null
+    if (sc === null && !evalRank) continue
+    await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, eval_rank, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), evalRank, u.id, nowIso).run()
     saved++
   }
   return c.json({ ok: true, saved })
@@ -8171,12 +8178,17 @@ app.get('/teacher', (c) => {
         <div id="anPane_tests" class="hidden space-y-3">
           <div class="bg-white rounded-xl shadow p-4">
             <div class="font-bold text-slate-700 mb-1">📝 テスト結果の取り込み</div>
-            <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDFは外部AI（ChatGPT・Gemini・Claude）に読み取らせ、決まった形式で書き出した結果をここに貼り付けて取り込みます。保存先は「クラス全体」で選んだクラスです。</div>
+            <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDF/画像を外部AI（ChatGPT・Gemini・Claude）に読み取らせ、書き出した結果をここに貼り付けて取り込みます。点数に加え、学年の目標に照らした評価（◎○△）も取り込めます。名前が読みにくい子は名簿から予測します。保存先は「クラス全体」で選んだクラスです。</div>
+            <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
+              <label class="text-slate-500">学年 <select id="tsGrade" class="border rounded p-1 bg-white"><option value="">自動</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+              <label class="text-slate-500">教科 <select id="tsSubject" class="border rounded p-1 bg-white"><option value="">（教科をえらぶ）</option><option>国語</option><option>算数</option><option>理科</option><option>社会</option><option>英語</option></select></label>
+              <input id="tsUnit" class="border rounded p-1" placeholder="単元(任意)" style="width:130px">
+            </div>
             <div class="flex items-center gap-2 flex-wrap mb-2">
               <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
               <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
             </div>
-            <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 満点: / --- / 名前, 点数 …）"></textarea>
+            <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 学年: / 満点: / --- / 名前, 点数, 評価, コメント …）"></textarea>
             <div class="flex items-center gap-2 mt-2">
               <button onclick="parseTestScores()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
               <span id="tsParseStatus" class="text-xs text-slate-500"></span>
@@ -11253,23 +11265,49 @@ wrap.innerHTML = '';
       }
       function copyTestPrompt(){
         var NL=String.fromCharCode(10);
-        var L=[];
-        L.push('あなたは小学校のテストの採点結果を整理するアシスタントです。アップロードした（または貼り付けた）テストの画像・PDFから、児童ごとの点数を読み取り、次の「出力形式」だけを、コードブロックに入れずそのまま出力してください。前置きや説明は書かないでください。');
-        L.push('');
-        L.push('【出力形式】');
-        L.push('テスト名: （テストの名前）');
-        L.push('実施日: （YYYY-MM-DD。わからなければ空欄）');
-        L.push('教科: （国語・算数・理科・社会・英語 など）');
-        L.push('満点: （数字。わからなければ100）');
-        L.push('---');
-        L.push('児童名, 点数');
-        L.push('児童名, 点数');
-        L.push('');
-        L.push('【ルール】名前と点数はカンマ（,）で区切る。1行に1人。点数は数字のみ。満点は必ず「満点:」の行に入れる（不明なら100）。児童名はできるだけ名簿の表記に合わせる。読み取れない児童は飛ばしてよい。合計や平均などの余計な行は入れない。');
-        var txt=L.join(NL);
         var st=document.getElementById('tsPromptStatus');
-        var done=function(){ if(st) st.textContent='✓ コピーしました。AIに貼り付けてください'; };
-        if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        if(!cid){ if(st) st.textContent='先に「クラス全体」でクラスを選んでください'; return; }
+        var grade=(document.getElementById('tsGrade')||{}).value||'';
+        var subject=(document.getElementById('tsSubject')||{}).value||'';
+        var unit=(((document.getElementById('tsUnit')||{}).value)||'').trim();
+        if(st) st.textContent='名簿を読み込み中...';
+        fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/members').then(function(r){return r.json();}).then(function(d){
+          var names=[];
+          if(d&&d.members){
+            for(var i=0;i<d.members.length;i++){ var m=d.members[i]; if(m.name) names.push(m.name); }
+            if(!grade){ var gc={}, best='', bn=0; for(var j=0;j<d.members.length;j++){ var gg=d.members[j].grade; if(gg){ gc[gg]=(gc[gg]||0)+1; if(gc[gg]>bn){ bn=gc[gg]; best=String(gg); } } } if(best) grade=best; }
+          }
+          var gtxt=grade?(grade+'年生'):'この学年';
+          var stxt=subject||'この教科';
+          var utxt=unit?('・単元「'+unit+'」'):'';
+          var L=[];
+          L.push('あなたは小学校の先生を助けるアシスタントです。これは【'+gtxt+'・'+stxt+utxt+'】のテスト／プリントです。アップロードした画像・PDFから、児童ごとに (1)点数 (2)'+gtxt+'の学習目標に照らした評価 を読み取り／判定し、次の「出力形式」だけをそのまま出力してください。前置き・説明・コードブロックは書かないでください。');
+          L.push('');
+          if(names.length){ L.push('【このクラスの名簿（児童名は必ずこの中の表記に合わせる）】'); L.push(names.join('、')); L.push(''); }
+          L.push('【名前の読み取り】手書きの名前が崩れて読みにくいときも、安易に飛ばさないでください。上の名簿の中から最も近い児童名を選んで（予測して）記入します。確信が低い予測は、その児童のコメントの最後に「※名前推定」と付けてください。どうしても判断できないときだけ飛ばします。');
+          L.push('');
+          L.push('【評価のつけ方】'+gtxt+'の'+stxt+'で身につけるべき目標（学習指導要領レベル）に照らして、3段階でつけます。');
+          L.push('◎ … 目標を十分に達成（目安85%以上、または主要な観点をほぼ正答）');
+          L.push('○ … 目標をおおむね達成（目安60〜84%）');
+          L.push('△ … 目標に届いていない・支援が必要（目安60%未満、または基礎的なつまずき）');
+          L.push('※点数が読み取れないときは、答案の出来ぐあいから評価だけをつけてください（点数は空欄でよい）。');
+          L.push('');
+          L.push('【出力形式】');
+          L.push('テスト名: （テストの名前）');
+          L.push('実施日: （YYYY-MM-DD。わからなければ空欄）');
+          L.push('教科: '+(subject||'（国語・算数・理科・社会・英語 など）'));
+          L.push('学年: '+(grade||'（1〜6）'));
+          L.push('満点: （数字。わからなければ100）');
+          L.push('---');
+          L.push('児童名, 点数, 評価, コメント');
+          L.push('児童名, 点数, 評価, コメント');
+          L.push('');
+          L.push('【ルール】各項目はカンマ（,）で区切り、1行に1人。点数は数字のみ（不明は空欄）。評価は ◎ ○ △ のいずれか。コメントは20文字以内で、'+gtxt+'の目標に照らして「できている点／次に伸ばす点」を具体的に書く（例：わり算の余りは定着。筆算の位取りに注意）。児童名は必ず上の名簿の表記に合わせる。合計・平均などの余計な行は入れない。');
+          var txt=L.join(NL);
+          var done=function(){ if(st) st.textContent='✓ コピーしました。AIに画像と一緒に貼り付けてください'; };
+          if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+        }).catch(function(e){ if(st) st.textContent='名簿の読み込みに失敗しました（クラス選択を確認）'; });
       }
       function parseTestScores(){
         var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
@@ -11298,14 +11336,19 @@ wrap.innerHTML = '';
         h+='<label class="flex flex-col text-slate-500">満点<input id="tsHdrMax" type="number" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(String(hd.maxScore||100))+'"></label>';
         h+='</div></div>';
         var unmatched=0;
-        h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th></tr></thead><tbody>';
+        h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th><th class="p-1">評価</th><th class="text-left p-1">コメント</th></tr></thead><tbody>';
         for(var i=0;i<d.rows.length;i++){
           var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
+          var _pred=((r.comment||'').indexOf('推定')>=0);
           var _bd=(ms==='auto')?' <span class="text-[9px] text-green-600">✓自動</span>':(ms==='cand')?' <span class="text-[9px] text-amber-600">≈候補(要確認)</span>':' <span class="text-[9px] text-red-600">⚠未マッチ</span>';
-          h+='<tr class="'+((ms==='auto')?'':(ms==='cand')?'bg-amber-50':'bg-red-50')+'">';
-          h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+'</td>';
+          var _pb=_pred?' <span class="text-[9px] text-white bg-rose-500 rounded px-1">※名前推定</span>':'';
+          h+='<tr class="'+(_pred?'bg-amber-50':(ms==='auto')?'':(ms==='cand')?'bg-amber-50':'bg-red-50')+'">';
+          h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+_pb+'</td>';
           h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select></td>';
           h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
+          var _evv=r.evalRank||''; var _eo=function(vv){ var a=[['',''],['◎','◎'],['○','○'],['△','△']]; var o=''; for(var _z=0;_z<a.length;_z++){ o+='<option value="'+a[_z][0]+'"'+(a[_z][0]===vv?' selected':'')+'>'+a[_z][1]+'</option>'; } return o; };
+          h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_eval" class="border rounded p-1">'+_eo(_evv)+'</select></td>';
+          h+='<td class="p-1"><input id="tsRow_'+i+'_comment" class="border rounded p-1 w-full" value="'+escH(r.comment||'')+'"></td>';
           h+='</tr>';
         }
         h+='</tbody></table></div>';
@@ -11323,9 +11366,11 @@ wrap.innerHTML = '';
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
           if(!uid){ skipped++; continue; }
-          if(score===''||score==null){ skipped++; continue; }
+          var _ev=gv('tsRow_'+i+'_eval'); var _cm=gv('tsRow_'+i+'_comment');
+          var _hasScore=!(score===''||score==null);
+          if(!_hasScore && !_ev){ skipped++; continue; }
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}
-          rows.push({userId:uid, score:parseInt(score,10), comment:(d.rows[i].comment||'')});
+          rows.push({userId:uid, score:(_hasScore?parseInt(score,10):null), evalRank:_ev, comment:_cm});
         }
         if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと点数を確認）'; return; }
         if(st) st.textContent='保存中...';
