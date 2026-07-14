@@ -1,0 +1,18 @@
+name: Patch eval-kijun (kyouikukatei) into grading prompt
+on:
+  workflow_dispatch:
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run patch
+        run: python3 scripts/patch_eval_kijun.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "patch: kyouikukatei eval-kijun + auto subject-detect in copyTestPrompt" && git push)
