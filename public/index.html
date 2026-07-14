@@ -3104,6 +3104,7 @@ function formatYMD(d){
 <button class="nav3d" id="btn-pokedex" style="background: linear-gradient(180deg, #94a3b8, #64748b);" onclick="trySetMode('pokedex')"><span class="nav3d-icon">📖</span>図鑑</button>
 <button class="nav3d" id="btn-box" style="background: linear-gradient(180deg, #22d3ee, #0891b2);" onclick="trySetMode('box')"><span class="nav3d-icon">📦</span>ボックス</button>
 <button class="nav3d" id="btn-ranking" style="background: linear-gradient(180deg, #fbbf24, #d97706);" onclick="trySetMode('ranking')"><span class="nav3d-icon">🏆</span>ランキング</button>
+<button class="nav3d" id="btn-summerfest" style="display:none; background: linear-gradient(180deg, #38bdf8, #0284c7);" onclick="openSummerFest()"><span class="nav3d-icon">🏖️</span>夏フェス</button>
 <button class="nav3d" id="btn-defense" style="background: linear-gradient(180deg, #fb7185, #e11d48);" onclick="openDefense()"><span class="nav3d-icon">🏰</span>防衛戦</button>
 <div class="relative" id="sys-nav-wrap">
   <button class="nav3d w-full" style="background: linear-gradient(180deg, #94a3b8, #475569);" onclick="toggleSysMenu(event)"><span class="nav3d-icon">⚙️</span>システム</button>
@@ -3143,6 +3144,7 @@ function formatYMD(d){
 <button class="mnav-btn" onclick="trySetMode('pokedex')"><span class="mnav-icon">📖</span><span class="mnav-label" style="color:#4b5563">図鑑</span></button>
 <button class="mnav-btn" onclick="trySetMode('box')"><span class="mnav-icon">📦</span><span class="mnav-label" style="color:#0891b2">ボックス</span></button>
 <button class="mnav-btn" onclick="trySetMode('ranking')"><span class="mnav-icon">🏆</span><span class="mnav-label" style="color:#ca8a04">順位</span></button>
+<button id="mbtn-summerfest" class="mnav-btn" style="display:none;" onclick="openSummerFest()"><span class="mnav-icon">🏖️</span><span class="mnav-label" style="color:#0284c7">夏フェス</span></button>
 <button class="mnav-btn" onclick="openDefense()"><span class="mnav-icon">🏰</span><span class="mnav-label" style="color:#e11d48">防衛</span></button>
 <div class="relative" id="sys-nav-mobile-wrap">
   <button class="mnav-btn" onclick="toggleSysMenuMobile(event)"><span class="mnav-icon">⚙️</span><span class="mnav-label" style="color:#4b5563">システム</span></button>
@@ -10302,6 +10304,8 @@ function calculateNextExp(level) {
 
             maybeGiveNewYearGift();
 
+            try { updateSummerFestNav(); } catch(e) {}
+
             renderGymList();
             updatePlayerDisplay();
             setMode('training');
@@ -12774,6 +12778,289 @@ function startSantaBattle() {
             } catch(e) {}
 
         }
+
+// =========================
+        // 🏖️ 夏の復習フェス（2フェーズ制・夏休み期間限定イベント）
+        // =========================
+        // ▼▼ 期間はここだけ編集すればOK（YYYY-MM-DD）。前半→後半→期間外を自動判定 ▼▼
+        const SUMMER_FEST = {
+            p1start: '2026-07-14', p1end: '2026-08-06',   // 前半ミッション期間
+            p2start: '2026-08-07', p2end: '2026-08-31',   // 後半ミッション期間
+            phase1Goal: 3,   // 前半ミッション達成に必要な復習バトル勝利数
+            phase2Goal: 3,   // 後半ミッション達成に必要な復習バトル勝利数
+            winCoins: 120,   // 復習バトル1勝ごとのボーナスコイン
+            clearCoins: 800, // 各フェーズ達成ボーナスコイン
+            bossCoins: 2000  // 大ボス撃破ボーナスコイン
+        };
+        // ▲▲ ここまで（後で先生が日付・目標を調整できます） ▲▲
+
+        // 夏限定モンスターID（935〜939は空きIDを使用）
+        const SUMMER_KATORI_ID   = 935; // 🦟 蚊取りまこと（前半限定）
+        const SUMMER_HANABI_ID   = 936; // 🎆 打ち上げハナビィ（後半限定）
+        const SUMMER_SUIKA_ID    = 937; // 🍉 まるかじりスイカ（前半限定）
+        const SUMMER_KAKIGORI_ID = 938; // 🍧 ひんやりカキゴオリン（後半限定）
+        const SUMMER_BOSS_ID     = 939; // 🌻 炎天の王ヒマワリオン（両方コンプ限定・大ボス）
+
+        function _sfDateStr(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+        function getSummerFestPhase(d){
+            var t = _sfDateStr(d);
+            if (t >= SUMMER_FEST.p1start && t <= SUMMER_FEST.p1end) return 'phase1';
+            if (t >= SUMMER_FEST.p2start && t <= SUMMER_FEST.p2end) return 'phase2';
+            return null;
+        }
+        function isSummerFestSeason(d){ return getSummerFestPhase(d) !== null; }
+
+        // 進捗（児童のセーブに保持。既存の成績データには一切触れない）
+        function ensureSummerFest(){
+            if (!player.summerFest || typeof player.summerFest !== 'object') player.summerFest = {};
+            var sf = player.summerFest;
+            if (!sf.phase1) sf.phase1 = { stamps:0, cleared:false, monstersGot:[] };
+            if (!sf.phase2) sf.phase2 = { stamps:0, cleared:false, monstersGot:[] };
+            if (typeof sf.bothCleared !== 'boolean') sf.bothCleared = false;
+            if (typeof sf.bossDefeated !== 'boolean') sf.bossDefeated = false;
+            return sf;
+        }
+
+        // モンスター定義（通常出現はさせず、夏フェスでのみ登場）
+        (function(){
+            var defs = [
+              { id:SUMMER_KATORI_ID,   name:'蚊取りまこと',         sprite:'🦟', hp:110, atk:20, def:16, spd:12, buff:'defense', elementType:'grass', rarity:5, cannot_trade_special:true, desc:'除虫菊からうまれた夏のヒーロー。やさしいけむりで蚊を追いはらい、みんなの夏をまもる。【前半限定】' },
+              { id:SUMMER_SUIKA_ID,    name:'まるかじりスイカ',     sprite:'🍉', hp:120, atk:18, def:20, spd:8,  buff:'hp',      elementType:'grass', rarity:5, cannot_trade_special:true, desc:'よく冷えた夏の味方。ひと口かじれば元気が100倍！【前半限定】' },
+              { id:SUMMER_HANABI_ID,   name:'打ち上げハナビィ',     sprite:'🎆', hp:105, atk:24, def:12, spd:16, buff:'attack',  elementType:'fire',  rarity:5, cannot_trade_special:true, desc:'夜空を彩る大輪の花火の精。ドンッと打ち上がれば夏まつり開幕！【後半限定】' },
+              { id:SUMMER_KAKIGORI_ID, name:'ひんやりカキゴオリン', sprite:'🍧', hp:118, atk:19, def:18, spd:14, buff:'speed',   elementType:'water', rarity:5, cannot_trade_special:true, desc:'口に入れるとキーンと冷たい夏の妖精。あつさをふきとばす。【後半限定】' },
+              { id:SUMMER_BOSS_ID,     name:'炎天の王ヒマワリオン', sprite:'🌻', hp:260, atk:34, def:24, spd:10, buff:'lucky',   elementType:'fire',  rarity:7, cannot_trade_special:true, desc:'まぶしい太陽を背にそびえる夏の大王。前半・後半の復習をやりぬいた者だけが挑める。【夏コンプ限定・大ボス】' }
+            ];
+            try {
+                defs.forEach(function(d){ if (!MONSTERS.some(function(m){ return m.id === d.id; })) MONSTERS.push(d); });
+            } catch(e) {}
+        })();
+
+        // 児童の学年の単元エリア（1学期の総復習に使う）
+        function _sfReviewAreas(){
+            var ug = 0;
+            try { ug = window.__userGrade ? Number(window.__userGrade) : 0; } catch(e) { ug = 0; }
+            var pool = [];
+            try { pool = PVE_AREAS.filter(function(a){ return (ug>=1 && ug<=6) ? a.grade === ug : true; }); } catch(e) { pool = []; }
+            if (!pool || !pool.length) { try { pool = PVE_AREAS.slice(); } catch(e) { pool = [{ id:'rounding', name:'がいすうの森' }]; } }
+            return pool;
+        }
+        // フェーズごとの復習セット（前半＝前半の単元、後半＝後半の単元）
+        function _sfPhaseAreas(phase){
+            var pool = _sfReviewAreas();
+            if (pool.length < 2) return pool;
+            var half = Math.ceil(pool.length/2);
+            return phase === 'phase1' ? pool.slice(0, half) : pool.slice(half);
+        }
+
+        // モンスターを仲間にする（既存イベントと同じ付与方式）
+        function _sfGrantMonster(mid){
+            try {
+                if (!Array.isArray(player.pokedex)) player.pokedex = [];
+                if (!player.monsters || typeof player.monsters !== 'object') player.monsters = {};
+                var already = player.pokedex.includes(mid) && !!player.monsters[mid];
+                if (already) return false;
+                if (!player.pokedex.includes(mid)) player.pokedex.push(mid);
+                if (!player.monsters[mid]) {
+                    player.monsters[mid] = { level:1, exp:0, nextExp:calculateNextExp(1) };
+                    try { createBoxEntry(mid, 1, 'event'); } catch(e) {}
+                    try { logAcquire('イベント', mid, { isNew:true, note:'Lv.1' }); } catch(e) {}
+                }
+                return true;
+            } catch(e) { return false; }
+        }
+
+        // ナビの「🏖️夏フェス」ボタンを期間中だけ表示
+        function updateSummerFestNav(){
+            try {
+                var on = isSummerFestSeason();
+                ['btn-summerfest','mbtn-summerfest'].forEach(function(id){
+                    var el = document.getElementById(id);
+                    if (el) el.style.display = on ? '' : 'none';
+                });
+            } catch(e) {}
+        }
+
+        // ===== 画面（自己管理オーバーレイ。既存モード系には触れない） =====
+        function _sfCloseOverlay(){ var o = document.getElementById('summerFestModal'); if (o) o.classList.add('hidden'); }
+        function openSummerFest(){
+            if (!isSummerFestSeason()) { alert('🏖️夏の復習フェスは今は期間外だよ（' + SUMMER_FEST.p1start + ' 〜 ' + SUMMER_FEST.p2end + '）'); return; }
+            var o = document.getElementById('summerFestModal');
+            if (!o) {
+                o = document.createElement('div');
+                o.id = 'summerFestModal';
+                o.className = 'hidden';
+                o.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.6);overflow-y:auto;';
+                document.body.appendChild(o);
+            }
+            o.classList.remove('hidden');
+            renderSummerFest();
+        }
+        function _sfMonRow(mid, owned){
+            var m = null; try { m = getMonster(mid); } catch(e) {}
+            var spr = m ? m.sprite : '❓'; var nm = m ? m.name : ('No.'+mid);
+            return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">' +
+                   '<span style="font-size:20px;">' + spr + '</span>' +
+                   '<span style="font-weight:700;color:#334155;">' + nm + '</span>' +
+                   '<span style="margin-left:auto;font-size:12px;font-weight:800;color:' + (owned?'#16a34a':'#94a3b8') + ';">' + (owned?'✅ 仲間':'未取得') + '</span></div>';
+        }
+        function renderSummerFest(){
+            var o = document.getElementById('summerFestModal'); if (!o) return;
+            var sf = ensureSummerFest();
+            var phase = getSummerFestPhase();
+            var owned = function(id){ try { return Array.isArray(player.pokedex) && player.pokedex.includes(id); } catch(e) { return false; } };
+            var curName = (phase === 'phase1') ? '前半ミッション' : (phase === 'phase2') ? '後半ミッション' : '期間外';
+            var curSpan = (phase === 'phase1') ? (SUMMER_FEST.p1start+' 〜 '+SUMMER_FEST.p1end) : (SUMMER_FEST.p2start+' 〜 '+SUMMER_FEST.p2end);
+            var ph = (phase === 'phase1') ? sf.phase1 : (phase === 'phase2') ? sf.phase2 : null;
+            var goal = (phase === 'phase1') ? SUMMER_FEST.phase1Goal : SUMMER_FEST.phase2Goal;
+            var stamps = ph ? (ph.stamps||0) : 0;
+            var stampIcons = '';
+            for (var i=0; i<goal; i++) stampIcons += '<span style="font-size:22px;opacity:' + (i<stamps?'1':'0.25') + ';">🏖️</span>';
+
+            var rewardBlock = '';
+            rewardBlock += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 12px;margin-top:8px;">' +
+                '<div style="font-weight:800;color:#15803d;margin-bottom:4px;">🌻 前半クリアで仲間（前半限定）</div>' +
+                _sfMonRow(SUMMER_KATORI_ID, owned(SUMMER_KATORI_ID)) + _sfMonRow(SUMMER_SUIKA_ID, owned(SUMMER_SUIKA_ID)) + '</div>';
+            rewardBlock += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;margin-top:8px;">' +
+                '<div style="font-weight:800;color:#b91c1c;margin-bottom:4px;">🎆 後半クリアで仲間（後半限定）</div>' +
+                _sfMonRow(SUMMER_HANABI_ID, owned(SUMMER_HANABI_ID)) + _sfMonRow(SUMMER_KAKIGORI_ID, owned(SUMMER_KAKIGORI_ID)) + '</div>';
+            rewardBlock += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:10px 12px;margin-top:8px;">' +
+                '<div style="font-weight:800;color:#b45309;margin-bottom:4px;">☀️ 前半＆後半コンプで大ボスに挑戦！</div>' +
+                _sfMonRow(SUMMER_BOSS_ID, owned(SUMMER_BOSS_ID)) + '</div>';
+
+            var actionBtns = '';
+            if (phase) {
+                actionBtns += '<button onclick="startSummerReviewBattle()" style="width:100%;margin-top:12px;padding:14px;border:none;border-radius:14px;background:linear-gradient(180deg,#38bdf8,#0284c7);color:#fff;font-size:17px;font-weight:900;box-shadow:0 4px 0 #075985;cursor:pointer;">📚 復習バトルに ちょうせん！</button>';
+            }
+            if (sf.phase1.cleared && sf.phase2.cleared && !sf.bossDefeated) {
+                actionBtns += '<button onclick="startSummerBossBattle()" style="width:100%;margin-top:10px;padding:14px;border:none;border-radius:14px;background:linear-gradient(180deg,#fbbf24,#d97706);color:#fff;font-size:17px;font-weight:900;box-shadow:0 4px 0 #92400e;cursor:pointer;">🌻 大ボス「炎天の王ヒマワリオン」に挑戦！</button>';
+            }
+            var doneMsg = '';
+            if (sf.bossDefeated) doneMsg = '<div style="margin-top:10px;background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:10px;text-align:center;font-weight:800;color:#0e7490;">🌻 夏フェス コンプリート！夏の総復習、よくがんばったね！</div>';
+
+            o.innerHTML =
+              '<div style="max-width:520px;margin:24px auto;background:linear-gradient(180deg,#e0f2fe,#ffffff);border-radius:20px;box-shadow:0 20px 60px rgba(2,132,199,0.35);overflow:hidden;">' +
+                '<div style="position:relative;padding:16px 18px;background:linear-gradient(180deg,#0ea5e9,#0284c7);color:#fff;">' +
+                  '<button onclick="_sfCloseOverlay()" style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,0.25);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:18px;font-weight:900;cursor:pointer;">✕</button>' +
+                  '<div style="font-size:22px;font-weight:900;">🏖️ 夏の復習フェス</div>' +
+                  '<div style="font-size:12px;opacity:0.95;margin-top:2px;">1学期の総ふくしゅうで、夏だけの仲間をあつめよう！</div>' +
+                '</div>' +
+                '<div style="padding:16px 18px;">' +
+                  '<div style="background:#fff;border:2px solid #7dd3fc;border-radius:14px;padding:12px 14px;">' +
+                    '<div style="font-weight:900;color:#0369a1;font-size:16px;">' + (phase?('いまは ' + curName):'いまは 期間外') + '</div>' +
+                    '<div style="font-size:12px;color:#64748b;margin-top:2px;">' + curSpan + '</div>' +
+                    (phase ? ('<div style="margin-top:10px;font-weight:800;color:#334155;">スタンプ ' + stamps + ' / ' + goal + '</div><div style="margin-top:4px;">' + stampIcons + '</div>') : '') +
+                    (phase && ph && ph.cleared ? '<div style="margin-top:8px;color:#16a34a;font-weight:800;">✅ このミッションは達成ずみ！引きつづき復習できるよ</div>' : '') +
+                  '</div>' +
+                  actionBtns +
+                  doneMsg +
+                  rewardBlock +
+                  '<div style="margin-top:12px;font-size:11px;color:#94a3b8;text-align:center;">※ 夏フェスの仲間は夏休み期間だけの限定入手です</div>' +
+                '</div>' +
+              '</div>';
+        }
+
+        // 復習バトル開始（既存PVEの単元問題＋forcedEncounterを流用）
+        function startSummerReviewBattle(){
+            var phase = getSummerFestPhase();
+            if (!phase) { alert('🏖️夏の復習フェスは今は期間外だよ（' + SUMMER_FEST.p1start + ' 〜 ' + SUMMER_FEST.p2end + '）'); return; }
+            var sf = ensureSummerFest();
+            var areas = _sfPhaseAreas(phase);
+            var area = areas[Math.floor(Math.random()*areas.length)] || { id:'rounding', name:'' };
+            var leaderLv = 1;
+            try { var lid = Array.isArray(player.party) ? Number(player.party[0]) : null; if (lid && player.monsters && player.monsters[lid]) leaderLv = Number(player.monsters[lid].level) || 1; } catch(e) { leaderLv = 1; }
+            var stamps = (phase === 'phase1' ? sf.phase1.stamps : sf.phase2.stamps) || 0;
+            var enemyId = (phase === 'phase1')
+                ? (stamps % 2 === 0 ? SUMMER_KATORI_ID : SUMMER_SUIKA_ID)
+                : (stamps % 2 === 0 ? SUMMER_HANABI_ID : SUMMER_KAKIGORI_ID);
+            try { _sfCloseOverlay(); } catch(e) {}
+            try { battle._sfPrevPveArea = (battle.pveArea || selectedPvEAreaId || 'rounding'); } catch(e) { battle._sfPrevPveArea = 'rounding'; }
+            battle.pveArea = area.id;
+            battle.forcedEncounter = {
+                enemyId: enemyId,
+                forcedLevel: Math.min(100, Math.max(3, leaderLv)),
+                guaranteedCapture: false,
+                summerFest: { phase: phase, areaId: area.id, areaName: (area.name || '') }
+            };
+            initBattlePvE(false);
+            try { window.__skipLeavePenaltyOnce = true; } catch(e) {}
+            setMode('battle');
+            try { setTimeout(function(){ try { if (battle && !battle.isStarted) startBattleSequence(); } catch(e) {} }, 50); } catch(e) {}
+        }
+
+        // 復習バトル勝利処理（スタンプ加算＋達成報酬）
+        function onSummerFestReviewWin(enemyMon){
+            var sf = ensureSummerFest();
+            var fe = (battle && battle.forcedEncounter && battle.forcedEncounter.summerFest) ? battle.forcedEncounter.summerFest : {};
+            var phase = fe.phase || getSummerFestPhase() || 'phase1';
+            var ph = sf[phase]; if (!ph) { ph = { stamps:0, cleared:false, monstersGot:[] }; sf[phase] = ph; }
+            ph.stamps = (ph.stamps || 0) + 1;
+            player.coins = (player.coins || 0) + (SUMMER_FEST.winCoins || 120);
+            try { battle.forcedEncounter = null; } catch(e) {}
+            var goal = (phase === 'phase1') ? SUMMER_FEST.phase1Goal : SUMMER_FEST.phase2Goal;
+            var msg = '🏖️ 復習バトル クリア！\n' + (fe.areaName ? ('「' + fe.areaName + '」の問題をやりきったね！\n') : '') + 'スタンプ ' + ph.stamps + ' / ' + goal + 'こ　＋' + (SUMMER_FEST.winCoins||120) + 'コイン';
+            if (!ph.cleared && ph.stamps >= goal) {
+                ph.cleared = true;
+                player.coins = (player.coins || 0) + (SUMMER_FEST.clearCoins || 800);
+                var give = (phase === 'phase1') ? [SUMMER_KATORI_ID, SUMMER_SUIKA_ID] : [SUMMER_HANABI_ID, SUMMER_KAKIGORI_ID];
+                var names = [];
+                give.forEach(function(mid){ if (_sfGrantMonster(mid)) { if (!ph.monstersGot.includes(mid)) ph.monstersGot.push(mid); try { var mm = getMonster(mid); names.push(mm.sprite + mm.name); } catch(e) {} } });
+                msg += '\n\n🎉 ' + (phase === 'phase1' ? '前半' : '後半') + 'ミッション達成！ ＋' + (SUMMER_FEST.clearCoins||800) + 'コイン';
+                if (names.length) msg += '\n' + names.join(' と ') + ' が仲間になった！';
+                if (sf.phase1.cleared && sf.phase2.cleared && !sf.bothCleared) {
+                    sf.bothCleared = true;
+                    msg += '\n\n🌻 前半・後半コンプリート！\n大ボス「炎天の王ヒマワリオン」があらわれた！\n夏フェス画面から挑戦できるよ！';
+                }
+            }
+            try { saveData(); } catch(e) {}
+            try { updatePlayerDisplay(); } catch(e) {}
+            var finalExp = (enemyMon && typeof enemyMon.exp === 'number') ? enemyMon.exp : 400;
+            try { if (getIsTired()) finalExp = Math.ceil(finalExp/2); } catch(e) {}
+            try { recordBattleWin(battle.mode); } catch(e) {}
+            try { alert(msg); } catch(e) {}
+            finishBattleCommon(finalExp);
+        }
+
+        // 大ボス戦開始（両方コンプで解禁）
+        function startSummerBossBattle(){
+            var phase = getSummerFestPhase();
+            if (!phase) { alert('🏖️夏の復習フェスは今は期間外だよ'); return; }
+            var sf = ensureSummerFest();
+            if (!(sf.phase1.cleared && sf.phase2.cleared)) { alert('前半と後半の両方のミッションをクリアすると挑戦できるよ！'); return; }
+            if (sf.bossDefeated) { alert('🌻炎天の王ヒマワリオンは、もう仲間だよ！'); return; }
+            var leaderLv = 1;
+            try { var lid = Array.isArray(player.party) ? Number(player.party[0]) : null; if (lid && player.monsters && player.monsters[lid]) leaderLv = Number(player.monsters[lid].level) || 1; } catch(e) { leaderLv = 1; }
+            try { _sfCloseOverlay(); } catch(e) {}
+            var a0 = _sfReviewAreas()[0] || { id:'rounding' };
+            try { battle._sfPrevPveArea = (battle.pveArea || 'rounding'); } catch(e) {}
+            battle.pveArea = a0.id;
+            battle.forcedEncounter = {
+                enemyId: SUMMER_BOSS_ID,
+                forcedLevel: Math.min(100, Math.max(10, leaderLv + 5)),
+                guaranteedCapture: true,
+                summerFestBoss: true
+            };
+            initBattlePvE(false);
+            try { window.__skipLeavePenaltyOnce = true; } catch(e) {}
+            setMode('battle');
+            try { setTimeout(function(){ try { if (battle && !battle.isStarted) startBattleSequence(); } catch(e) {} }, 50); } catch(e) {}
+        }
+
+        // 大ボス勝利処理
+        function onSummerFestBossWin(enemyMon){
+            var sf = ensureSummerFest();
+            sf.bossDefeated = true;
+            var granted = _sfGrantMonster(SUMMER_BOSS_ID);
+            player.coins = (player.coins || 0) + (SUMMER_FEST.bossCoins || 2000);
+            try { battle.forcedEncounter = null; } catch(e) {}
+            try { saveData(); } catch(e) {}
+            try { updatePlayerDisplay(); } catch(e) {}
+            var finalExp = (enemyMon && typeof enemyMon.exp === 'number') ? enemyMon.exp : 3000;
+            try { if (getIsTired()) finalExp = Math.ceil(finalExp/2); } catch(e) {}
+            try { recordBattleWin(battle.mode); } catch(e) {}
+            try { alert('🌻 炎天の王ヒマワリオンを たおした！\n\n' + (granted ? '🌻ヒマワリオンが仲間になった！' : 'ヒマワリオンは すでに仲間だよ！') + '\n＋' + (SUMMER_FEST.bossCoins||2000) + 'コイン\n\n夏の総復習、本当によくがんばったね！'); } catch(e) {}
+            finishBattleCommon(finalExp);
+        }
+
 
         // ---------------------------------------------------------
         // ゾンビモード報酬キャラ（vZombieRewards）
@@ -19188,6 +19475,12 @@ setTimeout(() => {
             battle.active = false; battle.phase = 'paused';
             if (battle.timer) clearInterval(battle.timer);
 
+            // 🏖️ 夏の復習フェス：復習バトル／大ボスの勝利処理（既存ロジックより先に判定）
+            try {
+                if (battle && battle.forcedEncounter && battle.forcedEncounter.summerFestBoss) { onSummerFestBossWin(enemyMon); return; }
+                if (battle && battle.forcedEncounter && battle.forcedEncounter.summerFest) { onSummerFestReviewWin(enemyMon); return; }
+            } catch(e) {}
+
             // Special logic for Hanshin Man battle
             if (enemyMon.id === 154) {
                 alert("阪神マンに勝利した！");
@@ -20168,7 +20461,8 @@ let rewardMsg = "";
         function handlePlayerDefeat() {
             try { if (battle.forcedEncounter && battle.forcedEncounter.enemyId === SANTA_ID) { endSantaBattleCleanup(); }
         if (battle.forcedEncounter && battle.forcedEncounter.enemyId === VALENTINE_ID) { endValentineBattleCleanup(); }
-        if (battle.forcedEncounter && battle.forcedEncounter.enemyId === NEWYEAR_ID) { endNewYearBattleCleanup(); } } catch(e) {}
+        if (battle.forcedEncounter && battle.forcedEncounter.enemyId === NEWYEAR_ID) { endNewYearBattleCleanup(); }
+        if (battle.forcedEncounter && (battle.forcedEncounter.summerFest || battle.forcedEncounter.summerFestBoss)) { battle.forcedEncounter = null; } } catch(e) {}
             const __r = (battle && battle.__bmDefeatReason) ? battle.__bmDefeatReason : "全滅した...";
             try{ battle.__bmDefeatReason = ""; }catch(e){}
             alert(__r);
@@ -20463,7 +20757,8 @@ function runAway() {
             if (battle.timer) clearInterval(battle.timer);
             try { if (battle.forcedEncounter && battle.forcedEncounter.enemyId === SANTA_ID) { endSantaBattleCleanup(); }
         if (battle.forcedEncounter && battle.forcedEncounter.enemyId === VALENTINE_ID) { endValentineBattleCleanup(); }
-        if (battle.forcedEncounter && battle.forcedEncounter.enemyId === NEWYEAR_ID) { endNewYearBattleCleanup(); } } catch(e) {}
+        if (battle.forcedEncounter && battle.forcedEncounter.enemyId === NEWYEAR_ID) { endNewYearBattleCleanup(); }
+        if (battle.forcedEncounter && (battle.forcedEncounter.summerFest || battle.forcedEncounter.summerFestBoss)) { battle.forcedEncounter = null; } } catch(e) {}
             setMode('training');
         }
 
@@ -28942,6 +29237,8 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             if(typeof NEWYEAR_ID!=='undefined' && id===NEWYEAR_ID) return 'お正月（1/1〜1/10）に出現。倒すと仲間';
             if(typeof FURISODE_ID!=='undefined' && id===FURISODE_ID) return '成人式シーズン（1/10〜1/13）に出現。倒すと仲間';
             if(typeof VALENTINE_ID!=='undefined' && id===VALENTINE_ID) return 'バレンタイン（2/11〜2/17）に出現。倒すと仲間';
+            if(id>=935 && id<=938) return '夏の復習フェス（夏限定）で入手';
+            if(id===939) return '夏の復習フェスの大ボスをたおすと仲間（夏コンプ限定）';
           }catch(e){}
           var ob=(m.obtain||m.source||'');
           if(ob==='egg'||ob==='eggBattle'||m.eggReward) return 'タマゴバトルのごほうび';
