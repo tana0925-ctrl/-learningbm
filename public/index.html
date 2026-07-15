@@ -13,7 +13,7 @@ window.MONSTERS = MONSTERS;
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
 <meta name="description" content="授業・家庭学習向けの学習教材（ドリル）です。学習結果を記録し、教師が管理画面で確認できます。"/>
-<title>授業用 学習教材（児童用） v159</title>
+<title>授業用 学習教材（児童用） v160</title>
 <!-- Tailwind CSS (CDN for single-file portability) -->
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -12824,8 +12824,8 @@ function startSantaBattle() {
         // モンスター定義（通常出現はさせず、夏フェスでのみ登場）
         (function(){
             var defs = [
-              { id:SUMMER_KATORI_ID,   name:'蚊取りまこと',         sprite:'🦟', hp:110, atk:20, def:16, spd:12, buff:'defense', elementType:'grass', rarity:5, cannot_trade_special:true, desc:'除虫菊からうまれた夏のヒーロー。やさしいけむりで蚊を追いはらい、みんなの夏をまもる。【前半限定】' },
-              { id:SUMMER_SUIKA_ID,    name:'まるかじりスイカ',     sprite:'🍉', hp:120, atk:18, def:20, spd:8,  buff:'hp',      elementType:'grass', rarity:5, cannot_trade_special:true, desc:'よく冷えた夏の味方。ひと口かじれば元気が100倍！【前半限定】' },
+              { id:SUMMER_KATORI_ID,   name:'蚊取りまこと',         sprite:'🦟', hp:110, atk:20, def:16, spd:12, buff:'guard', elementType:'grass', rarity:5, cannot_trade_special:true, desc:'除虫菊からうまれた夏のヒーロー。やさしいけむりで蚊を追いはらい、みんなの夏をまもる。【前半限定】' },
+              { id:SUMMER_SUIKA_ID,    name:'まるかじりスイカ',     sprite:'🍉', hp:120, atk:18, def:20, spd:8,  buff:'guard',      elementType:'grass', rarity:5, cannot_trade_special:true, desc:'よく冷えた夏の味方。ひと口かじれば元気が100倍！【前半限定】' },
               { id:SUMMER_HANABI_ID,   name:'打ち上げハナビィ',     sprite:'🎆', hp:105, atk:24, def:12, spd:16, buff:'attack',  elementType:'fire',  rarity:5, cannot_trade_special:true, desc:'夜空を彩る大輪の花火の精。ドンッと打ち上がれば夏まつり開幕！【後半限定】' },
               { id:SUMMER_KAKIGORI_ID, name:'ひんやりカキゴオリン', sprite:'🍧', hp:118, atk:19, def:18, spd:14, buff:'speed',   elementType:'water', rarity:5, cannot_trade_special:true, desc:'口に入れるとキーンと冷たい夏の妖精。あつさをふきとばす。【後半限定】' },
               { id:SUMMER_BOSS_ID,     name:'炎天の王ヒマワリオン', sprite:'🌻', hp:260, atk:34, def:24, spd:10, buff:'lucky',   elementType:'fire',  rarity:7, cannot_trade_special:true, desc:'まぶしい太陽を背にそびえる夏の大王。前半・後半の復習をやりぬいた者だけが挑める。【夏コンプ限定・大ボス】' }
@@ -12850,6 +12850,27 @@ function startSantaBattle() {
             if (pool.length < 2) return pool;
             var half = Math.ceil(pool.length/2);
             return phase === 'phase1' ? pool.slice(0, half) : pool.slice(half);
+        }
+        // 教科をローテーション（算→国→理→社）して全教科を均等に出す
+        function _sfSubjectsForGrade(){
+            var pool = _sfReviewAreas();
+            var order = ['math','jp','sci','soc']; // 算→国→理→社
+            var bySubj = {};
+            pool.forEach(function(a){ if(!bySubj[a.subject]) bySubj[a.subject] = []; bySubj[a.subject].push(a); });
+            var avail = order.filter(function(s){ return bySubj[s] && bySubj[s].length; });
+            return { bySubj: bySubj, avail: avail, pool: pool };
+        }
+        function _sfPickReviewArea(phase, n){
+            var info = _sfSubjectsForGrade();
+            if (!info.avail.length) { return info.pool[Math.floor(Math.random()*info.pool.length)]; }
+            var subj = info.avail[(Number(n)||0) % info.avail.length];
+            var list = info.bySubj[subj] || [];
+            if (list.length >= 2) {
+                var half = Math.ceil(list.length/2);
+                var seg = (phase === 'phase1') ? list.slice(0, half) : list.slice(half);
+                if (seg.length) list = seg;
+            }
+            return list[Math.floor(Math.random()*list.length)] || info.pool[0];
         }
 
         // モンスターを仲間にする（既存イベントと同じ付与方式）
@@ -12964,8 +12985,8 @@ function startSantaBattle() {
             var phase = getSummerFestPhase();
             if (!phase) { alert('🏖️夏の復習フェスは今は期間外だよ（' + SUMMER_FEST.p1start + ' 〜 ' + SUMMER_FEST.p2end + '）'); return; }
             var sf = ensureSummerFest();
-            var areas = _sfPhaseAreas(phase);
-            var area = areas[Math.floor(Math.random()*areas.length)] || { id:'rounding', name:'' };
+            var _sfN = (phase === 'phase1' ? sf.phase1.stamps : sf.phase2.stamps) || 0;
+            var area = _sfPickReviewArea(phase, _sfN) || { id:'rounding', name:'' };
             var leaderLv = 1;
             try { var lid = Array.isArray(player.party) ? Number(player.party[0]) : null; if (lid && player.monsters && player.monsters[lid]) leaderLv = Number(player.monsters[lid].level) || 1; } catch(e) { leaderLv = 1; }
             var stamps = (phase === 'phase1' ? sf.phase1.stamps : sf.phase2.stamps) || 0;
@@ -20081,7 +20102,7 @@ let rewardMsg = "";
                 }
                 const mDef = getMonster(p.id);
                 const myBuffType = mDef.buff;
-                const myBuff = BUFFS[myBuffType];
+                const myBuff = BUFFS[myBuffType] || { icon: '', name: '' };
                 const lvl = player.monsters[p.id]?.level || 1;
                 const typeHtml = `<div class="text-[8px] text-gray-300 flex items-center gap-0.5 bg-gray-800/80 rounded px-1 border border-gray-600"><span>${myBuff.icon}</span><span>${myBuff.name}</span></div>`;
                 let advHtml = '<div class="text-[8px] text-gray-500 font-bold">-</div>';
