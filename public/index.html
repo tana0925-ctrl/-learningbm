@@ -13061,6 +13061,14 @@ function startSantaBattle() {
             finishBattleCommon(finalExp);
         }
 
+        // 🏖️ 夏フェス：inline onclick から呼べるよう window に公開（initGame内で定義されるため必須）
+        try {
+            window.openSummerFest = openSummerFest;
+            window.startSummerReviewBattle = startSummerReviewBattle;
+            window.startSummerBossBattle = startSummerBossBattle;
+            window._sfCloseOverlay = _sfCloseOverlay;
+            window.updateSummerFestNav = updateSummerFestNav;
+        } catch(e) {}
 
         // ---------------------------------------------------------
         // ゾンビモード報酬キャラ（vZombieRewards）
