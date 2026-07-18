@@ -13,7 +13,7 @@ window.MONSTERS = MONSTERS;
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
 <meta name="description" content="授業・家庭学習向けの学習教材（ドリル）です。学習結果を記録し、教師が管理画面で確認できます。"/>
-<title>授業用 学習教材（児童用） v160</title>
+<title>授業用 学習教材（児童用） v161</title>
 <!-- Tailwind CSS (CDN for single-file portability) -->
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -149,6 +149,8 @@ function formatYMD(d){
 <!-- jsQR Library for QR scanning -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
+        .shiny-mon{filter:hue-rotate(150deg) saturate(2.2) brightness(1.05);position:relative;display:inline-block;}
+        .shiny-mon::after{content:'✨';position:absolute;top:-0.35em;right:-0.5em;font-size:0.5em;filter:none;pointer-events:none;line-height:1;}
         :root {
             --rpg-font: 'DotGothic16', sans-serif;
             --main-font: 'M PLUS Rounded 1c', sans-serif;
@@ -12794,6 +12796,9 @@ function startSantaBattle() {
         };
         // ▲▲ ここまで（後で先生が日付・目標を調整できます） ▲▲
 
+        // ✨ 夏の色違い（シークレット）出現率。1/100=0.01。ここだけ変えればOK
+        const SHINY_RATE = 0.01;
+
         // 夏限定モンスターID（935〜939は空きIDを使用）
         const SUMMER_KATORI_ID   = 935; // 🦟 蚊取りまこと（前半限定）
         const SUMMER_HANABI_ID   = 936; // 🎆 打ち上げハナビィ（後半限定）
@@ -14015,6 +14020,7 @@ function grantOcha(){
             document.getElementById('playerLevelDisplay').innerText = `Lv.${lvlDisplay}`;
             document.getElementById('playerHpText').innerText = myMon.hp;
             document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
+            try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = _pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny; if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } catch(e){}
             const hpPct = Math.max(0, (myMon.hp / myMon.maxHp) * 100);
             document.getElementById('playerHpBar').style.width = `${hpPct}%`;
             document.getElementById('playerPartyBalls').innerHTML = battle.myPartyStatus.map((p, i) => `<div class="ball ${i === battle.activeMyIdx ? 'active' : ''} ${p.hp <= 0 ? 'fainted' : ''}"></div>`).join('');
@@ -14023,6 +14029,7 @@ function grantOcha(){
                 document.getElementById('enemyNameDisplay').innerText = `${enemyMon.name} Lv.${enemyMon.level}`;
 
                 document.getElementById('enemySpriteDisplay').innerText = enemyMon.sprite;
+                try { var _esd = document.getElementById('enemySpriteDisplay'); if (battle.enemyShiny || (enemyMon && enemyMon.shiny)) _esd.classList.add('shiny-mon'); else _esd.classList.remove('shiny-mon'); } catch(e){}
                 const eHpPct = Math.max(0, (enemyMon.hp / enemyMon.maxHp) * 100);
                 document.getElementById('enemyHpBar').style.width = `${eHpPct}%`;
                 document.getElementById('enemyHpText').innerText = enemyMon.hp;
@@ -18530,6 +18537,19 @@ try{
            STANDARD BATTLE SYSTEM
            ========================================= */
         function finishInitPvE(continueFlag) {
+            // ✨ 夏の色違い判定：夏休み期間中のみ、通常の野生（強制でない）捕獲可能モンスターが低確率で色違いに
+            try {
+                battle.enemyShiny = false;
+                var _sh0 = battle.enemyPartyStatus && battle.enemyPartyStatus[0];
+                if (_sh0 && battle.mode === 'pve' && !(battle.forcedEncounter && battle.forcedEncounter.enemyId)) {
+                    var _shm = getMonster(_sh0.id);
+                    var _shCap = _shm && !_shm.uncapturable && !_shm.isBoss && !_shm.isGymLeader && !_shm.isWarBoss;
+                    if (_shCap && typeof isSummerFestSeason === 'function' && isSummerFestSeason() && Math.random() < SHINY_RATE) {
+                        battle.enemyShiny = true;
+                        _sh0.shiny = true;
+                    }
+                }
+            } catch(e) { battle.enemyShiny = false; }
             battle.activeEnemyIdx = 0;
             battle.active = false; battle.enemyGauge = 0;
             updateBattleDisplay();
@@ -20318,6 +20338,8 @@ let rewardMsg = "";
                     if (isFirstCapture) {
                         player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) };
                     }
+                    // ✨ 色違いを永続保存（state_json の player.monsters と box に shiny:true）
+                    try { if (battle.enemyShiny) { if (!player.monsters[enemy.id]) player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) }; player.monsters[enemy.id].shiny = true; if (typeof boxEntry === 'object' && boxEntry) boxEntry.shiny = true; } } catch(e){}
                     try {
                         logAcquire('野生バトル（ボール）', enemy.id, {isNew:isFirstCapture, note:'Lv.'+captureLvl});
                     } catch(e) {}
@@ -29298,6 +29320,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             try { const bp = document.getElementById('boxActionPanel'); if (bp) bp.remove(); } catch(e) {}
             selectedMonsterId = id; const m = getMonster(id);
             document.getElementById('detailSprite').innerText = m.sprite;
+            try { var _dsp = document.getElementById('detailSprite'); var _dsh = player.monsters && player.monsters[id] && player.monsters[id].shiny; if (_dsh) _dsp.classList.add('shiny-mon'); else _dsp.classList.remove('shiny-mon'); } catch(e){}
             document.getElementById('detailName').innerText = m.name;
             // Display type matchup information instead of buff type
             const elemType = Array.isArray(m.elementType) ? m.elementType[0] : (m.elementType || 'normal');
