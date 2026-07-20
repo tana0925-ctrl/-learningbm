@@ -12805,6 +12805,13 @@ function startSantaBattle() {
         const SUMMER_SUIKA_ID    = 937; // 🍉 まるかじりスイカ（前半限定）
         const SUMMER_KAKIGORI_ID = 938; // 🍧 ひんやりカキゴオリン（後半限定）
         const SUMMER_BOSS_ID     = 939; // 🌻 炎天の王ヒマワリオン（両方コンプ限定・大ボス）
+        // 🎪 夏フェス追加ローテ組（v165）: 958〜963は空きIDを使用
+        const SUMMER_SOFUZO_ID    = 958; // 🍦 ソフ蔵（前半）
+        const SUMMER_MOROKOSHI_ID = 959; // 🌽 モロコシオ（前半）
+        const SUMMER_DANGO_ID     = 960; // 🍡 だんごさぶろう（前半）
+        const SUMMER_FURIN_ID     = 961; // 🎐 フウリンタロウ（後半）
+        const SUMMER_MELON_ID     = 962; // 🍈 マスクメロ夫（後半）
+        const SUMMER_AME_ID       = 963; // 🍭 アメジロウ（後半）
 
         function _sfDateStr(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
         function getSummerFestPhase(d){
@@ -12833,7 +12840,13 @@ function startSantaBattle() {
               { id:SUMMER_SUIKA_ID,    name:'まるかじりスイカ',     sprite:'🍉', hp:120, atk:18, def:20, spd:8,  buff:'guard',      elementType:'grass', rarity:5, cannot_trade_special:true, desc:'よく冷えた夏の味方。ひと口かじれば元気が100倍！【前半限定】' },
               { id:SUMMER_HANABI_ID,   name:'打ち上げハナビィ',     sprite:'🎆', hp:105, atk:24, def:12, spd:16, buff:'attack',  elementType:'fire',  rarity:5, cannot_trade_special:true, desc:'夜空を彩る大輪の花火の精。ドンッと打ち上がれば夏まつり開幕！【後半限定】' },
               { id:SUMMER_KAKIGORI_ID, name:'ひんやりカキゴオリン', sprite:'🍧', hp:118, atk:19, def:18, spd:14, buff:'speed',   elementType:'water', rarity:5, cannot_trade_special:true, desc:'口に入れるとキーンと冷たい夏の妖精。あつさをふきとばす。【後半限定】' },
-              { id:SUMMER_BOSS_ID,     name:'炎天の王ヒマワリオン', sprite:'🌻', hp:260, atk:34, def:24, spd:10, buff:'lucky',   elementType:'fire',  rarity:7, cannot_trade_special:true, desc:'まぶしい太陽を背にそびえる夏の大王。前半・後半の復習をやりぬいた者だけが挑める。【夏コンプ限定・大ボス】' }
+              { id:SUMMER_BOSS_ID,     name:'炎天の王ヒマワリオン', sprite:'🌻', hp:260, atk:34, def:24, spd:10, buff:'lucky',   elementType:'fire',  rarity:7, cannot_trade_special:true, desc:'まぶしい太陽を背にそびえる夏の大王。前半・後半の復習をやりぬいた者だけが挑める。【夏コンプ限定・大ボス】' },
+              { id:SUMMER_SOFUZO_ID,    name:'ソフ蔵',           sprite:'🍦', hp:112, atk:19, def:15, spd:17, buff:'speed',  elementType:'water',   rarity:5, cannot_trade_special:true, desc:'巻きひとすじ三百年の職人。ライバルは夏の直射日光で、勝負はいつも30秒。口ぐせは「とける前に食べてね」ではなく「とける前に勝負しな」。【前半限定】' },
+              { id:SUMMER_MOROKOSHI_ID, name:'モロコシオ',       sprite:'🌽', hp:115, atk:22, def:15, spd:11, buff:'attack', elementType:'grass',   rarity:5, cannot_trade_special:true, desc:'屋台で焼かれ続けて300年のとうもろこし侍。しょうゆのこげ目がよろい。粒の列がかならず偶数なのが自慢（これは本当）。【前半限定】' },
+              { id:SUMMER_DANGO_ID,     name:'だんごさぶろう',   sprite:'🍡', hp:125, atk:16, def:21, spd:9,  buff:'guard',  elementType:'normal',  rarity:5, cannot_trade_special:true, desc:'三兄弟の三男…に見えるが、実は3人とも「さぶろう」。串がないとバラバラになるので、けんかしても絶対に離れられない。【前半限定】' },
+              { id:SUMMER_FURIN_ID,     name:'フウリンタロウ',   sprite:'🎐', hp:110, atk:18, def:19, spd:13, buff:'guard',  elementType:'steel',   rarity:5, cannot_trade_special:true, desc:'チリンと鳴るだけで体感温度が2度下がる（本人調べ）。無風の日は自分でゆれて鳴らす。意外と努力型。【後半限定】' },
+              { id:SUMMER_MELON_ID,     name:'マスクメロ夫',     sprite:'🍈', hp:118, atk:18, def:17, spd:12, buff:'lucky',  elementType:'grass',   rarity:5, cannot_trade_special:true, desc:'あみ目のマスクは高級のあかし。冷蔵庫で2時間冷えてから本気を出す。食べごろを聞いても「まだ」としか言わない。【後半限定】' },
+              { id:SUMMER_AME_ID,       name:'アメジロウ',       sprite:'🍭', hp:108, atk:23, def:13, spd:15, buff:'attack', elementType:'psychic', rarity:5, cannot_trade_special:true, desc:'縁日のあめ細工職人が最後に作ったうずまき。見つめると、うずを数えたくなる。数え終わったころには、もう技が当たっている。【後半限定】' }
             ];
             try {
                 defs.forEach(function(d){ if (!MONSTERS.some(function(m){ return m.id === d.id; })) MONSTERS.push(d); });
@@ -12995,9 +13008,11 @@ function startSantaBattle() {
             var leaderLv = 1;
             try { var lid = Array.isArray(player.party) ? Number(player.party[0]) : null; if (lid && player.monsters && player.monsters[lid]) leaderLv = Number(player.monsters[lid].level) || 1; } catch(e) { leaderLv = 1; }
             var stamps = (phase === 'phase1' ? sf.phase1.stamps : sf.phase2.stamps) || 0;
-            var enemyId = (phase === 'phase1')
-                ? (stamps % 2 === 0 ? SUMMER_KATORI_ID : SUMMER_SUIKA_ID)
-                : (stamps % 2 === 0 ? SUMMER_HANABI_ID : SUMMER_KAKIGORI_ID);
+            // 勝つたび順番に交代する5体ローテ（前半・後半で別メンバー / v165）
+            var _sfRoster = (phase === 'phase1')
+                ? [SUMMER_KATORI_ID, SUMMER_SUIKA_ID, SUMMER_SOFUZO_ID, SUMMER_MOROKOSHI_ID, SUMMER_DANGO_ID]
+                : [SUMMER_HANABI_ID, SUMMER_KAKIGORI_ID, SUMMER_FURIN_ID, SUMMER_MELON_ID, SUMMER_AME_ID];
+            var enemyId = _sfRoster[stamps % _sfRoster.length];
             try { _sfCloseOverlay(); } catch(e) {}
             try { battle._sfPrevPveArea = (battle.pveArea || selectedPvEAreaId || 'rounding'); } catch(e) { battle._sfPrevPveArea = 'rounding'; }
             battle.pveArea = area.id;
@@ -20471,7 +20486,7 @@ let rewardMsg = "";
             }
             // 🏖️ 夏フェスの復習バトル/大ボスはボール捕獲不可（捕獲で終わるとスタンプが入らず、
             // 次回も同じ相手(蚊取りまこと等)が出続けるバグの原因だった。仲間はミッション達成で加入）
-            if ((battle.forcedEncounter && (battle.forcedEncounter.summerFest || battle.forcedEncounter.summerFestBoss)) || (enemy.id >= 935 && enemy.id <= 939) || enemy.id === 957) {
+            if ((battle.forcedEncounter && (battle.forcedEncounter.summerFest || battle.forcedEncounter.summerFestBoss)) || (enemy.id >= 935 && enemy.id <= 939) || (enemy.id >= 957 && enemy.id <= 963)) {
                 document.getElementById('messageLog').innerHTML = "フェスのなかまには ボールが効かない！<br>ミッションをクリアすると 仲間になってくれるよ！";
                 return;
             }
