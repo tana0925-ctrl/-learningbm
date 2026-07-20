@@ -13096,6 +13096,283 @@ function startSantaBattle() {
             window.updateSummerFestNav = updateSummerFestNav;
         } catch(e) {}
 
+        // =========================
+        // 🎪 夏の復習フェス2026 追加コンテンツ（v162）
+        //  1) 夏祭りスタンプカード … あそんだ日の「合計日数」だけで景品。連続ボーナスは意図的に無し（飛んでも一切損しない）
+        //  2) クラス協力目標「みんなで花火」 … クラス全員の合計解答数で花火。個人ノルマ無し
+        //  3) 縁日ミニゲーム … 正解数に応じたチケットで金魚すくい・くじ引き（報酬はコインのみ）
+        //  4) 週間ランキング … 月曜リセット（毎週チャンスが戻る）
+        //  5) 色違い発見者第1号の全体告知 … 発見されるまでUIには一切出さない
+        // データはサーバー集計(/api/summer/status)。既存の成績・セーブ構造には触れない。
+        // =========================
+        var SUMMER_WATAGASHI_ID = 940; // 🍬 わたがしフワリン（スタンプ10日限定・配布）
+        (function(){
+            var d = { id:SUMMER_WATAGASHI_ID, name:'わたがしフワリン', sprite:'🍬', hp:112, atk:17, def:17, spd:15, buff:'lucky', elementType:'normal', rarity:5, cannot_trade_special:true, desc:'縁日のわたがし屋さんから うまれた ふわふわの妖精。あまい かおりで みんなを 笑顔にする。【夏フェス スタンプ10日限定】' };
+            try { if (!MONSTERS.some(function(m){ return m.id === d.id; })) MONSTERS.push(d); } catch(e) {}
+        })();
+
+        var _sf26Status = null;
+        var _SF26_TICKET_STEP = 20; // 正解20問ごとに縁日チケット1まい
+        var _SF26_STAMP_REWARDS = [
+            { days:3,  coins:200,  key:'d3'  },
+            { days:5,  coins:400,  key:'d5'  },
+            { days:10, coins:600,  key:'d10', monster:SUMMER_WATAGASHI_ID },
+            { days:15, coins:800,  key:'d15' },
+            { days:20, coins:1200, key:'d20' }
+        ];
+        var _SF26_FIREWORKS = [
+            { at:1000,  label:'小玉花火',     icon:'🎆' },
+            { at:3000,  label:'中玉花火',     icon:'🎆🎆' },
+            { at:5000,  label:'大玉花火',     icon:'🎇🎆🎇' },
+            { at:10000, label:'スターマイン', icon:'🎆🎇🎆🎇🎆' }
+        ];
+
+        function _sf26Esc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;'); }
+        function _sf26Ensure(){
+            var sf = ensureSummerFest();
+            if (!sf.stampClaims || typeof sf.stampClaims !== 'object') sf.stampClaims = {};
+            if (typeof sf.ennichiUsed !== 'number') sf.ennichiUsed = 0;
+            if (!sf.fireworksSeen || typeof sf.fireworksSeen !== 'object') sf.fireworksSeen = {};
+            return sf;
+        }
+        function _sf26Fetch(){
+            return fetch('/api/summer/status', { credentials:'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(j){ if (j && j.ok) _sf26Status = j; return _sf26Status; })
+                .catch(function(){ return null; });
+        }
+        function _sf26Tickets(){
+            var sf = _sf26Ensure();
+            var st = _sf26Status;
+            if (!st) return 0;
+            return Math.max(0, Math.floor((st.festCorrect||0)/_SF26_TICKET_STEP) - (sf.ennichiUsed||0));
+        }
+
+        // 🎆 花火打ち上げ演出（クラス目標達成時に一度だけ）
+        function _sf26Hanabi(iconStr, label){
+            try {
+                var d = document.createElement('div');
+                d.style.cssText = 'position:fixed;inset:0;z-index:100001;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,6,23,0.85);pointer-events:none;';
+                d.innerHTML = '<div style="font-size:64px;line-height:1.2;animation:sf26pop 1.3s ease-out 2;text-align:center;">' + iconStr + '</div>' +
+                              '<div style="color:#fff;font-size:20px;font-weight:900;margin-top:14px;text-align:center;">🎉 クラスみんなの力で<br>「' + _sf26Esc(label) + '」が打ち上がった！</div>';
+                var s = document.createElement('style');
+                s.textContent = '@keyframes sf26pop{0%{transform:scale(0.2);opacity:0}40%{transform:scale(1.4);opacity:1}100%{transform:scale(1);opacity:0.9}}';
+                d.appendChild(s);
+                document.body.appendChild(d);
+                setTimeout(function(){ try { d.parentNode.removeChild(d); } catch(e) {} }, 3000);
+            } catch(e) {}
+        }
+
+        // 🎫 スタンプ景品の受け取り
+        function _sf26ClaimStamp(key){
+            var sf = _sf26Ensure();
+            var st = _sf26Status; if (!st) return;
+            var n = (st.stampDays||[]).length;
+            var r = null;
+            for (var i=0; i<_SF26_STAMP_REWARDS.length; i++){ if (_SF26_STAMP_REWARDS[i].key === key) r = _SF26_STAMP_REWARDS[i]; }
+            if (!r || sf.stampClaims[key] || n < r.days) return;
+            sf.stampClaims[key] = true;
+            player.coins = (player.coins||0) + r.coins;
+            var msg = '🎫 スタンプ 合計' + r.days + '日 たっせい！\n＋' + r.coins + 'コイン';
+            if (r.monster) {
+                if (_sfGrantMonster(r.monster)) { try { var mm = getMonster(r.monster); msg += '\n' + mm.sprite + ' ' + mm.name + ' が仲間になった！'; } catch(e) {} }
+            }
+            try { saveData(); } catch(e) {}
+            try { updatePlayerDisplay(); } catch(e) {}
+            try { alert(msg); } catch(e) {}
+            try { _sf26AppendExtras(); } catch(e) {}
+        }
+
+        // 🏮 縁日ミニゲーム（報酬はコインのみ）
+        function _sf26PlayEnnichi(kind){
+            var sf = _sf26Ensure();
+            var st = _sf26Status; if (!st) { alert('つうしん中だよ。少しまってね'); return; }
+            if (_sf26Tickets() <= 0) { alert('🎟️ チケットが ないよ！\nもんだいに 正解すると たまるよ（正解' + _SF26_TICKET_STEP + '問で 1まい）'); return; }
+            sf.ennichiUsed = (sf.ennichiUsed||0) + 1;
+            var coins = 0, msg = '';
+            if (kind === 'kingyo') {
+                var fish = [
+                    { e:'🐟', c:30, t:'赤い金魚' },
+                    { e:'🐠', c:50, t:'デメキン' },
+                    { e:'🐡', c:80, t:'まんまる金魚' },
+                    { e:'🐢', c:60, t:'ミドリガメ' },
+                    { e:'🦐', c:40, t:'ちっちゃなエビ' }
+                ];
+                var f = fish[Math.floor(Math.random()*fish.length)];
+                coins = f.c;
+                msg = '🥤 金魚すくい！\n\n' + f.e + ' ' + f.t + ' が すくえた！\n＋' + coins + 'コイン';
+            } else {
+                var rnd = Math.random();
+                if (rnd < 0.05)      { coins = 300; msg = '🎯 くじ引き！\n\n🥇 大当たり！！！\n＋300コイン'; }
+                else if (rnd < 0.25) { coins = 100; msg = '🎯 くじ引き！\n\n🥈 当たり！\n＋100コイン'; }
+                else if (rnd < 0.60) { coins = 50;  msg = '🎯 くじ引き！\n\n🥉 小当たり\n＋50コイン'; }
+                else                 { coins = 20;  msg = '🎯 くじ引き！\n\nざんねん賞…でも ＋20コイン！'; }
+            }
+            player.coins = (player.coins||0) + coins;
+            try { saveData(); } catch(e) {}
+            try { updatePlayerDisplay(); } catch(e) {}
+            try { alert(msg); } catch(e) {}
+            try { _sf26AppendExtras(); } catch(e) {}
+        }
+
+        // ✨ 色違い発見をサーバーへ報告（第1号なら特別メッセージ）
+        function _sf26ReportShiny(mon){
+            try {
+                fetch('/api/summer/shiny-found', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ monsterName: (mon && mon.name) || '' }) })
+                    .then(function(r){ return r.json(); })
+                    .then(function(j){
+                        if (j && j.ok && j.isFirstDiscoverer) {
+                            setTimeout(function(){ try { alert('✨✨✨\nすごい！！ きみが「色ちがいモンスター」の\n発見者第1号だよ！\n\n夏フェス画面で みんなに お知らせされるよ！'); } catch(e) {} }, 800);
+                        }
+                        _sf26Status = null;
+                    }).catch(function(){});
+            } catch(e) {}
+        }
+
+        // ===== 追加カードの描画（既存モーダルの下に独立カードとして追加）=====
+        function _sf26AppendExtras(){
+            var o = document.getElementById('summerFestModal');
+            if (!o || o.classList.contains('hidden')) return;
+            var old = document.getElementById('sf26Extras');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            var sf = _sf26Ensure();
+            var st = _sf26Status;
+            var h = '';
+            function card(title, sub, body, bg, border){
+                return '<div style="background:' + bg + ';border:2px solid ' + border + ';border-radius:16px;padding:14px 16px;margin-top:12px;box-shadow:0 8px 24px rgba(2,132,199,0.15);">' +
+                       '<div style="font-weight:900;font-size:16px;color:#0f172a;">' + title + '</div>' +
+                       (sub ? '<div style="font-size:11px;color:#64748b;margin-top:2px;">' + sub + '</div>' : '') +
+                       body + '</div>';
+            }
+
+            // ✨ 発見者第1号 告知（発見されるまでは一切出さない）
+            if (st && st.shinyFirst && st.shinyFirst.name) {
+                h += '<div style="background:linear-gradient(90deg,#fdf4ff,#fefce8);border:2px solid #e879f9;border-radius:16px;padding:12px 14px;margin-top:12px;text-align:center;">' +
+                     '<div style="font-weight:900;color:#a21caf;font-size:16px;">✨ 発見者第1号 ✨</div>' +
+                     '<div style="margin-top:4px;font-weight:800;color:#334155;">' + _sf26Esc(st.shinyFirst.name) + ' さんが「色ちがいモンスター」をはじめて見つけたよ！</div>' +
+                     '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">✨色ちがい✨は 夏休みのあいだだけ、ごく まれに あらわれるらしい…！</div>' +
+                     '</div>';
+            }
+
+            // 🎫 夏祭りスタンプカード
+            if (!st) {
+                h += card('🎫 夏祭りスタンプカード', '', '<div style="color:#94a3b8;font-size:13px;margin-top:8px;">よみこみ中…</div>', '#fffbeb', '#fcd34d');
+            } else {
+                var n = (st.stampDays||[]).length;
+                var slots = '';
+                var slotCount = 25;
+                for (var i=0; i<slotCount; i++) {
+                    var got = i < n;
+                    slots += '<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;margin:2px;background:' + (got ? '#fef3c7' : '#f1f5f9') + ';border:2px ' + (got ? 'solid #f59e0b' : 'dashed #cbd5e1') + ';font-size:17px;">' + (got ? '🍉' : '') + '</span>';
+                }
+                var rew = '';
+                for (var j=0; j<_SF26_STAMP_REWARDS.length; j++) {
+                    var r = _SF26_STAMP_REWARDS[j];
+                    var claimed = !!sf.stampClaims[r.key];
+                    var reach = n >= r.days;
+                    var prize = '＋' + r.coins + 'コイン';
+                    if (r.monster) { try { var pm = getMonster(r.monster); prize += ' と ' + pm.sprite + pm.name; } catch(e) { prize += ' と 限定モンスター'; } }
+                    var right;
+                    if (claimed) right = '<span style="font-weight:800;color:#16a34a;font-size:12px;">✅ うけとりずみ</span>';
+                    else if (reach) right = '<button onclick="_sf26ClaimStamp(&#39;' + r.key + '&#39;)" style="border:none;border-radius:10px;background:linear-gradient(180deg,#fbbf24,#d97706);color:#fff;font-weight:900;font-size:12px;padding:6px 12px;box-shadow:0 3px 0 #92400e;cursor:pointer;">🎁 うけとる</button>';
+                    else right = '<span style="font-weight:700;color:#94a3b8;font-size:12px;">あと' + (r.days - n) + '日ぶん</span>';
+                    rew += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed #fde68a;">' +
+                           '<span style="font-weight:900;color:#b45309;font-size:13px;white-space:nowrap;">合計' + r.days + '日</span>' +
+                           '<span style="font-size:12px;color:#475569;flex:1;">' + prize + '</span>' + right + '</div>';
+                }
+                h += card('🎫 夏祭りスタンプカード', 'あそんだ日のぶんだけ たまるよ（' + st.festStart + ' 〜 ' + st.festEnd + '）',
+                    '<div style="margin-top:8px;font-weight:900;color:#b45309;font-size:15px;">いま スタンプ ' + n + '日ぶん！</div>' +
+                    '<div style="margin-top:6px;line-height:1;">' + slots + '</div>' +
+                    '<div style="margin-top:6px;font-size:11px;color:#94a3b8;">※ れんぞくは カンケイなし！ 何日か おやすみしても ぜんぜんOK。合計の日数だけで 景品がもらえるよ</div>' +
+                    '<div style="margin-top:8px;">' + rew + '</div>',
+                    '#fffbeb', '#fcd34d');
+            }
+
+            // 🎆 クラス協力目標「みんなで花火」
+            if (st && st.classTotal) {
+                var total = st.classTotal.total || 0;
+                var fw = '';
+                var nextG = null;
+                for (var k=0; k<_SF26_FIREWORKS.length; k++) {
+                    var g = _SF26_FIREWORKS[k];
+                    var done = total >= g.at;
+                    if (!done && !nextG) nextG = g;
+                    fw += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">' +
+                          '<span style="font-size:18px;opacity:' + (done?'1':'0.3') + ';">' + g.icon + '</span>' +
+                          '<span style="font-weight:800;color:' + (done?'#0f172a':'#94a3b8') + ';font-size:13px;">' + g.label + '</span>' +
+                          '<span style="margin-left:auto;font-size:12px;font-weight:800;color:' + (done?'#16a34a':'#94a3b8') + ';">' + (done ? '🎉 打ち上げずみ！' : g.at + '問') + '</span></div>';
+                    // 新しく達成した花火は一度だけ演出
+                    if (done && !sf.fireworksSeen[String(g.at)]) {
+                        sf.fireworksSeen[String(g.at)] = true;
+                        try { saveData(); } catch(e) {}
+                        (function(gg){ setTimeout(function(){ _sf26Hanabi(gg.icon, gg.label); }, 400); })(g);
+                    }
+                }
+                var pct = nextG ? Math.min(100, Math.round(total / nextG.at * 100)) : 100;
+                h += card('🎆 みんなで花火（クラス協力目標）', 'クラスぜんいんの 解答した問題の合計で 花火が打ち上がるよ（ひとりのノルマは ないよ）',
+                    '<div style="margin-top:8px;font-weight:900;font-size:15px;color:#0369a1;">いま クラス合計 ' + total + '問！</div>' +
+                    '<div style="margin-top:6px;height:14px;border-radius:9999px;background:#e2e8f0;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#38bdf8,#818cf8);"></div></div>' +
+                    (nextG ? '<div style="margin-top:4px;font-size:12px;color:#64748b;">つぎの「' + nextG.label + '」まで あと ' + Math.max(0, nextG.at - total) + '問！</div>' : '<div style="margin-top:4px;font-size:12px;font-weight:800;color:#16a34a;">ぜんぶ打ち上げたよ！クラスのみんな、すごい！🎉</div>') +
+                    '<div style="margin-top:8px;">' + fw + '</div>',
+                    '#eff6ff', '#93c5fd');
+            }
+
+            // 🏮 縁日ミニゲーム
+            if (st) {
+                var tk = _sf26Tickets();
+                var toNext = _SF26_TICKET_STEP - ((st.festCorrect||0) % _SF26_TICKET_STEP);
+                h += card('🏮 えんにち広場', '正解' + _SF26_TICKET_STEP + '問ごとに チケット1まい！（けいひんは コインだよ）',
+                    '<div style="margin-top:8px;font-weight:900;font-size:15px;color:#b91c1c;">🎟️ チケット ' + tk + 'まい' + (tk<=0 ? '（あと' + toNext + '問 正解で +1まい）' : '') + '</div>' +
+                    '<div style="display:flex;gap:10px;margin-top:10px;">' +
+                    '<button onclick="_sf26PlayEnnichi(&#39;kingyo&#39;)" style="flex:1;border:none;border-radius:14px;padding:12px 6px;background:linear-gradient(180deg,#fb7185,#e11d48);color:#fff;font-weight:900;font-size:14px;box-shadow:0 4px 0 #9f1239;cursor:pointer;">🐟 金魚すくい<br><span style="font-size:10px;font-weight:700;">チケット1まい</span></button>' +
+                    '<button onclick="_sf26PlayEnnichi(&#39;kuji&#39;)" style="flex:1;border:none;border-radius:14px;padding:12px 6px;background:linear-gradient(180deg,#fbbf24,#d97706);color:#fff;font-weight:900;font-size:14px;box-shadow:0 4px 0 #92400e;cursor:pointer;">🎯 くじ引き<br><span style="font-size:10px;font-weight:700;">チケット1まい</span></button>' +
+                    '</div>',
+                    '#fff1f2', '#fda4af');
+            }
+
+            // 🏆 週間ランキング（月曜リセット）
+            if (st && st.weekly) {
+                var rows = '';
+                var meIn = false;
+                var list = st.weekly.list || [];
+                for (var q=0; q<list.length; q++) {
+                    var it = list[q];
+                    if (it.isMe) meIn = true;
+                    var medal = it.rank === 1 ? '🥇' : it.rank === 2 ? '🥈' : it.rank === 3 ? '🥉' : (it.rank + '位');
+                    rows += '<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:8px;' + (it.isMe ? 'background:#fef9c3;border:1px solid #fde047;' : '') + '">' +
+                            '<span style="width:36px;font-weight:900;color:#b45309;font-size:13px;">' + medal + '</span>' +
+                            '<span style="flex:1;font-weight:800;color:#334155;font-size:13px;">' + _sf26Esc(it.name) + (it.isMe ? '（きみ）' : '') + '</span>' +
+                            '<span style="font-weight:900;color:#0369a1;font-size:13px;">' + it.n + '問</span></div>';
+                }
+                if (!rows) rows = '<div style="color:#94a3b8;font-size:12px;padding:6px;">こんしゅうは まだ だれも といていないよ。1問といたら 1位かも！？</div>';
+                var mineRow = (!meIn && st.weekly.mine) ? '<div style="margin-top:6px;padding:4px 8px;background:#fef9c3;border:1px solid #fde047;border-radius:8px;font-size:13px;font-weight:800;color:#334155;">きみ：こんしゅう ' + (st.weekly.mine.n||0) + '問</div>' : '';
+                h += card('🏆 こんしゅうの復習ランキング', '毎週月曜に ゼロから リセット！ だから 毎週 だれにでも チャンスがあるよ',
+                    '<div style="margin-top:8px;">' + rows + '</div>' + mineRow,
+                    '#f0fdf4', '#86efac');
+            }
+
+            if (!h) return;
+            var wrap = document.createElement('div');
+            wrap.id = 'sf26Extras';
+            wrap.style.cssText = 'max-width:520px;margin:0 auto 28px;padding:0 8px;';
+            wrap.innerHTML = h;
+            o.appendChild(wrap);
+        }
+
+        // renderSummerFest をラップ（既存の描画はそのまま、下に追加カードを描く）
+        var _sfRenderBase26 = renderSummerFest;
+        renderSummerFest = function(){
+            _sfRenderBase26();
+            try { _sf26AppendExtras(); } catch(e) {}
+            try { _sf26Fetch().then(function(s){ if (s) { try { _sf26AppendExtras(); } catch(e) {} } }); } catch(e) {}
+        };
+
+        try {
+            window._sf26ReportShiny = _sf26ReportShiny;
+            window._sf26ClaimStamp = _sf26ClaimStamp;
+            window._sf26PlayEnnichi = _sf26PlayEnnichi;
+        } catch(e) {}
+
         // ---------------------------------------------------------
         // ゾンビモード報酬キャラ（vZombieRewards）
         // ---------------------------------------------------------
@@ -18547,6 +18824,7 @@ try{
                     if (_shCap && typeof isSummerFestSeason === 'function' && isSummerFestSeason() && Math.random() < SHINY_RATE) {
                         battle.enemyShiny = true;
                         _sh0.shiny = true;
+                        try { if (window._sf26ReportShiny) window._sf26ReportShiny(_shm); } catch(e) {}
                     }
                 }
             } catch(e) { battle.enemyShiny = false; }
