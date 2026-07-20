@@ -28232,6 +28232,8 @@ function renderPokedexListView(container, st) {
       if (Number.isFinite(qNum)) {
         return (id === qNum) || String(id).includes(q);
       }
+      // v166: 名前での検索ヒットは「発見済み」のみ（未発見キャラの名前が検索で漏れるのを防ぐ）
+      if (!isOwned(id)) return false;
       return name.includes(q);
     });
   }
@@ -29588,6 +29590,8 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             if(typeof FURISODE_ID!=='undefined' && id===FURISODE_ID) return '成人式シーズン（1/10〜1/13）に出現。倒すと仲間';
             if(typeof VALENTINE_ID!=='undefined' && id===VALENTINE_ID) return 'バレンタイン（2/11〜2/17）に出現。倒すと仲間';
             if(id>=935 && id<=938) return '夏の復習フェス（夏限定）で入手';
+            if(id===957) return '夏フェスのスタンプカード 合計10日のごほうび（夏限定）';
+            if(id>=958 && id<=963) return '夏の復習フェスの復習バトルに登場するナゾの屋台キャラ（夏限定）';
             if(id===939) return '夏の復習フェスの大ボスをたおすと仲間（夏コンプ限定）';
           }catch(e){}
           var ob=(m.obtain||m.source||'');
@@ -29618,6 +29622,44 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             // Clean up box action panel from previous box detail view
             try { const bp = document.getElementById('boxActionPanel'); if (bp) bp.remove(); } catch(e) {}
             selectedMonsterId = id; const m = getMonster(id);
+            // 🔒 v166: 未発見モンスターの詳細ガード。名前・見た目・ステータス・技・図鑑コメントは
+            // 発見するまで？？？のまま。「入手のヒントメモ」で見られるのは入手方法だけ（従来仕様を維持）。
+            {
+                const __nid = Number(id);
+                const __own = !!((Array.isArray(player.pokedex) && player.pokedex.indexOf(__nid) >= 0) || (player.monsters && (player.monsters[__nid] || player.monsters[String(__nid)])));
+                if (!__own) {
+                    try {
+                        const __sp = document.getElementById('detailSprite');
+                        __sp.innerText = '？';
+                        try { __sp.classList.remove('shiny-mon'); } catch(e) {}
+                        document.getElementById('detailName').innerText = '？？？';
+                        document.getElementById('detailBuffName').innerHTML = '<div class="text-xs text-gray-400">まだ出会っていないモンスター。<br>タイプや相性はナイショ！</div>';
+                        document.getElementById('detailBuffIcon').innerText = '';
+                        document.getElementById('detailBuffDesc').innerText = '';
+                        document.getElementById('detailEvoInfo').innerHTML = '<div>？？？</div>';
+                        const __sd = document.getElementById('detailStatsDisplay');
+                        if (__sd) {
+                            let __oHtml = '';
+                            const __rev = (Array.isArray(player.revealedObtain) && player.revealedObtain.indexOf(__nid) >= 0);
+                            if (__rev) {
+                                __oHtml = '<div class="mt-2 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800"><span class="font-bold">📍 入手方法：</span>' + escapeHtml(getObtainMethod(m || {})) + '</div>';
+                            } else {
+                                const __mm = Number(player.obtainMemos || 0);
+                                __oHtml = '<div class="mt-2 px-2 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px] text-gray-500 flex items-center justify-between gap-2"><span>🔍 入手方法はナゾ…</span><button onclick="revealObtain(' + __nid + ')" class="bg-indigo-500 text-white rounded px-2 py-1 text-[11px] font-bold hover:bg-indigo-600 shrink-0">調べる（メモ' + __mm + '枚）</button></div>';
+                            }
+                            __sd.innerHTML = '<div class="text-center text-gray-400 text-xs py-3">？？？<br>まだ出会っていないから くわしいことは わからない…</div>' + __oHtml;
+                        }
+                        try { const __dd = document.getElementById('detailDefeats'); if (__dd && __dd.parentElement) __dd.parentElement.style.display = 'none'; } catch(e) {}
+                        try { enablePartyBtn(__nid); } catch(e) {}
+                        try { renderHidenQuickSlots(__nid); } catch(e) {}
+                        try { const __hb = document.getElementById('hidenEquipBtn'); if (__hb) __hb.innerText = '📜 秘伝の書を装備 (0/' + HIDEN_MAX_EQUIP + ')'; } catch(e) {}
+                        try { ['freeTraitChip1','freeTraitChip2','freeTraitChip3','freeTraitChip4'].forEach(function(cid, ix){ const el = document.getElementById(cid); if (el) el.innerText = ['🙂','🍴','🏫','🎨'][ix] + ' ？'; }); } catch(e) {}
+                        try { const __pp = document.getElementById('partyReorderPanel'); if (__pp) __pp.classList.add('hidden'); } catch(e) {}
+                    } catch(e) {}
+                    document.getElementById('detailModal').classList.remove('hidden');
+                    return;
+                }
+            }
             document.getElementById('detailSprite').innerText = m.sprite;
             try { var _dsp = document.getElementById('detailSprite'); var _dsh = player.monsters && player.monsters[id] && player.monsters[id].shiny; if (_dsh) _dsp.classList.add('shiny-mon'); else _dsp.classList.remove('shiny-mon'); } catch(e){}
             document.getElementById('detailName').innerText = m.name;
