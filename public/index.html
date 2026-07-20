@@ -13105,7 +13105,7 @@ function startSantaBattle() {
         //  5) 色違い発見者第1号の全体告知 … 発見されるまでUIには一切出さない
         // データはサーバー集計(/api/summer/status)。既存の成績・セーブ構造には触れない。
         // =========================
-        var SUMMER_WATAGASHI_ID = 940; // 🍬 わたがしフワリン（スタンプ10日限定・配布）
+        var SUMMER_WATAGASHI_ID = 957; // 🍬 わたがしフワリン（スタンプ10日限定・配布）※940はリバイブ博士と衝突するため957
         (function(){
             var d = { id:SUMMER_WATAGASHI_ID, name:'わたがしフワリン', sprite:'🍬', hp:112, atk:17, def:17, spd:15, buff:'lucky', elementType:'normal', rarity:5, cannot_trade_special:true, desc:'縁日のわたがし屋さんから うまれた ふわふわの妖精。あまい かおりで みんなを 笑顔にする。【夏フェス スタンプ10日限定】' };
             try { if (!MONSTERS.some(function(m){ return m.id === d.id; })) MONSTERS.push(d); } catch(e) {}
