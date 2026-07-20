@@ -20469,6 +20469,12 @@ let rewardMsg = "";
                 document.getElementById('messageLog').innerHTML = "この相手にはボールが効かない！";
                 return;
             }
+            // 🏖️ 夏フェスの復習バトル/大ボスはボール捕獲不可（捕獲で終わるとスタンプが入らず、
+            // 次回も同じ相手(蚊取りまこと等)が出続けるバグの原因だった。仲間はミッション達成で加入）
+            if ((battle.forcedEncounter && (battle.forcedEncounter.summerFest || battle.forcedEncounter.summerFestBoss)) || (enemy.id >= 935 && enemy.id <= 939) || enemy.id === 957) {
+                document.getElementById('messageLog').innerHTML = "フェスのなかまには ボールが効かない！<br>ミッションをクリアすると 仲間になってくれるよ！";
+                return;
+            }
 
             // ボールを消費
             player.balls--;
