@@ -13035,6 +13035,7 @@ function startSantaBattle() {
             var phase = fe.phase || getSummerFestPhase() || 'phase1';
             var ph = sf[phase]; if (!ph) { ph = { stamps:0, cleared:false, monstersGot:[] }; sf[phase] = ph; }
             ph.stamps = (ph.stamps || 0) + 1;
+            try { if (typeof _sf26CheckHidden === 'function') _sf26CheckHidden({ festWin: true }); } catch(e) {}
             player.coins = (player.coins || 0) + (SUMMER_FEST.winCoins || 120);
             try { battle.forcedEncounter = null; } catch(e) {}
             var goal = (phase === 'phase1') ? SUMMER_FEST.phase1Goal : SUMMER_FEST.phase2Goal;
@@ -13227,6 +13228,7 @@ function startSantaBattle() {
             try { saveData(); } catch(e) {}
             try { updatePlayerDisplay(); } catch(e) {}
             try { alert(msg); } catch(e) {}
+            try { _sf26CheckHidden({ ennichi: true, jackpot: (coins === 300) }); } catch(e) {}
             try { _sf26AppendExtras(); } catch(e) {}
         }
 
@@ -13242,6 +13244,43 @@ function startSantaBattle() {
                         _sf26Status = null;
                     }).catch(function(){});
             } catch(e) {}
+        }
+
+        // 🤫 隠し入手条件（v167）: UIには一切事前告知しない。条件を満たした瞬間にだけ仲間になる。
+        // 図鑑の入手方法欄（メモで開示）は下記の実条件と一致するヒント文になっている。
+        function _sf26CheckHidden(ev){
+            try { if (!isSummerFestSeason()) return; } catch(e) { return; }
+            var sf = _sf26Ensure();
+            var st = _sf26Status;
+            var got = [];
+            function tryGrant(id, story){
+                try { if (_sfGrantMonster(id)) got.push({ id: id, story: story }); } catch(e) {}
+            }
+            ev = ev || {};
+            // 🍦958: 縁日で合計3回あそぶ
+            if ((sf.ennichiUsed || 0) >= 3) tryGrant(SUMMER_SOFUZO_ID, '縁日で3回あそんだキミの前に、ソフトクリーム屋台の職人があらわれた！');
+            // 🍈962: くじ引きで大当たり
+            if (ev.jackpot) tryGrant(SUMMER_MELON_ID, '大当たりのけいひんは…なんと高級メロンだった！');
+            // 🌽959: スタンプ合計6日
+            if (st && (st.stampDays || []).length >= 6) tryGrant(SUMMER_MOROKOSHI_ID, '合計6日あそびに来たキミを、屋台のとうもろこし侍がおぼえていた！');
+            // 🍭963: フェス期間の正解 合計300問
+            if (st && (st.festCorrect || 0) >= 300) tryGrant(SUMMER_AME_ID, '300問正解のごほうびに、あめ細工職人が最後の一本をくれた！');
+            // 🎐961: クラス花火（小玉）が打ち上がったあと、フェス画面で
+            if (st && st.classTotal && (st.classTotal.total || 0) >= 1000) tryGrant(SUMMER_FURIN_ID, '花火の音にさそわれて、どこかで風鈴がチリンと鳴った！');
+            // 🍡960: フェス復習バトル通算9勝（前半＋後半）
+            var _tw = ((sf.phase1 && sf.phase1.stamps) || 0) + ((sf.phase2 && sf.phase2.stamps) || 0);
+            if (_tw >= 9) tryGrant(SUMMER_DANGO_ID, '9勝目のおいわいに、だんご屋の三男がこっそりついてきた！');
+            if (got.length) {
+                try { saveData(); } catch(e) {}
+                try { updatePlayerDisplay(); } catch(e) {}
+                setTimeout(function(){
+                    got.forEach(function(g){
+                        var mm = null; try { mm = getMonster(g.id); } catch(e) {}
+                        try { alert('✨ かくしキャラ発見！ ✨\n' + g.story + (mm ? ('\n\n' + mm.sprite + ' ' + mm.name + ' が仲間になった！') : '')); } catch(e) {}
+                    });
+                    try { _sf26AppendExtras(); } catch(e) {}
+                }, 350);
+            }
         }
 
         // ===== 追加カードの描画（既存モーダルの下に独立カードとして追加）=====
@@ -13372,6 +13411,7 @@ function startSantaBattle() {
             wrap.style.cssText = 'max-width:520px;margin:0 auto 28px;padding:0 8px;';
             wrap.innerHTML = h;
             o.appendChild(wrap);
+            try { _sf26CheckHidden({ screen: true }); } catch(e) {}
         }
 
         // renderSummerFest をラップ（既存の描画はそのまま、下に追加カードを描く）
@@ -29591,7 +29631,12 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             if(typeof VALENTINE_ID!=='undefined' && id===VALENTINE_ID) return 'バレンタイン（2/11〜2/17）に出現。倒すと仲間';
             if(id>=935 && id<=938) return '夏の復習フェス（夏限定）で入手';
             if(id===957) return '夏フェスのスタンプカード 合計10日のごほうび（夏限定）';
-            if(id>=958 && id<=963) return '夏の復習フェスの復習バトルに登場するナゾの屋台キャラ（夏限定）';
+            if(id===958) return '夏フェスの縁日で3回あそぶと、いいことがあるかも…（夏限定）';
+            if(id===959) return '夏フェスのスタンプが合計6日ぶんたまると…（夏限定）';
+            if(id===960) return '夏フェスの復習バトルで通算9回勝つと…（夏限定）';
+            if(id===961) return 'クラスの花火（小玉）が打ち上がったあと、夏フェス画面をのぞくと…（夏限定）';
+            if(id===962) return '夏フェスのくじ引きで大当たりを引くと…（夏限定）';
+            if(id===963) return '夏フェス期間中に合計300問正解すると…（夏限定）';
             if(id===939) return '夏の復習フェスの大ボスをたおすと仲間（夏コンプ限定）';
           }catch(e){}
           var ob=(m.obtain||m.source||'');
