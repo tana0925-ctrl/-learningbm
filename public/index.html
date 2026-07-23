@@ -8469,6 +8469,64 @@ MONSTERS.push({
     desc: '上がって落ちて、また上がる。本人の感情も同じ。最後はだいたい「もう一回！」と言い出す。'
 });
 
+// === 中1数学系（中1エリア：野生限定）===
+MONSTERS.push({
+    id: 1123,
+    name: 'マイナスこぞう',
+    sprite: '➖',
+    hp: 190, atk: 50, def: 40, spd: 55,
+    buff: 'guard',
+    elementType: 'psychic',
+    stage: 1,
+    gacha: false,
+    evoLevel: 24,
+    nextId: 1124,
+    skills: [
+        { name: 'マイナスタッチ', type: 'normal', pow: 14, acc: 0.96, element: 'psychic', desc: 'さわるとちょっと減る' },
+        { name: '符号ひっくり返し', type: 'unique', pow: 0, acc: 0.9, effect: 'debuff_enemy', element: 'psychic', desc: '相手の防御を下げる' },
+        { name: '氷点下ガード', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_def_self', element: 'psychic', desc: '自分の防御を上げる' }
+    ],
+    desc: 'マイナスの谷に住む小僧。なんにでも−（マイナス）をつけたがるが、宿題の量にだけは絶対つけてくれない。'
+});
+
+MONSTERS.push({
+    id: 1124,
+    name: 'エックスかめん',
+    sprite: '❌',
+    hp: 330, atk: 88, def: 62, spd: 80,
+    buff: 'attack',
+    elementType: 'psychic',
+    stage: 2,
+    gacha: false,
+    evoLevel: 46,
+    nextId: 1125,
+    skills: [
+        { name: '移項パンチ', type: 'normal', pow: 18, acc: 0.96, element: 'psychic', desc: '右辺から左辺へ痛みを移す' },
+        { name: '両辺わりざん', type: 'heavy', pow: 40, acc: 0.78, element: 'psychic', desc: '相手を等しく割る一撃' },
+        { name: '正体かくし', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_def_self', element: 'psychic', desc: '自分の防御を上げる' }
+    ],
+    desc: '正体不明の仮面の怪人。名前を聞いても「まあ、xとしておこう」としか答えない。方程式を解くと素顔が見えるらしい。'
+});
+
+MONSTERS.push({
+    id: 1125,
+    name: 'ムゲングラフ大王',
+    sprite: '📈',
+    hp: 540, atk: 122, def: 88, spd: 100,
+    buff: 'lucky',
+    elementType: 'psychic',
+    stage: 3,
+    gacha: false,
+    evoLevel: null,
+    nextId: null,
+    skills: [
+        { name: '右かた上がり', type: 'normal', pow: 22, acc: 0.95, effect: 'buff_atk_self', element: 'psychic', desc: '攻めるほど調子が上がる' },
+        { name: '反比例カーブ', type: 'heavy', pow: 50, acc: 0.74, element: 'psychic', desc: '急カーブで叩きつける' },
+        { name: '原点回帰', type: 'unique', pow: 0, acc: 1.0, effect: 'heal_self', element: 'psychic', desc: '初心にもどって回復する' }
+    ],
+    desc: '右肩上がりの人生をきわめた大王。調子に乗りすぎると、反比例のカーブでちゃんと落ちてくる。'
+});
+
 // === まるやまン系（概数エリア：野生限定）===
 MONSTERS.push({
     id: 1048,
@@ -10151,6 +10209,15 @@ const WILD_AREA_POOLS = {
     's6-hist-u6': { 1: [NW(19), NW(24)],       2: [NW(20), NW(25), NW(37)], 3: [NW(21), NW(26), NW(38), 980] },
     's6-politics':{ 1: [330, NW(22), NW(19)],   2: [330, NW(23), NW(20)],    3: [330, NW(26), NW(39), 980] },
     'r6-combust': { 1: [NW(16), NW(33)],       2: [NW(17), NW(34)],         3: [NW(18), NW(35), NW(13)] },
+
+    // === 中1 ===
+    'm7-seifu':  { 1: [NW(3), NW(27), 1123],  2: [NW(4), NW(29), 1123],   3: [NW(10), NW(32), 1124] },
+    'm7-moji':   { 1: [NW(11), NW(14), 1123], 2: [NW(15), NW(33), 1124],  3: [NW(13), NW(36), 1124] },
+    'm7-eq':     { 1: [NW(0), NW(5), 1123],   2: [NW(1), NW(9), 1124],    3: [NW(2), NW(10), 1125] },
+    'm7-hirei':  { 1: [NW(5), NW(31), 1123],  2: [NW(7), NW(8), 1124],    3: [NW(9), NW(2), 1125] },
+    'm7-heimen': { 1: [NW(31), NW(8), 1123],  2: [NW(32), NW(9), 1124],   3: [NW(10), NW(2), 1125] },
+    'm7-kukan':  { 1: [NW(27), NW(28), 1123], 2: [NW(29), NW(30), 1124],  3: [NW(30), NW(28), 1125] },
+    'm7-shiryo': { 1: [NW(19), NW(22), 1123], 2: [NW(20), NW(23), 1124],  3: [NW(21), NW(26), 1125] },
 };
 
 function pickWildMonsterId(areaId, depth) {
@@ -17933,7 +18000,16 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
             { id: 'j6-bunpo',    subject:'jp',   grade:6, name: '文法の書庫',    emoji: '📚', desc: '文法まとめの問題が出るよ（1〜4を入力）' },
             { id: 's6-hist-u6',  subject:'soc',  grade:6, name: '天下統一の戦場', emoji: '🔥', desc: '戦国時代のクイズが出るよ（1〜4を入力）' },
             { id: 's6-politics', subject:'soc',  grade:6, name: '政治の国会',    emoji: '🏛️', desc: '政治のクイズが出るよ（1〜4を入力）' },
-            { id: 'r6-combust',  subject:'sci',  grade:6, name: '燃焼の実験室',  emoji: '🧪', desc: 'ものの燃え方の問題が出るよ（1〜4を入力）' }];
+            { id: 'r6-combust',  subject:'sci',  grade:6, name: '燃焼の実験室',  emoji: '🧪', desc: 'ものの燃え方の問題が出るよ（1〜4を入力）' },
+
+            // === 中1 ===
+            { id: 'm7-seifu',  subject:'math', grade:7, name: 'マイナスの氷谷', emoji: '➖', desc: '正負の数の計算が出るよ（1〜4を入力）' },
+            { id: 'm7-moji',   subject:'math', grade:7, name: '文字式の森',     emoji: '🔤', desc: '文字と式の問題が出るよ（1〜4を入力）' },
+            { id: 'm7-eq',     subject:'math', grade:7, name: '方程式の天秤宮', emoji: '⚖️', desc: '1次方程式の問題が出るよ（1〜4を入力）' },
+            { id: 'm7-hirei',  subject:'math', grade:7, name: '比例の坂道',     emoji: '📈', desc: '比例・反比例の問題が出るよ（1〜4を入力）' },
+            { id: 'm7-heimen', subject:'math', grade:7, name: 'おうぎ形の遺跡', emoji: '📐', desc: '平面図形の問題が出るよ（1〜4を入力）' },
+            { id: 'm7-kukan',  subject:'math', grade:7, name: '立体の洞くつ',   emoji: '📦', desc: '空間図形の問題が出るよ（1〜4を入力）' },
+            { id: 'm7-shiryo', subject:'math', grade:7, name: 'データの塔',     emoji: '📊', desc: '資料の活用の問題が出るよ（1〜4を入力）' }];
 
         function getPveDepths(areaId) {
             const MAP = {
@@ -17981,6 +18057,14 @@ document.getElementById('runConfirmOverlay').classList.add('hidden');
                 's6-hist-u6':{ labels: ['陣地', '本陣', '天下'], emojis: ['⚔️','🔥','👑'] },
                 's6-politics':{ labels: ['受付', '議場', '本会議'], emojis: ['🏛️','📜','🗳️'] },
                 'r6-combust': { labels: ['準備室', '実験台', '高温炉'], emojis: ['🧪','🔥','💥'] },
+                // 中1
+                'm7-seifu':  { labels: ['0のふもと', 'マイナス坂', '絶対値のいただき'], emojis: ['➖','🧊','🌡️'] },
+                'm7-moji':   { labels: ['xの入口', '式の小道', '同類項の奥地'], emojis: ['🔤','🌿','🧠'] },
+                'm7-eq':     { labels: ['左辺の間', '移項の廊下', '等式の玉座'], emojis: ['⚖️','🚪','👑'] },
+                'm7-hirei':  { labels: ['ゆるやか坂', '急な坂', '反比例カーブ'], emojis: ['📈','⛰️','🌀'] },
+                'm7-heimen': { labels: ['円の広場', 'おうぎ形回廊', 'πの祭壇'], emojis: ['⭕','📐','🏛️'] },
+                'm7-kukan':  { labels: ['角柱の入口', '円柱ホール', '円すいの頂点'], emojis: ['📦','🏛️','🔺'] },
+                'm7-shiryo': { labels: ['データ受付', '度数の階段', '中央値の間'], emojis: ['📊','🪜','👑'] },
             };
             const cfg = MAP[areaId] || { labels: ['手前','中ほど','最奥'], emojis: ['🌱','🌿','🔥'] };
 
@@ -48900,6 +48984,15 @@ const CURRICULUM = {
       {id:'m6-circle',name:'円の面積',icon:'⭕',color:'purple',gen:'genCircleArea6',input:'numpad',desc:'π=3.14'},
       {id:'m6-proportion',name:'比例と反比例',icon:'📈',color:'orange',gen:'genProportion6',input:'numpad',desc:'比例・反比例の式'},
       {id:'m6-expression',name:'文字と式',icon:'🔤',color:'blue',gen:'genExpression6',input:'numpad',desc:'□のかわりにxを使う'}
+    ]},
+    7:{label:'中1',units:[
+      {id:'m7-seifu',name:'正負の数',icon:'➖',color:'blue',gen:'genSeifu7',input:'mcq',desc:'マイナスの計算・絶対値・累乗'},
+      {id:'m7-moji',name:'文字と式',icon:'🔤',color:'teal',gen:'genMoji7',input:'mcq',desc:'文字式のきまり・式の値'},
+      {id:'m7-eq',name:'1次方程式',icon:'⚖️',color:'purple',gen:'genEq7',input:'mcq',desc:'方程式を解く・文章題・比例式'},
+      {id:'m7-hirei',name:'比例・反比例',icon:'📈',color:'orange',gen:'genHirei7',input:'mcq',desc:'y=ax と y=a/x・変域'},
+      {id:'m7-heimen',name:'平面図形',icon:'📐',color:'cyan',gen:'genHeimen7',input:'mcq',desc:'円・おうぎ形・移動と作図'},
+      {id:'m7-kukan',name:'空間図形',icon:'📦',color:'amber',gen:'genKukan7',input:'mcq',desc:'角柱・円すい・体積と表面積'},
+      {id:'m7-shiryo',name:'資料の活用',icon:'📊',color:'green',gen:'genShiryo7',input:'mcq',desc:'平均値・中央値・度数分布'}
     ]}
   }},
   japanese: { name:'国語', icon:'📝', color:'red', grades: {
@@ -52800,6 +52893,14 @@ setTimeout(function() {
 
   // ── 各ユニットの表示情報（名前・絵文字・説明） ──
   const UNIT_DISPLAY = {
+    // 中1数学
+    'm7-seifu':  { name: 'マイナスの氷谷',   emoji: '➖', desc: '正負の数（中1）' },
+    'm7-moji':   { name: '文字式の森',       emoji: '🔤', desc: '文字と式（中1）' },
+    'm7-eq':     { name: '方程式の天秤宮',   emoji: '⚖️', desc: '1次方程式（中1）' },
+    'm7-hirei':  { name: '比例の坂道',       emoji: '📈', desc: '比例・反比例（中1）' },
+    'm7-heimen': { name: 'おうぎ形の遺跡',   emoji: '📐', desc: '平面図形（中1）' },
+    'm7-kukan':  { name: '立体の洞くつ',     emoji: '📦', desc: '空間図形（中1）' },
+    'm7-shiryo': { name: 'データの塔',       emoji: '📊', desc: '資料の活用（中1）' },
     // 1年生算数
     'm1-add-no': { name: '足し算の野原',      emoji: '➕', desc: '繰り上がりなしの足し算' },
     'm1-sub-no': { name: '引き算の谷',        emoji: '➖', desc: '繰り下がりなしの引き算' },
@@ -52952,13 +53053,13 @@ setTimeout(function() {
     const wrap = document.createElement('div');
     wrap.id = 'pveGradeSelectorWrap';
     wrap.className = 'flex flex-wrap gap-1 mb-2 justify-center';
-    [1, 2, 3, 4, 5, 6].forEach(g => {
+    [1, 2, 3, 4, 5, 6, 7].forEach(g => {
       const btn = document.createElement('button');
       const isSelected = g === window.pveSelectedGrade;
       btn.className = 'px-3 py-1 rounded-full text-sm font-bold border-2 transition ' +
         (isSelected ? 'bg-red-500 text-white border-red-500 shadow'
                     : 'bg-white text-gray-600 border-gray-300 hover:border-red-400');
-      btn.textContent = g + '年生';
+      btn.textContent = (g === 7 ? '中1' : g + '年生');
       btn.dataset.grade = String(g);
       btn.onclick = function() {
         window.pveSelectedGrade = g;
@@ -53093,6 +53194,301 @@ setTimeout(function() {
   }
 
 })(); // END
+
+</script>
+
+<script>
+// ================================================================
+// 中1数学 単元パック v169（ネットレ対応 第1弾）
+// 正負の数・文字と式・1次方程式・比例反比例・平面図形・空間図形・資料の活用
+// 各単元とも基礎/標準/発展を混合ランダム出題（問題文の【】で難易度表示）
+// 出題形式: 4択MCQ {q, ans:正解index, options, inputType:'mcq'}
+// ================================================================
+(function(){
+  var R = function(a,b){ return Math.floor(Math.random()*(b-a+1))+a; };
+  function _m7pick(arr){ return arr[R(0,arr.length-1)]; }
+  function _m7shuffle(arr){ for(var i=arr.length-1;i>0;i--){ var j=R(0,i); var t=arr[i]; arr[i]=arr[j]; arr[j]=t; } return arr; }
+  // 4択問題を組み立てる（重複除去・不足時は数値ゆらぎで補完）
+  function _m7q(diff,q,correct,wrongs){
+    var c=String(correct), ws=[], i, w;
+    for(i=0;i<wrongs.length&&ws.length<3;i++){ w=String(wrongs[i]); if(w!==c&&ws.indexOf(w)<0) ws.push(w); }
+    var n=parseFloat(c), k=1;
+    while(ws.length<3&&k<60){
+      if(!isNaN(n)&&isFinite(n)){
+        w=String(Math.round((n+k)*100)/100); if(w!==c&&ws.indexOf(w)<0) ws.push(w);
+        if(ws.length<3){ w=String(Math.round((n-k)*100)/100); if(w!==c&&ws.indexOf(w)<0) ws.push(w); }
+      } else {
+        w=c+Array(k+1).join('？'); if(ws.indexOf(w)<0) ws.push(w);
+      }
+      k++;
+    }
+    var options=_m7shuffle([c,ws[0],ws[1],ws[2]]);
+    return { q:'【'+diff+'】'+q, ans:options.indexOf(c), options:options, inputType:'mcq' };
+  }
+  function _m7s(v){ return v<0 ? '-'+(-v) : String(v); }            // 符号つき表示
+  function _m7p(v){ return v<0 ? '(-'+(-v)+')' : String(v); }       // 負数はカッコつき
+  function _m7lin(k,b){                                             // 1次式 '3x-4' の表示
+    var s = (k===1?'x':(k===-1?'-x':k+'x'));
+    if(b>0) s+='+'+b; else if(b<0) s+='-'+(-b);
+    return s;
+  }
+
+  // ---------------- 正負の数 ----------------
+  function genSeifu7(){
+    var r=R(1,10),a,b,c,x,t;
+    if(r<=4){ // 基礎
+      t=R(0,4);
+      if(t===0){ a=R(1,9); b=R(1,9); x=b-a; return _m7q('基礎','(-'+a+') + '+b+' はいくつ？', x, [-(a+b), a+b, -x===x?x+1:-x]); }
+      if(t===1){ a=R(1,9); b=R(1,9); x=-(a+b); return _m7q('基礎','(-'+a+') + (-'+b+') はいくつ？', x, [a+b, b-a, a-b]); }
+      if(t===2){ a=R(2,18); return _m7q('基礎','絶対値 |-'+a+'| はいくつ？', a, [-a, 0, a+1]); }
+      if(t===3){ a=R(1,9); b=R(1,9); while(b===a)b=R(1,9); c=R(0,5);
+        var mn=Math.min(-a,-b);
+        return _m7q('基礎','次の3つの数のうち、いちばん小さい数はどれ？\n -'+a+' , -'+b+' , '+c, mn, [Math.max(-a,-b), c, mn+1]); }
+      a=R(100,900); b=R(100,900);
+      return _m7q('基礎','収入'+a+'円を +'+a+'円 と表すとき、支出'+b+'円はどう表す？', '-'+b+'円', ['+'+b+'円', '-'+a+'円', '0円']);
+    }
+    if(r<=8){ // 標準
+      t=R(0,4);
+      if(t===0){ a=R(1,9); b=R(1,9); x=a+b; return _m7q('標準',a+' - (-'+b+') はいくつ？', x, [a-b, -(a+b), b-a]); }
+      if(t===1){ a=R(1,9); b=R(1,9); x=-(a+b); return _m7q('標準','(-'+a+') - '+b+' はいくつ？', x, [b-a, a+b, a-b]); }
+      if(t===2){ a=R(2,9); b=R(2,9); x=-a*b; if(R(0,1)){x=a*b; return _m7q('標準','(-'+a+') × (-'+b+') はいくつ？', x, [-a*b, a+b, -(a+b)]);}
+        return _m7q('標準','(-'+a+') × '+b+' はいくつ？', x, [a*b, -(a+b), a-b]); }
+      if(t===3){ a=R(2,9); b=R(2,9); x=(R(0,1)? -a : a); var y=x*b;
+        return _m7q('標準',_m7p(y)+' ÷ '+b+' はいくつ？', x, [-x, y-b, b]); }
+      var fr=_m7pick([[2,3],[3,4],[2,5],[3,5],[4,7],[5,6]]); var sgn=R(0,1)?'-':'';
+      return _m7q('標準',sgn+fr[0]+'/'+fr[1]+' の逆数は？', sgn+fr[1]+'/'+fr[0], [(sgn?'':'-')+fr[1]+'/'+fr[0], sgn+fr[0]+'/'+fr[1], '1']);
+    }
+    // 発展
+    t=R(0,3);
+    if(t===0){ a=R(2,5); x=a*a; return _m7q('発展','(-'+a+')² はいくつ？', x, [-a*a, 2*a, -2*a]); }
+    if(t===1){ a=R(2,5); x=-a*a; return _m7q('発展','-'+a+'² はいくつ？（累乗が先！）', x, [a*a, -2*a, 2*a]); }
+    if(t===2){ a=R(2,6); b=R(2,6); c=R(1,9); x=c+b*(-a);
+      return _m7q('発展',c+' + '+b+' × (-'+a+') はいくつ？（×が先！）', x, [(c+b)*(-a), c-b+a, c+b-a]); }
+    a=R(2,9); var m=R(91,98); var n=100-m; x=(m+n)*(-a);
+    return _m7q('発展','工夫して計算：'+m+'×(-'+a+') + '+n+'×(-'+a+')', x, [-(m-n)*a, (m+n)*a, x+a]);
+  }
+
+  // ---------------- 文字と式 ----------------
+  function genMoji7(){
+    var r=R(1,10),a,b,c,x,t,v;
+    var L=_m7pick(['a','b','x','y']);
+    if(r<=4){ // 基礎：文字式の表し方
+      t=R(0,3);
+      if(t===0){ a=R(2,9); return _m7q('基礎',L+' × '+a+' を文字式のきまりで書くと？', a+L, [L+a, L+'+'+a, a+'+'+L]); }
+      if(t===1){ return _m7q('基礎',L+' × '+L+' を文字式のきまりで書くと？', L+'²', ['2'+L, L+L, '2'+L+'²']); }
+      if(t===2){ a=R(2,9); return _m7q('基礎',L+' ÷ '+a+' を文字式のきまりで書くと？', L+'/'+a, [a+'/'+L, L+'-'+a, a+L]); }
+      return _m7q('基礎',L+' × (-1) を文字式のきまりで書くと？', '-'+L, ['-1'+L, L+'-1', L]);
+    }
+    if(r<=8){ // 標準：代入・同類項・文章
+      t=R(0,3);
+      if(t===0){ a=R(2,6); b=R(1,9); v=R(2,5)*(R(0,1)?1:-1); x=a*v+b;
+        return _m7q('標準','x = '+_m7s(v)+' のとき、'+_m7lin(a,b)+' の値は？', x, [a*(-v)+b, a*v-b, a+v+b]); }
+      if(t===1){ a=R(2,7); b=R(2,7); x=a+b;
+        return _m7q('標準',a+L+' + '+b+L+' を計算すると？', x+L, [a*b+L, x+L+'²', String(x)]); }
+      if(t===2){ a=R(2,8); b=R(2,8); c=R(1,9); x=a+b;
+        return _m7q('標準',a+'x + '+c+' + '+b+'x を計算すると？', _m7lin(x,c), [_m7lin(a*b,c), _m7lin(x+c,0), _m7lin(a,c+b)]); }
+      a=R(2,9);
+      return _m7q('標準','1冊 x 円のノートを '+a+' 冊買ったときの代金は？', a+'x 円', ['(x+'+a+') 円', 'x/'+a+' 円', '(x-'+a+') 円']);
+    }
+    // 発展：分配法則・かっこの計算・割合
+    t=R(0,3);
+    if(t===0){ a=R(2,5); b=R(2,6); c=R(1,8);
+      return _m7q('発展',a+'('+_m7lin(b,-c)+') を計算すると？', _m7lin(a*b,-a*c), [_m7lin(a*b,-c), _m7lin(a+b,-a*c), _m7lin(a*b,a*c)]); }
+    if(t===1){ a=2*R(1,2)+1; b=R(2,5); c=R(1,6); var d=R(1,6);
+      // 2(bx+c) - (ax+d) 型  →  (2b-a)x + (2c-d)  ※a=3か5なので係数は0にならない
+      var rk=2*b-a, rb=2*c-d;
+      return _m7q('発展','2('+_m7lin(b,c)+') - ('+_m7lin(a,d)+') を計算すると？', _m7lin(rk,rb), [_m7lin(2*b+a,rb), _m7lin(rk,2*c+d), _m7lin(rk,rb+2)]); }
+    if(t===2){ a=_m7pick([10,20,30,40,50]);
+      return _m7q('発展','a 円の '+a+'% は？', (a/100)+'a 円', [a+'a 円', '(a+'+a+') 円', 'a/'+a+' 円']); }
+    a=R(3,6);
+    return _m7q('発展','時速 '+a+' km で x 時間歩いたときの道のりは？', a+'x km', ['(x+'+a+') km', 'x/'+a+' km', a+'/x km']);
+  }
+
+  // ---------------- 1次方程式 ----------------
+  function genEq7(){
+    var r=R(1,10),a,b,c,x,t;
+    if(r<=4){ // 基礎
+      t=R(0,3); x=R(1,9)*(R(0,1)?1:-1);
+      if(t===0){ a=R(1,9); return _m7q('基礎','方程式 x + '+a+' = '+(x+a)+' の解は？','x = '+_m7s(x), ['x = '+_m7s(x+a), 'x = '+_m7s(-x), 'x = '+_m7s(x+2*a)]); }
+      if(t===1){ a=R(1,9); return _m7q('基礎','方程式 x - '+a+' = '+(x-a)+' の解は？','x = '+_m7s(x), ['x = '+_m7s(x-a), 'x = '+_m7s(x-2*a), 'x = '+_m7s(-x)]); }
+      if(t===2){ a=R(2,9); return _m7q('基礎','方程式 '+a+'x = '+(a*x)+' の解は？','x = '+_m7s(x), ['x = '+_m7s(a*x), 'x = '+_m7s(-x), 'x = '+_m7s(x*2)]); }
+      a=R(2,5); return _m7q('基礎','方程式 x/'+a+' = '+x+' の解は？','x = '+_m7s(a*x), ['x = '+_m7s(x), 'x = '+_m7s(-a*x), 'x = '+_m7s(a+x)]);
+    }
+    if(r<=8){ // 標準
+      t=R(0,2); x=R(1,8)*(R(0,1)?1:-1);
+      if(t===0){ a=R(2,6); b=R(1,9)*(R(0,1)?1:-1);
+        return _m7q('標準','方程式 '+_m7lin(a,b)+' = '+(a*x+b)+' の解は？','x = '+_m7s(x), ['x = '+_m7s(-x), 'x = '+_m7s(x+1), 'x = '+_m7s(a*x)]); }
+      if(t===1){ a=R(3,7); c=R(1,a-2); b=R(1,9); var d=b+(a-c)*x;
+        return _m7q('標準','方程式 '+_m7lin(a,b)+' = '+_m7lin(c,d)+' の解は？','x = '+_m7s(x), ['x = '+_m7s(-x), 'x = '+_m7s(x+2), 'x = '+_m7s(x-1)]); }
+      a=R(2,5); b=R(1,6); var cc=a*(x+b);
+      return _m7q('標準','方程式 '+a+'(x + '+b+') = '+cc+' の解は？','x = '+_m7s(x), ['x = '+_m7s(x+b), 'x = '+_m7s(-x), 'x = '+_m7s(cc-b)]);
+    }
+    // 発展
+    t=R(0,3);
+    if(t===0){ a=R(2,4); b=R(1,6); c=R(1,6)+b; x=a*(c-b);
+      return _m7q('発展','方程式 x/'+a+' + '+b+' = '+c+' の解は？','x = '+x, ['x = '+(c-b), 'x = '+(a*(c+b)), 'x = '+Math.round(x/a)]); }
+    if(t===1){ a=R(2,6); b=R(2,6); c=R(2,6); x=a*c;
+      return _m7q('発展','比例式 '+a+' : '+b+' = x : '+(b*c)+' の x は？', x, [b*c, a*b, a+c]); }
+    if(t===2){ a=R(60,120); b=R(2,6); x=R(2,9); var total=a+b*0+ x*a; total=x*a+R(30,90);
+      var juice=total-x*a;
+      return _m7q('発展','1個 '+a+'円のパンを x 個と、'+juice+'円のジュースを1本買うと合計 '+total+'円でした。x はいくつ？', x, [x+1, x-1, Math.round(total/a)===x?x+2:Math.round(total/a)]); }
+    b=R(2,4); x=2*R(3,7);
+    // 兄x+b個・弟x-b個 → 兄が弟にb個あげると同じ数
+    return _m7q('発展','兄は '+(x+b)+'個、弟は '+(x-b)+'個 あめを持っています。兄が弟に何個あげると2人は同じ数になる？', b+'個', [(2*b)+'個', (b+1)+'個', (b-1)+'個']);
+  }
+
+  // ---------------- 比例・反比例 ----------------
+  function genHirei7(){
+    var r=R(1,10),a,p,q,x,y,t;
+    if(r<=4){ // 基礎
+      t=R(0,2);
+      if(t===0){ a=R(2,6)*(R(0,1)?1:-1); p=R(1,5);
+        return _m7q('基礎','y は x に比例し、x = '+p+' のとき y = '+(a*p)+' です。比例定数 a は？','a = '+_m7s(a), ['a = '+_m7s(-a), 'a = '+_m7s(a*p), 'a = '+_m7s(p)]); }
+      if(t===1){ a=R(2,9);
+        return _m7q('基礎','y が x に比例する式はどれ？','y = '+a+'x', ['y = x + '+a, 'y = '+a+'/x', 'y = x² + '+a]); }
+      a=R(2,9);
+      return _m7q('基礎','y が x に反比例する式はどれ？','y = '+a+'/x', ['y = '+a+'x', 'y = x - '+a, 'y = '+a+'x + 1']);
+    }
+    if(r<=8){ // 標準
+      t=R(0,3);
+      if(t===0){ a=R(2,6)*(R(0,1)?1:-1); x=R(2,6); y=a*x;
+        return _m7q('標準','y = '+_m7s(a)+'x で、x = '+x+' のときの y は？','y = '+_m7s(y), ['y = '+_m7s(-y), 'y = '+_m7s(a+x), 'y = '+_m7s(y+a)]); }
+      if(t===1){ p=R(2,6); q=R(2,6); a=p*q;
+        return _m7q('標準','y は x に反比例し、x = '+p+' のとき y = '+q+' です。比例定数 a は？','a = '+a, ['a = '+(q-p), 'a = '+Math.max(p,q), 'a = '+(a*2)]); }
+      if(t===2){ a=_m7pick([12,18,24,36]); x=_m7pick([2,3,4,6]); y=a/x;
+        return _m7q('標準','y = '+a+'/x で、x = '+x+' のときの y は？','y = '+y, ['y = '+(a*x), 'y = '+(y+1), 'y = '+(a-x)]); }
+      p=R(2,5); q=p*R(2,5);
+      return _m7q('標準','原点を通る直線（比例のグラフ）が点 ('+p+', '+q+') を通るとき、式は？','y = '+(q/p)+'x', ['y = '+q+'x', 'y = '+p+'x', 'y = x + '+(q-p)]);
+    }
+    // 発展
+    t=R(0,3);
+    if(t===0){ a=R(2,4); p=R(1,3); q=p+R(2,4); // 変域（a>0）
+      return _m7q('発展','y = '+a+'x（'+p+' ≦ x ≦ '+q+'）のとき、y の変域は？', (a*p)+' ≦ y ≦ '+(a*q), [p+' ≦ y ≦ '+q, (a*q)+' ≦ y ≦ '+(a*p), '0 ≦ y ≦ '+(a*q)]); }
+    if(t===1){ a=_m7pick([12,24,36]); p=_m7pick([2,3,4]); q=_m7pick([6,12]); while(q<=p)q=12;
+      return _m7q('発展','y = '+a+'/x（'+p+' ≦ x ≦ '+q+'）のとき、y の変域は？', (a/q)+' ≦ y ≦ '+(a/p), [(a/p)+' ≦ y ≦ '+(a/q), p+' ≦ y ≦ '+q, '0 ≦ y ≦ '+(a/p)]); }
+    if(t===2){ a=R(2,5); p=R(2,4);
+      return _m7q('発展','y = '+a+'x のグラフが通る点はどれ？','('+p+', '+(a*p)+')', ['('+p+', '+(a*p+1)+')', '('+(a*p)+', '+p+')', '('+p+', '+(-a*p)+')']); }
+    a=_m7pick([60,120]);
+    return _m7q('発展',a+'L 入る水そうに毎分 x L ずつ水を入れると、いっぱいになるまで y 分かかります。y を x の式で表すと？','y = '+a+'/x', ['y = '+a+'x', 'y = x/'+a, 'y = '+a+' - x']);
+  }
+
+  // ---------------- 平面図形 ----------------
+  function genHeimen7(){
+    var r=R(1,10),t,rad;
+    if(r<=4){ // 基礎
+      t=R(0,4);
+      if(t===0){ rad=R(2,9); return _m7q('基礎','半径 '+rad+'cm の円の周の長さは？（円周率はπ）', (2*rad)+'π cm', [rad+'π cm', (rad*rad)+'π cm', (4*rad)+'π cm']); }
+      if(t===1){ rad=R(2,9); return _m7q('基礎','半径 '+rad+'cm の円の面積は？（円周率はπ）', (rad*rad)+'π cm²', [(2*rad)+'π cm²', (rad*4)+'π cm²', (rad*rad*2)+'π cm²']); }
+      if(t===2){ return _m7q('基礎','円周上の2点を結ぶ線分を何という？','弦', ['弧', '接線', '半径']); }
+      if(t===3){ return _m7q('基礎','円周の一部分を何という？','弧', ['弦', '直径', '中心角']); }
+      return _m7q('基礎','図形を、一直線にそってずらす移動を何という？','平行移動', ['回転移動', '対称移動', '点移動']);
+    }
+    if(r<=8){ // 標準
+      t=R(0,3);
+      if(t===0){ var pair=_m7pick([[90,4],[90,8],[60,6],[120,6],[45,8],[180,5],[90,6],[120,3]]);
+        var th=pair[0]; rad=pair[1]; var arc=2*rad*th/360;
+        return _m7q('標準','半径 '+rad+'cm、中心角 '+th+'° のおうぎ形の弧の長さは？', arc+'π cm', [(arc*2)+'π cm', (rad*rad*th/360)+'π cm', (2*rad)+'π cm']); }
+      if(t===1){ var pair2=_m7pick([[90,4],[90,6],[60,6],[120,6],[90,2],[180,4],[120,3],[45,4]]);
+        var th2=pair2[0]; rad=pair2[1]; var ar=rad*rad*th2/360;
+        return _m7q('標準','半径 '+rad+'cm、中心角 '+th2+'° のおうぎ形の面積は？', ar+'π cm²', [(ar*2)+'π cm²', (2*rad*th2/360)+'π cm²', (rad*rad)+'π cm²']); }
+      if(t===2){ return _m7q('標準','2点 A、B から等しい距離にある点の集まりは？','線分ABの垂直二等分線', ['線分ABの平行線', '角の二等分線', '点Aを中心とする円']); }
+      return _m7q('標準','図形を、ある点を中心として一定の角度だけ回す移動を何という？','回転移動', ['平行移動', '対称移動', '拡大移動']);
+    }
+    // 発展
+    t=R(0,3);
+    if(t===0){ var pair3=_m7pick([[90,4],[60,6],[120,6],[45,8],[180,3],[90,8]]);
+      var th3=pair3[0]; rad=pair3[1]; var arc3=2*rad*th3/360;
+      return _m7q('発展','半径 '+rad+'cm のおうぎ形の弧の長さが '+arc3+'π cm のとき、中心角は？', th3+'°', [(th3/2)+'°', (th3*2>360?90:th3*2)+'°', (th3+30)+'°']); }
+    if(t===1){ return _m7q('発展','円の接線と、接点を通る半径の関係は？','垂直に交わる', ['平行になる', '45°で交わる', '交わらない']); }
+    if(t===2){ return _m7q('発展','角の2辺から等しい距離にある点の集まりは？','角の二等分線', ['垂直二等分線', '角の頂点を中心とする円', '2辺に平行な直線']); }
+    return _m7q('発展','図形を180°回転させる移動を、とくに何という？','点対称移動', ['線対称移動', '平行移動', '半回転ずらし']);
+  }
+
+  // ---------------- 空間図形 ----------------
+  function genKukan7(){
+    var r=R(1,10),t,a,h;
+    if(r<=4){ // 基礎
+      var solids=[['三角柱','面',5],['三角柱','辺',9],['三角柱','頂点',6],
+                  ['四角柱','面',6],['四角柱','辺',12],['四角柱','頂点',8],
+                  ['五角柱','面',7],['五角柱','辺',15],['五角柱','頂点',10],
+                  ['三角すい','面',4],['三角すい','辺',6],['三角すい','頂点',4],
+                  ['四角すい','面',5],['四角すい','辺',8],['四角すい','頂点',5]];
+      t=R(0,2);
+      if(t===0){ var s=_m7pick(solids); var n=s[2];
+        return _m7q('基礎',s[0]+' の'+s[1]+'の数はいくつ？', n, [n+1, n-1, n+2]); }
+      if(t===1){ var ex=_m7pick([['円すい','円とおうぎ形'],['円柱','円2つと長方形'],['三角柱','三角形2つと長方形3つ']]);
+        return _m7q('基礎',ex[0]+' の展開図の組み合わせは？', ex[1], ['円2つと三角形','おうぎ形2つ','正方形だけ'].filter(function(w){return w!==ex[1];}).concat(['長方形だけ'])); }
+      return _m7q('基礎','正多面体は全部で何種類ある？','5種類', ['3種類', '4種類', '6種類']);
+    }
+    if(r<=8){ // 標準
+      t=R(0,2);
+      if(t===0){ a=R(4,12)*2; h=R(3,9); // 角柱
+        return _m7q('標準','底面積 '+a+'cm²、高さ '+h+'cm の角柱の体積は？', (a*h)+' cm³', [(a*h/2)+' cm³', (a+h)+' cm³', (a*h*3)+' cm³']); }
+      if(t===1){ a=R(2,6); h=R(3,9);
+        return _m7q('標準','底面の半径 '+a+'cm、高さ '+h+'cm の円柱の体積は？（円周率はπ）', (a*a*h)+'π cm³', [(2*a*h)+'π cm³', (a*h)+'π cm³', (a*a*h/2===Math.floor(a*a*h/2)?(a*a*h/2):a*a)+'π cm³']); }
+      return _m7q('標準','空間内で、平行でもなく交わりもしない2つの直線の位置関係を何という？','ねじれの位置', ['垂直', '交差の位置', '平行']);
+    }
+    // 発展
+    t=R(0,3);
+    if(t===0){ a=R(2,5); h=3*R(1,3); // 円すい
+      return _m7q('発展','底面の半径 '+a+'cm、高さ '+h+'cm の円すいの体積は？（円周率はπ）', (a*a*h/3)+'π cm³', [(a*a*h)+'π cm³', (a*h)+'π cm³', (a*a*h/3*2)+'π cm³']); }
+    if(t===1){ a=3*R(1,2); // 球
+      return _m7q('発展','半径 '+a+'cm の球の体積は？（円周率はπ）', (4*a*a*a/3)+'π cm³', [(a*a*a)+'π cm³', (4*a*a)+'π cm³', (a*a*a/3)+'π cm³']); }
+    if(t===2){ var rot=_m7pick([['長方形','円柱'],['直角三角形','円すい'],['半円','球']]);
+      return _m7q('発展',rot[0]+' を、1つの辺（直径）を軸として1回転させてできる立体は？', rot[1], ['円柱','円すい','球','角柱'].filter(function(w){return w!==rot[1];}).slice(0,3)); }
+    a=R(2,4); h=R(3,7);
+    return _m7q('発展','底面の半径 '+a+'cm、高さ '+h+'cm の円柱の表面積は？（円周率はπ）', (2*a*a+2*a*h)+'π cm²', [(a*a*h)+'π cm²', (2*a*a)+'π cm²', (2*a*h)+'π cm²']);
+  }
+
+  // ---------------- 資料の活用 ----------------
+  function genShiryo7(){
+    var r=R(1,10),t,i;
+    if(r<=4){ // 基礎
+      t=R(0,2);
+      if(t===0){ var avg=R(50,90); var n=4; var vs=[]; var sum=0;
+        for(i=0;i<n-1;i++){ var d=R(-8,8); vs.push(avg+d); sum+=avg+d; }
+        vs.push(avg*n-sum);
+        if(vs[n-1]<0||vs[n-1]>100) return genShiryo7();
+        return _m7q('基礎','テストの点数：'+vs.join('点, ')+'点\n平均値は？', avg+'点', [(avg+2)+'点', (avg-3)+'点', Math.max.apply(null,vs)+'点']); }
+      if(t===1){ var mn=R(5,20); var mx=mn+R(8,30);
+        return _m7q('基礎','データの最大値が '+mx+'、最小値が '+mn+' のとき、範囲（レンジ）は？', mx-mn, [mx+mn, mx, mn]); }
+      var terms=[['データを大きさの順に並べたとき、真ん中にくる値','中央値（メジアン）',['平均値','最頻値（モード）','階級値']],
+                 ['データの中で最も多く現れる値','最頻値（モード）',['中央値（メジアン）','平均値','範囲']],
+                 ['階級の真ん中の値','階級値',['度数','相対度数','中央値（メジアン）']]];
+      var tm=_m7pick(terms);
+      return _m7q('基礎',tm[0]+'を何という？', tm[1], tm[2]);
+    }
+    if(r<=8){ // 標準
+      t=R(0,2);
+      if(t===0){ var vals=[]; for(i=0;i<5;i++) vals.push(R(10,50));
+        var sorted=vals.slice().sort(function(a,b){return a-b;});
+        return _m7q('標準','データ：'+vals.join(', ')+'\n中央値は？', sorted[2], [sorted[1], sorted[3], Math.round(vals.reduce(function(a,b){return a+b;},0)/5)===sorted[2]?sorted[2]+1:Math.round(vals.reduce(function(a,b){return a+b;},0)/5)]); }
+      if(t===1){ var tot=_m7pick([20,25,40,50]); var f=_m7pick([2,4,5,8,10]); var rd=Math.round(f/tot*100)/100;
+        return _m7q('標準','全体の度数が '+tot+'人 で、ある階級の度数が '+f+'人 のとき、この階級の相対度数は？', rd, [Math.round(tot/f*100)/100, f, Math.round(rd*10*100)/100]); }
+      var f1=R(2,4), f2=R(6,9), f3=R(3,5), f4=R(1,3);
+      return _m7q('標準','50m走の記録（度数分布表）\n7.0秒以上7.5秒未満 … '+f1+'人\n7.5秒以上8.0秒未満 … '+f2+'人\n8.0秒以上8.5秒未満 … '+f3+'人\n8.5秒以上9.0秒未満 … '+f4+'人\n度数がいちばん多い階級はどれ？','7.5秒以上8.0秒未満', ['7.0秒以上7.5秒未満','8.0秒以上8.5秒未満','8.5秒以上9.0秒未満']);
+    }
+    // 発展
+    t=R(0,2);
+    if(t===0){ var lo=R(10,30); var w=_m7pick([5,10]);
+      return _m7q('発展',lo+'以上'+(lo+w)+'未満 の階級の階級値は？', lo+w/2, [lo, lo+w, w]); }
+    if(t===1){ var g1=R(2,5), g2=R(4,8), g3=R(3,6);
+      return _m7q('発展','度数分布表\n1組目の階級 … '+g1+'人\n2組目の階級 … '+g2+'人\n3組目の階級 … '+g3+'人\n2組目の階級までの累積度数は？', (g1+g2)+'人', [g2+'人', (g1+g2+g3)+'人', (g2+g3)+'人']); }
+    var sig=_m7pick([[3200,'3.2×10³'],[45000,'4.5×10⁴'],[670,'6.7×10²'],[89000,'8.9×10⁴'],[520,'5.2×10²']]);
+    return _m7q('発展','測定値 '+sig[0]+'（有効数字2けた）を「整数部分が1けたの数×10の累乗」の形で表すと？', sig[1], [String(sig[0]), sig[1].replace('×10','×100'), sig[1].charAt(0)+sig[1].charAt(1)+sig[1].charAt(2)+'×10']);
+  }
+
+  // window に公開（_genTrainQ_curriculum / _genPvE_curriculum が window[gen名] で参照）
+  try{
+    window.genSeifu7=genSeifu7;
+    window.genMoji7=genMoji7;
+    window.genEq7=genEq7;
+    window.genHirei7=genHirei7;
+    window.genHeimen7=genHeimen7;
+    window.genKukan7=genKukan7;
+    window.genShiryo7=genShiryo7;
+  }catch(e){}
+})();
 
 </script>
 
