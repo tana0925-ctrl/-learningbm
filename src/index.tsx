@@ -587,6 +587,19 @@ app.put('/api/student/progress', async (c) => {
               for (let _bi = 0; _bi < _inc.boxes.length && !_placed; _bi++) { if (!Array.isArray(_inc.boxes[_bi])) _inc.boxes[_bi] = []; for (let _si = 0; _si < 100; _si++) { if (!_inc.boxes[_bi][_si]) { _inc.boxes[_bi][_si] = { ..._recv, tradedAt: Date.now() }; _placed = true; _tChanged = true; break } } }
               if (!_placed) { _inc.boxes[0].push({ ..._recv, tradedAt: Date.now() }); _tChanged = true }
             }
+            // 🔧 v168: 渡した種族のbox個体が残っていなければ monsters/party からも除去（stale端末の全置換保存対策）
+            try {
+              const _ps = String(_give).split('_')
+              const _gid2 = Number(_ps.length >= 3 ? _ps[_ps.length - 3] : NaN)
+              if (Number.isFinite(_gid2)) {
+                let _oth = false
+                for (const _bx of _inc.boxes) { if (!Array.isArray(_bx)) continue; for (const _b of _bx) { if (_b && Number(_b.monsterId) === _gid2) { _oth = true; break } } if (_oth) break }
+                if (!_oth) {
+                  if (_inc.monsters && (_inc.monsters[_gid2] || _inc.monsters[String(_gid2)])) { delete _inc.monsters[_gid2]; delete _inc.monsters[String(_gid2)]; _tChanged = true }
+                  if (Array.isArray(_inc.party) && _inc.party.some((x: any) => Number(x) === _gid2)) { _inc.party = _inc.party.filter((x: any) => Number(x) !== _gid2); _tChanged = true }
+                }
+              }
+            } catch (_e) {}
             if (!_hadGive && _hasRecv) { try { await c.env.DB.prepare(`UPDATE trade_deliveries SET status='delivered', delivered_at=? WHERE id=?`).bind(Date.now(), _d.id).run() } catch (_e) {} }
           }
           if (_tChanged) saveJson = JSON.stringify(_inc)
@@ -5746,6 +5759,19 @@ function applyTradeDeliveries(state: any, deliveries: any[]): boolean {
       }
       if (!placed) { state.boxes[0].push({ ...recv, tradedAt: Date.now() }); changed = true }
     }
+    // 🔧 v168: 渡した種族のbox個体が残っていなければ monsters/party からも除去
+    try {
+      const ps = String(giveUid).split('_')
+      const gid = Number(ps.length >= 3 ? ps[ps.length - 3] : NaN)
+      if (Number.isFinite(gid)) {
+        let oth = false
+        for (const bx of state.boxes) { if (!Array.isArray(bx)) continue; for (const b of bx) { if (b && Number(b.monsterId) === gid) { oth = true; break } } if (oth) break }
+        if (!oth) {
+          if (state.monsters && (state.monsters[gid] || state.monsters[String(gid)])) { delete state.monsters[gid]; delete state.monsters[String(gid)]; changed = true }
+          if (Array.isArray(state.party) && state.party.some((x: any) => Number(x) === gid)) { state.party = state.party.filter((x: any) => Number(x) !== gid); changed = true }
+        }
+      }
+    } catch (_e) {}
   }
   return changed
 }
@@ -5902,6 +5928,23 @@ app.post('/api/trade/complete', async (c) => {
   }
   placeInBoxes(fromState.boxes, _realTo || toMonster)
   placeInBoxes(toState.boxes, _realFrom || fromMonster)
+
+  // 🔧 v168 複製バグ対策: 渡した種族のbox個体が0になった側は monsters/party からも除去
+  // （従来はboxしか触らないため、パーティーに入れたまま渡すと渡した側でも使い続けられた）
+  const _cleanupSpecies = (st: any, mon: any) => {
+    try {
+      const _gid = Number((mon && (mon.monsterId ?? mon.id)) as any)
+      if (!Number.isFinite(_gid)) return
+      let _others = false
+      for (const _bx of st.boxes) { if (!Array.isArray(_bx)) continue; for (const _b of _bx) { if (_b && Number(_b.monsterId) === _gid) { _others = true; break } } if (_others) break }
+      if (!_others) {
+        if (st.monsters) { delete st.monsters[_gid]; delete st.monsters[String(_gid)] }
+        if (Array.isArray(st.party)) st.party = st.party.filter((x: any) => Number(x) !== _gid)
+      }
+    } catch (_e) {}
+  }
+  _cleanupSpecies(fromState, fromMonster)
+  _cleanupSpecies(toState, toMonster)
 
   // 両者のstateを保存
   await c.env.DB.prepare(
