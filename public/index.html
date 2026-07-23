@@ -5195,6 +5195,7 @@ function setupQrScanUi(){
             , gymId: null
             , timerGym: null
         };
+        try { window.battle = battle; } catch(e) {} // 🔧 v168: 日替わり制限のスナップショット保護(window.battle参照)を有効化
         let selectedMonsterId = null;
         // ★ var宣言: 別scriptブロック(_selectTrainingMode_curriculum等)からwindow.*でアクセス可能にする
         var trainingQ = null;
@@ -11089,8 +11090,9 @@ function isDailyFatigued(id, nameHint){
     if (!Number.isFinite(nid)) return false;
     // バトル中は、そのバトル開始時のスナップショットを最優先（1回目は本気を保証）
     try{
-        if (window.battle && battle.__dailyFatigueSnapshot && typeof battle.__dailyFatigueSnapshot[nid] === 'boolean') {
-            return battle.__dailyFatigueSnapshot[nid];
+        var __b = (typeof battle !== 'undefined' && battle) ? battle : window.battle;
+        if (__b && __b.__dailyFatigueSnapshot && typeof __b.__dailyFatigueSnapshot[nid] === 'boolean') {
+            return __b.__dailyFatigueSnapshot[nid];
         }
     }catch(e){}
     // それ以外は「すでに本日の使用回数を使っているか」で判定（次回は弱体化するかどうか）
@@ -11150,9 +11152,10 @@ function recordLimitedUseForParty(context){
     });
 
     try{
-        if (window.battle) {
-            battle.__dailyFatigueSnapshot = {};
-            Object.keys(snap).forEach(k => { battle.__dailyFatigueSnapshot[Number(k)] = snap[k]; });
+        var __b2 = (typeof battle !== 'undefined' && battle) ? battle : window.battle;
+        if (__b2) {
+            __b2.__dailyFatigueSnapshot = {};
+            Object.keys(snap).forEach(k => { __b2.__dailyFatigueSnapshot[Number(k)] = snap[k]; });
         }
     }catch(e){}
 
@@ -17446,10 +17449,12 @@ function loadReviewSuggestions(){
         }
 
         function changeName() {
-            const newName = prompt("新しい名前を入力してください", player.name);
+            const newName = prompt("新しい名前を入力してください（12文字まで）", player.name);
             if (newName && newName.trim() !== "") {
                 if (_isNgName(newName)) { alert("その名前は使えません"); return; }
-                player.name = newName.trim(); saveData(); updatePlayerDisplay();
+                const _nm = newName.trim();
+                if (Array.from(_nm).length > 12) { alert("名前は12文字までにしてね"); return; }
+                player.name = _nm; saveData(); updatePlayerDisplay();
             }
         }
 
