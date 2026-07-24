@@ -15,12 +15,12 @@
   var HINT = '【入手】中3をやりこむと開く隠しの「高校エリア」にまれに出現';
 
   // ---- 数学ライン（1168→1169→1170）----
-  add({ id: 1168, name: 'パイこぞう', sprite: 'π', hp: 210, atk: 54, def: 48, spd: 60, buff: 'guard', elementType: 'psychic', stage: 1, gacha: false, evoLevel: 26, nextId: 1169,
+  add({ id: 1168, name: 'エンシュウ博士', sprite: 'π', hp: 210, atk: 54, def: 48, spd: 60, buff: 'guard', elementType: 'psychic', stage: 1, gacha: false, evoLevel: 26, nextId: 1169,
     skills: [
       { name: 'てんかいスラッシュ', type: 'normal', pow: 15, acc: 0.96, element: 'psychic', desc: '乗法公式でまとめて斬る' },
       { name: 'いんすうぶんかい', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_atk_self', element: 'psychic', desc: '式をきれいに分けて力をためる' },
       { name: 'たすきがけ', type: 'heavy', pow: 36, acc: 0.78, element: 'psychic', desc: 'ななめに掛けて一気に打つ' }
-    ], desc: '円周率πを小数第100位まで暗唱できる小僧。ただし自分の身長は測れない。' + HINT });
+    ], desc: '円周率πを小数第100位まで暗唱できる円周の博士。ただし円い顔なので、自分の直径だけは測れない。' + HINT });
   add({ id: 1169, name: 'サンカク卿', sprite: '🔺', hp: 360, atk: 96, def: 68, spd: 86, buff: 'attack', elementType: 'psychic', stage: 2, gacha: false, evoLevel: 50, nextId: 1170,
     skills: [
       { name: 'サインコサイン', type: 'normal', pow: 19, acc: 0.96, element: 'psychic', desc: '対辺と隣辺の比で切りこむ' },
