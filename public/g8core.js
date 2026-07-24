@@ -134,6 +134,8 @@
 
   function addGrade8Button() {
     try {
+      // v181: 段階解禁。中2がまだ解禁されていなければ出さない（解禁管理はg10core）
+      if (window.__gradeUnlocked && !window.__gradeUnlocked(8)) return;
       var wrap = document.getElementById('pveGradeSelectorWrap');
       if (!wrap) return;
       var sel8 = (Number(window.pveSelectedGrade) === 8);

@@ -73,6 +73,8 @@
   }
   function addGrade9Button() {
     try {
+      // v181: 段階解禁。中3がまだ解禁されていなければ出さない（解禁管理はg10core）
+      if (window.__gradeUnlocked && !window.__gradeUnlocked(9)) return;
       var wrap = document.getElementById('pveGradeSelectorWrap');
       if (!wrap) return;
       if (wrap.querySelector('button[data-grade="9"]')) return;
