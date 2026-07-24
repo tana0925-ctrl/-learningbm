@@ -156,24 +156,43 @@
   }
   G8.addGrade8Button = addGrade8Button;
 
-  function patchGradeSelector() {
-    try {
-      var orig = window.renderPvEDistrictSelect;
-      if (typeof orig !== 'function' || orig.__g8) return false;
-      var patched = function () {
-        var r = orig.apply(this, arguments);
-        try { addGrade8Button(); } catch (e) {}
-        return r;
-      };
-      patched.__g8 = 1;
-      window.renderPvEDistrictSelect = patched;
-      return true;
-    } catch (e) { return false; }
+  // renderPvEDistrictSelect は「ログイン後」に定義・再代入されるため、
+  // ポーリングではなくアクセサで捕まえて、いつ差し替えられても中2ボタンを足す
+  function wrapDistrict(fn) {
+    if (typeof fn !== 'function' || fn.__g8) return fn;
+    var w = function () {
+      var r = fn.apply(this, arguments);
+      try { addGrade8Button(); } catch (e) {}
+      return r;
+    };
+    w.__g8 = 1;
+    return w;
   }
 
-  var tries = 0;
-  var timer = setInterval(function () {
-    tries++;
-    if (patchGradeSelector() || tries > 60) clearInterval(timer);
-  }, 120);
+  (function () {
+    var _val = wrapDistrict(window.renderPvEDistrictSelect);
+    try {
+      Object.defineProperty(window, 'renderPvEDistrictSelect', {
+        configurable: true,
+        get: function () { return _val; },
+        set: function (v) { _val = wrapDistrict(v); }
+      });
+    } catch (e) {
+      // アクセサが使えない環境向けフォールバック（ゆっくり監視し続ける）
+      setInterval(function () {
+        try {
+          var f = window.renderPvEDistrictSelect;
+          if (typeof f === 'function' && !f.__g8) window.renderPvEDistrictSelect = wrapDistrict(f);
+        } catch (e2) {}
+      }, 1000);
+    }
+  })();
+
+  // 学年ボタンが後から描き直された場合の保険（画面が開いているときだけ働く）
+  setInterval(function () {
+    try {
+      var w = document.getElementById('pveGradeSelectorWrap');
+      if (w && !w.querySelector('button[data-grade="8"]')) addGrade8Button();
+    } catch (e) {}
+  }, 1500);
 })();
