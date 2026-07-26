@@ -1669,6 +1669,41 @@ app.get('/api/teacher/all-students', async (c) => {
   return c.json({ ok: true, students: res.results })
 })
 
+// 実名マップ（教師用の表示名。児童側には一切出さない）。admin_settings に JSON で保存。
+app.get('/api/teacher/real-names', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  let map: Record<string, string> = {}
+  try {
+    const row = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1`).first<any>()
+    if (row?.value) map = JSON.parse(row.value) || {}
+  } catch (_e) { map = {} }
+  return c.json({ ok: true, map })
+})
+
+app.post('/api/teacher/real-names', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || typeof body.loginId !== 'string') return jsonError(c, 400, 'loginId_required')
+  const loginId = String(body.loginId).slice(0, 100)
+  const realName = (body.realName == null ? '' : String(body.realName)).trim().slice(0, 40)
+  let map: Record<string, string> = {}
+  try {
+    const row = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1`).first<any>()
+    if (row?.value) map = JSON.parse(row.value) || {}
+  } catch (_e) { map = {} }
+  if (realName) map[loginId] = realName
+  else delete map[loginId]
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO admin_settings (key, value, updated_at) VALUES ('real_name_map', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+    ).bind(JSON.stringify(map)).run()
+  } catch (e: any) { return jsonError(c, 500, 'db_error') }
+  return c.json({ ok: true, map })
+})
+
 // 先生の担当クラスの全児童の名前をクラウドから消去（匿名化）
 app.post('/api/teacher/anonymize-names', async (c) => {
   const u = requireTeacher(c)
@@ -7864,6 +7899,8 @@ app.get('/admin', (c) => {
       async function renderClassList(){
         const wrap = document.getElementById('classList');
         wrap.innerHTML='<p class="text-gray-400">読み込み中...</p>';
+        // 実名マップを一度だけサーバーから取得（取得後に再描画）
+        if(!window._serverNameLoaded){ window._serverNameLoaded = true; try{ await loadServerNameMap(); }catch(_e){} }
         try{
           const d = await api('/api/admin/classes');
           wrap.innerHTML='';
@@ -7914,7 +7951,7 @@ app.get('/admin', (c) => {
             const div = document.createElement('div');
             div.className='flex items-center justify-between border rounded px-2 py-1';
             const left = document.createElement('span');
-            left.textContent = m.grade + '年 ' + m.name + '（' + m.loginId + '）';
+            left.textContent = m.grade + '年 ' + resolveStudentName(m.loginId, m.name) + '（' + m.loginId + '）';
             div.appendChild(left);
             const rm = document.createElement('button');
             rm.className='bg-red-500 text-white rounded px-2 py-0.5 text-xs hover:bg-red-700';
@@ -8647,7 +8684,7 @@ app.get('/teacher', (c) => {
           </div>
           <div class="border-t border-rose-200 pt-3">
             <div class="flex items-center gap-2 flex-wrap mb-2">
-              <button onclick="loadNameEditor()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">✏️ 表示名を直接編集（このブラウザに保存）</button>
+              <button onclick="loadNameEditor()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">✏️ 表示名（実名）を編集・保存</button>
               <span class="text-[11px] text-rose-700">CSVを使わず、画面で実名を入力・修正できます。保存先はこのブラウザのみ（クラウドには出ません）。</span>
             </div>
             <div id="nameEditList"></div>
@@ -8991,7 +9028,17 @@ app.get('/teacher', (c) => {
 
       // ===== 名簿マッピング（localStorage）=====
       function getStudentNameMap(){
-        try { return JSON.parse(localStorage.getItem('studentNameMap') || '{}'); } catch(_) { return {}; }
+        var local = {}; try { local = JSON.parse(localStorage.getItem('studentNameMap') || '{}'); } catch(_) { local = {}; }
+        var server = (window._serverNameMap && typeof window._serverNameMap==='object') ? window._serverNameMap : {};
+        // サーバー保存を基本に、この端末のローカル編集を上書き（保存でサーバーにも同期される）
+        return Object.assign({}, server, local);
+      }
+      // サーバーから実名マップを読み込み（教師認証時のみ200・児童側からは絶対に呼ばれない）
+      async function loadServerNameMap(){
+        try {
+          var d = await api('/api/teacher/real-names');
+          window._serverNameMap = (d && d.map && typeof d.map==='object') ? d.map : {};
+        } catch(_e) { window._serverNameMap = window._serverNameMap || {}; }
       }
       function setStudentNameMap(map){
         try { localStorage.setItem('studentNameMap', JSON.stringify(map||{})); } catch(_) {}
@@ -9010,16 +9057,23 @@ app.get('/teacher', (c) => {
           window._nameEditRoster=students;
           var h='<div class="max-h-72 overflow-y-auto border rounded-lg bg-white p-2"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">ログインID</th><th class="text-left p-1">学年/クラス</th><th class="text-left p-1">表示名（実名）</th></tr></thead><tbody>';
           for(var i=0;i<students.length;i++){ var s=students[i]; var cur=(map[s.loginId]!=null&&map[s.loginId]!=='')?map[s.loginId]:((s.name&&s.name!==s.loginId)?s.name:''); h+='<tr><td class="p-1 font-mono text-slate-600">'+escH(s.loginId)+'</td><td class="p-1 text-slate-400">'+escH((s.grade||'')+(s.className?(' '+s.className):''))+'</td><td class="p-1"><input id="nmEdit_'+i+'" class="border rounded p-1 w-full" value="'+escH(cur)+'" placeholder="（未設定）"></td></tr>'; }
-          h+='</tbody></table></div><div class="flex items-center gap-2 mt-2"><button onclick="saveNameEdits()" class="bg-rose-600 text-white rounded-lg px-4 py-1.5 text-xs font-bold hover:bg-rose-700">💾 表示名を保存（このブラウザ）</button><span id="nameEditStatus" class="text-xs font-bold text-rose-700"></span></div>';
+          h+='</tbody></table></div><div class="flex items-center gap-2 mt-2"><button onclick="saveNameEdits()" class="bg-rose-600 text-white rounded-lg px-4 py-1.5 text-xs font-bold hover:bg-rose-700">💾 表示名を保存（先生みんなで共有）</button><span id="nameEditStatus" class="text-xs font-bold text-rose-700"></span></div>';
           el.innerHTML=h;
         }catch(e){ el.innerHTML='<div class="text-xs text-red-500">読み込み失敗: '+escH(String(e.message||e))+'</div>'; }
       }
-      function saveNameEdits(){
-        var students=window._nameEditRoster||[]; var map=getStudentNameMap(); var cnt=0;
-        for(var i=0;i<students.length;i++){ var inp=document.getElementById('nmEdit_'+i); if(!inp) continue; var v=String(inp.value||'').trim(); var lid=students[i].loginId; if(v){ map[lid]=v; cnt++; } else { if(map[lid]!=null) delete map[lid]; } }
-        setStudentNameMap(map);
-        var st=document.getElementById('nameEditStatus'); if(st) st.textContent='✓ '+cnt+'名の表示名を保存しました（このブラウザのみ）';
-        try{ if(typeof loadClasses==='function') loadClasses(); }catch(_e){}
+      async function saveNameEdits(){
+        var students=window._nameEditRoster||[]; var local={}; try{ local=JSON.parse(localStorage.getItem('studentNameMap')||'{}'); }catch(_e){ local={}; }
+        var edits=[]; var cnt=0;
+        for(var i=0;i<students.length;i++){ var inp=document.getElementById('nmEdit_'+i); if(!inp) continue; var v=String(inp.value||'').trim(); var lid=students[i].loginId; edits.push({loginId:lid, realName:v}); if(v){ local[lid]=v; cnt++; } else { if(local[lid]!=null) delete local[lid]; } }
+        try{ localStorage.setItem('studentNameMap', JSON.stringify(local)); }catch(_e){}
+        var st=document.getElementById('nameEditStatus'); if(st) st.textContent='保存中…';
+        // サーバー（全先生で共有・全端末で表示）にも保存
+        try{
+          for(var j=0;j<edits.length;j++){ await api('/api/teacher/real-names', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(edits[j]) }); }
+          await loadServerNameMap();
+          if(st) st.textContent='✓ '+cnt+'名の表示名を保存しました（先生みんなで共有）';
+        }catch(_e){ if(st) st.textContent='✓ '+cnt+'名を保存（この端末のみ・共有保存に失敗）'; }
+        try{ renderClassList(); }catch(_e){}
       }
       async function downloadStudentCSV(){
         try {
