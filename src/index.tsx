@@ -332,7 +332,10 @@ app.post('/api/auth/login', async (c) => {
   const password = String(body.password || '')
   if (!loginId || !password) return jsonError(c, 400, 'missing_credentials')
 
-  // まず users テーブルを検索
+  // 入力IDを NFKC 正規化（全角/半角のゆれを吸収）。既存の login_id 自体は書き換えない・照合のみ。
+  const loginIdNorm = loginId.normalize('NFKC')
+
+  // まず users テーブルを検索（従来どおり完全一致を最優先）
   let row = await c.env.DB.prepare(
     `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive,
             must_change_password as mustChangePassword
@@ -341,13 +344,41 @@ app.post('/api/auth/login', async (c) => {
     .bind(loginId)
     .first<any>()
 
-  // 見つからなければ teacher_accounts も検索
+  // 入力を正規化した値でも一致を試す（保存が半角で入力が全角のケース）
+  if (!row && loginIdNorm !== loginId) {
+    row = await c.env.DB.prepare(
+      `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive,
+              must_change_password as mustChangePassword
+       FROM users WHERE login_id = ? LIMIT 1`
+    ).bind(loginIdNorm).first<any>()
+  }
+
+  // 保存が全角で入力が半角のケース（例: 保存「１３２８」に 1328 入力）は SQL 完全一致で拾えないため、
+  // users を NFKC 比較でスキャン（login_id は全 NFKC 衝突なしを事前確認済み・件数も小規模）。
   if (!row) {
-    const tRow = await c.env.DB.prepare(
+    const _scan = await c.env.DB.prepare(
+      `SELECT id, role, login_id as loginId, password_hash as hash, password_salt as salt, is_active as isActive,
+              must_change_password as mustChangePassword
+       FROM users`
+    ).all<any>()
+    const _hit = (_scan.results || []).find((r: any) => String(r.loginId || '').normalize('NFKC') === loginIdNorm)
+    if (_hit) row = _hit
+  }
+
+  // 見つからなければ teacher_accounts も検索（同様に完全一致→正規化一致の順）
+  if (!row) {
+    let tRow = await c.env.DB.prepare(
       `SELECT id, 'teacher' as role, login_id as loginId, password_hash as hash, password_salt as salt,
               is_active as isActive, 0 as mustChangePassword
        FROM teacher_accounts WHERE login_id = ? LIMIT 1`
     ).bind(loginId).first<any>()
+    if (!tRow && loginIdNorm !== loginId) {
+      tRow = await c.env.DB.prepare(
+        `SELECT id, 'teacher' as role, login_id as loginId, password_hash as hash, password_salt as salt,
+                is_active as isActive, 0 as mustChangePassword
+         FROM teacher_accounts WHERE login_id = ? LIMIT 1`
+      ).bind(loginIdNorm).first<any>()
+    }
     if (tRow) row = tRow
   }
 
