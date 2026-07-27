@@ -1707,11 +1707,21 @@ app.get('/api/teacher/real-names', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
   let map: Record<string, string> = {}
+  let furigana: Record<string, string> = {}
+  let aliases: Record<string, any> = {}
   try {
     const row = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1`).first<any>()
     if (row?.value) map = JSON.parse(row.value) || {}
   } catch (_e) { map = {} }
-  return c.json({ ok: true, map })
+  try {
+    const rf = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_furigana_map' LIMIT 1`).first<any>()
+    if (rf?.value) furigana = JSON.parse(rf.value) || {}
+  } catch (_e) { furigana = {} }
+  try {
+    const ra = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='student_alias_map' LIMIT 1`).first<any>()
+    if (ra?.value) aliases = JSON.parse(ra.value) || {}
+  } catch (_e) { aliases = {} }
+  return c.json({ ok: true, map, furigana, aliases })
 })
 
 app.post('/api/teacher/real-names', async (c) => {
@@ -1720,21 +1730,63 @@ app.post('/api/teacher/real-names', async (c) => {
   const body = await c.req.json<any>().catch(() => null)
   if (!body || typeof body.loginId !== 'string') return jsonError(c, 400, 'loginId_required')
   const loginId = String(body.loginId).slice(0, 100)
+  const hasReal = Object.prototype.hasOwnProperty.call(body, 'realName')
   const realName = (body.realName == null ? '' : String(body.realName)).trim().slice(0, 40)
+  const hasFuri = Object.prototype.hasOwnProperty.call(body, 'furigana')
+  const furiganaVal = (body.furigana == null ? '' : String(body.furigana)).trim().slice(0, 60)
   let map: Record<string, string> = {}
   try {
     const row = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1`).first<any>()
     if (row?.value) map = JSON.parse(row.value) || {}
   } catch (_e) { map = {} }
-  if (realName) map[loginId] = realName
-  else delete map[loginId]
+  if (hasReal) { if (realName) map[loginId] = realName; else delete map[loginId] }
   try {
     await c.env.DB.prepare(
       `INSERT INTO admin_settings (key, value, updated_at) VALUES ('real_name_map', ?, datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
     ).bind(JSON.stringify(map)).run()
   } catch (e: any) { return jsonError(c, 500, 'db_error') }
+  if (hasFuri) {
+    let fmap: Record<string, string> = {}
+    try {
+      const rf = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_furigana_map' LIMIT 1`).first<any>()
+      if (rf?.value) fmap = JSON.parse(rf.value) || {}
+    } catch (_e) { fmap = {} }
+    if (furiganaVal) fmap[loginId] = furiganaVal; else delete fmap[loginId]
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO admin_settings (key, value, updated_at) VALUES ('real_furigana_map', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+      ).bind(JSON.stringify(fmap)).run()
+    } catch (e: any) { return jsonError(c, 500, 'db_error') }
+  }
   return c.json({ ok: true, map })
+})
+
+app.post('/api/teacher/aliases', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || typeof body.classId !== 'string' || typeof body.key !== 'string') return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId).slice(0, 100)
+  const key = String(body.key).slice(0, 80)
+  const userId = (body.userId == null ? '' : String(body.userId)).slice(0, 100)
+  if (!key) return jsonError(c, 400, 'key_required')
+  let all: Record<string, any> = {}
+  try {
+    const row = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='student_alias_map' LIMIT 1`).first<any>()
+    if (row?.value) all = JSON.parse(row.value) || {}
+  } catch (_e) { all = {} }
+  if (!all[classId] || typeof all[classId] !== 'object') all[classId] = {}
+  if (userId) all[classId][key] = userId
+  else delete all[classId][key]
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO admin_settings (key, value, updated_at) VALUES ('student_alias_map', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+    ).bind(JSON.stringify(all)).run()
+  } catch (e: any) { return jsonError(c, 500, 'db_error') }
+  return c.json({ ok: true })
 })
 
 // 先生の担当クラスの全児童の名前をクラウドから消去（匿名化）
@@ -9106,7 +9158,9 @@ app.get('/teacher', (c) => {
         try {
           var d = await api('/api/teacher/real-names');
           window._serverNameMap = (d && d.map && typeof d.map==='object') ? d.map : {};
-        } catch(_e) { window._serverNameMap = window._serverNameMap || {}; }
+          window._serverFuriganaMap = (d && d.furigana && typeof d.furigana==='object') ? d.furigana : {};
+          window._serverAliasMap = (d && d.aliases && typeof d.aliases==='object') ? d.aliases : {};
+        } catch(_e) { window._serverNameMap = window._serverNameMap || {}; window._serverFuriganaMap = window._serverFuriganaMap || {}; window._serverAliasMap = window._serverAliasMap || {}; }
       }
       function setStudentNameMap(map){
         try { localStorage.setItem('studentNameMap', JSON.stringify(map||{})); } catch(_) {}
@@ -9121,10 +9175,10 @@ app.get('/teacher', (c) => {
         el.innerHTML='<div class="text-xs text-slate-400">読み込み中...</div>';
         try{
           var data=await api('/api/teacher/all-students');
-          var students=(data.students||[]); var map=getStudentNameMap();
+          var students=(data.students||[]); var map=getStudentNameMap(); if(!window._serverFuriganaMap){ try{ await loadServerNameMap(); }catch(_e){} } var fmap=window._serverFuriganaMap||{};
           window._nameEditRoster=students;
-          var h='<div class="max-h-72 overflow-y-auto border rounded-lg bg-white p-2"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">ログインID</th><th class="text-left p-1">学年/クラス</th><th class="text-left p-1">表示名（実名）</th></tr></thead><tbody>';
-          for(var i=0;i<students.length;i++){ var s=students[i]; var cur=(map[s.loginId]!=null&&map[s.loginId]!=='')?map[s.loginId]:((s.name&&s.name!==s.loginId)?s.name:''); h+='<tr><td class="p-1 font-mono text-slate-600">'+escH(s.loginId)+'</td><td class="p-1 text-slate-400">'+escH((s.grade||'')+(s.className?(' '+s.className):''))+'</td><td class="p-1"><input id="nmEdit_'+i+'" class="border rounded p-1 w-full" value="'+escH(cur)+'" placeholder="（未設定）"></td></tr>'; }
+          var h='<div class="max-h-72 overflow-y-auto border rounded-lg bg-white p-2"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">ログインID</th><th class="text-left p-1">学年/クラス</th><th class="text-left p-1">表示名（実名）</th><th class="text-left p-1">ふりがな</th></tr></thead><tbody>';
+          for(var i=0;i<students.length;i++){ var s=students[i]; var cur=(map[s.loginId]!=null&&map[s.loginId]!=='')?map[s.loginId]:((s.name&&s.name!==s.loginId)?s.name:''); var fcur=(fmap[s.loginId]!=null)?fmap[s.loginId]:''; h+='<tr><td class="p-1 font-mono text-slate-600">'+escH(s.loginId)+'</td><td class="p-1 text-slate-400">'+escH((s.grade||'')+(s.className?(' '+s.className):''))+'</td><td class="p-1"><input id="nmEdit_'+i+'" class="border rounded p-1 w-full" value="'+escH(cur)+'" placeholder="（未設定）"></td><td class="p-1"><input id="nmFuri_'+i+'" class="border rounded p-1 w-full" value="'+escH(fcur)+'" placeholder="ひらがな（例: わだりひと）"></td></tr>'; }
           h+='</tbody></table></div><div class="flex items-center gap-2 mt-2"><button onclick="saveNameEdits()" class="bg-rose-600 text-white rounded-lg px-4 py-1.5 text-xs font-bold hover:bg-rose-700">💾 表示名を保存（先生みんなで共有）</button><span id="nameEditStatus" class="text-xs font-bold text-rose-700"></span></div>';
           el.innerHTML=h;
         }catch(e){ el.innerHTML='<div class="text-xs text-red-500">読み込み失敗: '+escH(String(e.message||e))+'</div>'; }
@@ -9132,7 +9186,7 @@ app.get('/teacher', (c) => {
       async function saveNameEdits(){
         var students=window._nameEditRoster||[]; var local={}; try{ local=JSON.parse(localStorage.getItem('studentNameMap')||'{}'); }catch(_e){ local={}; }
         var edits=[]; var cnt=0;
-        for(var i=0;i<students.length;i++){ var inp=document.getElementById('nmEdit_'+i); if(!inp) continue; var v=String(inp.value||'').trim(); var lid=students[i].loginId; edits.push({loginId:lid, realName:v}); if(v){ local[lid]=v; cnt++; } else { if(local[lid]!=null) delete local[lid]; } }
+        for(var i=0;i<students.length;i++){ var inp=document.getElementById('nmEdit_'+i); if(!inp) continue; var v=String(inp.value||'').trim(); var lid=students[i].loginId; var fi=document.getElementById('nmFuri_'+i); var fv=fi?String(fi.value||'').trim():''; edits.push({loginId:lid, realName:v, furigana:fv}); if(v){ local[lid]=v; cnt++; } else { if(local[lid]!=null) delete local[lid]; } }
         try{ localStorage.setItem('studentNameMap', JSON.stringify(local)); }catch(_e){}
         var st=document.getElementById('nameEditStatus'); if(st) st.textContent='保存中…';
         // サーバー（全先生で共有・全端末で表示）にも保存
@@ -11436,13 +11490,21 @@ wrap.innerHTML = '';
       }
       function _tsDispName(rm){ return (typeof resolveStudentName==='function')?resolveStudentName(rm.loginId, rm.name):(rm.name||rm.loginId||''); }
       function _kata2hira(s){ var o=''; for(var i=0;i<s.length;i++){ var c=s.charCodeAt(i); if(c>=0x30a1&&c<=0x30f6) o+=String.fromCharCode(c-0x60); else o+=s.charAt(i); } return o; }
-      function _nameNorm(s){ s=String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}); s=_kata2hira(s); s=s.replace(/[ 　]/g,''); var hon=['さん','くん','ちゃん','君','様','さま','先生']; for(var i=0;i<hon.length;i++){ if(s.length>hon[i].length && s.slice(-hon[i].length)===hon[i]){ s=s.slice(0,s.length-hon[i].length); break; } } return s.toLowerCase(); }
+      function _ky2sn(s){ var M={'髙':'高','﨑':'崎','邊':'辺','邉':'辺','龋':'斉','齊':'斉','澤':'沢','廣':'広','徳':'徳','濵':'浜','眞':'真','國':'国','會':'会','惠':'恵','槇':'槙','硤':'碍'}; return String(s==null?'':s).replace(/[髙﨑邊邉龋齊澤廣濵眞國會惠槇硤]/g,function(ch){return M[ch]||ch;}); }
+      function _nameNorm(s){ s=String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}); s=_ky2sn(s); s=_kata2hira(s); s=s.replace(/[ 　]/g,''); var hon=['さん','くん','ちゃん','君','様','さま','先生']; for(var i=0;i<hon.length;i++){ if(s.length>hon[i].length && s.slice(-hon[i].length)===hon[i]){ s=s.slice(0,s.length-hon[i].length); break; } } return s.toLowerCase(); }
       function _nameParts(s){ var a=String(s==null?'':s).split(/[ 　・･,，、]+/); var out=[]; for(var i=0;i<a.length;i++){ var p=_nameNorm(a[i]); if(p.length>=2) out.push(p); } return out; }
       function _lev(a,b){ a=a||''; b=b||''; var m=a.length,n=b.length; if(!m) return n; if(!n) return m; var dp=[]; for(var j=0;j<=n;j++) dp[j]=j; for(var i=1;i<=m;i++){ var prev=dp[0]; dp[0]=i; for(var j=1;j<=n;j++){ var tmp=dp[j]; dp[j]=Math.min(dp[j]+1, dp[j-1]+1, prev+(a.charAt(i-1)===b.charAt(j-1)?0:1)); prev=tmp; } } return dp[n]; }
-      function _getAliasMap(cid){ try{ var all=JSON.parse(localStorage.getItem('studentAliases')||'{}'); return all[cid]||{}; }catch(_){ return {}; } }
-      function _rememberAlias(cid, rawName, uid){ if(!cid||!uid) return; var nk=_nameNorm(rawName); if(!nk) return; try{ var all=JSON.parse(localStorage.getItem('studentAliases')||'{}'); if(!all[cid]) all[cid]={}; all[cid][nk]=uid; localStorage.setItem('studentAliases',JSON.stringify(all)); }catch(_){ } }
-      function _buildRosterKeys(roster){ var rk=[]; for(var j=0;j<roster.length;j++){ var rm=roster[j]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(rm.loginId,rm.name):(rm.name||rm.loginId||''); var keys={}; var add=function(x){ var n=_nameNorm(x); if(n) keys[n]=1; }; add(dn); add(rm.name); add(rm.loginId); var pp=_nameParts(dn).concat(_nameParts(rm.name||'')); for(var p=0;p<pp.length;p++){ keys[pp[p]]=1; } var dp=_nameParts(dn); if(dp.length===2){ keys[dp[1]+dp[0]]=1; } rk.push({rm:rm, keys:keys, primary:_nameNorm(dn)}); } return rk; }
-      function _matchRosterRows(d, cid){ var roster=d.roster||[]; var rk=_buildRosterKeys(roster); var aliases=_getAliasMap(cid); for(var i=0;i<d.rows.length;i++){ var r=d.rows[i]; var rawName=(r.rawName!=null)?r.rawName:(r.nameRaw||''); var rawId=r.idRaw||''; var nkey=_nameNorm(rawName); var idkey=_nameNorm(rawId); var hit=null, status='none'; if(nkey && aliases[nkey]){ for(var a=0;a<rk.length;a++){ if(rk[a].rm.userId===aliases[nkey]){ hit=rk[a].rm; status='auto'; break; } } } if(!hit && idkey){ for(var a=0;a<rk.length;a++){ if(rk[a].keys[idkey]){ hit=rk[a].rm; status='auto'; break; } } } if(!hit && nkey){ for(var a=0;a<rk.length;a++){ if(rk[a].keys[nkey]){ hit=rk[a].rm; status='auto'; break; } } } if(!hit && nkey){ for(var a=0;a<rk.length && !hit;a++){ for(var key in rk[a].keys){ if(key.length>=2 && (nkey.indexOf(key)>=0||key.indexOf(nkey)>=0)){ hit=rk[a].rm; status='auto'; break; } } } } if(!hit && nkey && nkey.length>=2){ var best=null,bd=99; var thr=Math.max(1, Math.floor(nkey.length*0.34)); for(var a=0;a<rk.length;a++){ for(var key in rk[a].keys){ if(key.length<2) continue; var l=_lev(nkey,key); if(l<bd){ bd=l; best=rk[a].rm; } } } if(best && bd<=thr){ hit=best; status='cand'; } } r.matchedUserId=hit?hit.userId:null; r.matchStatus=hit?status:'none'; r.matchedName=hit?((typeof resolveStudentName==='function')?resolveStudentName(hit.loginId,hit.name):(hit.name||hit.loginId)):null; } }
+      function _getAliasMap(cid){ var server={}; try{ var sm=window._serverAliasMap||{}; if(sm[cid]&&typeof sm[cid]==='object') server=sm[cid]; }catch(_s){} var local={}; try{ var all=JSON.parse(localStorage.getItem('studentAliases')||'{}'); local=all[cid]||{}; }catch(_){ local={}; } return Object.assign({}, server, local); }
+      function _rememberAlias(cid, rawName, uid){ if(!cid||!uid) return; var nk=_nameNorm(rawName); if(!nk) return; try{ var all=JSON.parse(localStorage.getItem('studentAliases')||'{}'); if(!all[cid]) all[cid]={}; all[cid][nk]=uid; localStorage.setItem('studentAliases',JSON.stringify(all)); }catch(_){ } try{ if(!window._serverAliasMap) window._serverAliasMap={}; if(!window._serverAliasMap[cid]) window._serverAliasMap[cid]={}; window._serverAliasMap[cid][nk]=uid; }catch(_a){} try{ api('/api/teacher/aliases',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:cid,key:nk,userId:uid})}); }catch(_p){} }
+      function _buildRosterKeys(roster){ var fmap=(window._serverFuriganaMap&&typeof window._serverFuriganaMap==='object')?window._serverFuriganaMap:{}; var rk=[]; for(var j=0;j<roster.length;j++){ var rm=roster[j]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(rm.loginId,rm.name):(rm.name||rm.loginId||''); var fur=fmap[rm.loginId]||''; var strong={}, weak={}; var addS=function(x){ var nn=_nameNorm(x); if(nn) strong[nn]=1; }; addS(dn); addS(rm.name); addS(rm.loginId); addS(fur); var pp=_nameParts(dn).concat(_nameParts(rm.name||'')).concat(_nameParts(fur)); for(var p=0;p<pp.length;p++){ weak[pp[p]]=1; } var dp=_nameParts(dn); if(dp.length===2){ weak[dp[1]+dp[0]]=1; } var fp=_nameParts(fur); if(fp.length===2){ strong[fp[0]+fp[1]]=1; weak[fp[1]+fp[0]]=1; } rk.push({rm:rm, strong:strong, weak:weak, primary:_nameNorm(dn)}); } return rk; }
+      function _matchRosterRows(d, cid){ var roster=d.roster||[]; var rk=_buildRosterKeys(roster); var aliases=_getAliasMap(cid); for(var i=0;i<d.rows.length;i++){ var r=d.rows[i]; var rawName=(r.rawName!=null)?r.rawName:(r.nameRaw||''); var rawId=r.idRaw||''; var nkey=_nameNorm(rawName); var idkey=_nameNorm(rawId); var hit=null, status='none';
+        if(nkey && aliases[nkey]){ for(var a=0;a<rk.length;a++){ if(rk[a].rm.userId===aliases[nkey]){ hit=rk[a].rm; status='auto'; break; } } }
+        if(!hit && idkey){ for(var a=0;a<rk.length;a++){ if(rk[a].strong[idkey]){ hit=rk[a].rm; status='auto'; break; } } }
+        if(!hit && nkey){ for(var a=0;a<rk.length;a++){ if(rk[a].strong[nkey]){ hit=rk[a].rm; status='auto'; break; } } }
+        if(!hit && nkey){ for(var a=0;a<rk.length;a++){ if(rk[a].weak[nkey]){ hit=rk[a].rm; status='cand'; break; } } }
+        if(!hit && nkey){ for(var a=0;a<rk.length && !hit;a++){ for(var key in rk[a].strong){ if(key.length>=2 && (nkey.indexOf(key)>=0||key.indexOf(nkey)>=0)){ hit=rk[a].rm; status='cand'; break; } } } }
+        if(!hit && nkey && nkey.length>=2){ var best=null,bd=99; var thr=Math.max(1, Math.floor(nkey.length*0.34)); for(var a=0;a<rk.length;a++){ for(var key in rk[a].strong){ if(key.length<2) continue; var l=_lev(nkey,key); if(l<bd){ bd=l; best=rk[a].rm; } } } if(best && bd<=thr){ hit=best; status='cand'; } }
+        r.matchedUserId=hit?hit.userId:null; r.matchStatus=hit?status:'none'; r.matchedName=hit?((typeof resolveStudentName==='function')?resolveStudentName(hit.loginId,hit.name):(hit.name||hit.loginId)):null; } }
       function _tsRematch(d){ var sel=document.getElementById('laClassSelect'); _matchRosterRows(d, sel?sel.value:''); }
       function _notesClassId(){ var sel=document.getElementById('analyticsClassFilter'); return sel?sel.value:''; }
       function _todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -11578,7 +11640,7 @@ wrap.innerHTML = '';
           h+='<div class="border rounded-lg p-2 '+_bg+'">';
           h+='<div class="flex items-center gap-1 flex-wrap mb-1">';
           h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+' '+_bd+'</span>';
-          h+='<select id="recRow_'+i+'_user" class="border rounded p-1 text-xs">'+opts(r.matchedUserId)+'</select>';
+          h+='<select id="recRow_'+i+'_user" class="border rounded p-1 text-xs">'+opts(r.matchedUserId)+'</select>'+((ms==='cand')?('<label class="flex items-center gap-1 ml-1 text-[10px] text-amber-700"><input type="checkbox" id="recRow_'+i+'_confirm">確定</label>'):'');
           h+='</div>';
           h+='<div class="grid grid-cols-3 gap-1 mb-1">';
           h+='<input id="recRow_'+i+'_title" class="border rounded p-1 text-xs col-span-2" placeholder="タイトル" value="'+escH(r.title||'')+'">';
@@ -11602,12 +11664,13 @@ wrap.innerHTML = '';
         var tsel=document.getElementById('recType'); var rtype=tsel?tsel.value:'report';
         var st=document.getElementById('recSaveStatus');
         var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
-        var rows=[]; var skipped=0;
+        var rows=[]; var skipped=0; var needConfirm=0;
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('recRow_'+i+'_user');
           var title=gv('recRow_'+i+'_title'); var bodyTxt=gv('recRow_'+i+'_body');
           var refl=gv('recRow_'+i+'_reflection'); var er=gv('recRow_'+i+'_eval'); var ec=gv('recRow_'+i+'_evalc');
           if(!uid){ skipped++; continue; }
+          var _msr=(d.rows[i]&&d.rows[i].matchStatus)||''; if(_msr==='cand' && uid===(d.rows[i]&&d.rows[i].matchedUserId)){ var _cbx=document.getElementById('recRow_'+i+'_confirm'); if(!_cbx||!_cbx.checked){ needConfirm++; continue; } }
           if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ skipped++; continue; }
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].nameRaw)||'', uid); }catch(_e){}
           rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});
@@ -11615,7 +11678,7 @@ wrap.innerHTML = '';
         if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと内容を確認）'; return; }
         if(st) st.textContent='保存中...';
         fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, type:rtype, rows:rows})}).then(function(r){return r.json();}).then(function(res){
-          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+'。個人分析のポートフォリオに反映されます'; }
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は「確定」にチェックで保存）'):'')+'。個人分析のポートフォリオに反映されます'; }
           else { if(st) st.textContent='保存に失敗しました'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
@@ -11745,13 +11808,14 @@ wrap.innerHTML = '';
           if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分の番号を保存しました'; loadReportCard(); } else { if(st) st.textContent='保存に失敗しました'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
-      function parseTestScores(){
+      async function parseTestScores(){
         var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
         var st=document.getElementById('tsParseStatus');
         var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
         if(!cid){ if(st) st.textContent='先に「クラス全体」でクラスを選んでください'; return; }
         if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
         if(st) st.textContent='読み取り中...';
+        if(!window._serverFuriganaMap){ try{ await loadServerNameMap(); }catch(_e){} }
         fetch('/api/teacher/test-scores/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
           _tsRematch(d);
@@ -11780,7 +11844,7 @@ wrap.innerHTML = '';
           var _pb=_pred?' <span class="text-[9px] text-white bg-rose-500 rounded px-1">※名前推定</span>':'';
           h+='<tr class="'+(_pred?'bg-amber-50':(ms==='auto')?'':(ms==='cand')?'bg-amber-50':'bg-red-50')+'">';
           h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+_pb+'</td>';
-          h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select></td>';
+          h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select>'+((ms==='cand')?('<label class="flex items-center gap-1 mt-0.5 text-[10px] text-amber-700"><input type="checkbox" id="tsRow_'+i+'_confirm">この子で確定</label>'):'')+'</td>';
           h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
           var _eo=function(vv){ var a=[['',''],['◎','◎'],['○','○'],['△','△']]; var o=''; for(var _z=0;_z<a.length;_z++){ o+='<option value="'+a[_z][0]+'"'+(a[_z][0]===vv?' selected':'')+'>'+a[_z][1]+'</option>'; } return o; };
           var _ekv=r.evalKnowledge||r.evalRank||''; var _etv=r.evalThinking||''; var _eav=r.evalAttitude||'';
@@ -11801,10 +11865,11 @@ wrap.innerHTML = '';
         var st=document.getElementById('tsSaveStatus');
         var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
         var testName=gv('tsHdrName'), testDate=gv('tsHdrDate'), subject=gv('tsHdrSubject'), maxScore=gv('tsHdrMax')||'100';
-        var rows=[]; var skipped=0;
+        var rows=[]; var skipped=0; var needConfirm=0;
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
           if(!uid){ skipped++; continue; }
+          var _msr=(d.rows[i]&&d.rows[i].matchStatus)||''; if(_msr==='cand' && uid===(d.rows[i]&&d.rows[i].matchedUserId)){ var _cbx=document.getElementById('tsRow_'+i+'_confirm'); if(!_cbx||!_cbx.checked){ needConfirm++; continue; } }
           var _ek=gv('tsRow_'+i+'_ek'); var _et=gv('tsRow_'+i+'_et'); var _ea=gv('tsRow_'+i+'_ea'); var _cm=gv('tsRow_'+i+'_comment');
           var _ev=_ek||_et||_ea;
           var _hasScore=!(score===''||score==null);
@@ -11812,10 +11877,10 @@ wrap.innerHTML = '';
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}
           rows.push({userId:uid, score:(_hasScore?parseInt(score,10):null), evalRank:_ev, evalKnowledge:_ek, evalThinking:_et, evalAttitude:_ea, comment:_cm});
         }
-        if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと点数を確認）'; return; }
+        if(!rows.length){ if(st) st.textContent='保存できる行がありません'+(needConfirm?('（要確認 '+needConfirm+'件は「この子で確定」にチェック）'):'（児童の割り当てと点数を確認）'); return; }
         if(st) st.textContent='保存中...';
         fetch('/api/teacher/test-scores/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, testName:testName, testDate:testDate, subject:subject, maxScore:(parseInt(maxScore,10)||100), rows:rows})}).then(function(r){return r.json();}).then(function(res){
-          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+'。個人分析・カルテ・アナリティクスに反映されます'; }
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は候補にチェックで保存）'):'')+'。個人分析・カルテ・アナリティクスに反映されます'; }
           else { if(st) st.textContent='保存に失敗しました'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
