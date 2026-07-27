@@ -227,6 +227,7 @@ app.use('*', async (c, next) => {
     try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_hash TEXT`) } catch (_) {}
     try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN secret_answer_salt TEXT`) } catch (_) {}
     try { await c.env.DB.exec(`ALTER TABLE student_test_scores ADD COLUMN eval_rank TEXT`) } catch (_) {}
+    try { await c.env.DB.exec(`ALTER TABLE users ADD COLUMN signup_reason TEXT DEFAULT ''`) } catch (_) {}
   }
   return next()
 })
@@ -297,6 +298,7 @@ app.post('/api/auth/signup', async (c) => {
   const name = String(body.name || '').trim()
   const grade = Number(body.grade)
   const className = String(body.className || '').trim()
+  const signupReason = String(body.reason || '').trim().slice(0, 200)
 
   if (!loginId || loginId.length < 3) return jsonError(c, 400, 'loginId_too_short')
   if (!password || password.length < 6) return jsonError(c, 400, 'password_too_short')
@@ -310,10 +312,10 @@ app.post('/api/auth/signup', async (c) => {
 
   try {
     await c.env.DB.prepare(
-      `INSERT INTO users (id, role, login_id, password_hash, password_salt, name, grade, class_name, is_active)
-       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 0)`
+      `INSERT INTO users (id, role, login_id, password_hash, password_salt, name, grade, class_name, is_active, signup_reason)
+       VALUES (?, 'student', ?, ?, ?, ?, ?, ?, 0, ?)`
     )
-      .bind(id, loginId, hash, salt, name, grade, className)
+      .bind(id, loginId, hash, salt, name, grade, className, signupReason)
       .run()
   } catch (e: any) {
     // likely unique constraint
@@ -888,7 +890,7 @@ app.get('/api/admin/pending', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
 
   const res = await c.env.DB.prepare(
-    `SELECT id, login_id as loginId, name, grade, class_name as className, created_at as createdAt, disabled_reason as disabledReason
+    `SELECT id, login_id as loginId, name, grade, class_name as className, created_at as createdAt, disabled_reason as disabledReason, signup_reason as signupReason
      FROM users WHERE role='student' AND is_active=0
      ORDER BY created_at DESC`
   ).all<any>()
@@ -7371,6 +7373,17 @@ app.get('/signup', (c) => {
           <label class="text-sm font-bold text-gray-700 mb-1 block">パスワード</label>
           <input id="password" type="password" class="w-full border p-2 rounded" placeholder="6文字以上"/>
         </div>
+        <div>
+          <label class="text-sm font-bold text-gray-700 mb-1 block">申請理由</label>
+          <select id="reason" class="w-full border p-2 rounded bg-white" onchange="var t=document.getElementById('reasonTextWrap'); if(t) t.style.display=(this.value==='その他')?'block':'none';">
+            <option value="新規登録">新規登録（はじめて使う）</option>
+            <option value="前のアカウントが使えない">前のアカウントが使えない／おかしい</option>
+            <option value="その他">その他（自由に書く）</option>
+          </select>
+          <div id="reasonTextWrap" style="display:none;margin-top:6px;">
+            <input id="reasonText" class="w-full border p-2 rounded" placeholder="理由を書いてね（先生だけが見ます）"/>
+          </div>
+        </div>
         <button id="btn" class="w-full bg-green-600 text-white rounded p-2 font-bold">登録する</button>
         <p id="msg" class="text-sm"></p>
         <a class="text-sm text-blue-700 underline" href="/login">ログインへ</a>
@@ -7390,11 +7403,15 @@ app.get('/signup', (c) => {
       document.getElementById('btn').onclick = async () => {
         msg.textContent='';
         const gradeVal = document.getElementById('grade').value;
+        var _rsel = document.getElementById('reason') ? document.getElementById('reason').value : '新規登録';
+        var _rtxt = document.getElementById('reasonText') ? document.getElementById('reasonText').value.trim() : '';
+        var _reason = (_rsel === 'その他') ? ('その他: ' + (_rtxt || '（記入なし）')) : _rsel;
         const payload = {
           name: document.getElementById('name').value.trim(),
           grade: gradeVal ? Number(gradeVal) : NaN,
           loginId: document.getElementById('loginId').value.trim(),
           password: document.getElementById('password').value,
+          reason: _reason,
         };
         // クライアント側バリデーション
         if(!payload.name){ msg.textContent='ニックネームを入力してください'; msg.className='text-sm text-red-600'; return; }
@@ -7739,7 +7756,27 @@ app.get('/admin', (c) => {
           const div = document.createElement('div');
           div.className='flex flex-col md:flex-row md:items-center md:justify-between border rounded p-2 gap-2';
           const left = document.createElement('div');
-          left.textContent = u.grade + '年 ' + u.className + ' / ' + u.name + '（' + u.loginId + '）' + (u.disabledReason ? (' 停止理由: '+u.disabledReason) : '');
+          function _fmtApplied(iso){
+            if(!iso) return '';
+            var d = new Date(String(iso).replace(' ','T') + 'Z');
+            if(isNaN(d.getTime())) return '';
+            var j = new Date(d.getTime() + 9*3600*1000);
+            var mm = j.getUTCMonth()+1, dd = j.getUTCDate();
+            var hh = ('0'+j.getUTCHours()).slice(-2), mi = ('0'+j.getUTCMinutes()).slice(-2);
+            var abs = mm + '/' + dd + ' ' + hh + ':' + mi;
+            var diff = Date.now() - d.getTime(); var rel;
+            if(diff < 60000) rel='たった今';
+            else if(diff < 3600000) rel=Math.floor(diff/60000)+'分前';
+            else if(diff < 86400000) rel=Math.floor(diff/3600000)+'時間前';
+            else rel=Math.floor(diff/86400000)+'日前';
+            return abs + '（' + rel + '）';
+          }
+          var _applied = _fmtApplied(u.createdAt);
+          var _nameLine = document.createElement('div');
+          _nameLine.textContent = u.grade + '年 ' + (u.className||'') + ' / ' + u.name + '（' + u.loginId + '）' + (u.disabledReason ? (' 停止理由: '+u.disabledReason) : '');
+          left.appendChild(_nameLine);
+          if(_applied){ var _a=document.createElement('div'); _a.className='text-xs text-slate-500'; _a.textContent='🕒 申請: '+_applied; left.appendChild(_a); }
+          if(u.signupReason){ var _r=document.createElement('div'); _r.className='text-xs text-slate-600'; _r.textContent='📝 申請理由: '+u.signupReason; left.appendChild(_r); }
           div.appendChild(left);
           const right = document.createElement('div');
           right.className='flex gap-2';
