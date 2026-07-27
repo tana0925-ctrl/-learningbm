@@ -8256,7 +8256,7 @@ app.get('/teacher', (c) => {
       <div class="bg-white rounded-xl shadow p-1 flex gap-1">
         <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
         <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
-        <button id="tabAnnouncements" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
+        <button id="tabAnnouncements" style="display:none" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
         <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
         <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
         <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
@@ -12746,10 +12746,13 @@ wrap.innerHTML = '';
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
         if(!me.user || (me.user.role !== 'teacher' && me.user.role !== 'admin')){ location.href='/login'; return; }
         document.getElementById('teacherInfo').textContent = me.user.name + '（' + (me.user.school||'') + '）';
-        // おしらせタブは管理者のみ表示
-        if(me.user.role !== 'admin'){
+        // おしらせタブは管理者(admin)のみ表示。既定は非表示（teacher役職には出さない・チラつき/フェイルオープン防止）
+        if(me.user.role === 'admin'){
           var annTab = document.getElementById('tabAnnouncements');
-          if(annTab) annTab.style.display = 'none';
+          if(annTab) annTab.style.display = '';
+        } else {
+          var annTab2 = document.getElementById('tabAnnouncements');
+          if(annTab2) annTab2.style.display = 'none';
           var annPane = document.getElementById('tabPaneAnnouncements');
           if(annPane) annPane.style.display = 'none';
         }
