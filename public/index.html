@@ -14862,7 +14862,7 @@ if (mode === 'battle') {
                 eggScreen.classList.remove('hidden');
                 eggScreen.classList.add('flex');
                 // 日替わり回数制限キャラ：タマゴバトルでも使用回数をカウント
-                try{ if(typeof recordLimitedUseForParty==='function') recordLimitedUseForParty('egg'); }catch(e){}
+                try{ if(window.__eggSelectedStageIndex!=null && typeof recordLimitedUseForParty==='function') recordLimitedUseForParty('egg'); }catch(e){}
                 try{ if(window.__eggSelectedStageIndex!=null){ if(window.EggBattle && typeof EggBattle.init==='function') EggBattle.init(); if(window.EggBattle && typeof EggBattle.setStage==='function') EggBattle.setStage(window.__eggSelectedStageIndex, window.__eggSelectedStageLoop || 1); window.__eggSelectedStageIndex=null; window.__eggSelectedStageLoop=null; } }catch(e){}
                 try{ if(window.EggBattle && typeof EggBattle.start==='function') EggBattle.start(); }catch(e){}
             } else if (mode === 'gym') {
@@ -15283,7 +15283,18 @@ function _getTodayDailyTargets(){
         // If already exists and valid, return it
         const cur = M.dailyTargets[k];
         if(cur && Array.isArray(cur.modes) && cur.modes.length){
-            return cur.modes.filter(Boolean);
+            var __sv = cur.modes.filter(Boolean);
+            var __known = [];
+            try{
+                __known = (_allTrainingModes() || []).slice();
+                for(var __g=1; __g<=6; __g++){ try{ __known = __known.concat(_modesForGrade(__g) || []); }catch(e){} }
+            }catch(e){}
+            // 単元IDの改名などで存在しないIDが保存に残ると、英語IDのまま表示され達成もできない。
+            // その場合だけ作り直す（正常時は従来どおりそのまま返す）
+            if(!__known.length || __sv.every(function(m){ return __known.indexOf(m) >= 0; })){
+                return __sv;
+            }
+            try{ delete M.dailyTargets[k]; }catch(e){}
         }
 
         // Build candidate list: 学年がある場合はその学年の単元のみ
@@ -18892,12 +18903,13 @@ function startPvE(difficulty) {
         function initBattlePvE(continueFlag = false) {
             battle.mode = 'pve';
             try{ var _bb = document.getElementById('btnThrowBall'); _bb.style.display = ''; _bb.disabled = false; _bb.style.opacity = ''; _bb.style.pointerEvents = ''; _bb.title = ''; } catch(e) {}
-            try{ recordLimitedUseForParty('pve'); }catch(e){}
+            /* BUGFIX-DLU: initBattlePvE(true) はストリーク継続で呼ばれるため、ここで数えると1日3回が実質2回になる。下の !continueFlag 内へ移動 */
             battle.phase = 'ready';
             battle.consecutiveCorrect = 0;
             document.getElementById('runConfirmOverlay').classList.add('hidden');
 
             if (!continueFlag) {
+                try{ recordLimitedUseForParty('pve'); }catch(e){}
                 battle.isStarted = false;
                 
                 // 連打対策（学習優先）：ミスゲージをリセット
@@ -52552,12 +52564,12 @@ function _kanjiMulti(bank){
   }
   if(p===1){
     // パターン②: 読み→漢字を選ぶ
-    const others=bank.filter(x=>x.kanji!==d.kanji);
+    const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading);
     const wk=[];for(let i=0;i<3&&i<others.length;i++){const r=_ri(0,others.length-1);wk.push(others.splice(r,1)[0].kanji);}
     return{q:'「'+d.reading+'」を漢字で書くと？',correct:d.kanji,wrongs:wk};
   }
   // パターン③: どの漢字が正しい読み？
-  const others=bank.filter(x=>x.kanji!==d.kanji).slice(0,3);
+  const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading).slice(0,3);
   const allK=[d,...others].sort(()=>Math.random()-0.5);
   return{q:'「'+d.reading+'」と読む漢字はどれ？',correct:d.kanji,wrongs:others.map(x=>x.kanji)};
 }
