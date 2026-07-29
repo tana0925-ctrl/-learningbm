@@ -1,0 +1,126 @@
+name: bugfix triage 2026-07-30 (index.html patch)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: write patch script
+        run: |
+          mkdir -p scripts
+          cat > scripts/patch_triage_20260730.py <<'PYEOF'
+          """
+          定期バグトリアージ 2026-07-30 の修正パッチ
+          GitHub Actions (patch-triage.yml) から実行される。冪等（2回流しても安全）。
+
+          Fix 1: 日替わり制限キャラ(阪神マン等)の使用回数が二重加算され「1日3回」が実質2回になる
+          Fix 2: 漢字4択で同じ読みの漢字が誤答肢に入り、正解を選んでも×になる
+          Fix 3: 保存済みデイリーミッションに存在しない単元IDが残り、英語IDのまま表示＆達成不能になる
+          """
+          import sys
+
+          target = 'public/index.html'
+          # public/index.html は CRLF 改行。テキストモードで読むと改行が正規化され
+          # 全行が差分になってしまうので、必ずバイナリで読み書きする。
+          with open(target, 'rb') as f:
+              content = f.read().decode('utf-8')
+
+          NL = '\r\n'
+          applied = 0
+
+
+          def sub(name, search, replace):
+              global content, applied
+              if search in content:
+                  content = content.replace(search, replace, 1)
+                  print("OK  : " + name, file=sys.stderr)
+                  applied += 1
+              elif replace in content:
+                  print("SKIP: " + name + " (already applied)", file=sys.stderr)
+              else:
+                  print("FAIL: " + name + " (anchor not found)", file=sys.stderr)
+                  sys.exit(1)
+
+
+          # ── Fix 1a: PvE のストリーク継続で二重加算しない ──────────────
+          sub(
+              "1a pve dlu move-out",
+              "try{ recordLimitedUseForParty('pve'); }catch(e){}" + NL + "            battle.phase = 'ready';",
+              "/* BUGFIX-DLU: initBattlePvE(true) はストリーク継続で呼ばれるため、"
+              "ここで数えると1日3回が実質2回になる。下の !continueFlag 内へ移動 */" + NL +
+              "            battle.phase = 'ready';",
+          )
+
+          # ── Fix 1b: 新規バトル開始時のみ数える ────────────────────────
+          sub(
+              "1b pve dlu move-in",
+              "if (!continueFlag) {" + NL + "                battle.isStarted = false;",
+              "if (!continueFlag) {" + NL +
+              "                try{ recordLimitedUseForParty('pve'); }catch(e){}" + NL +
+              "                battle.isStarted = false;",
+          )
+
+          # ── Fix 1c: タマゴ画面の再描画で二重加算しない ────────────────
+          sub(
+              "1c egg dlu guard",
+              "try{ if(typeof recordLimitedUseForParty==='function') recordLimitedUseForParty('egg'); }catch(e){}",
+              "try{ if(window.__eggSelectedStageIndex!=null && typeof recordLimitedUseForParty==='function') recordLimitedUseForParty('egg'); }catch(e){}",
+          )
+
+          # ── Fix 2: 漢字4択 同音異字を誤答肢から除外 ───────────────────
+          sub(
+              "2a kanji pattern3 reading filter",
+              "const others=bank.filter(x=>x.kanji!==d.kanji).slice(0,3);",
+              "const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading).slice(0,3);",
+          )
+          sub(
+              "2b kanji pattern2 reading filter",
+              "const others=bank.filter(x=>x.kanji!==d.kanji);",
+              "const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading);",
+          )
+
+          # ── Fix 3: 保存済みデイリー対象の妥当性チェック ───────────────
+          sub(
+              "3 daily targets validate",
+              "        if(cur && Array.isArray(cur.modes) && cur.modes.length){" + NL +
+              "            return cur.modes.filter(Boolean);" + NL +
+              "        }",
+              "        if(cur && Array.isArray(cur.modes) && cur.modes.length){" + NL +
+              "            var __sv = cur.modes.filter(Boolean);" + NL +
+              "            var __known = [];" + NL +
+              "            try{" + NL +
+              "                __known = (_allTrainingModes() || []).slice();" + NL +
+              "                for(var __g=1; __g<=6; __g++){ try{ __known = __known.concat(_modesForGrade(__g) || []); }catch(e){} }" + NL +
+              "            }catch(e){}" + NL +
+              "            // 単元IDの改名などで存在しないIDが保存に残ると、英語IDのまま表示され達成もできない。" + NL +
+              "            // その場合だけ作り直す（正常時は従来どおりそのまま返す）" + NL +
+              "            if(!__known.length || __sv.every(function(m){ return __known.indexOf(m) >= 0; })){" + NL +
+              "                return __sv;" + NL +
+              "            }" + NL +
+              "            try{ delete M.dailyTargets[k]; }catch(e){}" + NL +
+              "        }",
+          )
+
+          with open(target, 'wb') as f:
+              f.write(content.encode('utf-8'))
+
+          print("changes applied: %d" % applied, file=sys.stderr)
+
+          PYEOF
+
+      - name: apply patch
+        run: python3 scripts/patch_triage_20260730.py
+
+      - name: commit & push
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add public/index.html scripts/patch_triage_20260730.py
+          git diff --staged --quiet && echo "no changes" || git commit -m "fix: 日替わり制限キャラの二重加算 / 漢字4択の同音異字 / デイリー対象の不正ID (定期トリアージ 2026-07-30)"
+          git push
