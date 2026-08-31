@@ -1,6 +1,7 @@
  import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { registerMi } from './mi'
 
 type Bindings = {
   DB: D1Database
@@ -7253,6 +7254,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
+      // 🧭 MIしらべ への入口。既存の置換行には一切さわらず、</body> の直前に1本追記するだけ。
+      t = t.replace('</body>', '<a href="/mi" style="position:fixed;left:8px;bottom:40px;z-index:2147483000;background:rgba(224,231,255,.97);color:#4338ca;border:1px solid #a5b4fc;border-radius:9999px;padding:5px 10px;font-size:11px;font-weight:bold;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.2)" title="MIしらべ：いまの自分の「好き・とくい」を見てみよう">🧭MIしらべ</a></body>')
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
@@ -8284,6 +8287,7 @@ app.get('/teacher', (c) => {
           <p id="teacherInfo" class="text-sm text-slate-500"></p>
         </div>
         <div class="flex gap-2 items-center">
+          <a href="/teacher-mi" class="text-sm px-3 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold transition">🧭 MIしらべ</a>
           <a href="/" class="text-sm px-3 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold transition">🎮 ゲーム画面へ</a>
           <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
         </div>
@@ -12907,5 +12911,8 @@ wrap.innerHTML = '';
     </script>
   </body></html>`)
 })
+
+// 🧭 MIしらべ（/mi, /teacher-mi, /api/mi/*, /api/teacher/mi/*）を登録
+registerMi(app)
 
 export default app
