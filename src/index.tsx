@@ -7251,6 +7251,8 @@ app.get('/', async (c) => {
       // 追加: パスワード復旧用「ひみつのしつもん」への入口をゲーム画面に小さく常設
       t = t.replace('</body>', '<a href="/himitsu" style="position:fixed;left:8px;bottom:8px;z-index:2147483000;background:rgba(254,243,199,.95);color:#b45309;border:1px solid #fcd34d;border-radius:9999px;padding:5px 10px;font-size:11px;font-weight:bold;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.2)" title="パスワードを忘れたとき用のひみつのしつもん">🔒ひみつのしつもん</a></body>')
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
+      // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
+      t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
