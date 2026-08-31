@@ -1,0 +1,26 @@
+name: MIしらべ v3 パッチ（1000コイン・スクロール修正・受け取り状況）
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチを適用
+        run: python3 scripts/patch_mi_v3.py
+
+      - name: ビルドが通るか確認
+        run: |
+          npm install
+          npm run build
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add src/mi.tsx public/mi.js public/teacher-mi.js
+          git diff --staged --quiet && echo "no changes" || (git commit -m "MIしらべ v3: 特典1000コイン / 回答時のスクロール維持 / 先生用の受け取り状況" && git push)
