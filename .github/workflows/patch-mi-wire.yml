@@ -1,0 +1,21 @@
+name: MIしらべ 配線パッチ
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチスクリプトを実行
+        run: python3 scripts/patch_mi_wire.py
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "no changes" || (git commit -m "MIしらべ: /mi と /teacher-mi を index.tsx に配線" && git push)
