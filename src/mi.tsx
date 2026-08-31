@@ -59,6 +59,57 @@ export function miJstMonthKey(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 7) // 例: '2026-08'
 }
 
+// 📚 学び方の工夫カタログ。
+//    使い方の方針（先生と合意済み）:
+//      - 「あなたは○○タイプだから △△しなさい」という出し方は【しない】。
+//        MIに基づいて学習法を決めつける使い方は研究上支持されていない。
+//      - 「こんなやり方も試せるよ。合いそうなものを選んでみて」という提案にとどめる。
+//      - 点の高い領域からいくつか出したうえで、点の低い領域からも必ず1つ混ぜる
+//        （低い＝苦手と決めつけない方針の続きとして自然に出す）。
+//    kid: 児童向けの言葉 / teacher: 先生向けの言葉（断定を避けた書き方）
+export const MI_TIPS: Record<string, { key: string, kid: string, teacher: string }[]> = {
+  lang: [
+    { key: 'lang1', kid: '新しく ならった 言葉を、自分の 文に して 言ってみる', teacher: '新出語句を自分の文に言い換えさせる形が、入り口として合うかもしれません' },
+    { key: 'lang2', kid: 'おぼえたい ことを、声に 出して 読んでみる', teacher: '音読を挟む形が定着につながるかもしれません' },
+    { key: 'lang3', kid: 'その日 ならった ことを、1〜2行の 日記に 書いてみる', teacher: '短い言語化（1〜2行の記録）を習慣にする手が合うかもしれません' }
+  ],
+  logic: [
+    { key: 'logic1', kid: '答えが 出たら「どうして そうなるの？」と 自分に 聞いてみる', teacher: '答えの後に理由を言わせる問い返しが効くかもしれません' },
+    { key: 'logic2', kid: 'まちがえた 問題を、じゅんばんに 分けて やり直してみる', teacher: '手順を分けて再挑戦させる形が合うかもしれません' },
+    { key: 'logic3', kid: 'おぼえたい ことを、表や 図に まとめてみる', teacher: '表や図に整理させる課題の出し方が合うかもしれません' }
+  ],
+  nature: [
+    { key: 'nature1', kid: 'ならった ことを、身の回りの ものの 中から さがしてみる', teacher: '学習内容を身の回りの具体物と結びつける投げかけが合うかもしれません' },
+    { key: 'nature2', kid: '気に なった ことを、図かんや 本で しらべてみる', teacher: '自分で調べる時間を確保する形が合うかもしれません' },
+    { key: 'nature3', kid: 'あつめる ように、おぼえたい ことを カードに して ためていく', teacher: 'collect（ためて増やす）形の教材が合うかもしれません' }
+  ],
+  intra: [
+    { key: 'intra1', kid: '勉強の あとに「今日 わかった こと」を ひとつ 書いておく', teacher: '学習後の一言の振り返りを定着させる手が合うかもしれません' },
+    { key: 'intra2', kid: 'はじめる 前に、今日 やる ことを ひとつだけ 決める', teacher: '開始前に本人に目標を1つ選ばせる形が合うかもしれません' },
+    { key: 'intra3', kid: 'うまく いった やり方を、自分用の メモに ためておく', teacher: '自分の学び方を記録させる形が合うかもしれません' }
+  ],
+  visual: [
+    { key: 'visual1', kid: 'おぼえたい ことを、絵や 図に かいてみる', teacher: '図示させてから説明させる順序が合うかもしれません' },
+    { key: 'visual2', kid: '大事な ところに 色を つけて、目で 見て わかるように する', teacher: '色分けや強調で情報を整理させる手が合うかもしれません' },
+    { key: 'visual3', kid: 'じゅんばんの ある ことは、矢印で つないで かいてみる', teacher: '流れを矢印で可視化させる形が合うかもしれません' }
+  ],
+  body: [
+    { key: 'body1', kid: '立って 歩きながら、声に 出して となえてみる', teacher: '動きを伴う暗唱を許す（立ってよい等）と入りやすいかもしれません' },
+    { key: 'body2', kid: '手を 動かして 書きながら おぼえる', teacher: '書く・作るなど手を動かす活動を挟む形が合うかもしれません' },
+    { key: 'body3', kid: '10分 やったら すこし 体を 動かして、また もどる', teacher: '短時間で区切って体を動かす休憩を挟む形が合うかもしれません' }
+  ],
+  music: [
+    { key: 'music1', kid: 'おぼえたい ことに、ふしを つけて 歌ってみる', teacher: '節をつけて覚える方法を紹介してみるとよいかもしれません' },
+    { key: 'music2', kid: '手びょうしで リズムを つけて となえてみる', teacher: 'リズムに乗せた反復が合うかもしれません' },
+    { key: 'music3', kid: '同じ リズムの 言葉に して、口ずさんでみる', teacher: '語呂やリズムを使った記憶方略が合うかもしれません' }
+  ],
+  inter: [
+    { key: 'inter1', kid: 'おぼえた ことを、友だちや おうちの 人に 説明してみる', teacher: '説明する役をつくると力を発揮するかもしれません（グループ編成の参考に）' },
+    { key: 'inter2', kid: '友だちと 問題を 出し合ってみる', teacher: 'ペアで問題を出し合う活動が合うかもしれません' },
+    { key: 'inter3', kid: 'わからない ところを、言葉に して 人に 聞いてみる', teacher: '質問を言葉にする練習を促すとよいかもしれません' }
+  ]
+}
+
 export function miNormalizeAnswers(raw: any) {
   const out: (number | null)[] = []
   for (let i = 0; i < 32; i++) {
@@ -98,6 +149,9 @@ async function ensureMiTables(env: any) {
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_results (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT, answers_json TEXT NOT NULL, scores_json TEXT NOT NULL, left_total INTEGER DEFAULT 0, right_total INTEGER DEFAULT 0, taken_at TEXT NOT NULL)").run() } catch (_e) {}
   try { await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_mi_results_user ON mi_results(user_id, taken_at)").run() } catch (_e) {}
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_drafts (user_id TEXT PRIMARY KEY, answers_json TEXT, updated_at TEXT)").run() } catch (_e) {}
+  // 📚「やってみたい」と本人が選んだ工夫。結果1回につき1行（上書き）。
+  //    mi_results には手を入れず別テーブルに持つ。
+  try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_picks (user_id TEXT NOT NULL, result_id TEXT NOT NULL, picks_json TEXT NOT NULL, updated_at TEXT, PRIMARY KEY (user_id, result_id))").run() } catch (_e) {}
   // 🎁 特典の受け取り台帳。PRIMARY KEY(user_id, month_key) で「同じ月に2回目」が
   //    構造的に INSERT できないようにする（アプリ側の判定ミスでは二重付与できない）。
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_rewards (user_id TEXT NOT NULL, month_key TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0, result_id TEXT, created_at TEXT, PRIMARY KEY (user_id, month_key))").run() } catch (_e) {}
@@ -199,6 +253,37 @@ async function miRewardStatus(c: any, userId: string) {
   }
 }
 
+// 本人が選んだ工夫を読む（結果IDごと）。
+async function miLoadPicks(c: any, userId: string, resultIds: string[]) {
+  const out: Record<string, string[]> = {}
+  if (!resultIds.length) return out
+  try {
+    const qs = resultIds.map(() => '?').join(',')
+    const rs = await c.env.DB.prepare(
+      'SELECT result_id, picks_json FROM mi_picks WHERE user_id=? AND result_id IN (' + qs + ')'
+    ).bind(userId, ...resultIds).all()
+    for (const r of ((rs && rs.results) || [])) {
+      try { out[(r as any).result_id] = JSON.parse((r as any).picks_json) || [] } catch (_e) {}
+    }
+  } catch (_e) {}
+  return out
+}
+
+// クライアントから来た選択を、カタログに実在するキーだけに絞る（最大3つ）。
+function miSanitizePicks(raw: any) {
+  const valid: Record<string, boolean> = {}
+  for (const k of Object.keys(MI_TIPS)) for (const t of MI_TIPS[k]) valid[t.key] = true
+  const out: string[] = []
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      const k = String(v || '')
+      if (valid[k] && out.indexOf(k) < 0) out.push(k)
+      if (out.length >= 3) break
+    }
+  }
+  return out
+}
+
 export function registerMi(app: any) {
 
   // ---- 児童：自分の下書き＋履歴（他の児童の結果は一切返さない） ----
@@ -218,8 +303,39 @@ export function registerMi(app: any) {
       ).bind(u.id).all()
       results = ((rows && rows.results) || []).map(miRowToResult)
     } catch (_e) { results = [] }
+    const picksMap = await miLoadPicks(c, u.id, results.map((r: any) => r.id))
+    for (const r of results) r.picks = picksMap[r.id] || []
     const reward = await miRewardStatus(c, u.id)
     return c.json({ ok: true, draft, results, reward })
+  })
+
+  // ---- 学び方の工夫カタログ（児童・先生の両方が使う。単一の出どころ） ----
+  app.get('/api/mi/tips', async (c: any) => {
+    const u = c.get('user')
+    if (!u) return miJsonError(c, 401, 'unauthorized')
+    return c.json({ ok: true, domains: MI_DOMAIN_ORDER.map(d => ({ key: d.key, name: d.name, side: d.side })), tips: MI_TIPS })
+  })
+
+  // ---- 児童：やってみたい工夫の保存（自分のぶんだけ・最大3つ） ----
+  app.put('/api/mi/picks', async (c: any) => {
+    const u = miRequireStudent(c)
+    if (!u) return miJsonError(c, 401, 'unauthorized')
+    const body = await c.req.json().catch(() => null)
+    if (!body) return miJsonError(c, 400, 'invalid_json')
+    const resultId = String(body.resultId || '')
+    if (!resultId) return miJsonError(c, 400, 'resultId_required')
+    await ensureMiTables(c.env)
+    // 自分の結果でなければ拒否
+    const own = await c.env.DB.prepare('SELECT 1 as ok FROM mi_results WHERE id=? AND user_id=? LIMIT 1').bind(resultId, u.id).first()
+    if (!own) return miJsonError(c, 403, 'forbidden')
+    const picks = miSanitizePicks(body.picks)
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO mi_picks (user_id, result_id, picks_json, updated_at) VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, result_id) DO UPDATE SET picks_json=excluded.picks_json, updated_at=datetime('now')`
+      ).bind(u.id, resultId, JSON.stringify(picks)).run()
+    } catch (_e) { return miJsonError(c, 500, 'db_error') }
+    return c.json({ ok: true, picks })
   })
 
   // ---- 児童：下書き保存（途中で閉じても再開できる） ----
@@ -394,7 +510,9 @@ export function registerMi(app: any) {
       ).bind(userId).all()
       attempts = ((rs && rs.results) || []).map(miRowToResult)
     } catch (_e) { attempts = [] }
-    return c.json({ ok: true, attempts })
+    const picksMap = await miLoadPicks(c, userId, attempts.map((a: any) => a.id))
+    for (const a of attempts) a.picks = picksMap[a.id] || []
+    return c.json({ ok: true, attempts, tips: MI_TIPS, domains: MI_DOMAIN_ORDER.map(d => ({ key: d.key, name: d.name })) })
   })
 
   // ---- 児童ページ（タブレット前提のモバイルファースト） ----

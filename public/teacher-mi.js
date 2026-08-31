@@ -34,6 +34,7 @@
   var curClassId = '';
   var curData = null;
   var curRewards = null;   // 特典の受け取り状況（読み取り専用）
+  var tipsCat = null;      // 学び方の工夫カタログ（サーバーが単一の出どころ）
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -201,6 +202,58 @@
     }
   }
 
+  // 先生向けの読み解き。断定を避け「本人はこう感じている」「こういう手が合うかもしれない」に留める。
+  function readingHtml(a, name) {
+    var sc = a.scores || {};
+    var rank = (a.ranking && a.ranking.length) ? a.ranking
+      : DOMAINS.map(function (d, i) { return { key: d.key, name: d.name, score: Number(sc[d.key] || 0), idx: i }; })
+               .sort(function (x, y) { return (y.score - x.score) || (x.idx - y.idx); });
+    var meta = {};
+    for (var i = 0; i < DOMAINS.length; i++) meta[DOMAINS[i].key] = DOMAINS[i];
+    var top = rank.slice(0, 3), low = rank.slice(-2);
+    var lbl = function (x) { var m = meta[x.key] || { name: x.name, color: '#475569' }; return '<b style="color:' + m.color + '">' + esc(m.name) + '</b>（' + x.score + '/16）'; };
+
+    var h = '<div class="bg-white rounded-xl p-3 mb-3">';
+    h += '<div class="font-bold text-xs text-slate-600 mb-2">📖 読み解き（' + esc(fmtDate(a.takenAt)) + ' 時点）</div>';
+    h += '<div class="text-xs text-slate-700 leading-relaxed">';
+    h += '本人が いま <b>いちばん「好き・得意」と感じている</b>のは ' + top.map(lbl).join('、') + ' のあたりです。';
+    h += '<br>点が少なめなのは ' + low.map(lbl).join('、') + ' ですが、これは苦手という意味ではなく、<b>まだあまり経験していないだけ</b>かもしれません。';
+    h += '</div>';
+    h += '<div class="text-[11px] text-slate-400 mt-1">※ これは検査ではなく、その子の自己認識の記録です。「○○タイプ」と決めつけず、声かけや活動の選択肢を増やす材料としてお使いください。</div>';
+
+    if (tipsCat) {
+      h += '<div class="mt-3 border-t border-slate-100 pt-2">';
+      h += '<div class="font-bold text-xs text-slate-600 mb-1">💡 合うかもしれない手だて</div><ul class="list-disc pl-4 space-y-0.5">';
+      for (var t = 0; t < top.length; t++) {
+        var lst = tipsCat[top[t].key] || [];
+        if (lst.length) h += '<li class="text-xs text-slate-700"><span class="text-slate-400">' + esc((meta[top[t].key] || {}).name || '') + '：</span>' + esc(lst[0].teacher) + '</li>';
+      }
+      var lk = rank[rank.length - 1].key, ll = tipsCat[lk] || [];
+      if (ll.length) h += '<li class="text-xs text-slate-700"><span class="text-slate-400">' + esc((meta[lk] || {}).name || '') + '（経験が少なめ）：</span>' + esc(ll[0].teacher) + '</li>';
+      h += '</ul></div>';
+    }
+
+    var picks = a.picks || [];
+    if (picks.length && tipsCat) {
+      var names = [];
+      for (var q = 0; q < picks.length; q++) { var tx = tipKidText(picks[q]); if (tx) names.push(tx); }
+      if (names.length) {
+        h += '<div class="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-2">';
+        h += '<div class="font-bold text-xs text-emerald-800 mb-0.5">🙋 本人が「やってみたい」と選んだこと</div>';
+        h += '<div class="text-xs text-emerald-900">' + esc(names.join(' ／ ')) + '</div>';
+        h += '<div class="text-[11px] text-emerald-700 mt-0.5">※ 本人が自分で選んだものです。声かけの手がかりにどうぞ。</div></div>';
+      }
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function tipKidText(key) {
+    if (!tipsCat) return '';
+    for (var k in tipsCat) { var l = tipsCat[k] || []; for (var i = 0; i < l.length; i++) if (l[i].key === key) return l[i].kid; }
+    return '';
+  }
+
   // ---------------- 個人詳細 ----------------
   function showStudent(userId, name) {
     var box = document.getElementById('miDetail');
@@ -209,12 +262,14 @@
     jget('/api/teacher/mi/student/' + encodeURIComponent(userId)).then(function (d) {
       if (!d || !d.ok) { box.innerHTML = '<p class="text-sm text-red-600">読み込み失敗</p>'; return; }
       var at = d.attempts || [];
+      if (d.tips) tipsCat = d.tips;
       var h = '<div class="border-2 border-indigo-200 rounded-xl p-4 bg-indigo-50/40">';
       h += '<div class="flex items-center justify-between mb-2"><div class="font-black text-indigo-800">🧭 ' + esc(name) + ' さんの MIしらべ（' + at.length + '回）</div>';
       h += '<button id="miDetClose" class="text-xs text-slate-400 underline">閉じる</button></div>';
       if (!at.length) {
         h += '<p class="text-sm text-slate-500">まだ実施していません。</p>';
       } else {
+        h += readingHtml(at[0], name);
         // 履歴の推移
         if (at.length > 1) {
           h += '<div class="bg-white rounded-xl p-3 mb-3 overflow-x-auto"><div class="font-bold text-xs text-slate-600 mb-1">履歴（新しい順）</div>';

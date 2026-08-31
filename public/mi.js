@@ -106,6 +106,7 @@
   var history = [];
   var rewardInfo = null;   // サーバーが返す今月の特典の状態。クライアントでは一切いじらない。
   var lastReward = null;   // 直近の提出で実際に付与されたかどうか
+  var tipsCat = null;      // 学び方の工夫カタログ（サーバーから取得。単一の出どころ）
   var saveTimer = null;
   var app = null;
 
@@ -201,6 +202,12 @@
         h += '<button class="mi-hist w-full text-left border border-slate-200 rounded-xl p-3 mb-2 hover:bg-slate-50" data-i="' + i + '">';
         h += '<div class="font-bold text-sm text-indigo-700">' + esc(fmtDate(history[i].takenAt)) + ' の きろく</div>';
         h += '<div class="text-xs text-slate-500 mt-0.5">左のまとまり ' + history[i].left + ' ／ 右のまとまり ' + history[i].right + '</div>';
+        var hp = history[i].picks || [];
+        if (hp.length && tipsCat) {
+          var names = [];
+          for (var q = 0; q < hp.length; q++) { var tx = tipKidText(hp[q]); if (tx) names.push(tx); }
+          if (names.length) h += '<div class="text-[11px] text-emerald-700 mt-1 leading-relaxed">📚 このとき「やってみたい」と えらんだこと：' + esc(names.join(' ／ ')) + '</div>';
+        }
         h += '</button>';
       }
       h += '</div>';
@@ -340,6 +347,131 @@
     };
   }
 
+  // ------------------------------------------------------------------
+  // レーダーチャート（8軸・各16点満点）。外部ライブラリは使わず SVG を自前で描く。
+  //  - 目盛りは 4/8/12/16 の同心8角形
+  //  - 各頂点に領域名と「12/16」を出す（棒グラフで数値が見えていた良さを残す）
+  //  - 塗りは1色。前回の記録があれば、薄い破線で重ねる
+  //  - 幅が狭いときは読めなくなるので、呼び出し側で棒グラフにフォールバックする
+  // ------------------------------------------------------------------
+  // 幅に応じて2通りのレイアウトを使い分ける（タブレット縦でも文字が潰れないように）
+  //   wide  : 幅に余裕あり → 領域名をフルで出す
+  //   narrow: 少し狭い     → 領域名を短くして文字を相対的に大きくする（下に対応表を出す）
+  //   さらに狭いときは呼び出し側が棒グラフに切り替える
+  var RD_WIDE = { W: 380, H: 350, CX: 190, CY: 165, R: 98, LR: 116, FS: 10.5, short: false };
+  var RD_NARROW = { W: 320, H: 300, CX: 160, CY: 145, R: 88, LR: 104, FS: 11.5, short: true };
+
+  function rdPt(cfg, i, ratio) {
+    var a = (-90 + i * 45) * Math.PI / 180;
+    return [cfg.CX + Math.cos(a) * cfg.R * ratio, cfg.CY + Math.sin(a) * cfg.R * ratio];
+  }
+  function rdPoly(cfg, ratios) {
+    var pts = [];
+    for (var i = 0; i < 8; i++) { var p = rdPt(cfg, i, ratios[i]); pts.push(p[0].toFixed(1) + ',' + p[1].toFixed(1)); }
+    return pts.join(' ');
+  }
+  function rdAnchor(i) {
+    if (i === 0 || i === 4) return 'middle';        // 真上・真下
+    return (i >= 1 && i <= 3) ? 'start' : 'end';    // 右側 / 左側
+  }
+  function shortName(n) { var i = n.indexOf('・'); return i > 0 ? n.slice(0, i) : n; }
+  function ratios(sc) {
+    var r = [];
+    for (var i = 0; i < 8; i++) r.push(Math.max(0, Math.min(1, Number(sc[DOMAINS[i].key] || 0) / MAX)));
+    return r;
+  }
+
+  function radarSvg(sc, prevSc, cfg) {
+    cfg = cfg || RD_WIDE;
+    var i, p, g, h = '';
+    h += '<svg viewBox="0 0 ' + cfg.W + ' ' + cfg.H + '" style="width:100%;height:auto;display:block" role="img" aria-label="8つのまとまりのレーダーチャート">';
+    // 目盛り（4・8・12・16 の同心8角形）
+    for (g = 1; g <= 4; g++) {
+      var rr = []; for (i = 0; i < 8; i++) rr.push(g / 4);
+      h += '<polygon points="' + rdPoly(cfg, rr) + '" fill="none" stroke="#e2e8f0" stroke-width="1"/>';
+    }
+    // 軸線
+    for (i = 0; i < 8; i++) {
+      p = rdPt(cfg, i, 1);
+      h += '<line x1="' + cfg.CX + '" y1="' + cfg.CY + '" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="#e2e8f0" stroke-width="1"/>';
+    }
+    // 目盛りの数字（真上の軸にだけ小さく）
+    for (g = 1; g <= 4; g++) {
+      var gp = rdPt(cfg, 0, g / 4);
+      h += '<text x="' + (gp[0] + 4).toFixed(1) + '" y="' + (gp[1] + 3).toFixed(1) + '" font-size="8" fill="#cbd5e1">' + (g * 4) + '</text>';
+    }
+    // 前回の記録（薄い破線・塗りなし）
+    if (prevSc) {
+      h += '<polygon points="' + rdPoly(cfg, ratios(prevSc)) + '" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>';
+    }
+    // 今回（塗りは1色）
+    var cur = ratios(sc);
+    h += '<polygon points="' + rdPoly(cfg, cur) + '" fill="#6366f1" fill-opacity="0.22" stroke="#4f46e5" stroke-width="2.5" stroke-linejoin="round"/>';
+    for (i = 0; i < 8; i++) { p = rdPt(cfg, i, cur[i]); h += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.5" fill="#4f46e5"/>'; }
+    // 頂点のラベル（領域名＋点数）
+    for (i = 0; i < 8; i++) {
+      var a = (-90 + i * 45) * Math.PI / 180;
+      var lx = cfg.CX + Math.cos(a) * cfg.LR, ly = cfg.CY + Math.sin(a) * cfg.LR;
+      var v = Number(sc[DOMAINS[i].key] || 0);
+      var nm = cfg.short ? shortName(DOMAINS[i].name) : (DOMAINS[i].emoji + DOMAINS[i].name);
+      h += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="' + rdAnchor(i) + '" font-size="' + cfg.FS + '" font-weight="bold" fill="' + DOMAINS[i].color + '">' + esc(nm) + '</text>';
+      h += '<text x="' + lx.toFixed(1) + '" y="' + (ly + cfg.FS + 1.5).toFixed(1) + '" text-anchor="' + rdAnchor(i) + '" font-size="' + (cfg.FS - 0.5) + '" font-weight="bold" fill="#475569">' + v + '/' + MAX + '</text>';
+    }
+    h += '</svg>';
+    return h;
+  }
+
+  // 図を出せる幅があるか。狭すぎるときは棒グラフに戻す。
+  function chartWidth() {
+    var el = document.getElementById('miChart');
+    var w = el ? el.clientWidth : 0;
+    if (!w) w = Math.min(window.innerWidth || 360, (app && app.clientWidth) || 360);
+    return w;
+  }
+  function autoMode() {
+    var w = chartWidth();
+    if (w >= 380) return 'radar';
+    if (w >= 300) return 'radarS';
+    return 'bar';   // 極端に狭いときは読めなくなるので棒グラフ
+  }
+
+  // 図の中身だけを描き直す（結果画面全体は作り直さない）
+  function paintChart() {
+    var box = document.getElementById('miChart');
+    if (!box || !box.__sc) return;
+    var sc = box.__sc, prevSc = box.__prev;
+    var mode = box.__mode || autoMode();
+    var h = '', i;
+    if (mode === 'radar' || mode === 'radarS') {
+      var cfg = (mode === 'radarS') ? RD_NARROW : RD_WIDE;
+      h += radarSvg(sc, prevSc, cfg);
+      if (cfg.short) {
+        var leg = [];
+        for (i = 0; i < DOMAINS.length; i++) if (DOMAINS[i].name !== shortName(DOMAINS[i].name)) leg.push(shortName(DOMAINS[i].name) + '＝' + DOMAINS[i].name);
+        if (leg.length) h += '<div class="text-[10px] text-slate-400 leading-relaxed mt-1">' + esc(leg.join('／')) + '</div>';
+      }
+      if (prevSc) h += '<div class="text-[11px] text-slate-400 text-center mt-1">――― いまの きろく　／　- - - まえの きろく</div>';
+    } else {
+      for (i = 0; i < DOMAINS.length; i++) h += bar(DOMAINS[i], Number(sc[DOMAINS[i].key] || 0));
+    }
+    h += '<div class="text-center mt-2"><button id="miChartToggle" class="text-xs text-indigo-600 underline">' +
+      (mode === 'bar' ? 'レーダーで 見る' : 'ぼうグラフで 見る') + '</button></div>';
+    box.innerHTML = h;
+    var tg = document.getElementById('miChartToggle');
+    if (tg) tg.onclick = function () {
+      var now = box.__mode || autoMode();
+      box.__mode = (now === 'bar') ? (chartWidth() >= 380 ? 'radar' : 'radarS') : 'bar';
+      paintChart();
+    };
+  }
+
+  // 画面の向きを変えたときだけ、図の形を作り直す（手動で切り替えた後は尊重する）
+  window.addEventListener('resize', function () {
+    var box = document.getElementById('miChart');
+    if (!box || !box.__sc || box.__mode) return;
+    paintChart();
+  });
+
   function bar(d, v) {
     var pct = Math.round(v / MAX * 100);
     var h = '';
@@ -348,6 +480,69 @@
     h += '<div class="h-4 rounded-full bg-slate-100 overflow-hidden"><div style="width:' + pct + '%;height:100%;background:' + d.color + ';border-radius:9999px;transition:width .5s"></div></div>';
     h += '</div>';
     return h;
+  }
+
+  // 工夫のキーから児童向けの文言を引く
+  function tipKidText(key) {
+    if (!tipsCat) return '';
+    for (var k in tipsCat) { var l = tipsCat[k] || []; for (var i = 0; i < l.length; i++) if (l[i].key === key) return l[i].kid; }
+    return '';
+  }
+
+  // 表示する工夫を選ぶ: 上位3つの領域から2つずつ ＋ 最下位の領域から1つ。
+  // 「上位＝あなたの型」ではなく「いま好きだと感じていること」の続きとして出す。
+  function pickTipCandidates(rank) {
+    if (!tipsCat) return [];
+    var out = [], i, j;
+    var meta = {};
+    for (i = 0; i < DOMAINS.length; i++) meta[DOMAINS[i].key] = DOMAINS[i];
+    for (i = 0; i < 3 && i < rank.length; i++) {
+      var k = rank[i].key, list = tipsCat[k] || [];
+      for (j = 0; j < Math.min(2, list.length); j++) {
+        out.push({ key: list[j].key, kid: list[j].kid, domainName: meta[k].name, color: meta[k].color, emoji: meta[k].emoji, low: false });
+      }
+    }
+    var lowK = rank.length ? rank[rank.length - 1].key : null;
+    if (lowK && tipsCat[lowK] && tipsCat[lowK].length) {
+      var lt = tipsCat[lowK][0];
+      out.push({ key: lt.key, kid: lt.kid, domainName: meta[lowK].name, color: meta[lowK].color, emoji: meta[lowK].emoji, low: true });
+    }
+    return out;
+  }
+
+  // 選んだものを保存する（最大3つ）。サーバーがカタログに実在するキーだけを受け付ける。
+  function bindTips(r, isHistory) {
+    var btns = document.querySelectorAll('.mi-tip');
+    if (!btns.length) return;
+    var msg = document.getElementById('miTipMsg');
+    for (var b = 0; b < btns.length; b++) {
+      btns[b].onclick = function () {
+        var k = this.getAttribute('data-k');
+        var cur = (r.picks || []).slice();
+        var at = cur.indexOf(k);
+        if (at >= 0) cur.splice(at, 1);
+        else {
+          if (cur.length >= 3) { if (msg) { msg.className = 'text-xs font-bold text-amber-600 h-4 mt-1'; msg.textContent = 'えらべるのは 3つまでだよ'; } return; }
+          cur.push(k);
+        }
+        r.picks = cur;
+        // 表示だけ先に切り替える（画面全体は作り直さないのでスクロールは動かない）
+        for (var x = 0; x < btns.length; x++) {
+          var kk = btns[x].getAttribute('data-k'), onn = cur.indexOf(kk) >= 0;
+          btns[x].className = 'mi-tip w-full text-left rounded-xl border-2 px-3 py-2.5 mb-2 transition active:scale-95 ' + (onn ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white');
+          var dot = btns[x].querySelectorAll('span')[0];
+          if (dot) { dot.className = 'shrink-0 w-5 h-5 rounded-full text-[11px] leading-5 text-center ' + (onn ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'); dot.textContent = onn ? '✓' : ''; }
+        }
+        // 履歴を見ているときも保存できる（あとから選び直せる）
+        jsend('/api/mi/picks', 'PUT', { resultId: r.id, picks: cur }).then(function (res) {
+          if (msg) {
+            if (res && res.ok) { msg.className = 'text-xs font-bold text-emerald-600 h-4 mt-1'; msg.textContent = cur.length ? '✅ ' + cur.length + 'つ ほぞんしました' : 'ぜんぶ はずしました'; }
+            else { msg.className = 'text-xs font-bold text-red-500 h-4 mt-1'; msg.textContent = 'ほぞんできませんでした'; }
+          }
+          for (var hi = 0; hi < history.length; hi++) if (history[hi].id === r.id) history[hi].picks = cur;
+        });
+      };
+    }
   }
 
   function showResult(r, isHistory) {
@@ -374,8 +569,8 @@
     }
     h += '<div class="bg-white rounded-2xl shadow p-5 mb-4">';
     h += '<h1 class="text-xl font-black text-indigo-700 mb-0.5">🧭 ' + esc(fmtDate(r.takenAt)) + ' の じぶんマップ</h1>';
-    h += '<p class="text-xs text-slate-500 mb-4">これは <b>いまの あなたが 自分を どう見ているか</b> の きろくです。テストの点数では ありません。</p>';
-    for (var i = 0; i < DOMAINS.length; i++) h += bar(DOMAINS[i], Number(sc[DOMAINS[i].key] || 0));
+    h += '<p class="text-xs text-slate-500 mb-3">これは <b>いまの あなたが 自分を どう見ているか</b> の きろくです。テストの点数では ありません。</p>';
+    h += '<div id="miChart"></div>';
     h += '</div>';
 
     // 左右のまとまり
@@ -409,6 +604,31 @@
     h += '</div>';
     h += '</div>';
 
+    // 📚 やってみたい勉強のしかた
+    //    方針: タイプ分けにしない。「こんなやり方も試せるよ」の提案にとどめる。
+    //          点の高い領域からいくつか＋点の低い領域からも必ず1つ混ぜる。
+    var picked = (r.picks || []).slice();
+    var cand = pickTipCandidates(rank);
+    if (cand.length) {
+      h += '<div class="bg-white rounded-2xl shadow p-5 mb-4">';
+      h += '<h2 class="font-black text-slate-700 mb-1">📚 やってみたい 勉強の しかた</h2>';
+      h += '<p class="text-xs text-slate-500 mb-3">「あなたは こうしなさい」では ありません。<b>こんな やり方も 試せるよ</b>。合いそうな ものを えらんでみてね。えらばなくても だいじょうぶ。</p>';
+      for (var ci = 0; ci < cand.length; ci++) {
+        var t = cand[ci];
+        var on = picked.indexOf(t.key) >= 0;
+        h += '<button class="mi-tip w-full text-left rounded-xl border-2 px-3 py-2.5 mb-2 transition active:scale-95 ' +
+          (on ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white') + '" data-k="' + esc(t.key) + '">';
+        h += '<div class="flex items-start gap-2">';
+        h += '<span class="shrink-0 w-5 h-5 rounded-full text-[11px] leading-5 text-center ' + (on ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400') + '">' + (on ? '✓' : '') + '</span>';
+        h += '<span class="flex-1"><span class="text-sm font-bold text-slate-700">' + esc(t.kid) + '</span>';
+        h += '<span class="block text-[11px] mt-0.5" style="color:' + t.color + '">' + esc(t.emoji + t.domainName) + (t.low ? '・まだ あまり やっていない ところ' : '') + '</span></span>';
+        h += '</div></button>';
+      }
+      h += '<div class="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 leading-relaxed mt-1">いちばん 下の ひとつは、<b>いま 点が 少なかった まとまり</b>から えらんで います。少ない＝にがて では なくて、<b>まだ あまり やって いない だけ</b>かも しれないから、ためすと あたらしい 発見が あるかも。</div>';
+      h += '<div id="miTipMsg" class="text-xs font-bold text-emerald-600 h-4 mt-1"></div>';
+      h += '</div>';
+    }
+
     // 前回との見くらべ
     var prev = null;
     for (var p = 0; p < history.length; p++) {
@@ -435,6 +655,10 @@
 
     app.innerHTML = h;
     window.scrollTo(0, 0);
+    // 図（レーダー／棒）は DOM に入れてから、実際の幅を見て描く
+    var chartBox = document.getElementById('miChart');
+    if (chartBox) { chartBox.__sc = sc; chartBox.__prev = prev ? (prev.scores || null) : null; paintChart(); }
+    bindTips(r, isHistory);
     document.getElementById('miAgain').onclick = function () {
       answers = new Array(32).fill(null);
       saveDraft(); page = 0; renderQuestions();
@@ -472,6 +696,7 @@
         app.innerHTML = '<div class="bg-white rounded-2xl shadow p-6 text-center"><p class="font-bold text-slate-700 mb-3">ログインしてから つかってね。</p><a href="/login" class="inline-block bg-indigo-600 text-white rounded-xl px-6 py-3 font-black">ログインへ</a></div>';
         return;
       }
+      jget('/api/mi/tips').then(function (tc) { if (tc && tc.ok) tipsCat = tc.tips || null; });
       return jget('/api/mi/my').then(function (d) {
         if (d && d.ok) {
           history = d.results || [];
