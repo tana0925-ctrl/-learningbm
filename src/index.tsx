@@ -623,7 +623,11 @@ app.put('/api/student/progress', async (c) => {
             // 🔧 v168: 渡した種族のbox個体が残っていなければ monsters/party からも除去（stale端末の全置換保存対策）
             try {
               const _ps = String(_give).split('_')
-              const _gid2 = Number(_ps.length >= 3 ? _ps[_ps.length - 3] : NaN)
+              let _gid2 = NaN
+              for (let _i2 = 1; _i2 < _ps.length; _i2++) {
+                const _n2 = Number(_ps[_i2])
+                if (_ps[_i2] !== '' && Number.isFinite(_n2)) { _gid2 = _n2; break }
+              }
               if (Number.isFinite(_gid2)) {
                 let _oth = false
                 for (const _bx of _inc.boxes) { if (!Array.isArray(_bx)) continue; for (const _b of _bx) { if (_b && Number(_b.monsterId) === _gid2) { _oth = true; break } } if (_oth) break }
@@ -5882,7 +5886,11 @@ function applyTradeDeliveries(state: any, deliveries: any[]): boolean {
     // 🔧 v168: 渡した種族のbox個体が残っていなければ monsters/party からも除去
     try {
       const ps = String(giveUid).split('_')
-      const gid = Number(ps.length >= 3 ? ps[ps.length - 3] : NaN)
+      let gid = NaN
+      for (let _i = 1; _i < ps.length; _i++) {
+        const _n = Number(ps[_i])
+        if (ps[_i] !== '' && Number.isFinite(_n)) { gid = _n; break }
+      }
       if (Number.isFinite(gid)) {
         let oth = false
         for (const bx of state.boxes) { if (!Array.isArray(bx)) continue; for (const b of bx) { if (b && Number(b.monsterId) === gid) { oth = true; break } } if (oth) break }
