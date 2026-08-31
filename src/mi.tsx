@@ -48,8 +48,11 @@ export function miComputeScores(answers: any) {
   return { scores, left, right, ranking }
 }
 
-// 🎁 MIしらべの特典（月1回まで）。金額は先生の確認待ちのため、この1か所だけ直せばよいようにしている。
-export const MI_REWARD_COINS = 100
+// 🎁 MIしらべの特典（月1回まで）。金額はここ1か所だけが真実の源。
+//    画面の文言はすべてサーバーが返す値を表示するだけなので、ここを直せば全部そろう。
+//    2026-08-31: 先生の決定により 100 → 1000 に変更。
+//    受け取り時点の金額は mi_rewards.coins に残るので、変更前後の児童を見分けられる。
+export const MI_REWARD_COINS = 1000
 
 // 月の判定は「日本時間(JST)の月」。既存の jstDayKey / date(answered_at,'+9 hours') と同じ基準。
 export function miJstMonthKey(): string {
@@ -342,6 +345,34 @@ export function registerMi(app: any) {
       averageRight: n ? Math.round(sumR / n * 10) / 10 : 0,
       doneCount: n, total: students.length
     })
+  })
+
+  // ---- 先生：特典の受け取り状況（読み取り専用・requireTeacher の内側） ----
+  //      mi_rewards.coins には「受け取った時点の金額」が残るので、
+  //      金額を変えた前後で誰がいくら受け取ったかを先生が確認できる。
+  //      ここでは一切の書き込みをしない。
+  app.get('/api/teacher/mi/class/:classId/rewards', async (c: any) => {
+    const u = miRequireTeacher(c)
+    if (!u) return miJsonError(c, 401, 'unauthorized')
+    const classId = c.req.param('classId')
+    const cls = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=?').bind(classId).first()
+      : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first()
+    if (!cls) return miJsonError(c, 404, 'class not found')
+    await ensureMiTables(c.env)
+    let rows: any[] = []
+    try {
+      const rs = await c.env.DB.prepare(
+        `SELECT r.user_id as userId, u.login_id as loginId, u.name, r.month_key as monthKey,
+                r.coins, r.created_at as createdAt
+         FROM mi_rewards r
+         JOIN class_members cm ON cm.user_id = r.user_id AND cm.class_id = ?
+         JOIN users u ON u.id = r.user_id
+         ORDER BY r.month_key DESC, u.roster_no IS NULL, u.roster_no, u.login_id`
+      ).bind(classId).all()
+      rows = (rs && rs.results) || []
+    } catch (_e) { rows = [] }
+    return c.json({ ok: true, currentCoins: MI_REWARD_COINS, monthKey: miJstMonthKey(), rewards: rows })
   })
 
   // ---- 先生：個人の詳細（32問の生回答＋履歴） ----

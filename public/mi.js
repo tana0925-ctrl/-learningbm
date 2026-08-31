@@ -228,14 +228,58 @@
     }
   }
 
+  // 選択肢のHTML。renderQuestions と、回答時の部分更新の両方から使う（表示のブレ防止）。
+  function optsHtml(i) {
+    var s = '';
+    for (var c = 0; c < CHOICES.length; c++) {
+      var on = answers[i] === CHOICES[c].v;
+      s += '<button class="mi-a text-left rounded-xl border-2 px-3 py-3 font-bold text-sm transition active:scale-95 ' +
+        (on ? 'border-indigo-500 bg-indigo-50 text-indigo-800' : 'border-slate-200 bg-white text-slate-600') +
+        '" data-q="' + i + '" data-v="' + CHOICES[c].v + '">' +
+        '<span class="inline-block w-6 h-6 leading-6 text-center rounded-full mr-2 ' +
+        (on ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500') + '">' + CHOICES[c].v + '</span>' +
+        esc(CHOICES[c].label) + '</button>';
+    }
+    return s;
+  }
+
+  // 進み具合（「n / 32 問」とバー）だけを書き換える。
+  function paintProgress() {
+    var n = answeredCount();
+    var cnt = document.getElementById('miProgCount');
+    if (cnt) cnt.textContent = n + ' / 32 問';
+    var bar = document.getElementById('miProgBar');
+    if (bar) bar.style.width = Math.round(n / 32 * 100) + '%';
+  }
+
+  // 1問ぶんの選択肢にタップ処理をつける。
+  // ★ 回答しても画面全体は作り直さない。触った問題の選択肢と進み具合だけを描き直す。
+  //    以前はここで renderQuestions() を呼んでいたため、app.innerHTML の入れ替えと
+  //    window.scrollTo(0,0) が走り、1問答えるたびに画面の先頭に戻ってしまっていた。
+  function bindOpts(i) {
+    var box = document.getElementById('mi-opts-' + i);
+    if (!box) return;
+    var bs = box.querySelectorAll('.mi-a');
+    for (var b = 0; b < bs.length; b++) {
+      bs[b].onclick = function () {
+        var qi = Number(this.getAttribute('data-q'));
+        answers[qi] = Number(this.getAttribute('data-v'));
+        saveDraft();
+        var bx = document.getElementById('mi-opts-' + qi);
+        if (bx) { bx.innerHTML = optsHtml(qi); bindOpts(qi); }
+        paintProgress();
+      };
+    }
+  }
+
   function renderQuestions() {
     var start = page * PER_PAGE;
     var end = Math.min(start + PER_PAGE, 32);
     var pct = Math.round(answeredCount() / 32 * 100);
     var h = '';
     h += '<div class="sticky top-0 bg-slate-100 pt-1 pb-2 z-10">';
-    h += '<div class="flex items-center justify-between text-xs font-bold text-slate-500 mb-1"><span>' + (page + 1) + ' / ' + PAGES + ' ページ</span><span>' + answeredCount() + ' / 32 問</span></div>';
-    h += '<div class="h-2.5 rounded-full bg-white overflow-hidden shadow-inner"><div style="width:' + pct + '%;height:100%;background:#6366f1;transition:width .2s"></div></div>';
+    h += '<div class="flex items-center justify-between text-xs font-bold text-slate-500 mb-1"><span>' + (page + 1) + ' / ' + PAGES + ' ページ</span><span id="miProgCount">' + answeredCount() + ' / 32 問</span></div>';
+    h += '<div class="h-2.5 rounded-full bg-white overflow-hidden shadow-inner"><div id="miProgBar" style="width:' + pct + '%;height:100%;background:#6366f1;transition:width .2s"></div></div>';
     h += '<div id="miSaved" class="text-[11px] text-emerald-600 font-bold h-4 mt-0.5"></div>';
     h += '</div>';
 
@@ -243,16 +287,8 @@
       h += '<div class="bg-white rounded-2xl shadow p-4 mb-3">';
       h += '<div class="flex items-start gap-2 mb-3"><span class="shrink-0 bg-indigo-100 text-indigo-700 rounded-lg px-2 py-0.5 text-xs font-black">' + (i + 1) + '</span>';
       h += '<span class="text-base font-bold text-slate-800 leading-snug">' + esc(Q[i]) + '</span></div>';
-      h += '<div class="grid grid-cols-1 gap-2">';
-      for (var c = 0; c < CHOICES.length; c++) {
-        var on = answers[i] === CHOICES[c].v;
-        h += '<button class="mi-a text-left rounded-xl border-2 px-3 py-3 font-bold text-sm transition active:scale-95 ' +
-          (on ? 'border-indigo-500 bg-indigo-50 text-indigo-800' : 'border-slate-200 bg-white text-slate-600') +
-          '" data-q="' + i + '" data-v="' + CHOICES[c].v + '">' +
-          '<span class="inline-block w-6 h-6 leading-6 text-center rounded-full mr-2 ' + (on ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500') + '">' + CHOICES[c].v + '</span>' +
-          esc(CHOICES[c].label) + '</button>';
-      }
-      h += '</div></div>';
+      h += '<div class="grid grid-cols-1 gap-2" id="mi-opts-' + i + '">' + optsHtml(i) + '</div>';
+      h += '</div>';
     }
 
     h += '<div class="flex gap-2 mt-2 mb-8">';
@@ -266,16 +302,10 @@
     h += '<div class="text-center mb-10"><button id="miQuit" class="text-xs text-slate-400 underline">とちゅうで やめる（ほぞんされます）</button></div>';
 
     app.innerHTML = h;
+    // 先頭に戻すのは「ページを送った/戻した」ときだけ。回答したときはここを通らない。
     window.scrollTo(0, 0);
 
-    var btns = document.querySelectorAll('.mi-a');
-    for (var b = 0; b < btns.length; b++) {
-      btns[b].onclick = function () {
-        answers[Number(this.getAttribute('data-q'))] = Number(this.getAttribute('data-v'));
-        saveDraft();
-        renderQuestions();
-      };
-    }
+    for (var qi = start; qi < end; qi++) bindOpts(qi);
     var pv = document.getElementById('miPrev');
     if (pv) pv.onclick = function () { if (page > 0) { page--; renderQuestions(); } };
     var nx = document.getElementById('miNext');

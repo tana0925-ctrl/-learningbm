@@ -33,6 +33,7 @@
   var classes = [];
   var curClassId = '';
   var curData = null;
+  var curRewards = null;   // 特典の受け取り状況（読み取り専用）
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -80,7 +81,10 @@
         return;
       }
       curData = d;
-      renderClass(d);
+      jget('/api/teacher/mi/class/' + encodeURIComponent(curClassId) + '/rewards').then(function (rw) {
+        curRewards = (rw && rw.ok) ? rw : null;
+        renderClass(d);
+      });
     });
   }
 
@@ -119,6 +123,36 @@
         h += '<div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div style="width:' + Math.round(av / 16 * 100) + '%;height:100%;background:' + dm.color + '"></div></div></div>';
       }
       h += '<div class="text-xs text-slate-400 mt-2">左（言語＋論理＋自然＋内省）平均 <b>' + Number(d.averageLeft || 0).toFixed(1) + '</b> ／ 右（視覚＋身体＋音楽＋対人）平均 <b>' + Number(d.averageRight || 0).toFixed(1) + '</b>（各64点満点）</div>';
+      h += '</div>';
+    }
+
+    // 🎁 特典の受け取り状況（読み取り専用）
+    if (curRewards) {
+      var rws = curRewards.rewards || [];
+      var thisMonth = rws.filter(function (x) { return x.monthKey === curRewards.monthKey; });
+      var mismatch = thisMonth.filter(function (x) { return Number(x.coins) !== Number(curRewards.currentCoins); });
+      h += '<div class="border border-slate-200 rounded-xl p-3 mb-4">';
+      h += '<div class="font-bold text-sm text-slate-700 mb-1">🎁 特典コインの受け取り状況</div>';
+      h += '<div class="text-xs text-slate-500 mb-2">1人あたり月1回まで。いまの設定は <b>' + curRewards.currentCoins + 'コイン</b>（今月＝' + esc(curRewards.monthKey) + '）。この表は記録の閲覧だけで、ここから配ることはできません。</div>';
+      if (!rws.length) {
+        h += '<div class="text-xs text-slate-400">まだ誰も受け取っていません。</div>';
+      } else {
+        if (mismatch.length) {
+          h += '<div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2 text-xs text-amber-800">⚠️ 今月、いまの設定と<b>ちがう金額</b>で受け取った児童が ' + mismatch.length + '人 います（下の表の色つきの行）。金額を変更した前に受け取った子です。</div>';
+        }
+        h += '<div class="overflow-x-auto"><table class="w-full text-xs whitespace-nowrap"><thead><tr class="text-slate-400"><th class="text-left p-1">児童</th><th class="p-1">対象月</th><th class="p-1">受け取った額</th><th class="p-1">日時</th></tr></thead><tbody>';
+        for (var ri = 0; ri < rws.length; ri++) {
+          var rw2 = rws[ri];
+          var odd = (rw2.monthKey === curRewards.monthKey) && (Number(rw2.coins) !== Number(curRewards.currentCoins));
+          h += '<tr class="border-t border-slate-100' + (odd ? ' bg-amber-50' : '') + '">';
+          h += '<td class="p-1 font-bold text-slate-700">' + esc(rn(rw2.loginId, rw2.name)) + '</td>';
+          h += '<td class="p-1 text-center text-slate-500">' + esc(rw2.monthKey) + '</td>';
+          h += '<td class="p-1 text-center font-black ' + (odd ? 'text-amber-700' : 'text-emerald-700') + '">' + rw2.coins + '</td>';
+          h += '<td class="p-1 text-slate-400">' + esc(fmtDate(rw2.createdAt)) + '</td>';
+          h += '</tr>';
+        }
+        h += '</tbody></table></div>';
+      }
       h += '</div>';
     }
 
