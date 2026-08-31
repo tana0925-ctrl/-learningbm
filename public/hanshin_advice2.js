@@ -1,13 +1,10 @@
 /* ============================================================
    阪神マン 単元別アドバイス 追加パック v185
    中1〜高1の全単元＋小6分数系4単元に、既存(小学)と同トーンの関西弁アドバイスを追加。
-   HANSHIN_ADVICE_TREE（本体のトップレベルconst）にプロパティ追記する方式。
-   public/index.html は無編集（.replace非接触）。既存エントリは上書きしない。
+   HANSHIN_ADVICE_TREE は initGame() 内の const のため、外部スクリプトからは直接見えない。
+   src/index.tsx の .replace() で window.HANSHIN_ADVICE_TREE にも公開し、そこへ追記する。既存エントリは上書きしない。
    ============================================================ */
 (function () {
-  try {
-    if (typeof HANSHIN_ADVICE_TREE === 'undefined' || !HANSHIN_ADVICE_TREE) return;
-  } catch (e) { return; }
   if (window.__HANSHIN_ADV2__) return; window.__HANSHIN_ADV2__ = 1;
 
   // 1問1答は {text, answer}。3〜4択で単元の要点を関西弁で。
@@ -499,9 +496,27 @@
     ]}
   };
 
-  var n = 0;
-  for (var k in ADD) {
-    try { if (!HANSHIN_ADVICE_TREE[k]) { HANSHIN_ADVICE_TREE[k] = ADD[k]; n++; } } catch (e) {}
+  window.__HANSHIN_ADV2_ADD = ADD;
+
+  var _adv2Last = null;
+  function _adv2Merge() {
+    var t = null;
+    try { t = window.HANSHIN_ADVICE_TREE; } catch (e) {}
+    if (!t) return false;
+    if (t === _adv2Last) return true;
+    _adv2Last = t;
+    var n = 0;
+    for (var k in ADD) {
+      try { if (!t[k]) { t[k] = ADD[k]; n++; } } catch (e) {}
+    }
+    try { window.__HANSHIN_ADV2_COUNT = n; } catch (e) {}
+    return true;
   }
-  try { window.__HANSHIN_ADV2_COUNT = n; } catch (e) {}
+
+  if (!_adv2Merge()) {
+    var _adv2Tries = 0;
+    var _adv2Iv = setInterval(function () {
+      if (_adv2Merge() || ++_adv2Tries > 300) clearInterval(_adv2Iv);
+    }, 200);
+  }
 })();
