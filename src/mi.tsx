@@ -48,6 +48,14 @@ export function miComputeScores(answers: any) {
   return { scores, left, right, ranking }
 }
 
+// 🎁 MIしらべの特典（月1回まで）。金額は先生の確認待ちのため、この1か所だけ直せばよいようにしている。
+export const MI_REWARD_COINS = 100
+
+// 月の判定は「日本時間(JST)の月」。既存の jstDayKey / date(answered_at,'+9 hours') と同じ基準。
+export function miJstMonthKey(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 7) // 例: '2026-08'
+}
+
 export function miNormalizeAnswers(raw: any) {
   const out: (number | null)[] = []
   for (let i = 0; i < 32; i++) {
@@ -87,6 +95,9 @@ async function ensureMiTables(env: any) {
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_results (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT, answers_json TEXT NOT NULL, scores_json TEXT NOT NULL, left_total INTEGER DEFAULT 0, right_total INTEGER DEFAULT 0, taken_at TEXT NOT NULL)").run() } catch (_e) {}
   try { await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_mi_results_user ON mi_results(user_id, taken_at)").run() } catch (_e) {}
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_drafts (user_id TEXT PRIMARY KEY, answers_json TEXT, updated_at TEXT)").run() } catch (_e) {}
+  // 🎁 特典の受け取り台帳。PRIMARY KEY(user_id, month_key) で「同じ月に2回目」が
+  //    構造的に INSERT できないようにする（アプリ側の判定ミスでは二重付与できない）。
+  try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS mi_rewards (user_id TEXT NOT NULL, month_key TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0, result_id TEXT, created_at TEXT, PRIMARY KEY (user_id, month_key))").run() } catch (_e) {}
   // 出席番号順に並べたいので、既存コード（report-card）と同じ防御的 ALTER（追加のみ・破壊なし）
   try { await env.DB.prepare('ALTER TABLE users ADD COLUMN roster_no INTEGER').run() } catch (_e) {}
 }
@@ -104,6 +115,84 @@ function miRowToResult(r: any) {
     left: Number(r.left_total || 0),
     right: Number(r.right_total || 0),
     answers: ans
+  }
+}
+
+// 🎁 特典コインの付与。二重付与が構造的に起きないように、次の順番で行う。
+//   1) mi_rewards に INSERT して「その月の枠」を先に確保する（PRIMARY KEY 衝突＝今月すでに受け取り済み）
+//   2) 確保できたときだけ progress.state_json にサーバー側でコインを加算する
+//      （既存の連絡帳コイン /api/student/contact-note/:id/read と同じ作法。
+//        あわせて _miCoinsApplied を増やし、PUT /api/student/progress 側で
+//        クライアントの全置換保存に負けないよう補填する）
+//   3) コイン加算に失敗したら枠を解放して、次回リトライできるようにする
+// クライアントからの申告（何コインもらった等）は一切受け取らない。金額はサーバーの定数だけ。
+async function miGrantMonthlyReward(c: any, userId: string, resultId: string | null) {
+  const monthKey = miJstMonthKey()
+  const out: any = {
+    monthKey, coins: MI_REWARD_COINS,
+    granted: false, alreadyTakenThisMonth: false,
+    reason: '', newCoins: null, miCoinsApplied: null
+  }
+  // 1) 月の枠を確保
+  try {
+    await c.env.DB.prepare(
+      "INSERT INTO mi_rewards (user_id, month_key, coins, result_id, created_at) VALUES (?, ?, ?, ?, datetime('now'))"
+    ).bind(userId, monthKey, MI_REWARD_COINS, resultId).run()
+  } catch (_e) {
+    out.alreadyTakenThisMonth = true
+    out.reason = 'already_taken_this_month'
+    return out
+  }
+  // 2) コインをサーバー側で加算
+  let applied = false
+  try {
+    const prog = await c.env.DB.prepare('SELECT state_json FROM progress WHERE user_id=?').bind(userId).first()
+    if (prog && (prog as any).state_json) {
+      const state = JSON.parse((prog as any).state_json)
+      state.coins = (Number(state.coins) || 0) + MI_REWARD_COINS
+      state._miCoinsApplied = (Number(state._miCoinsApplied) || 0) + MI_REWARD_COINS
+      await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?")
+        .bind(JSON.stringify(state), userId).run()
+      out.newCoins = state.coins
+      out.miCoinsApplied = state._miCoinsApplied
+      applied = true
+    } else {
+      out.reason = 'no_progress'
+    }
+  } catch (e: any) {
+    out.reason = 'coin_apply_failed'
+    console.error('[mi/reward] coin apply error:', e?.message || e)
+  }
+  // 3) 加算できなかったら枠を解放（コインを失わせない）
+  if (!applied) {
+    try {
+      await c.env.DB.prepare('DELETE FROM mi_rewards WHERE user_id=? AND month_key=?').bind(userId, monthKey).run()
+    } catch (_e) {}
+    return out
+  }
+  out.granted = true
+  return out
+}
+
+// 今月（JST）の受け取り状況。GET は副作用を持たせない。
+async function miRewardStatus(c: any, userId: string) {
+  const monthKey = miJstMonthKey()
+  let taken = false, hasResultThisMonth = false
+  try {
+    const r = await c.env.DB.prepare('SELECT 1 as ok FROM mi_rewards WHERE user_id=? AND month_key=? LIMIT 1')
+      .bind(userId, monthKey).first()
+    taken = !!r
+  } catch (_e) {}
+  try {
+    const r = await c.env.DB.prepare(
+      "SELECT 1 as ok FROM mi_results WHERE user_id=? AND strftime('%Y-%m', datetime(taken_at, '+9 hours'))=? LIMIT 1"
+    ).bind(userId, monthKey).first()
+    hasResultThisMonth = !!r
+  } catch (_e) {}
+  return {
+    monthKey, coins: MI_REWARD_COINS,
+    takenThisMonth: taken,
+    canClaim: hasResultThisMonth && !taken
   }
 }
 
@@ -126,7 +215,8 @@ export function registerMi(app: any) {
       ).bind(u.id).all()
       results = ((rows && rows.results) || []).map(miRowToResult)
     } catch (_e) { results = [] }
-    return c.json({ ok: true, draft, results })
+    const reward = await miRewardStatus(c, u.id)
+    return c.json({ ok: true, draft, results, reward })
   })
 
   // ---- 児童：下書き保存（途中で閉じても再開できる） ----
@@ -170,10 +260,34 @@ export function registerMi(app: any) {
       ).bind(id, u.id, classId, JSON.stringify(answers), JSON.stringify({ scores: calc.scores, ranking: calc.ranking }), calc.left, calc.right, takenAt).run()
     } catch (_e) { return miJsonError(c, 500, 'db_error') }
     try { await c.env.DB.prepare('DELETE FROM mi_drafts WHERE user_id=?').bind(u.id).run() } catch (_e) {}
+    // 🎁 特典（月1回まで）。付与の可否はすべてサーバーが決める。
+    const reward = await miGrantMonthlyReward(c, u.id, id)
     return c.json({
       ok: true,
-      result: { id, takenAt, scores: calc.scores, ranking: calc.ranking, left: calc.left, right: calc.right, answers }
+      result: { id, takenAt, scores: calc.scores, ranking: calc.ranking, left: calc.left, right: calc.right, answers },
+      reward
     })
+  })
+
+  // ---- 児童：特典の受け取り（提出時に付与できなかった場合のリトライ用） ----
+  //      今月すでに受け取っていれば、何度叩いてもサーバーが弾く。
+  app.post('/api/mi/reward/claim', async (c: any) => {
+    const u = miRequireStudent(c)
+    if (!u) return miJsonError(c, 401, 'unauthorized')
+    if (!miRateLimit('mireward:' + u.id, 20, 300)) return miJsonError(c, 429, 'too_many_requests')
+    await ensureMiTables(c.env)
+    const monthKey = miJstMonthKey()
+    // 今月ぶんの受検が無ければ付与しない
+    let hasResult = false
+    try {
+      const r = await c.env.DB.prepare(
+        "SELECT 1 as ok FROM mi_results WHERE user_id=? AND strftime('%Y-%m', datetime(taken_at, '+9 hours'))=? LIMIT 1"
+      ).bind(u.id, monthKey).first()
+      hasResult = !!r
+    } catch (_e) {}
+    if (!hasResult) return c.json({ ok: true, reward: { monthKey, coins: MI_REWARD_COINS, granted: false, alreadyTakenThisMonth: false, reason: 'no_result_this_month', newCoins: null, miCoinsApplied: null } })
+    const reward = await miGrantMonthlyReward(c, u.id, null)
+    return c.json({ ok: true, reward })
   })
 
   // ---- 先生：クラス一覧（8領域スコア＋未実施＋クラス平均） ----

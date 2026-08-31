@@ -104,6 +104,8 @@
   var answers = new Array(32).fill(null);
   var page = 0;
   var history = [];
+  var rewardInfo = null;   // サーバーが返す今月の特典の状態。クライアントでは一切いじらない。
+  var lastReward = null;   // 直近の提出で実際に付与されたかどうか
   var saveTimer = null;
   var app = null;
 
@@ -161,13 +163,27 @@
     var h = '';
     h += '<div class="bg-white rounded-2xl shadow p-5">';
     h += '<h1 class="text-2xl font-black text-indigo-700 mb-1">🧭 MIしらべ</h1>';
-    h += '<p class="text-sm text-slate-600 leading-relaxed mb-3">32個の しつもんに 答えると、<b>いまの あなたが 自分を どう見ているか</b>を 8つの まとまりで 見ることが できます。</p>';
-    h += '<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 leading-relaxed mb-3">';
-    h += '<b>だいじなこと</b><br>・正かい や まちがい は ありません。テストでは ないよ。<br>';
-    h += '・これは「あなたは○○な人だ」と 決めるもの では ありません。<br>';
-    h += '・数が 少ない ところが「にがて」という 意味 でも ありません。<br>';
-    h += '・今の 気もち で 答えてね。時間が たつと 答えは かわります。何回でも やり直せます。';
+    // ---- 導入：MIって何？ 自分にとって何がいいの？ ----
+    h += '<p class="text-sm text-slate-700 leading-relaxed mb-3">人の「とくい」や「好き」は、ひとつだけでは ありません。<br>ことばが 好きな人、数や しくみを 考えるのが 好きな人、体を 動かすのが 好きな人、音や リズムが 好きな人、生きものを しらべるのが 好きな人、絵や 形を 思いうかべるのが 好きな人、友だちと かかわるのが 好きな人、自分の 気もちを ふりかえるのが 好きな人。<b>どの人にも、いろんな面が あります。</b><br>この「MIしらべ」は、その <b>いろんな面</b> を 8つの まとまりで 見てみる ものです。</p>';
+    h += '<div class="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-900 leading-relaxed mb-3">';
+    h += '<b>やると どんな いいこと？</b><br>';
+    h += '・<b>いまの じぶん</b>が「好き・とくい」と 感じている ことが 見えるよ。<br>';
+    h += '・気もちは 時間が たつと かわります。あとで もう一度 やって、<b>むかしの じぶんと 見くらべ</b>られるよ。';
     h += '</div>';
+    h += '<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 leading-relaxed mb-3">';
+    h += '<b>やる前に 知っておいてね</b><br>';
+    h += '・これは <b>せいかく しんだん でも、タイプ分け でも ありません。</b>これで「きみは こういう人だ」と 決まる ものでは ありません。<br>';
+    h += '・正かいは ありません。数が 多い・少ないに、よい・わるいも ありません。<br>';
+    h += '・思った とおりに <b>正直に 答えるのが いちばん いい</b>です。';
+    h += '</div>';
+    // 🎁 今月の特典（サーバーが判定した状態をそのまま出す）
+    if (rewardInfo) {
+      if (rewardInfo.takenThisMonth) {
+        h += '<div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-500 mb-3">🎁 今月の ごほうびは 受け取りずみです。（ごほうびは 月に1回まで。しらべ自体は 何回でも できます）</div>';
+      } else {
+        h += '<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800 mb-3">🎁 さいごまで 答えると <b>' + (rewardInfo.coins || 0) + 'コイン</b> もらえます。（月に1回まで）</div>';
+      }
+    }
     if (resume) {
       h += '<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-800 mb-3">とちゅうまで（' + answeredCount() + '／32問）ほぞんされています。つづきから できます。</div>';
     }
@@ -280,6 +296,10 @@
       jsend('/api/mi/submit', 'POST', { answers: answers }).then(function (res) {
         if (res && res.ok && res.result) {
           history.unshift(res.result);
+          lastReward = res.reward || null;
+          if (lastReward && (lastReward.granted || lastReward.alreadyTakenThisMonth)) {
+            rewardInfo = { monthKey: lastReward.monthKey, coins: lastReward.coins, takenThisMonth: true, canClaim: false };
+          }
           answers = new Array(32).fill(null);
           showResult(res.result, false);
         } else {
@@ -304,6 +324,24 @@
     var sc = r.scores || {};
     var rank = r.ranking || score(r.answers || []).ranking;
     var h = '';
+    // 🎁 特典の結果（提出した直後だけ表示）。金額も可否もサーバーが決めたものをそのまま出す。
+    if (!isHistory && lastReward) {
+      if (lastReward.granted) {
+        h += '<div class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 mb-4 text-center">';
+        h += '<div class="text-3xl">🎁</div>';
+        h += '<div class="font-black text-emerald-800 mt-1">' + (lastReward.coins || 0) + 'コイン もらったよ！</div>';
+        h += '<div class="text-xs text-emerald-700 mt-1">ゲームの がめんに もどると コインが ふえています。<br>ごほうびは 月に1回まで。しらべ自体は 何回でも できるよ。</div>';
+        h += '</div>';
+      } else if (lastReward.alreadyTakenThisMonth) {
+        h += '<div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-4 text-center text-xs text-slate-500">🎁 今月の ごほうびは 受け取りずみです。（月に1回まで）<br>ごほうびが なくても、なんども やって 見くらべられるよ。</div>';
+      } else {
+        h += '<div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-center">';
+        h += '<div class="text-xs text-amber-800">🎁 ごほうびの コインが まだ うけとれていません。</div>';
+        h += '<button id="miClaim" class="mt-2 bg-amber-500 text-white rounded-xl px-4 py-2 text-sm font-black">ごほうびを 受け取る</button>';
+        h += '<div id="miClaimMsg" class="text-xs text-amber-700 mt-1"></div>';
+        h += '</div>';
+      }
+    }
     h += '<div class="bg-white rounded-2xl shadow p-5 mb-4">';
     h += '<h1 class="text-xl font-black text-indigo-700 mb-0.5">🧭 ' + esc(fmtDate(r.takenAt)) + ' の じぶんマップ</h1>';
     h += '<p class="text-xs text-slate-500 mb-4">これは <b>いまの あなたが 自分を どう見ているか</b> の きろくです。テストの点数では ありません。</p>';
@@ -372,6 +410,24 @@
       saveDraft(); page = 0; renderQuestions();
     };
     document.getElementById('miHome').onclick = function () { renderIntro(); window.scrollTo(0, 0); };
+    var cb = document.getElementById('miClaim');
+    if (cb) cb.onclick = function () {
+      cb.disabled = true; cb.textContent = '受け取り中…';
+      var msg = document.getElementById('miClaimMsg');
+      jsend('/api/mi/reward/claim', 'POST', {}).then(function (res) {
+        var rw = res && res.reward;
+        if (rw && rw.granted) {
+          lastReward = rw;
+          rewardInfo = { monthKey: rw.monthKey, coins: rw.coins, takenThisMonth: true, canClaim: false };
+          showResult(r, isHistory);
+        } else if (rw && rw.alreadyTakenThisMonth) {
+          lastReward = rw; showResult(r, isHistory);
+        } else {
+          cb.disabled = false; cb.textContent = 'ごほうびを 受け取る';
+          if (msg) msg.textContent = 'いま 受け取れませんでした。ゲームの がめんを 一度 ひらいてから、もう一度 ためしてね。';
+        }
+      });
+    };
   }
 
   // ------------------------------------------------------------------
@@ -389,6 +445,7 @@
       return jget('/api/mi/my').then(function (d) {
         if (d && d.ok) {
           history = d.results || [];
+          rewardInfo = d.reward || null;
           if (d.draft && d.draft.answers) {
             for (var i = 0; i < 32; i++) {
               var v = Number(d.draft.answers[i]);
