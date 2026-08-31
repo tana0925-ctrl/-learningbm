@@ -1,0 +1,26 @@
+name: MIしらべ v4 パッチ（レーダーチャート・学び方の工夫）
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチを適用
+        run: python3 scripts/patch_mi_v4.py
+
+      - name: ビルドが通るか確認
+        run: |
+          npm install
+          npm run build
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add src/mi.tsx public/mi.js public/teacher-mi.js
+          git diff --staged --quiet && echo "no changes" || (git commit -m "MIしらべ v4: 結果をレーダーチャートに / やってみたい勉強のしかた / 先生向けの読み解き" && git push)
