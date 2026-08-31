@@ -1,0 +1,26 @@
+name: MIしらべ v2 パッチ（入口移設・導入画面・月1回の特典）
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチを適用
+        run: python3 scripts/patch_mi_v2.py
+
+      - name: ビルドが通るか確認
+        run: |
+          npm install
+          npm run build
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add src/index.tsx src/mi.tsx public/mi.js
+          git diff --staged --quiet && echo "no changes" || (git commit -m "MIしらべ v2: 入口をシステム/ステータスへ移設・導入画面・月1回の特典コイン" && git push)
