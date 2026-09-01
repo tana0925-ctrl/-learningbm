@@ -3119,7 +3119,16 @@ app.get('/api/teacher/risk-scores', async (c) => {
     const subs = subsByStu[uid] || []
     const days = (Array.from(new Set(subs.map((s: any) => s.day_key).filter(Boolean))) as string[]).sort()
     const total = (lr && lr.total) ? lr.total : 0
-    const dataLow = (total < 10 && days.length < 3)
+    // 📊 2026-09 修正: 「データが足りない子」と「本当に低リスクの子」を見分けられるようにする。
+    //   以前は (問題10問未満 かつ 提出3日未満) の AND だけを判定不可にしていたため、
+    //   「12問解いたが提出は0日」の子が提出系のサインを1つも立てられず 🟢低リスク に混ざっていた。
+    //   学習・提出の2軸を別々に見て、片方でも足りない子は 🟢 にしない。
+    const learnOk = total >= 10
+    const subOk = days.length >= 3
+    const dataLow = (!learnOk && !subOk)
+    const missing: string[] = []
+    if (!learnOk) missing.push('アプリの学習記録が少ない(' + total + '問)')
+    if (!subOk) missing.push('家庭学習の提出記録が少ない(' + days.length + '日)')
     let score = 0; const signals: string[] = []; let topKind = 'ok'; let topW = -1
     const bump = (w: number, sig: string, kind: string) => { score += w; signals.push(sig); if (w > topW) { topW = w; topKind = kind } }
     let recRate: number | null = null, prevRate: number | null = null, daysSince: number | null = null
@@ -3140,14 +3149,25 @@ app.get('/api/teacher/risk-scores', async (c) => {
       if (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) bump(15, '最近の活動が減っている', 'activity')
       if (sunRecent != null && sunRecent < 30) bump(8, '最近の満足度が低い', 'sun')
     }
+    // 提出の記録が1日も無い子は、以前はサイン判定そのものを素通りしていた（＝必ず0点＝緑）。
+    // 提出が無くてもアプリの学習記録だけで分かるサインは見る。しきい値は既存と同じ。
+    if (!dataLow && !days.length && lr && total >= 20) {
+      if (lr.early != null && lr.late != null && (lr.early - lr.late) >= 15) bump(20, '正答率が急落(' + lr.early + '%→' + lr.late + '%)', 'accdrop')
+      if (lr.acc != null && lr.acc < 50) bump(10, '全体の正答率が低い(' + lr.acc + '%)', 'lowacc')
+    }
     score = Math.min(100, score)
-    const level = dataLow ? 'unknown' : (score >= 50 ? 'high' : score >= 25 ? 'mid' : 'low')
-    list.push({ userId: uid, loginId: m.loginId, name: m.name, riskScore: score, level, signals, suggestion: dataLow ? '' : sugFor(topKind), dataLow, problems: total, submissions: days.length })
+    // どちらかの記録が足りない子には、その事実をサイン欄に明示する
+    if (!dataLow && !(learnOk && subOk)) { for (const ms of missing) signals.push('※' + ms) }
+    // 記録が片方しか無く、サインも立っていない子は「低リスク」ではなく「データ不足」にする
+    const partial = (!dataLow && !(learnOk && subOk) && score < 25)
+    const level = dataLow ? 'unknown' : (score >= 50 ? 'high' : score >= 25 ? 'mid' : (partial ? 'partial' : 'low'))
+    list.push({ userId: uid, loginId: m.loginId, name: m.name, riskScore: score, level, signals, suggestion: (dataLow || partial) ? '' : sugFor(topKind), dataLow, partial, missing, problems: total, submissions: days.length })
   }
-  const order = (s: any) => s.dataLow ? -1 : s.riskScore
+  // データ不足の子は「低リスクの子より上」に置いて、先生の目に入るようにする
+  const order = (s: any) => s.level === 'unknown' ? -2 : (s.level === 'partial' ? 24.5 : s.riskScore)
   list.sort((a, b) => order(b) - order(a))
-  const counts = { high: list.filter(s => s.level === 'high').length, mid: list.filter(s => s.level === 'mid').length, low: list.filter(s => s.level === 'low').length, unknown: list.filter(s => s.level === 'unknown').length }
-  const note = '※これは「兆候のスコア化」であり、確実な予測ではありません。記録が少ない子は判定できないため別表示にしています。気になる子はタップして個人カルテで確かめてください。'
+  const counts = { high: list.filter(s => s.level === 'high').length, mid: list.filter(s => s.level === 'mid').length, low: list.filter(s => s.level === 'low').length, partial: list.filter(s => s.level === 'partial').length, unknown: list.filter(s => s.level === 'unknown').length }
+  const note = '※これは「兆候のスコア化」であり、確実な予測ではありません。⚠️データ不足＝学習記録と提出記録のどちらかが少なく、サインも立っていない子です（低リスクとは限りません）。⚪判定不可＝どちらの記録もほとんど無い子です。気になる子はタップして個人カルテで確かめてください。'
   return c.json({ ok: true, classId, counts, students: list, note })
 })
 
@@ -12096,7 +12116,7 @@ wrap.innerHTML = '';
       function _eaEsc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
       function _eaUnitName(u){ try{ return (typeof _unitJa==='function')?_unitJa(u):u; }catch(e){ return u; } }
       async function loadRiskScores(){ var sel=document.getElementById('laClassSelect')||document.getElementById('analyticsClassFilter'); var classId=sel?sel.value:''; var box=document.getElementById('riskContent'); if(!box) return; if(!classId){ box.innerHTML='<p class="text-xs text-red-500">クラスを選択してください</p>'; return; } var btn=document.getElementById('btnRiskScores'); if(btn){ btn.disabled=true; btn.textContent='予測中...'; } box.innerHTML='<p class="text-xs text-violet-500 animate-pulse">🔮 危険サインを集計しています...</p>'; try{ var res=await fetch('/api/teacher/risk-scores?classId='+encodeURIComponent(classId)); var d=await res.json(); if(!d||!d.ok){ box.innerHTML='<p class="text-xs text-red-500">取得に失敗しました</p>'; return; } box.innerHTML=_riskRender(d); }catch(e){ box.innerHTML='<p class="text-xs text-red-500">エラー: '+(e&&e.message?e.message:e)+'</p>'; } finally { if(btn){ btn.disabled=false; btn.textContent='🔮 リスクを予測'; } } }
-      function _riskRender(d){ var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}; var rn=function(loginId,name){ return (typeof resolveStudentName==='function')?resolveStudentName(loginId,name):(name||loginId||''); }; var sts=d.students||[]; var cc=d.counts||{}; var h=''; h+='<div class="flex gap-2 flex-wrap text-xs mb-2"><span class="bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">🔴 高 '+(cc.high||0)+'</span><span class="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-bold">🟡 中 '+(cc.mid||0)+'</span><span class="bg-emerald-100 text-emerald-700 rounded-full px-2 py-0.5 font-bold">🟢 低 '+(cc.low||0)+'</span>'+((cc.unknown)?'<span class="bg-slate-100 text-slate-500 rounded-full px-2 py-0.5 font-bold">⚪ 判定不可 '+cc.unknown+'</span>':'')+'</div>'; var shown=0; for(var i=0;i<sts.length;i++){ var s=sts[i]; if(s.dataLow) continue; shown++; var lv=s.level; var bg=lv==='high'?'bg-red-50 border-red-200':lv==='mid'?'bg-amber-50 border-amber-200':'bg-emerald-50 border-emerald-200'; var dot=lv==='high'?'🔴':lv==='mid'?'🟡':'🟢'; var bar=lv==='high'?'#ef4444':lv==='mid'?'#f59e0b':'#10b981'; var nm=rn(s.loginId,s.name); h+='<div class="'+bg+' border rounded-lg p-2 mb-1.5 cursor-pointer" onclick="showStudentKarte(&#39;'+esc(s.userId)+'&#39;,&#39;'+esc(nm)+'&#39;)">'; h+='<div class="flex items-center justify-between gap-2"><span class="font-bold text-sm text-slate-700">'+dot+' '+esc(nm)+'</span><span class="text-xs font-black" style="color:'+bar+'">リスク '+s.riskScore+'</span></div>'; h+='<div class="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div style="width:'+s.riskScore+'%;height:100%;background:'+bar+'"></div></div>'; if(s.signals&&s.signals.length){ h+='<div class="mt-1 flex flex-wrap gap-1">'; for(var j=0;j<s.signals.length;j++){ h+='<span class="text-[10px] bg-white/70 border border-slate-200 rounded px-1.5 text-slate-600">'+esc(s.signals[j])+'</span>'; } h+='</div>'; } if(s.suggestion){ h+='<div class="mt-1 text-xs text-slate-700">💡 '+esc(s.suggestion)+'</div>'; } h+='</div>'; } if(!shown){ h+='<p class="text-xs text-slate-400">いまのところ目立ったリスクの子はいません（または記録が少なく判定できません）。</p>'; } var low=sts.filter(function(x){return x.dataLow;}); if(low.length){ h+='<div class="mt-2 text-[10px] text-slate-400">⚪ 記録が少なく判定できない子：'+low.length+'人</div>'; } if(d.note){ h+='<div class="mt-2 text-[10px] text-slate-400">'+esc(d.note)+'</div>'; } return h; }
+      function _riskRender(d){ var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}; var rn=function(loginId,name){ return (typeof resolveStudentName==='function')?resolveStudentName(loginId,name):(name||loginId||''); }; var sts=d.students||[]; var cc=d.counts||{}; var h=''; h+='<div class="flex gap-2 flex-wrap text-xs mb-2"><span class="bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">🔴 高 '+(cc.high||0)+'</span><span class="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-bold">🟡 中 '+(cc.mid||0)+'</span><span class="bg-emerald-100 text-emerald-700 rounded-full px-2 py-0.5 font-bold">🟢 低 '+(cc.low||0)+'</span>'+((cc.partial)?'<span class="bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-bold">⚠️ データ不足 '+cc.partial+'</span>':'')+((cc.unknown)?'<span class="bg-slate-100 text-slate-500 rounded-full px-2 py-0.5 font-bold">⚪ 判定不可 '+cc.unknown+'</span>':'')+'</div>'; var shown=0; for(var i=0;i<sts.length;i++){ var s=sts[i]; if(s.dataLow) continue; shown++; var lv=s.level; var bg=lv==='high'?'bg-red-50 border-red-200':lv==='mid'?'bg-amber-50 border-amber-200':lv==='partial'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'; var dot=lv==='high'?'🔴':lv==='mid'?'🟡':lv==='partial'?'⚠️':'🟢'; var bar=lv==='high'?'#ef4444':lv==='mid'?'#f59e0b':lv==='partial'?'#f97316':'#10b981'; var nm=rn(s.loginId,s.name); h+='<div class="'+bg+' border rounded-lg p-2 mb-1.5 cursor-pointer" onclick="showStudentKarte(&#39;'+esc(s.userId)+'&#39;,&#39;'+esc(nm)+'&#39;)">'; h+='<div class="flex items-center justify-between gap-2"><span class="font-bold text-sm text-slate-700">'+dot+' '+esc(nm)+'</span><span class="text-xs font-black" style="color:'+bar+'">'+(lv==='partial'?'データ不足':('リスク '+s.riskScore))+'</span></div>'; h+='<div class="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div style="width:'+s.riskScore+'%;height:100%;background:'+bar+'"></div></div>'; if(s.signals&&s.signals.length){ h+='<div class="mt-1 flex flex-wrap gap-1">'; for(var j=0;j<s.signals.length;j++){ h+='<span class="text-[10px] bg-white/70 border border-slate-200 rounded px-1.5 text-slate-600">'+esc(s.signals[j])+'</span>'; } h+='</div>'; } if(s.suggestion){ h+='<div class="mt-1 text-xs text-slate-700">💡 '+esc(s.suggestion)+'</div>'; } h+='</div>'; } if(!shown){ h+='<p class="text-xs text-slate-400">いまのところ目立ったリスクの子はいません（または記録が少なく判定できません）。</p>'; } var low=sts.filter(function(x){return x.dataLow;}); if(low.length){ h+='<div class="mt-2 text-[10px] text-slate-400">⚪ 記録が少なく判定できない子：'+low.length+'人</div>'; } if(d.note){ h+='<div class="mt-2 text-[10px] text-slate-400">'+esc(d.note)+'</div>'; } return h; }
       async function loadEarlyAlerts(){
         var sel=document.getElementById('laClassSelect')||document.getElementById('analyticsClassFilter');
         var classId=sel?sel.value:'';
@@ -13026,7 +13046,7 @@ wrap.innerHTML = '';
         await renderClasses();
       })();
     </script>
-    <script src="/teacher-ai.js?v=1"></script>
+    <script src="/teacher-ai.js?v=2"></script>
   </body></html>`)
 })
 
