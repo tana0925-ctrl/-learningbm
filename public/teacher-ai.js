@@ -29,6 +29,36 @@
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   }
+  // --- 日本時間で「今日の曜日」と「今週の月〜金」を求める ---
+  function jstNow() {
+    var n = new Date();
+    return new Date(n.getTime() + n.getTimezoneOffset() * 60000 + 9 * 3600000);
+  }
+  function fmtDay(d) {
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function isFridayJst() { return jstNow().getDay() === 5; }
+  function weekDaysJst() {
+    var d = jstNow();
+    var wd = (d.getDay() + 6) % 7;              // 0=月
+    var mon = new Date(d.getTime() - wd * 86400000);
+    var out = [];
+    for (var i = 0; i < 5; i++) out.push(fmtDay(new Date(mon.getTime() + i * 86400000)));
+    return out;
+  }
+  var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+  // _aiBodyLines() の出力を「テストの記録」とそれ以外に分ける。
+  // 個人カルテ用のかたまりにはテストの点数を入れないため。
+  function splitBody(lines) {
+    var main = [], test = [], cur = main;
+    for (var i = 0; i < lines.length; i++) {
+      var l = String(lines[i] == null ? '' : lines[i]);
+      if (l.indexOf('【') === 0) cur = (l.indexOf('【テストの記録') === 0) ? test : main;
+      cur.push(l);
+    }
+    return { main: main, test: test };
+  }
   function nameOf(loginId, fallback) {
     try { if (typeof resolveStudentName === 'function') return resolveStudentName(loginId, fallback); } catch (e) {}
     return fallback || '';
@@ -89,6 +119,12 @@
         !want.plan && !want.reflect && !want.suggest) {
       say('「今回ふくめるもの」を1つ以上えらんでください'); return;
     }
+    // 金曜日は週の振り返りを厚めに入れる（先生がチェックを外していれば入れない）
+    var isFri = isFridayJst() && want.reflect;
+    var weekDays = weekDaysJst();
+    // テストの点数は「クラス所見・週報」を作るときだけ入れる。
+    // 個人カルテはその週の家庭学習が主役で、テストの点数には触れない方針。
+    var wantWide = want.classOv || want.report;
 
     say('名簿を読み込み中...');
     var roster = [];
@@ -110,29 +146,54 @@
     out.push('2. 前置き・あいさつ・まとめ・「承知しました」などは書かない。目印と本文だけ。');
     out.push('3. 数字の言いかえはしない。「提出率は80%です」のように、見ればわかることを書き直すのは不要。');
     out.push('4. かわりに、離れたデータを突き合わせて「見立て」を書く。例：');
-    out.push('   ・アプリの社会は正答率98%なのにテストは55点 → 知識はあるが記述で落としている可能性');
+    if (wantWide) out.push('   ・アプリの社会は正答率98%なのにテストは55点 → 知識はあるが記述で落としている可能性');
     out.push('   ・学習時間は長いのに正答率が上がらない → やり方が作業になっているかも');
     out.push('   ・提出率は高いのに満足度が🌧続き → むずかしさに一人で向き合っているかも');
     out.push('   ・クラス平均より大きく下 / 上の単元 → どこで差がついたか');
+    out.push('   ・計画には書いてあるのに実際の記録に無い → つまずいた所かも');
     out.push('5. 相手は小学生。課題ははっきり書いてよいが、必ず「次の一歩」とセットにする。');
     out.push('6. 先生が読む文（クラス所見・週報）はていねいな文体、子どもが読む文（家庭学習コメント・');
     out.push('   計画アドバイス・振り返り返却・カルテ・おすすめ計画）はやさしい話し言葉で。');
+    out.push('7. 【A】の「リスクのサイン」「早期対応リスト」「最近ペースが落ちている子」は、');
+    out.push('   アプリが機械的に数えた\u300c兆候\u300dであって、確定した診断ではありません。断定した書き方をしないでください。');
+    out.push('8. そのかわり、同じ子の名前が複数のデータ（提出・正答率・満足度・振り返り' + (wantWide ? '・テスト' : '') + '）で');
+    out.push('   重なって出てきたときは、そこを重く見て、何が起きていそうかを書いてください。');
+    out.push('   逆に1つのサインしか出ていない子は、まだ様子見であることが分かるように書いてください。');
+    if (isFri) {
+      out.push('9. 今日は金曜日です。児童ごとの【この1週間（月〜金）】に、その週の記録と振り返りを');
+      out.push('   入れてあります。REFLECT には、その1週間の流れ（月曜からどう変わったか）を');
+      out.push('   ふまえた返却コメントを書いてください。1日だけを見て書かないこと。');
+    }
     out.push('');
     out.push('【目印の種類】');
     if (want.daily)   out.push('・=== [DAILY:...] === … その日の家庭学習への先生コメント。1〜2文、40字以内。子ども向け。');
     if (want.karte)   out.push('・=== [KARTE:...] === … 個人カルテ。①よいところ ②気になるところ ③次の一歩。子ども向け。');
+    if (want.karte) {
+      out.push('    ※個人カルテのきまり（大事）:');
+      out.push('      - 【この1週間（月〜金）】を主役にする。今週やったこと・書いたことを具体的に取り上げる。');
+      out.push('      - 【ふだんの様子】は背景。触れるとしても一言まで。今年度ぜんたいの話にしない。');
+      out.push('      - テストの点数・得点率・順位には いっさい触れない。');
+      out.push('      - この下に先生がプリントやノートの内容を貼ることがあります。');
+      out.push('        貼ってあれば、その中身を読んで具体的にほめてください（例：どこの説明がよかったか）。');
+    }
     if (want.plan)    out.push('・=== [PLAN:...] === … 今週の計画へのアドバイス。①よい点 ②もっとよくする点 ③ひとこと。子ども向け。');
     if (want.reflect) out.push('・=== [REFLECT:...] === … 今週の振り返りへの返却コメント。2〜3文。子ども向け。');
     if (want.suggest) out.push('・=== [SUGGEST:...] === … 今週のおすすめ家庭学習。曜日ごとに3〜5項目。子ども向け。');
-    if (want.classOv) out.push('・=== [CLASS] === … クラス全体の所見。5〜8行（よい傾向／気になる点／来週の手立て）。先生向け。');
-    if (want.report)  out.push('・=== [WEEKREPORT] === … 今週の週報。管理職・保護者にも見せられる文体で10行程度。先生向け。');
+    if (want.classOv) out.push('・=== [CLASS] === … クラス全体の所見。5〜8行（よい傾向／気になる点／来週の手立て）。先生向け。【テスト・成績】も使ってよい。');
+    if (want.report)  out.push('・=== [WEEKREPORT] === … 今週の週報。管理職・保護者にも見せられる文体で10行程度。先生向け。【テスト・成績】も使ってよい。');
+    out.push('');
+    out.push('【児童ごとのデータの並び】');
+    out.push('・【この1週間（月〜金）】…個人カルテ・家庭学習コメント・振り返り返却は、ここを主役に。');
+    out.push('・【ふだんの様子（今年度の積み上げ）】…背景。カルテでは軽く触れる程度に。');
+    if (wantWide) out.push('・【テスト・成績】…クラス所見と週報のための材料。個人カルテには使わないこと。');
+    else out.push('（今回はテストの点数を渡していません。テストの話は書かないでください。）');
     out.push('');
     out.push('==================================================');
     out.push('【A】クラスの土台（ここは読むだけ。書き足さなくてよい）');
     out.push('==================================================');
 
     // ---------- A. クラス共通データ ----------
-    say('クラスのデータを集めています... (1/6)');
+    say('クラスのデータを集めています... (1/8)');
     var className = '';
     try {
       var csel = $('analyticsClassFilter');
@@ -157,7 +218,7 @@
     } catch (e) {}
 
     // A-2 今週の提出状況
-    say('クラスのデータを集めています... (2/6)');
+    say('クラスのデータを集めています... (2/8)');
     var dashboard = null;
     try {
       dashboard = await getJson('/api/teacher/class/' + encodeURIComponent(cid) + '/submission-dashboard?weekKey=' + encodeURIComponent(wk));
@@ -177,7 +238,7 @@
     } catch (e) {}
 
     // A-3 単元別クラス平均（ゲーム内学習データ）
-    say('クラスのデータを集めています... (3/6)');
+    say('クラスのデータを集めています... (3/8)');
     var unitAna = null, classUnitAvg = {}, unitSubject = {};
     try {
       unitAna = await getJson('/api/teacher/class/' + encodeURIComponent(cid) + '/unit-analytics');
@@ -193,12 +254,15 @@
       }
     } catch (e) {}
 
-    // A-4 ラーニングアナリティクス（テスト平均・満足度・キーワード・相関）
-    say('クラスのデータを集めています... (4/6)');
+    // A-4 ラーニングアナリティクス（テスト平均・満足度・キーワード）
+    //     ※単元別の弱点と「問題数×正答率の相関」は A-3 / A-5 と重複するのでここでは出さない
+    say('クラスのデータを集めています... (4/8)');
+    var laData = null;
     try {
       var la = await getJson('/api/teacher/learning-analytics?classId=' + encodeURIComponent(cid));
+      laData = la;
       if (la && la.ok) {
-        var tb = (la.tests && la.tests.bySubject) || [];
+        var tb = wantWide ? ((la.tests && la.tests.bySubject) || []) : [];
         if (tb.length) {
           out.push('■ 紙のテスト 教科別クラス平均');
           tb.forEach(function (t) {
@@ -214,23 +278,14 @@
         }
         var kw = (la.satisfaction && la.satisfaction.keywords) || [];
         if (kw.length) {
-          out.push('■ 振り返りによく出る言葉: ' + kw.slice(0, 12).map(function (k) { return k.word + '(' + k.count + ')'; }).join('、'));
-        }
-        if (la.relation && la.relation.correlation != null) {
-          out.push('■ 取り組んだ問題数と正答率の相関: r=' + la.relation.correlation);
-        }
-        var wk2 = (la.subjects && la.subjects.weak) || [];
-        if (wk2.length) {
-          out.push('■ クラスの弱い単元: ' + wk2.slice(0, 8).map(function (x) {
-            return (x.name || x.unit || '') + (x.rate != null ? '(' + x.rate + '%)' : '');
-          }).join('、'));
+          out.push('■ 振り返りによく出る言葉: ' + kw.slice(0, 8).map(function (k) { return k.word + '(' + k.count + ')'; }).join('、'));
         }
         out.push('');
       }
     } catch (e) {}
 
     // A-5 要因分析（相関）— 計算で出している数字。AIには「見立ての材料」として渡す
-    say('クラスのデータを集めています... (5/6)');
+    say('クラスのデータを集めています... (5/8)');
     try {
       var fa = await getJson('/api/teacher/factor-analysis?classId=' + encodeURIComponent(cid));
       if (fa && fa.ok) {
@@ -247,7 +302,7 @@
     } catch (e) {}
 
     // A-6 早期対応リスト
-    say('クラスのデータを集めています... (6/6)');
+    say('クラスのデータを集めています... (6/8)');
     try {
       var ea = await getJson('/api/teacher/early-alerts?classId=' + encodeURIComponent(cid));
       if (ea && ea.ok && (ea.alerts || []).length) {
@@ -260,6 +315,46 @@
         });
         out.push('');
       }
+    } catch (e) {}
+
+    // A-7 リスクのサイン（提出・活動・正答率の危険サインを重みづけ集計）
+    //     声かけ案（固定文）はわざと渡さない。AIに言い直させても情報が増えないため。
+    say('クラスのデータを集めています... (7/8)');
+    try {
+      var rs = await getJson('/api/teacher/risk-scores?classId=' + encodeURIComponent(cid));
+      if (rs && rs.ok) {
+        var LV = { high: '高', mid: '中', low: '低', partial: 'データ不足', unknown: '判定不可' };
+        out.push('■ リスクのサイン（提出・活動・正答率の危険サインを機械的に集計したもの）');
+        out.push('（目安：50点以上=高 / 25点以上=中 / 24点以下=低 / データ不足=判定材料が片方しかない / 判定不可=記録がほとんどない）');
+        var lows = [], unknowns = [], listed = 0;
+        (rs.students || []).forEach(function (st) {
+          var nm2 = nameOf(st.loginId, st.name);
+          if (st.level === 'unknown') { unknowns.push(nm2); return; }
+          if (st.level === 'low') { lows.push(nm2); return; }
+          var sg = (st.signals || []).join('／') || '（サインなし）';
+          out.push('・' + nm2 + '：' + (LV[st.level] || st.level) + '（' + st.riskScore + '点）｜' + sg);
+          listed++;
+        });
+        if (!listed) out.push('・（高・中・データ不足に当てはまる子はいません）');
+        if (lows.length) out.push('・低リスク（' + lows.length + '人）：' + lows.join('、'));
+        if (unknowns.length) out.push('・判定不可＝記録がほとんどない（' + unknowns.length + '人）：' + unknowns.join('、'));
+        out.push('');
+      }
+    } catch (e) {}
+
+    // A-8 最近ペースが落ちている子（ラーニングアナリティクスの「離れ気味アラート」）
+    say('クラスのデータを集めています... (8/8)');
+    try {
+      var dropList = (laData && laData.ok && laData.continuity && laData.continuity.droppingStudents) || [];
+      out.push('■ 最近ペースが落ちている子（直近7日の提出回数が、その前の7日より大きく減っている）');
+      if (dropList.length) {
+        dropList.forEach(function (ds) {
+          out.push('・' + nameOf(ds.loginId, ds.name) + '（前の7日 ' + ds.prev7 + '回 → 直近7日 ' + ds.recent7 + '回）');
+        });
+      } else {
+        out.push('・（直近で大きく落ちている子はいません）');
+      }
+      out.push('');
     } catch (e) {}
 
     // ---------- B. 児童ごと ----------
@@ -317,67 +412,37 @@
       out.push('▼ 児童データ: ' + nm + '（ID: ' + sid + '）');
       out.push('--------------------------------------------------');
 
+      // ===== ① この1週間（個人カルテ・家庭学習コメント・振り返り返却の主役） =====
+      var weekRefl = null;
+      var planLines = [], reflText = '';
+      var p = planByUser[st.userId];
+      out.push('【この1週間（月〜金）】※個人カルテはここを主役に書く');
       if (data && data.ok) {
         try {
-          if (typeof _aiBodyLines === 'function') out = out.concat(_aiBodyLines(data));
-        } catch (e) { out.push('(基本データの整形に失敗)'); }
-
-        // ★ アプリ学習 と 紙のテスト の突き合わせ（教科ごと）
-        try {
-          var bySub = stuBySubjectById[st.userId] || {};
-          var testBySub = {};
-          (data.testScores || []).forEach(function (t) {
-            var k = t.subject || '(教科なし)';
-            if (t.pct == null) return;
-            (testBySub[k] = testBySub[k] || []).push(t.pct);
-          });
-          var subjKeys = {};
-          Object.keys(bySub).forEach(function (k) { subjKeys[k] = 1; });
-          Object.keys(testBySub).forEach(function (k) { subjKeys[k] = 1; });
-          var subjList = Object.keys(subjKeys);
-          if (subjList.length) {
-            out.push('');
-            out.push('【★アプリ学習 と 紙のテスト の対応（教科ごと・ここを突き合わせて見立てを）】');
-            subjList.forEach(function (k) {
-              var a = bySub[k];
-              var appTxt = (a && a.total) ? (a.acc + '%（' + a.total + '問）') : 'データなし';
-              var ts = testBySub[k] || [];
-              var tsTxt = ts.length
-                ? (Math.round(ts.reduce(function (x, y) { return x + y; }, 0) / ts.length) + '%（' + ts.length + '回）')
-                : 'データなし';
-              out.push('・' + k + '：アプリ正答率 ' + appTxt + ' ／ テスト平均 ' + tsTxt);
+          var wsubs = (data.recentSubmissions || []).filter(function (r) {
+            return weekDays.indexOf(r.day_key) >= 0;
+          }).sort(function (a2, b2) { return (a2.day_key < b2.day_key) ? -1 : 1; });
+          if (wsubs.length) {
+            wsubs.forEach(function (r) {
+              var dd = new Date(r.day_key + 'T00:00:00Z');
+              var w = r.end_weather === 'sun' ? '☀' : r.end_weather === 'cloud' ? '☁' : r.end_weather === 'rain' ? '🌧' : '?';
+              var ln = '・' + r.day_key + '(' + DOW_JA[dd.getUTCDay()] + ') ' + w + ' ' + (r.todo || '') + '（' + (r.minutes || 0) + '分）';
+              if (r.aim) ln += ' めあて:' + r.aim;
+              if (r.weather_reason) ln += ' ふりかえり:' + r.weather_reason;
+              if (r.next_improve) ln += ' 次:' + r.next_improve;
+              if (r.rest_day) ln += '（おやすみ）';
+              out.push(ln);
             });
+            var mins = wsubs.reduce(function (a2, r) { return a2 + (Number(r.minutes) || 0); }, 0);
+            var suns = wsubs.filter(function (r) { return r.end_weather === 'sun'; }).length;
+            out.push('・今週の合計：' + wsubs.length + '日 / ' + mins + '分 / ☀' + suns + '日');
+          } else {
+            out.push('・（今週の提出はまだありません）');
           }
         } catch (e) {}
-
-        // ★ クラス平均との差（単元ごと）
-        try {
-          var mine = stuUnitById[st.userId] || {};
-          var diffs = [];
-          Object.keys(mine).forEach(function (mode) {
-            var v = mine[mode];
-            if (!v || v.acc == null) return;
-            var avg = classUnitAvg[mode];
-            if (avg == null) return;
-            var info = unitInfo[mode] || {};
-            diffs.push({ name: info.name || mode, mine: v.acc, avg: avg, d: v.acc - avg, n: v.total });
-          });
-          diffs.sort(function (x, y) { return x.d - y.d; });
-          if (diffs.length) {
-            out.push('');
-            out.push('【★クラス平均との差（アプリ学習・単元ごと／差の小さい順）】');
-            diffs.slice(0, 10).forEach(function (d) {
-              out.push('・' + d.name + '：本人' + d.mine + '% / クラス' + d.avg + '%（差 ' + (d.d >= 0 ? '+' : '') + d.d + 'pt・' + d.n + '問）');
-            });
-          }
-        } catch (e) {}
-      } else {
-        out.push('(データを取得できませんでした)');
       }
 
-      // 今週の計画
-      var p = planByUser[st.userId];
-      var planLines = [], reflText = '';
+      // 今週の計画・振り返り（自由記述）
       if (p) {
         var parsed = {};
         try { parsed = JSON.parse(p.plansJson || '{}'); } catch (e) {}
@@ -392,32 +457,111 @@
         var friV = friK ? parsed[friK] : '';
         reflText = (friV && typeof friV === 'object') ? (friV.reflection || '') : '';
         if (planLines.length) {
-          out.push('');
-          out.push('【今週の計画（本人が書いたもの）】');
-          out = out.concat(planLines);
-          if (p.revisionCount) out.push('（' + p.revisionCount + '回 書きなおしています）');
+          out.push('・今週の計画（本人が書いたもの）');
+          planLines.forEach(function (l) { out.push('　' + l); });
+          if (p.revisionCount) out.push('　（' + p.revisionCount + '回 書きなおしています）');
         }
         if (reflText && String(reflText).trim()) {
-          out.push('');
-          out.push('【今週の振り返り（本人が書いたもの）】');
-          out.push(reflText);
+          out.push('・今週の振り返り（本人が書いたもの）: ' + reflText);
         }
       }
 
-      // 今日（未返却）の家庭学習
+      // 今週の振り返り（項目式）
+      if (data && data.ok) {
+        try {
+          var refs = (data.reflections || []).filter(function (r) { return r.weekKey === wk; });
+          if (refs.length) {
+            weekRefl = refs[0];
+            out.push('・今週の振り返り（項目ごと）');
+            if (weekRefl.concentration != null && weekRefl.concentration !== '') out.push('　集中できた度合い: ' + weekRefl.concentration);
+            if (weekRefl.goodPoint) out.push('　よかったこと: ' + weekRefl.goodPoint);
+            if (weekRefl.improvePoint) out.push('　もっとよくしたいこと: ' + weekRefl.improvePoint);
+            if (weekRefl.nextAction) out.push('　来週やること: ' + weekRefl.nextAction);
+          }
+        } catch (e) {}
+      }
+
+      // まだ返していない家庭学習
       var hw = hwByUser[st.userId];
       if (hw) {
+        out.push('・まだ返していない家庭学習（' + (hw.dayKey || '') + '）');
+        if (hw.aim)            out.push('　めあて: ' + hw.aim);
+        if (hw.todo)           out.push('　やったこと: ' + hw.todo);
+        if (hw.why)            out.push('　えらんだ理由: ' + hw.why);
+        out.push('　学習時間: ' + (hw.minutes || 0) + '分');
+        out.push('　手ごたえ: ' + (hw.endWeather === 'sun' ? '☀' : hw.endWeather === 'cloud' ? '☁' : hw.endWeather === 'rain' ? '🌧' : '?'));
+        if (hw.weatherReason)  out.push('　ふりかえり: ' + hw.weatherReason);
+        if (hw.nextImprove)    out.push('　次にがんばること: ' + hw.nextImprove);
+        if (hw.parentComment)  out.push('　おうちの人から: ' + hw.parentComment);
+        if (hw.restDay)        out.push('　（おやすみの記録）');
+      }
+
+      // ===== ② ふだんの様子（今年度の積み上げ・カルテでは背景あつかい） =====
+      if (data && data.ok) {
+        var body = { main: [], test: [] };
+        try {
+          if (typeof _aiBodyLines === 'function') body = splitBody(_aiBodyLines(data));
+        } catch (e) { body = { main: ['(基本データの整形に失敗)'], test: [] }; }
+
         out.push('');
-        out.push('【まだ返していない家庭学習】' + (hw.dayKey || ''));
-        if (hw.aim)            out.push('・めあて: ' + hw.aim);
-        if (hw.todo)           out.push('・やったこと: ' + hw.todo);
-        if (hw.why)            out.push('・えらんだ理由: ' + hw.why);
-        out.push('・学習時間: ' + (hw.minutes || 0) + '分');
-        out.push('・手ごたえ: ' + (hw.endWeather === 'sun' ? '☀' : hw.endWeather === 'cloud' ? '☁' : hw.endWeather === 'rain' ? '🌧' : '?'));
-        if (hw.weatherReason)  out.push('・ふりかえり: ' + hw.weatherReason);
-        if (hw.nextImprove)    out.push('・次にがんばること: ' + hw.nextImprove);
-        if (hw.parentComment)  out.push('・おうちの人から: ' + hw.parentComment);
-        if (hw.restDay)        out.push('・（おやすみの記録）');
+        out.push('【ふだんの様子（今年度の積み上げ）】※個人カルテでは背景として軽く触れる程度に');
+        out = out.concat(body.main);
+
+        // クラス平均との差（アプリ学習のみ。テストの点は含まない）
+        try {
+          var mine = stuUnitById[st.userId] || {};
+          var diffs = [];
+          Object.keys(mine).forEach(function (mode) {
+            var v = mine[mode];
+            if (!v || v.acc == null) return;
+            var avg = classUnitAvg[mode];
+            if (avg == null) return;
+            var info = unitInfo[mode] || {};
+            diffs.push({ name: info.name || mode, mine: v.acc, avg: avg, d: v.acc - avg, n: v.total });
+          });
+          diffs.sort(function (x, y) { return x.d - y.d; });
+          if (diffs.length) {
+            out.push('');
+            out.push('【クラス平均との差（アプリ学習・単元ごと／差の小さい順）】');
+            diffs.slice(0, 10).forEach(function (d) {
+              out.push('・' + d.name + '：本人' + d.mine + '% / クラス' + d.avg + '%（差 ' + (d.d >= 0 ? '+' : '') + d.d + 'pt・' + d.n + '問）');
+            });
+          }
+        } catch (e) {}
+
+        // ===== ③ テスト・成績（クラス所見／週報のときだけ。個人カルテには使わない） =====
+        if (wantWide) {
+          out.push('');
+          out.push('【テスト・成績】※クラス所見・週報のための材料。個人カルテには使わないこと');
+          if (body.test.length) out = out.concat(body.test);
+          try {
+            var bySub = stuBySubjectById[st.userId] || {};
+            var testBySub = {};
+            (data.testScores || []).forEach(function (t) {
+              var k = t.subject || '(教科なし)';
+              if (t.pct == null) return;
+              (testBySub[k] = testBySub[k] || []).push(t.pct);
+            });
+            var subjKeys = {};
+            Object.keys(bySub).forEach(function (k) { subjKeys[k] = 1; });
+            Object.keys(testBySub).forEach(function (k) { subjKeys[k] = 1; });
+            var subjList = Object.keys(subjKeys);
+            if (subjList.length) {
+              out.push('【★アプリ学習 と 紙のテスト の対応（教科ごと・突き合わせて見立てを）】');
+              subjList.forEach(function (k) {
+                var a = bySub[k];
+                var appTxt = (a && a.total) ? (a.acc + '%（' + a.total + '問）') : 'データなし';
+                var ts = testBySub[k] || [];
+                var tsTxt = ts.length
+                  ? (Math.round(ts.reduce(function (x, y) { return x + y; }, 0) / ts.length) + '%（' + ts.length + '回）')
+                  : 'データなし';
+                out.push('・' + k + '：アプリ正答率 ' + appTxt + ' ／ テスト平均 ' + tsTxt);
+              });
+            }
+          } catch (e) {}
+        }
+      } else {
+        out.push('(データを取得できませんでした)');
       }
 
       // ---- 書いてほしい欄（目印） ----
@@ -428,7 +572,8 @@
       }
       if (want.karte)   { out.push('=== [KARTE:' + sid + '] ' + nm + ' ==='); out.push(''); }
       if (want.plan && planLines.length)  { out.push('=== [PLAN:' + sid + '] ' + nm + ' ==='); out.push(''); }
-      if (want.reflect && reflText && p && !p.reflectionReturnedAt) {
+      var hasRefl = !!(reflText && String(reflText).trim()) || !!weekRefl;
+      if (want.reflect && hasRefl && p && !p.reflectionReturnedAt) {
         out.push('=== [REFLECT:' + sid + '] ' + nm + ' ==='); out.push('');
       }
       if (want.suggest) { out.push('=== [SUGGEST:' + sid + '] ' + nm + ' ==='); out.push(''); }
@@ -760,8 +905,26 @@
   window.taiLoadRoster = taiLoadRoster;
 
   // ---------- 初期化 ----------
+  // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）
+  function applyFriday() {
+    if (!isFridayJst()) return;
+    var cb = $('taiOptReflect');
+    if (!cb || cb.getAttribute('data-fri')) return;
+    cb.setAttribute('data-fri', '1');
+    cb.checked = true;
+    if ($('taiFriNote')) return;
+    var row = cb.parentNode && cb.parentNode.parentNode;
+    if (!row || !row.parentNode) return;
+    var note = document.createElement('div');
+    note.id = 'taiFriNote';
+    note.className = 'bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-bold mb-2';
+    note.textContent = '📅 今日は金曜日です。「週の振り返りの返却」も入れてあります（コピーは1週間ぶん長くなります）。今週はやらない場合はチェックを外してください。';
+    row.parentNode.insertBefore(note, row.nextSibling);
+  }
+
   var _lastCid = null;
   function init() {
+    applyFriday();
     var sel = $('analyticsClassFilter');
     if (sel && !sel.getAttribute('data-tai')) {
       sel.setAttribute('data-tai', '1');
