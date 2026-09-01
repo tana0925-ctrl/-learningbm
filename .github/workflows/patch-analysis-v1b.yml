@@ -1,0 +1,24 @@
+name: 分析タブ 第1段階 追補 (teacher-ai.js 配信)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用
+        run: python3 scripts/patch_analysis_v1b.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "分析タブ第1段階 追補: /teacher-ai.js の配信ルートを追加" && git push)
