@@ -3930,7 +3930,7 @@ window.claimClassMission=async function(){
 <div class="rounded-2xl border-2 border-blue-200 p-4" style="background: linear-gradient(135deg, #eff6ff, #dbeafe);">
 <div class="flex items-center justify-between">
 <div class="font-black text-blue-800 flex items-center gap-2"><span>📚</span>学習の分析</div>
-<div class="text-xs text-gray-500">修行の記録から自動で作るよ</div>
+<div class="text-xs text-gray-500">きろくを計算して出しているよ（AIではないよ）</div>
 </div>
 
 <div id="homeGrowthCard" class="mt-3"></div><div id="homeStoryCard"></div> <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -11798,7 +11798,7 @@ sessionStartTime = now;
             } catch (e) { console.error('[saveData] critical error:', e); }
         }
         // グローバルスコープからも saveData を呼べるように公開
-        window.saveData = saveData;
+        window.saveData = saveData; window.getPlayer = window.getPlayer || function(){ try { return player; } catch(e){ return null; } };
 
         /* =========================================
            BACKUP / RESTORE
@@ -42673,7 +42673,7 @@ async function hwRenderWeekView(){
       const notice = document.getElementById('hwRewardNotice');
       if(notice && st){
         let html = '';
-        if(st.planAiComment){ html += '<div class="bg-violet-50 border-2 border-violet-300 rounded-xl p-3 space-y-1"><div class="font-bold text-violet-700 text-sm">\uD83D\uDCCB 先生（AI）からの計画アドバイス</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planAiComment)+'</div></div>'; }
+        if(st.planAiComment){ html += '<div class="bg-violet-50 border-2 border-violet-300 rounded-xl p-3 space-y-1"><div class="font-bold text-violet-700 text-sm">\uD83D\uDCCB 先生からの計画アドバイス</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planAiComment)+'</div></div>'; }
         // 計画承認報酬
         if(st.planApproved && !localStorage.getItem('hwPlanReward_'+weekKey)){
           html += '<div class="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 space-y-1">'
@@ -44835,7 +44835,7 @@ function hsPhotoSelected(input) {
     if (previewEl) { previewEl.style.display = 'block'; }
   };
   reader.readAsDataURL(file);
-  if (statusEl) statusEl.textContent += ' 🔍分析中...';
+  if (statusEl) statusEl.textContent += ' 📤送信中...';
   if (analysisEl) { analysisEl.style.display = 'none'; analysisEl.textContent = ''; }
   window._hsPhotoAnalysisResult = '';
   (async () => {
@@ -44849,12 +44849,12 @@ function hsPhotoSelected(input) {
         const data = await res.json();
         window._hsPhotoAnalysisResult = data.analysis || '';
         if (analysisEl && data.analysis) { analysisEl.textContent = '📝 ' + data.analysis; analysisEl.style.display = 'block'; }
-        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' ✅';
+        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' ✅ 先生に送ったよ';
       } else {
-        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' (分析スキップ)';
+        if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' ⚠️ 送れませんでした';
       }
     } catch(e) {
-      if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' (分析エラー)';
+      if (statusEl) statusEl.textContent = file.name.slice(0,20) + ' ⚠️ 送れませんでした';
     }
   })();
 }
@@ -55151,5 +55151,5 @@ async function _checkContactBadge(){
 })();
 
 </script>
-</body>
+<script src="/rt-battle.js"></script><script src="/typeshoot.js"></script></body>
 </html>

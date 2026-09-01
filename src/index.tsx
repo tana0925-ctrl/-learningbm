@@ -2655,6 +2655,115 @@ app.post('/api/teacher/student-ai-comments', async (c) => {
 })
 
 
+// ===== 外部AIの貼り戻しを「下書き」として預かるAPI =====
+//  子どもに届く前に、先生が必ず目を通せるようにするための置き場。
+//  ここに入っているだけでは誰にも届かない。公開は既存APIをそのまま使う。
+async function ensureAiDraftTable(env: any) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ai_review_drafts (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL,
+      class_id TEXT NOT NULL,
+      week_key TEXT,
+      kind TEXT NOT NULL,
+      target_id TEXT,
+      target_name TEXT,
+      ref_key TEXT,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT,
+      published_at TEXT
+    )`).run()
+  } catch {}
+  try { await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_ai_drafts_class ON ai_review_drafts (class_id, status)').run() } catch {}
+}
+async function aiDraftOwnsClass(c: any, u: any, classId: string) {
+  return u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+}
+const AI_DRAFT_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT']
+
+app.post('/api/teacher/ai-drafts', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !Array.isArray(body.items)) return jsonError(c, 400, 'invalid')
+  const classId = String(body.classId || '')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
+  await ensureAiDraftTable(c.env)
+  const weekKey = String(body.weekKey || '').slice(0, 12)
+  if (body.replace) {
+    try { await c.env.DB.prepare("DELETE FROM ai_review_drafts WHERE class_id=? AND teacher_id=? AND status='draft'").bind(classId, u.id).run() } catch {}
+  }
+  let saved = 0
+  for (const it of body.items) {
+    const kind = String((it && it.kind) || '').toUpperCase()
+    if (AI_DRAFT_KINDS.indexOf(kind) < 0) continue
+    const text = String((it && it.body) || '').slice(0, 8000)
+    if (!text.trim()) continue
+    const targetId = String((it && it.targetId) || '')
+    // 児童宛ての下書きは、そのクラスの児童かどうかを必ず確かめる
+    if (targetId) {
+      const own = await c.env.DB.prepare('SELECT 1 FROM class_members WHERE class_id=? AND user_id=? LIMIT 1').bind(classId, targetId).first<any>()
+      if (!own) continue
+    }
+    const id = 'aid_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9)
+    await c.env.DB.prepare(
+      "INSERT INTO ai_review_drafts (id, teacher_id, class_id, week_key, kind, target_id, target_name, ref_key, body, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,'draft',datetime('now'))"
+    ).bind(id, u.id, classId, weekKey, kind, targetId, String((it && it.targetName) || '').slice(0, 60), String((it && it.refKey) || '').slice(0, 60), text).run()
+    saved++
+  }
+  return c.json({ ok: true, saved })
+})
+
+app.get('/api/teacher/ai-drafts', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
+  await ensureAiDraftTable(c.env)
+  let rows: any = { results: [] }
+  try {
+    rows = await c.env.DB.prepare(
+      "SELECT id, kind, target_id as targetId, target_name as targetName, ref_key as refKey, body, status, created_at as createdAt, published_at as publishedAt FROM ai_review_drafts WHERE class_id=? AND teacher_id=? AND status<>'discarded' ORDER BY (status='draft') DESC, kind, created_at DESC LIMIT 400"
+    ).bind(classId, u.id).all<any>()
+  } catch {}
+  const drafts = (((rows && rows.results) || []) as any[])
+  // 家庭学習コメントには、どの日の提出かを添えて先生が見分けられるようにする
+  for (const d of drafts) {
+    if (d.kind === 'DAILY' && d.refKey) {
+      try {
+        const hw = await c.env.DB.prepare('SELECT hs.day_key as dayKey, u2.name, u2.login_id as loginId FROM homework_submissions hs JOIN users u2 ON u2.id=hs.user_id WHERE hs.id=? LIMIT 1').bind(d.refKey).first<any>()
+        if (hw) { d.refLabel = hw.dayKey || ''; if (!d.targetName) d.targetName = hw.name || hw.loginId || '' }
+      } catch {}
+    }
+  }
+  return c.json({ ok: true, drafts })
+})
+
+app.post('/api/teacher/ai-drafts/mark', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body || !Array.isArray(body.ids)) return jsonError(c, 400, 'invalid')
+  const status = String(body.status || '')
+  if (status !== 'published' && status !== 'discarded' && status !== 'draft') return jsonError(c, 400, 'bad_status')
+  await ensureAiDraftTable(c.env)
+  let n = 0
+  for (const rawId of body.ids) {
+    const id = String(rawId || '')
+    if (!id) continue
+    const r = await c.env.DB.prepare(
+      "UPDATE ai_review_drafts SET status=?, published_at=CASE WHEN ?='published' THEN datetime('now') ELSE published_at END WHERE id=? AND teacher_id=?"
+    ).bind(status, status, id, u.id).run()
+    if (r && r.meta && r.meta.changes) n += r.meta.changes
+  }
+  return c.json({ ok: true, updated: n })
+})
+
 // ===== テスト結果の取り込みAPI（外部AIの出力を貼り付け→パース→保存・集計値は再利用可能） =====
 function _tsNorm(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}).replace(/[ 　]/g,'').toLowerCase(); }
 function _tsHalf(s){ return String(s==null?'':s).replace(/[０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}); }
@@ -3766,66 +3875,11 @@ app.post('/api/homework/analyze-photo', async (c) => {
       }
     } catch (e) { console.error('photo bonus error:', e) }
 
-    try {
-      let binary = ''
-      for (let i = 0; i < imageBytes.length; i += 8192) {
-        binary += String.fromCharCode(...imageBytes.subarray(i, Math.min(i + 8192, imageBytes.length)))
-      }
-      const base64 = btoa(binary)
-
-      const photoPrompt = `あなたは小学校の先生です。児童が提出した家庭学習の写真を見て、内容を分析してください。
-
-80〜120文字で簡潔に書いてください:
-- 教科・学習内容（何の勉強か）
-- 学習の量や丁寧さ
-- 良い点を1つ
-
-温かい言葉で。名前や挨拶は不要。`
-
-      // Gemini 2.5 Flash で画像分析
-      let geminiDone = false
-      try {
-        const gRes = await callGemini(c.env, {
-          contents: [{ role: 'user', parts: [
-            { inline_data: { mime_type: mimeType, data: base64 } },
-            { text: photoPrompt }
-          ] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
-        })
-        if (gRes.ok) {
-          const text = gRes.text
-          if (text.trim()) {
-            analysisText = text.trim().slice(0, 500)
-            geminiDone = true
-          }
-        }
-      } catch (ge: any) {
-        console.error('Gemini photo analysis error:', ge?.message || ge)
-      }
-
-      // フォールバック: Cloudflare AI (Gemma 4 26B)
-      if (!geminiDone) {
-        try {
-          const dataUri = `data:${mimeType};base64,${base64}`
-          const aiRes: any = await c.env.AI.run('@cf/google/gemma-4-26b-a4b-it', {
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: dataUri } },
-                { type: 'text', text: photoPrompt }
-              ]
-            }],
-            max_tokens: 300,
-          })
-          analysisText = String(aiRes.response || '').trim().slice(0, 500)
-        } catch (cfErr: any) {
-          console.error('CF AI photo fallback error:', cfErr?.message || cfErr)
-        }
-      }
-    } catch (e: any) {
-      console.error('AI photo analysis error:', e)
-      analysisText = ''
-    }
+    // 🚫 2026-09 方針変更: 児童が出した写真の自動AI分析は行いません。
+    //    提出直後の反応はアプリ側（写真ボーナス）で返します。
+    //    中身のあるコメントは、先生が外部AIの下書きを確認して公開したものだけが届きます。
+    //    （教師ダッシュボード 分析タブ →「今日のひと往復」→ ④先生が確認して公開）
+    analysisText = ''
 
     // AI分析が失敗してもOKを返す（写真自体は提出時に保存される）
     if (analysisText) {
@@ -8430,7 +8484,7 @@ app.get('/teacher', (c) => {
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 家庭学習
           </button>
           <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> AI分析・個人
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> AIの結果
           </button>
           <button id="anSubTab_tests" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('tests')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">5</span> テスト取り込み
@@ -8443,6 +8497,52 @@ app.get('/teacher', (c) => {
         <div class="bg-white rounded-xl shadow p-3 flex gap-2 items-center flex-wrap">
           <span class="text-sm font-bold text-slate-600">クラス:</span>
           <select id="analyticsClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+        </div>
+
+        <!-- ★ 今日のひと往復（分析タブのメインの導線） -->
+        <div class="bg-white rounded-xl shadow border-2 border-indigo-400 p-4 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="font-black text-base text-indigo-800">📋 今日のひと往復</div>
+            <span class="text-xs text-slate-500">コピー → 外部AIに貼る → 貼り戻す → 確認して公開</span>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg p-3">
+            <div class="font-bold text-sm text-slate-700 mb-2"><span class="bg-indigo-500 text-white rounded-full px-2 py-0.5 text-xs mr-1">1</span>今回ふくめるもの</div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700 mb-2">
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptDaily" checked class="accent-indigo-600"> 家庭学習コメント（毎日）</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptKarte" class="accent-indigo-600"> 個人カルテ</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptClass" class="accent-indigo-600"> クラス所見</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReport" class="accent-indigo-600"> 週報</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptPlan" class="accent-indigo-600"> 計画アドバイス</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReflect" class="accent-indigo-600"> 週の振り返りの返却</label>
+              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptSuggest" class="accent-indigo-600"> おすすめ計画</label>
+            </div>
+            <button onclick="taiCopyAll()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-emerald-700">📋 まとめてコピー</button>
+            <span id="taiStatus" class="text-xs font-bold text-indigo-700 ml-2"></span>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg p-3">
+            <div class="font-bold text-sm text-slate-700 mb-2"><span class="bg-indigo-500 text-white rounded-full px-2 py-0.5 text-xs mr-1">2</span>ChatGPT / Gemini / Claude に貼る　<span class="bg-indigo-500 text-white rounded-full px-2 py-0.5 text-xs mr-1">3</span>返ってきた文をここに貼る</div>
+            <textarea id="taiPaste" rows="4" class="w-full border border-slate-300 rounded-lg p-2 text-xs" placeholder="AIの返事をぜんぶ貼り付け（=== [ ... ] === の目印ごとに自動でふり分けます）"></textarea>
+            <button onclick="taiImport()" class="mt-2 bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-indigo-700">🔍 下書きに取り込む</button>
+          </div>
+
+          <div class="border-2 border-rose-300 bg-rose-50 rounded-lg p-3">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+              <div class="font-bold text-sm text-rose-800"><span class="bg-rose-500 text-white rounded-full px-2 py-0.5 text-xs mr-1">4</span>先生が確認して公開</div>
+              <div class="flex items-center gap-2">
+                <span id="taiPubCount" class="text-xs font-bold text-rose-700"></span>
+                <button onclick="taiLoadDrafts()" class="bg-white border border-rose-300 text-rose-700 rounded px-2 py-1 text-xs font-bold hover:bg-rose-100">🔄 更新</button>
+              </div>
+            </div>
+            <p class="text-xs text-rose-700 mb-2">公開ボタンを押すまで、子どもには何も届きません。</p>
+            <div id="taiDraftList" class="space-y-2"><p class="text-xs text-slate-400">クラスを選んでください</p></div>
+            <div class="flex items-center gap-2 flex-wrap mt-2">
+              <button onclick="taiPublish()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-rose-700">✅ チェックした分を公開</button>
+              <button onclick="taiDiscard()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-2 text-xs font-bold hover:bg-slate-300">🗑 下書きを消す</button>
+              <span id="taiPubStatus" class="text-xs font-bold text-rose-700"></span>
+            </div>
+          </div>
         </div>
 
         <!-- サブタブ①: クラス全体（ラーニングアナリティクス） -->
@@ -8458,7 +8558,7 @@ app.get('/teacher', (c) => {
           </div>
           <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center gap-2 flex-wrap mb-3">
-              <h3 class="font-bold text-slate-700">🔍 要因分析（何をすると伸びる？）</h3>
+              <h3 class="font-bold text-slate-700">🔍 何をすると伸びる？</h3><span class="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-bold">計算で表示・AIではありません</span>
               <button onclick="loadFactorAnalysis()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 要因をチェック</button>
             </div>
             <p class="text-xs text-slate-500 mb-2">「提出率・学習時間・連続提出・振り返り量・満足度…」などの要因が、正答率や4月からの伸びと、どれくらい関係しているかを調べます（上の「ラーニングアナリティクス」と同じクラス選択を使います）。</p>
@@ -8508,12 +8608,45 @@ app.get('/teacher', (c) => {
           <!-- 🤖 AI分析（まとめて）＋常時表示 -->
           <div class="bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200 rounded-xl p-4 space-y-2">
             <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-sky-800">🤖 最新のAI分析（保存済み・いつでも表示）</div>
+              <div class="font-bold text-sm text-sky-800">📄 いま子どもに届いている文（AIが書き、先生が公開したもの）</div>
               <button onclick="loadAiSummary()" class="bg-sky-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-sky-700">🔄 更新</button>
             </div>
             <div id="aiSummaryBox" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選ぶと、保存済みのAI分析がここに表示されます</p></div>
           </div>
-          <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
+          <!-- 通知表（先生用・観点別◎○△） -->
+          <div class="bg-white border border-indigo-200 rounded-xl p-4 space-y-3 mb-4" id="reportCardPanel">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-indigo-800">📋 通知表（先生用・観点別）</div>
+              <div class="flex gap-2">
+                <button onclick="loadReportCard()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-indigo-700">📋 評価一覧</button>
+                <button onclick="loadRosterEditor()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-300">🔢 出席番号を編集</button>
+              </div>
+            </div>
+            <p class="text-xs text-indigo-600">テスト採点でつけた観点別評価（◎○△）を、児童（出席番号順）×教科×3観点で集約します。<b>先生だけが見る画面です（児童には表示されません）。</b>「クラス全体」で選んだクラスが対象。</p>
+            <div id="reportCardContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「評価一覧」を押してください</p></div>
+          </div>
+          <!-- 個人カルテ -->
+          <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-bold text-sm text-amber-800">👤 個人カルテ</div>
+            </div>
+            <p class="text-xs text-amber-600">名前をクリックすると、その子の記録をまとめた画面が開きます。<button onclick="taiLoadRoster()" class="ml-1 bg-amber-500 text-white rounded px-2 py-0.5 text-[11px] font-bold hover:bg-amber-600">🔄 児童一覧を表示</button></p>
+            <div id="karteStudentList" class="flex flex-wrap gap-2">
+              <p class="text-xs text-slate-400">「児童一覧を表示」を押してください</p>
+            </div>
+          </div>
+
+          <!-- 提出ヒートマップ -->
+          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <div class="font-bold text-sm text-slate-700">🗓️ 提出ヒートマップ（今週）</div>
+            <div id="heatmapContent" class="overflow-x-auto">
+              <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
+            </div>
+          </div>
+        <details class="bg-slate-50 border border-slate-300 rounded-xl">
+            <summary class="cursor-pointer p-3 text-sm font-bold text-slate-500 select-none">🗂 以前の画面（そのうち無くなります）（ふだんは開かなくて大丈夫です）</summary>
+            <div class="p-3 pt-0 space-y-3">
+            <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
             <div class="font-bold text-sm text-violet-800">🤖 AI分析（まとめて）— ワンストップ</div>
             <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて保存」。クラス所見・個人カルテ・今週の計画・週の振り返り返却を、1回のコピー＆貼り付けで各保存先に振り分けます（常時表示にも反映）。</p>
             <div class="flex flex-wrap gap-3 text-xs text-violet-700 items-center"><span class="font-bold">含める種類:</span><label class="flex items-center gap-1"><input type="checkbox" id="uniOptClass" checked> クラス所見</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptKarte" checked> 個人カルテ</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptPlan" checked> 今週の計画</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptReflect" checked> 振り返り返却</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptSuggest" checked> 計画おすすめ</label></div>
@@ -8524,7 +8657,8 @@ app.get('/teacher', (c) => {
             <textarea id="unifiedAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付け（=== [CLASS] === / === [KARTE:児童ID] === / === [PLAN:児童ID] === / === [REFLECT:児童ID] === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
             <div><button onclick="saveUnifiedAi()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 まとめて保存（クラス所見＋個人コメント）</button></div>
           </div>
-          <!-- AIクラス分析 -->
+
+            <!-- AIクラス分析 -->
           <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
@@ -8548,30 +8682,7 @@ app.get('/teacher', (c) => {
             </div>
           </div>
 
-          <!-- 通知表（先生用・観点別◎○△） -->
-          <div class="bg-white border border-indigo-200 rounded-xl p-4 space-y-3 mb-4" id="reportCardPanel">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-indigo-800">📋 通知表（先生用・観点別）</div>
-              <div class="flex gap-2">
-                <button onclick="loadReportCard()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-indigo-700">📋 評価一覧</button>
-                <button onclick="loadRosterEditor()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-300">🔢 出席番号を編集</button>
-              </div>
-            </div>
-            <p class="text-xs text-indigo-600">テスト採点でつけた観点別評価（◎○△）を、児童（出席番号順）×教科×3観点で集約します。<b>先生だけが見る画面です（児童には表示されません）。</b>「クラス全体」で選んだクラスが対象。</p>
-            <div id="reportCardContent" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選んで「評価一覧」を押してください</p></div>
-          </div>
-          <!-- 個人カルテ -->
-          <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 space-y-3">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-amber-800">👤 個人カルテ</div>
-            </div>
-            <p class="text-xs text-amber-600">児童の名前をクリックすると、AIによる個人分析が表示されます。</p>
-            <div id="karteStudentList" class="flex flex-wrap gap-2">
-              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」または「週報を生成」を押すと、ここに児童一覧が表示されます</p>
-            </div>
-          </div>
-
-          <!-- 全員分まとめAI分析 -->
+            <!-- 全員分まとめAI分析 -->
           <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-200 rounded-xl p-4 space-y-3">
             <div class="font-bold text-sm text-violet-800">🤖 全員分のAI分析（一括）</div>
             <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Geminiに貼り付け → ②AIの結果を下に貼って「保存」。各児童の個人分析・カルテに反映されます。</p>
@@ -8583,15 +8694,9 @@ app.get('/teacher', (c) => {
             <textarea id="allAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付けてください（=== [児童ID] ... === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
             <div><button onclick="saveAllAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 AIの結果をまとめて保存</button></div>
           </div>
-
-          <!-- 提出ヒートマップ -->
-          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-            <div class="font-bold text-sm text-slate-700">🗓️ 提出ヒートマップ（今週）</div>
-            <div id="heatmapContent" class="overflow-x-auto">
-              <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
             </div>
+          </details>
           </div>
-        </div>
 
         <!-- サブタブ⑤: テスト結果の取り込み -->
         <div id="anPane_tests" class="hidden space-y-3">
@@ -12238,7 +12343,7 @@ wrap.innerHTML = '';
             + (s.weeklyPlan ? '<div class="mt-1 p-1.5 bg-purple-50 rounded border border-purple-200"><b>📝 週の計画：</b>'+escH(s.weeklyPlan)+'</div>' : '')
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
             + (s.parentComment ? '<div class="mt-1 p-1.5 bg-pink-50 rounded border border-pink-200"><b>🏠 サポーターから：</b>'+escH(s.parentComment)+'</div>' : '')
-            + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物（AI分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
+            + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物メモ（2026年8月までの自動分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
             + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
             + '</div>';
 
@@ -12920,6 +13025,7 @@ wrap.innerHTML = '';
         await renderClasses();
       })();
     </script>
+    <script src="/teacher-ai.js?v=1"></script>
   </body></html>`)
 })
 
