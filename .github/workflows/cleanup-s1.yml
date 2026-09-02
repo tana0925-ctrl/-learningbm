@@ -1,0 +1,24 @@
+name: 整理 準備+第1段階 (B5移設 / 死んでいるコードの削除)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_cleanup_s1.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx public/teacher-ai.js public/index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "整理 準備+第1段階: 1人だけ作り直すを新パネルへ移設 / 死んだAPIと重複関数を削除" && git push)
