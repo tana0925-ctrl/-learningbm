@@ -814,7 +814,7 @@
   // to: 'kid'=子どものアプリ画面に出る / 'paper'=紙のカルテに載る（画面には出ない） / 'teacher'=先生だけ
   var KIND_JA = {
     DAILY:     { ja: '家庭学習コメント', to: 'kid',     badge: '子どもの画面に出る' },
-    KARTE:     { ja: '個人カルテ',       to: 'paper',   badge: '印刷して渡す' },
+    KARTE:     { ja: '個人カルテ',       to: 'kid',     badge: '子どもの画面に出る／印刷もできる' },
     PLAN:      { ja: '計画アドバイス',   to: 'kid',     badge: '子どもの画面に出る' },
     REFLECT:   { ja: '振り返りの返却',   to: 'kid',     badge: '子どもの画面に出る' },
     SUGGEST:   { ja: 'おすすめ計画',     to: 'kid',     badge: '子どもの画面に出る' },
@@ -938,7 +938,19 @@
       var r2 = await postJson('/api/teacher/student-ai-comments', {
         comments: byKind.KARTE.map(function (x) { return { studentId: x.targetId, comment: x.body }; })
       });
-      if (r2 && r2.ok) { byKind.KARTE.forEach(function (x) { okIds.push(x.id); }); msgs.push('カルテ' + r2.saved + '人'); }
+      if (r2 && r2.ok) {
+        byKind.KARTE.forEach(function (x) { okIds.push(x.id); });
+        msgs.push('カルテ' + r2.saved + '人');
+        // 📒 2026-09: 公開したカルテを、その子のアプリ画面にも出す。
+        //   ここで記録した子だけが /api/student/my-karte で自分のカルテを見られる。
+        //   （先生が公開していない子には何も出ない）
+        try {
+          await postJson('/api/teacher/karte-share', {
+            classId: cid,
+            studentIds: byKind.KARTE.map(function (x) { return x.targetId; })
+          });
+        } catch (e) {}
+      }
     }
     // --- 計画アドバイス ---
     if (byKind.PLAN) {
