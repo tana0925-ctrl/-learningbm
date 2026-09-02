@@ -56,6 +56,15 @@ function rateLimit(key: string, maxReqs: number, windowSec: number): boolean {
 
 // -------------------- utils --------------------
 
+// 📉 2026-09: D1 の行読み取り削減。学習履歴は「今年度（4月1日以降）」だけを見る。
+// learning_results には (user_id, answered_at) の索引があるため、この条件で
+// 読み取る行数がその期間ぶんに絞られる。
+function fyStartYMD(): string {
+  const d = new Date()
+  const y = d.getUTCFullYear()
+  return (((d.getUTCMonth() + 1) >= 4) ? y : y - 1) + '-04-01'
+}
+
 // Gemini API キーローテーション（交互使用＋429フェイルオーバー）
 let _geminiKeyIndex = 0
 function getGeminiKeys(env: any): string[] {
@@ -187,7 +196,15 @@ async function readSession(secret: string, token: string) {
 }
 
 // -------------------- ensure admin exists --------------------
+// 📉 2026-09: ここは以前「全リクエストで必ず1回 D1 を読む」処理だった。
+//   ・行読み取りを大量に消費していた
+//   ・D1 が落ちるとログイン画面すら 500 になっていた
+//  → 起動（isolate）ごとに1回だけ試し、失敗しても素通りする形に変更。
+let _adminChecked = false
 app.use('*', async (c, next) => {
+  if (_adminChecked) return next()
+  _adminChecked = true
+  try {
   const adminLoginId = c.env.ADMIN_LOGIN_ID || ''
   const adminPassword = c.env.ADMIN_PASSWORD || ''
   const secret = c.env.SESSION_SECRET
@@ -213,6 +230,10 @@ app.use('*', async (c, next) => {
       .run()
   } else {
     // If admin already exists in DB, do NOT override password using Secrets.
+  }
+  } catch (e) {
+    // D1 が使えなくても、画面の表示だけは通す（ログイン画面が真っ白にならないように）
+    console.error('admin provision skipped:', (e as any)?.message || e)
   }
 
   return next()
@@ -2318,8 +2339,8 @@ app.get('/api/teacher/student-karte', async (c) => {
   try {
     subjectResults = await c.env.DB.prepare(`
       SELECT unit, week_key, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
-      FROM learning_results WHERE user_id=? GROUP BY unit, week_key ORDER BY week_key DESC
-    `).bind(studentId).all<any>()
+      FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit, week_key ORDER BY week_key DESC
+    `).bind(studentId, fyStartYMD()).all<any>()
   } catch {}
 
   // 計画修正履歴
@@ -2456,6 +2477,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       `).bind(u.id, studentId).first<any>()
   if (!member) return jsonError(c, 404, 'student_not_found')
 
+  const _fy = fyStartYMD()
   const [submissions, subjectResults, plans, reflections, revisions] = await Promise.all([
     c.env.DB.prepare(`
       SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim,
@@ -2464,8 +2486,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     `).bind(studentId).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
       SELECT unit, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
-      FROM learning_results WHERE user_id=? GROUP BY unit ORDER BY total DESC
-    `).bind(studentId).all<any>().catch(() => ({ results: [] })),
+      FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit ORDER BY total DESC
+    `).bind(studentId, _fy).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
       SELECT week_key, plans_json, revision_count, plan_approved, plan_reward_coins,
              reflection_comment, reflection_returned_at, reflection_reward_coins
@@ -3033,7 +3055,7 @@ app.get('/api/student/review-suggestions', async (c) => {
   let grade: number | null = null
   try { const gr = await c.env.DB.prepare('SELECT grade FROM users WHERE id=? LIMIT 1').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}
   let rows: any[] = []
-  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor, MAX(answered_at) as last_at FROM learning_results WHERE user_id=? GROUP BY unit").bind(u.id).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
+  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor, MAX(answered_at) as last_at FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit").bind(u.id, fyStartYMD()).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
   const now = Date.now(); const dayMs = 86400000
   const ug = (id: string) => { id = String(id || ''); const c0 = id.charAt(0); if ((c0 === 'm' || c0 === 'j' || c0 === 'r' || c0 === 's') && id.charAt(2) === '-') { const dch = id.charAt(1); if (dch >= '1' && dch <= '6') return parseInt(dch, 10) } return null }
   const thr = (acc: number) => acc >= 0.9 ? 21 : acc >= 0.8 ? 14 : acc >= 0.6 ? 7 : 4
@@ -3059,7 +3081,7 @@ app.get('/api/student/weak-units', async (c) => {
   let grade: number | null = null
   try { const gr = await c.env.DB.prepare('SELECT grade FROM users WHERE id=? LIMIT 1').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}
   let rows: any[] = []
-  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor FROM learning_results WHERE user_id=? GROUP BY unit").bind(u.id).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
+  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit").bind(u.id, fyStartYMD()).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
   const ug = (id: string) => { id = String(id || ''); const c0 = id.charAt(0); if ((c0 === 'm' || c0 === 'j' || c0 === 'r' || c0 === 's') && id.charAt(2) === '-') { const dch = id.charAt(1); if (dch >= '1' && dch <= '6') return parseInt(dch, 10) } return null }
   const items: any[] = []
   for (const row of rows) {
@@ -3337,10 +3359,11 @@ app.get('/api/teacher/learning-analytics', async (c) => {
   const total = members.length
   const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
   const subs = (((await c.env.DB.prepare('SELECT user_id, day_key, minutes, end_weather, weather_reason, submitted_at FROM homework_submissions WHERE user_id IN ' + memQ + ' ORDER BY day_key').bind(classId).all<any>()).results) || [])
+  const _laFy = fyStartYMD()
   const [unitAgg, perStuLR, hourAgg] = await Promise.all([
-    c.env.DB.prepare("SELECT unit, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " GROUP BY unit").bind(classId).all<any>().catch(() => ({ results: [] })),
-    c.env.DB.prepare("SELECT user_id, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " GROUP BY user_id").bind(classId).all<any>().catch(() => ({ results: [] })),
-    c.env.DB.prepare("SELECT strftime('%H', datetime(answered_at, '+9 hours')) as hr, COUNT(*) as n FROM learning_results WHERE user_id IN " + memQ + " GROUP BY hr").bind(classId).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare("SELECT unit, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ? GROUP BY unit").bind(classId, _laFy).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare("SELECT user_id, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ? GROUP BY user_id").bind(classId, _laFy).all<any>().catch(() => ({ results: [] })),
+    c.env.DB.prepare("SELECT strftime('%H', datetime(answered_at, '+9 hours')) as hr, COUNT(*) as n FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ? GROUP BY hr").bind(classId, _laFy).all<any>().catch(() => ({ results: [] })),
   ])
   const dayMs = 86400000
   const todayMs = Date.now()
@@ -3473,8 +3496,8 @@ app.get('/api/teacher/weekly-report', async (c) => {
     thisResults = await c.env.DB.prepare(`
       SELECT lr.user_id, lr.unit, COUNT(*) as total, SUM(CASE WHEN lr.is_correct=1 THEN 1 ELSE 0 END) as correct_count
       FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id=?
-      WHERE lr.week_key=? GROUP BY lr.user_id, lr.unit
-    `).bind(classId, weekKey).all<any>()
+      WHERE lr.week_key=? AND lr.answered_at >= ? GROUP BY lr.user_id, lr.unit
+    `).bind(classId, weekKey, fyStartYMD()).all<any>()
   } catch {}
 
   // 計画データ
@@ -8538,7 +8561,7 @@ app.get('/teacher', (c) => {
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReflect" class="accent-indigo-600"> 週の振り返りの返却</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptSuggest" class="accent-indigo-600"> おすすめ計画</label>
             </div>
-            <button onclick="taiCopyAll()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-emerald-700">📋 まとめてコピー</button>
+            <button onclick="taiCopyAll()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-emerald-700">📋 まとめてコピー</button><button onclick="taiCopyFresh()" class="ml-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-50">🔄 最新データで作り直す</button>
             <span id="taiStatus" class="text-xs font-bold text-indigo-700 ml-2"></span>
           </div>
 
@@ -13051,7 +13074,7 @@ wrap.innerHTML = '';
         await renderClasses();
       })();
     </script>
-    <script src="/teacher-ai.js?v=3"></script>
+    <script src="/teacher-ai.js?v=4"></script>
   </body></html>`)
 })
 
