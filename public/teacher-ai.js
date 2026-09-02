@@ -48,6 +48,33 @@
     return out;
   }
   var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+  // ---- コピー結果のキャッシュ ----
+  //  同じクラス・同じチェック・同じ日なら、2回目以降はデータベースを一切読み直さない。
+  //  （何回押しても重くならないように。最新にしたいときは「🔄 最新データで作り直す」）
+  var CACHE_KEY = 'taiCopyCache';
+  function cacheKeyOf(cid, want) {
+    var flags = ['daily', 'karte', 'classOv', 'report', 'plan', 'reflect', 'suggest']
+      .map(function (k) { return want[k] ? '1' : '0'; }).join('');
+    return cid + '|' + flags + '|' + todayKey();
+  }
+  function cacheGet(key) {
+    try {
+      var raw = sessionStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || o.key !== key) return null;
+      return o;
+    } catch (e) { return null; }
+  }
+  function cacheSet(key, text, blocks) {
+    try {
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+        key: key, text: text, blocks: blocks, at: Date.now()
+      }));
+    } catch (e) {}
+  }
+  function cacheClear() { try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {} }
   // _aiBodyLines() の出力を軽くする。
   //  コピーが長すぎるとAIの「出力」が途中で切れるため。削るのは全期間の積み上げ側だけで、
   //  【この1週間】は一切削らない（個人カルテ・家庭学習コメントの主役なので）。
@@ -141,7 +168,8 @@
     var done = function () {
       var m = window.__taiLast || {};
       var warn = (m.blocks > 60 || m.chars > 90000) ? '　⚠ 量が多いので、AIの返事が途中で切れることがあります（項目を減らすと安全です）' : '';
-      say('✓ コピーしました（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
+      var from = m.cached ? '（さっき作ったものを再利用：データベースは読んでいません）' : '';
+      say('✓ コピーしました' + from + '（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt); done(); });
@@ -177,6 +205,22 @@
         !want.plan && !want.reflect && !want.suggest) {
       say('「今回ふくめるもの」を1つ以上えらんでください'); return;
     }
+    // ★ 同じ条件で今日すでに作ってあるなら、データベースを読まずにそのまま使う
+    var _ckey = cacheKeyOf(cid, want);
+    if (!window.__taiForceRefresh) {
+      var hit = cacheGet(_ckey);
+      if (hit && hit.text) {
+        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true };
+        copyText(hit.text);
+        return;
+      }
+    }
+    window.__taiForceRefresh = false;
+
+    // 二重押し防止（押している間はボタンを止める）
+    if (window.__taiBusy) { say('いま作っています。少し待ってください…'); return; }
+    window.__taiBusy = true;
+
     // 金曜日は週の振り返りを厚めに入れる（先生がチェックを外していれば入れない）
     var isFri = isFridayJst() && want.reflect;
     var weekDays = weekDaysJst();
@@ -190,7 +234,7 @@
       var rd = await postJson('/api/teacher/records/parse', { classId: cid, text: '' });
       roster = (rd && rd.roster) || [];
     } catch (e) {}
-    if (!roster.length) { say('名簿が取得できませんでした'); return; }
+    if (!roster.length) { say('名簿が取得できませんでした'); window.__taiBusy = false; return; }
 
     var wk = weekKey();
     var out = [];
@@ -659,8 +703,17 @@
     var _txt = out.join(NL);
     var _blocks = 0;
     for (var bi = 0; bi < out.length; bi++) { if (out[bi].indexOf('=== [') === 0) _blocks++; }
-    window.__taiLast = { chars: _txt.length, blocks: _blocks };
+    window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false };
+    cacheSet(_ckey, _txt, _blocks);
+    window.__taiBusy = false;
     copyText(_txt);
+  }
+
+  // 🔄 最新のデータで作り直す（キャッシュを捨ててから作る）
+  async function taiCopyFresh() {
+    cacheClear();
+    window.__taiForceRefresh = true;
+    await taiCopyAll();
   }
 
   // ===================================================================
@@ -981,6 +1034,7 @@
   window.taiCheckAll = taiCheckAll;
   window.taiLoadRoster = taiLoadRoster;
   window.taiPrintKartes = taiPrintKartes;
+  window.taiCopyFresh = taiCopyFresh;
 
   // ---------- 初期化 ----------
   // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）
