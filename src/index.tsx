@@ -8791,59 +8791,7 @@ app.get('/teacher', (c) => {
               <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
             </div>
           </div>
-        <details class="bg-slate-50 border border-slate-300 rounded-xl">
-            <summary class="cursor-pointer p-3 text-sm font-bold text-slate-500 select-none">🗂 以前の画面（そのうち無くなります）（ふだんは開かなくて大丈夫です）</summary>
-            <div class="p-3 pt-0 space-y-3">
-            <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-300 rounded-xl p-4 space-y-2">
-            <div class="font-bold text-sm text-violet-800">🤖 AI分析（まとめて）— ワンストップ</div>
-            <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて保存」。クラス所見・個人カルテ・今週の計画・週の振り返り返却を、1回のコピー＆貼り付けで各保存先に振り分けます（常時表示にも反映）。</p>
-            <div class="flex flex-wrap gap-3 text-xs text-violet-700 items-center"><span class="font-bold">含める種類:</span><label class="flex items-center gap-1"><input type="checkbox" id="uniOptClass" checked> クラス所見</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptKarte" checked> 個人カルテ</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptPlan" checked> 今週の計画</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptReflect" checked> 振り返り返却</label><label class="flex items-center gap-1"><input type="checkbox" id="uniOptSuggest" checked> 計画おすすめ</label></div>
-            <div class="flex flex-wrap gap-2 items-center">
-              <button onclick="copyUnifiedAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-700">📋 まとめてコピー（クラス＋全児童）</button>
-              <span id="unifiedAiStatus" class="text-xs text-violet-700 font-bold"></span>
-            </div>
-            <textarea id="unifiedAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付け（=== [CLASS] === / === [KARTE:児童ID] === / === [PLAN:児童ID] === / === [REFLECT:児童ID] === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
-            <div><button onclick="saveUnifiedAi()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 まとめて保存（クラス所見＋個人コメント）</button></div>
-          </div>
 
-            <!-- AIクラス分析 -->
-          <div class="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 space-y-3">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-purple-800">🤖 AIクラス分析</div>
-              <button onclick="loadAIAnalysis()" class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-purple-700" id="btnAIAnalysis">✨ AIで分析</button>
-            </div>
-            <p class="text-xs text-purple-600">教科の成績＋家庭学習＋自己調整のデータをAIが総合的に分析し、声かけアドバイスを生成します。</p>
-            <div id="aiAnalysisContent" class="text-sm text-slate-600">
-              <p class="text-xs text-slate-400">クラスを選んで「AIで分析」を押してください</p>
-            </div>
-          </div>
-
-          <!-- 週報レポート -->
-          <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 space-y-3">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-green-800">📋 週報レポート</div>
-              <button onclick="loadWeeklyReport()" class="bg-green-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-green-700" id="btnWeeklyReport">📝 週報を生成</button>
-            </div>
-            <p class="text-xs text-green-600">今週の学習状況をまとめた週報をAIが自動生成します。管理職や保護者への報告にも使えます。</p>
-            <div id="weeklyReportContent" class="text-sm text-slate-600">
-              <p class="text-xs text-slate-400">クラスを選んで「週報を生成」を押してください</p>
-            </div>
-          </div>
-
-            <!-- 全員分まとめAI分析 -->
-          <div class="bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-200 rounded-xl p-4 space-y-3">
-            <div class="font-bold text-sm text-violet-800">🤖 全員分のAI分析（一括）</div>
-            <p class="text-xs text-violet-600">①「まとめてコピー」→ ChatGPT/Geminiに貼り付け → ②AIの結果を下に貼って「保存」。各児童の個人分析・カルテに反映されます。</p>
-            <div class="flex flex-wrap gap-2">
-              <button onclick="copyAllAiText()" class="bg-emerald-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-700">📋 全員分のAI分析用テキストをまとめてコピー</button>
-              <button onclick="downloadAllKartes()" class="bg-rose-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-rose-700">📄 全員分のカルテをまとめてダウンロード（印刷）</button>
-            </div>
-            <span id="allAiStatus" class="text-xs text-violet-700 font-bold block"></span>
-            <textarea id="allAiPaste" rows="5" placeholder="ここにAIの出力を全部貼り付けてください（=== [児童ID] ... === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
-            <div><button onclick="saveAllAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-2 text-xs font-bold hover:bg-violet-700">💾 AIの結果をまとめて保存</button></div>
-          </div>
-            </div>
-          </details>
           </div>
 
         <!-- サブタブ⑤: テスト結果の取り込み -->
@@ -11057,13 +11005,15 @@ wrap.innerHTML = '';
 
       // 個人カルテの児童一覧を更新
       function updateKarteStudentList(students, classId){
+        // 📌 2026-09: 名簿の保存は画面要素の有無より先に行う。
+        //   「📄 全員分のカルテを印刷」がこの値を使うため、
+        //   一覧を表示していない状態でも印刷できるようにしておく。
+        window._lastStudentSummaries = students;
+        window._lastAnalyticsClassId = classId;
         const wrap = document.getElementById('karteStudentList');
         if(!wrap) return;
         if(!students.length){ wrap.innerHTML='<p class="text-xs text-slate-400">児童データがありません</p>'; return; }
         wrap.innerHTML = '';
-        // ヒートマップ用データも保持
-        window._lastStudentSummaries = students;
-        window._lastAnalyticsClassId = classId;
         for(const s of students){
           const btn = document.createElement('button');
           btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition';
@@ -11102,80 +11052,8 @@ wrap.innerHTML = '';
       }
 
       // 個人カルテを開く
-      async function openStudentKarte(studentId, studentName){
-        const panel = document.getElementById('studentKartePanel');
-        const nameEl = document.getElementById('karteStudentName');
-        const contentEl = document.getElementById('karteContent');
-        panel.classList.remove('hidden');
-        nameEl.textContent = '👤 ' + studentName + ' のカルテ';
-        contentEl.innerHTML = '<p class="text-xs text-purple-500 animate-pulse">🤖 AIが分析中...</p>';
-        // スクロール
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        try {
-          const res = await fetch('/api/teacher/student-karte?studentId=' + encodeURIComponent(studentId));
-          const data = await res.json();
-          if(!data.ok){ contentEl.innerHTML = '<p class="text-red-500 text-xs">取得エラー</p>'; return; }
-          let html = '';
-          // 基本統計
-          const st = data.stats || {};
-          html += '<div class="grid grid-cols-3 gap-2 mb-3">';
-          html += '<div class="bg-blue-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-blue-600">'+st.totalDays+'</div><div class="text-[10px] text-slate-500">提出回数</div></div>';
-          html += '<div class="bg-green-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-green-600">'+st.avgMin+'分</div><div class="text-[10px] text-slate-500">平均学習時間</div></div>';
-          html += '<div class="bg-amber-50 rounded-lg p-2 text-center"><div class="text-lg font-black text-amber-600">'+st.sunRate+'%</div><div class="text-[10px] text-slate-500">満足度</div></div>';
-          html += '</div>';
-          // 教科別成績
-          if(data.subjects && data.subjects.length > 0){
-            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">📊 教科別成績</div><div class="space-y-1">';
-            for(const sub of data.subjects){
-              const w = Math.max(sub.rate, 5);
-              const color = sub.rate >= 80 ? 'bg-green-400' : sub.rate >= 60 ? 'bg-yellow-400' : 'bg-red-400';
-              html += '<div class="flex items-center gap-2"><span class="text-xs w-16 text-slate-600 font-bold truncate">'+escH(sub.unit)+'</span>';
-              html += '<div class="flex-1 bg-slate-100 rounded-full h-4"><div class="'+color+' rounded-full h-4 text-[10px] text-white flex items-center justify-center font-bold" style="width:'+w+'%">'+sub.rate+'%</div></div>';
-              html += '<span class="text-[10px] text-slate-400">'+sub.total+'問</span></div>';
-            }
-            html += '</div></div>';
-          }
-          // 計画修正履歴
-          if(data.revisions && data.revisions.length > 0){
-            html += '<div class="mb-3"><div class="font-bold text-xs text-slate-600 mb-1">🔄 計画修正履歴</div><div class="space-y-1">';
-            for(const r of data.revisions.slice(0, 5)){
-              html += '<div class="text-xs bg-slate-50 rounded p-1.5 border"><span class="font-bold text-slate-500">['+escH(r.week_key)+']</span> '+escH(r.reason || '理由なし')+'</div>';
-            }
-            html += '</div></div>';
-          }
-          // AI分析
-          if(data.aiAdvice){
-            try{
-              const advice = JSON.parse(data.aiAdvice);
-              html += '<div class="space-y-2">';
-              if(advice.trend) html += '<div class="bg-blue-50 rounded-lg p-2.5 border border-blue-200"><div class="font-bold text-xs text-blue-700 mb-1">📊 学習の傾向</div><div class="text-xs text-slate-700">'+escH(advice.trend)+'</div></div>';
-              if(advice.strength) html += '<div class="bg-green-50 rounded-lg p-2.5 border border-green-200"><div class="font-bold text-xs text-green-700 mb-1">💪 強みと成長</div><div class="text-xs text-slate-700">'+escH(advice.strength)+'</div></div>';
-              if(advice.concern) html += '<div class="bg-orange-50 rounded-lg p-2.5 border border-orange-200"><div class="font-bold text-xs text-orange-700 mb-1">🔍 気になる点</div><div class="text-xs text-slate-700">'+escH(advice.concern)+'</div></div>';
-              if(advice.advice) html += '<div class="bg-purple-50 rounded-lg p-2.5 border border-purple-200"><div class="font-bold text-xs text-purple-700 mb-1">💬 おすすめの声かけ</div><div class="text-xs text-slate-700">'+escH(advice.advice)+'</div></div>';
-              html += '</div>';
-            }catch(_){
-              html += '<div class="bg-purple-50 rounded-lg p-2.5 border text-xs text-slate-700">'+escH(data.aiAdvice)+'</div>';
-            }
-          }
-          // 直近の学習記録
-          if(data.recentSubmissions && data.recentSubmissions.length > 0){
-            html += '<div class="mt-3"><div class="font-bold text-xs text-slate-600 mb-1">📝 直近の学習記録</div><div class="space-y-1 max-h-48 overflow-y-auto">';
-            for(const s of data.recentSubmissions.slice(0, 10)){
-              const wIcon = s.end_weather === 'sun' ? '☀️' : s.end_weather === 'cloud' ? '☁️' : s.end_weather === 'rain' ? '🌧️' : '❓';
-              html += '<div class="text-xs bg-white rounded p-1.5 border flex items-center gap-1">';
-              html += '<span class="font-bold text-slate-500">'+escH(s.day_key||'')+'</span> ';
-              html += wIcon+' ';
-              html += '<span class="text-slate-600">'+escH(s.todo||'')+'</span> ';
-              html += '<span class="text-slate-400">('+( s.minutes||0)+'分)</span>';
-              html += '</div>';
-            }
-            html += '</div></div>';
-          }
-          contentEl.innerHTML = html;
-        } catch(e) {
-          contentEl.innerHTML = '<p class="text-red-500 text-xs">エラー: '+e.message+'</p>';
-        }
-      }
+/* 🗑 2026-09: openStudentKarte()（Geminiで個人カルテを書く方）は削除しました。
+         AIを使わない showStudentKarte() と表示枠はそのまま残しています。 */
 
             // 個人全期間分析を開く
       async function openStudentFullAnalysis(studentId, studentName){
@@ -11437,7 +11315,6 @@ wrap.innerHTML = '';
           html += '<div class="text-[10px] text-slate-400 mt-2">コピーしてChatGPTやGeminiに貼り付けると、先生向けの分析コメントが作れます</div>';
           html += '</div>';
           html += '<div class="text-center mt-4">';
-          html += '<button onclick="closeStudentFullAnalysis();openStudentKarte(&#39;'+escH(studentId)+'&#39;,&#39;'+escH(studentName)+'&#39;)" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-700">🤖 AIカルテを表示</button>';
           html += '</div>';
 
           contentEl.innerHTML = html;
