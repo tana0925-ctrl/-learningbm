@@ -48,6 +48,60 @@
     return out;
   }
   var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+  // _aiBodyLines() の出力を軽くする。
+  //  コピーが長すぎるとAIの「出力」が途中で切れるため。削るのは全期間の積み上げ側だけで、
+  //  【この1週間】は一切削らない（個人カルテ・家庭学習コメントの主役なので）。
+  function trimBody(lines) {
+    var out = [], i = 0;
+    var isItem = function (x) { return x.indexOf('・') === 0; };
+    while (i < lines.length) {
+      var head = lines[i];
+      if (head.indexOf('【') !== 0) { out.push(head); i++; continue; }
+      var j = i + 1, items = [];
+      while (j < lines.length && lines[j].indexOf('【') !== 0) { items.push(lines[j]); j++; }
+      i = j;
+      // 【直近の学習記録】は【この1週間（月〜金）】と内容が重複するので丸ごと落とす
+      if (head.indexOf('【直近の学習記録') === 0) continue;
+      out.push(head);
+      if (head.indexOf('【ポートフォリオ') === 0) {
+        var n = 0;
+        items.forEach(function (it) {
+          if (!isItem(it)) { out.push(it); return; }
+          if (n >= 3) return;
+          n++;
+          out.push(it.length > 120 ? it.slice(0, 120) + '…' : it);
+        });
+      } else if (head.indexOf('【先生の観察メモ') === 0) {
+        var m = 0;
+        items.forEach(function (it) {
+          if (!isItem(it)) { out.push(it); return; }
+          if (m >= 4) return;
+          m++; out.push(it);
+        });
+      } else if (head.indexOf('【教科別の正答率') === 0) {
+        var rows = [], other = [];
+        items.forEach(function (it) {
+          if (!isItem(it)) { other.push(it); return; }
+          var mm = it.match(/正答率(\d+)%/);
+          rows.push({ line: it, rate: mm ? Number(mm[1]) : 999 });
+        });
+        rows.sort(function (a, b) { return a.rate - b.rate; });
+        var low = rows.slice(0, 6);
+        var high = rows.slice(6).slice(-3);
+        low.forEach(function (r) { out.push(r.line); });
+        if (high.length) {
+          out.push('（とくいな方）');
+          high.forEach(function (r) { out.push(r.line); });
+        }
+        var rest = rows.length - low.length - high.length;
+        if (rest > 0) out.push('（ほか ' + rest + ' 単元は省略）');
+        other.forEach(function (o) { out.push(o); });
+      } else {
+        items.forEach(function (it) { out.push(it); });
+      }
+    }
+    return out;
+  }
   // _aiBodyLines() の出力を「テストの記録」とそれ以外に分ける。
   // 個人カルテ用のかたまりにはテストの点数を入れないため。
   function splitBody(lines) {
@@ -84,7 +138,11 @@
     }).then(function (r) { return r.json(); }).catch(function () { return null; });
   }
   function copyText(txt) {
-    var done = function () { say('✓ コピーしました。ChatGPT / Gemini / Claude に貼り付けてください'); };
+    var done = function () {
+      var m = window.__taiLast || {};
+      var warn = (m.blocks > 60 || m.chars > 90000) ? '　⚠ 量が多いので、AIの返事が途中で切れることがあります（項目を減らすと安全です）' : '';
+      say('✓ コピーしました（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
+    };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt); done(); });
     } else { fallbackCopy(txt); done(); }
@@ -500,7 +558,7 @@
       if (data && data.ok) {
         var body = { main: [], test: [] };
         try {
-          if (typeof _aiBodyLines === 'function') body = splitBody(_aiBodyLines(data));
+          if (typeof _aiBodyLines === 'function') body = splitBody(trimBody(_aiBodyLines(data)));
         } catch (e) { body = { main: ['(基本データの整形に失敗)'], test: [] }; }
 
         out.push('');
@@ -523,7 +581,7 @@
           if (diffs.length) {
             out.push('');
             out.push('【クラス平均との差（アプリ学習・単元ごと／差の小さい順）】');
-            diffs.slice(0, 10).forEach(function (d) {
+            diffs.slice(0, 5).forEach(function (d) {
               out.push('・' + d.name + '：本人' + d.mine + '% / クラス' + d.avg + '%（差 ' + (d.d >= 0 ? '+' : '') + d.d + 'pt・' + d.n + '問）');
             });
           }
@@ -598,7 +656,11 @@
       if (typeof updateKarteStudentList === 'function') updateKarteStudentList(summaries, cid);
     } catch (e) {}
 
-    copyText(out.join(NL));
+    var _txt = out.join(NL);
+    var _blocks = 0;
+    for (var bi = 0; bi < out.length; bi++) { if (out[bi].indexOf('=== [') === 0) _blocks++; }
+    window.__taiLast = { chars: _txt.length, blocks: _blocks };
+    copyText(_txt);
   }
 
   // ===================================================================
@@ -696,14 +758,15 @@
   // ===================================================================
   //  ④ 先生が確認して公開
   // ===================================================================
+  // to: 'kid'=子どものアプリ画面に出る / 'paper'=紙のカルテに載る（画面には出ない） / 'teacher'=先生だけ
   var KIND_JA = {
-    DAILY:     { ja: '家庭学習コメント', to: '子ども' },
-    KARTE:     { ja: '個人カルテ',       to: '子ども' },
-    PLAN:      { ja: '計画アドバイス',   to: '子ども' },
-    REFLECT:   { ja: '振り返りの返却',   to: '子ども' },
-    SUGGEST:   { ja: 'おすすめ計画',     to: '子ども' },
-    CLASS:     { ja: 'クラス所見',       to: '先生だけ' },
-    WEEKREPORT:{ ja: '週報',             to: '先生だけ' }
+    DAILY:     { ja: '家庭学習コメント', to: 'kid',     badge: '子どもの画面に出る' },
+    KARTE:     { ja: '個人カルテ',       to: 'paper',   badge: '印刷して渡す' },
+    PLAN:      { ja: '計画アドバイス',   to: 'kid',     badge: '子どもの画面に出る' },
+    REFLECT:   { ja: '振り返りの返却',   to: 'kid',     badge: '子どもの画面に出る' },
+    SUGGEST:   { ja: 'おすすめ計画',     to: 'kid',     badge: '子どもの画面に出る' },
+    CLASS:     { ja: 'クラス所見',       to: 'teacher', badge: '先生だけ' },
+    WEEKREPORT:{ ja: '週報',             to: 'teacher', badge: '先生だけ' }
   };
   var _drafts = [];
 
@@ -737,15 +800,15 @@
            '<span class="text-xs text-slate-500">中身を読んで、直したいところは書きかえられます</span></div>';
       h += '<div class="space-y-2 max-h-[28rem] overflow-y-auto">';
       pend.forEach(function (x) {
-        var k = KIND_JA[x.kind] || { ja: x.kind, to: '' };
-        var toCls = k.to === '子ども' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600';
+        var k = KIND_JA[x.kind] || { ja: x.kind, to: '', badge: '' };
+        var toCls = k.to === 'kid' ? 'bg-rose-100 text-rose-700' : (k.to === 'paper' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600');
         h += '<div class="bg-white rounded-lg border border-slate-200 p-2">' +
              '<div class="flex items-center gap-2 flex-wrap mb-1">' +
              '<input type="checkbox" class="tai-chk accent-indigo-600" data-id="' + esc(x.id) + '" checked>' +
              '<span class="text-xs font-bold text-slate-700">' + esc(k.ja) + '</span>' +
              (x.targetName ? '<span class="text-xs text-slate-600">' + esc(x.targetName) + '</span>' : '') +
              (x.refLabel ? '<span class="text-[10px] text-slate-400">' + esc(x.refLabel) + '</span>' : '') +
-             '<span class="text-[10px] px-1.5 py-0.5 rounded ' + toCls + '">' + esc(k.to) + 'に届く</span>' +
+             '<span class="text-[10px] px-1.5 py-0.5 rounded ' + toCls + '">' + esc(k.badge) + '</span>' +
              '</div>' +
              '<textarea class="tai-body w-full border border-slate-200 rounded p-1.5 text-xs" rows="' +
              Math.min(8, Math.max(2, String(x.body || '').split(NL).length)) + '" data-id="' + esc(x.id) + '">' +
@@ -796,8 +859,9 @@
     var picks = collectChecked();
     if (!cid) { sayPub('クラスを選んでください'); return; }
     if (!picks.length) { sayPub('公開するものにチェックを入れてください'); return; }
-    var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === '子ども'; }).length;
-    if (!confirm('チェックした ' + picks.length + '件を公開します。\nうち ' + kidCount + '件は子どもの画面に出ます。よろしいですか？')) return;
+    var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === 'kid'; }).length;
+    var paperCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === 'paper'; }).length;
+    if (!confirm('チェックした ' + picks.length + '件を公開します。\n・子どもの画面に出る: ' + kidCount + '件\n・紙のカルテに載る（印刷して渡す）: ' + paperCount + '件\nよろしいですか？')) return;
 
     sayPub('公開中...');
     var wk = weekKey();
@@ -880,6 +944,19 @@
     taiLoadDrafts();
   }
 
+  // 📄 全員分のカルテを印刷（A4・1人1枚）。既存の downloadAllKartes() をそのまま使う。
+  async function taiPrintKartes() {
+    var st = $('taiPrintStatus');
+    var cid = classId();
+    if (!cid) { if (st) st.textContent = 'クラスを選んでください'; return; }
+    if (typeof downloadAllKartes !== 'function') { if (st) st.textContent = 'この画面では使えません'; return; }
+    if (st) st.textContent = '名簿を読み込み中...';
+    try { await taiLoadRoster(); } catch (e) {}
+    if (st) st.textContent = 'カルテを作成しています...（人数ぶん時間がかかります）';
+    try { await downloadAllKartes(); } catch (e) {}
+    if (st) st.textContent = '✓ 印刷用の画面を開きました（出てこないときはポップアップを許可してください）';
+  }
+
   // 個人カルテの児童一覧を、古いAIボタンを押さなくても出せるようにする
   async function taiLoadRoster() {
     var cid = classId();
@@ -903,6 +980,7 @@
   window.taiDiscard = taiDiscard;
   window.taiCheckAll = taiCheckAll;
   window.taiLoadRoster = taiLoadRoster;
+  window.taiPrintKartes = taiPrintKartes;
 
   // ---------- 初期化 ----------
   // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）
