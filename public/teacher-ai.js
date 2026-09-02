@@ -150,6 +150,7 @@
   }
   function say(msg) { var e = $('taiStatus'); if (e) e.textContent = msg || ''; }
   function sayPub(msg) { var e = $('taiPubStatus'); if (e) e.textContent = msg || ''; }
+  function sayOne(msg) { var e = $('taiOneStatus'); if (e) e.textContent = msg || ''; }
   function opt(id) { var e = $(id); return e ? !!e.checked : false; }
 
   function getJson(url) {
@@ -188,11 +189,24 @@
   // ===================================================================
   //  ① まとめてコピー
   // ===================================================================
-  async function taiCopyAll() {
+  //  opts.onlyStudentId / opts.onlyKind をつけて呼ぶと「1人だけ・1種類だけ」作り直せる
+  //  （旧「1人ずつの計画コピー」の置きかえ。データの作り方は全員ぶんとまったく同じ）
+  async function taiCopyAll(opts) {
+    opts = opts || {};
+    var oneId = String(opts.onlyStudentId || '');
+    var oneKind = String(opts.onlyKind || '');
     var cid = classId();
     if (!cid) { say('先にクラスを選んでください'); return; }
 
-    var want = {
+    var want = oneKind ? {
+      daily:   oneKind === 'DAILY',
+      karte:   oneKind === 'KARTE',
+      classOv: false,
+      report:  false,
+      plan:    oneKind === 'PLAN',
+      reflect: oneKind === 'REFLECT',
+      suggest: oneKind === 'SUGGEST'
+    } : {
       daily:   opt('taiOptDaily'),
       karte:   opt('taiOptKarte'),
       classOv: opt('taiOptClass'),
@@ -207,7 +221,7 @@
     }
     // ★ 同じ条件で今日すでに作ってあるなら、データベースを読まずにそのまま使う
     var _ckey = cacheKeyOf(cid, want);
-    if (!window.__taiForceRefresh) {
+    if (!oneId && !window.__taiForceRefresh) {
       var hit = cacheGet(_ckey);
       if (hit && hit.text) {
         window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true };
@@ -235,6 +249,10 @@
       roster = (rd && rd.roster) || [];
     } catch (e) {}
     if (!roster.length) { say('名簿が取得できませんでした'); window.__taiBusy = false; return; }
+    if (oneId) {
+      roster = roster.filter(function (r) { return String(r.userId) === oneId; });
+      if (!roster.length) { sayOne('その児童が名簿に見つかりません'); window.__taiBusy = false; return; }
+    }
 
     var wk = weekKey();
     var out = [];
@@ -704,9 +722,10 @@
     var _blocks = 0;
     for (var bi = 0; bi < out.length; bi++) { if (out[bi].indexOf('=== [') === 0) _blocks++; }
     window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false };
-    cacheSet(_ckey, _txt, _blocks);
+    if (!oneId) cacheSet(_ckey, _txt, _blocks);
     window.__taiBusy = false;
     copyText(_txt);
+    if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
   }
 
   // 🔄 最新のデータで作り直す（キャッシュを捨ててから作る）
@@ -739,14 +758,18 @@
       .replace(/[\s　]/g, '').toLowerCase();
   }
 
-  async function taiImport() {
+  //  opts.append=true のときは、いまある下書きを消さずに追加する（1人だけ作り直すとき）
+  async function taiImport(opts) {
+    opts = opts || {};
+    var appendMode = !!opts.append;
+    var say2 = appendMode ? sayOne : say;
     var cid = classId();
-    var ta = $('taiPaste');
+    var ta = $(appendMode ? 'taiOnePaste' : 'taiPaste');
     var raw = ta ? ta.value : '';
-    if (!cid) { say('先にクラスを選んでください'); return; }
-    if (!raw || !raw.trim()) { say('AIの返事を貼り付けてください'); return; }
+    if (!cid) { say2('先にクラスを選んでください'); return; }
+    if (!raw || !raw.trim()) { say2('AIの返事を貼り付けてください'); return; }
 
-    say('読み取り中...');
+    say2('読み取り中...');
     var roster = [];
     try {
       var rd = await postJson('/api/teacher/records/parse', { classId: cid, text: '' });
@@ -794,15 +817,15 @@
     });
 
     if (!items.length) {
-      say('目印（=== [ ... ] === ）が見つかりませんでした（' + blocks.length + 'ブロック検出）');
+      say2('目印（=== [ ... ] === ）が見つかりませんでした（' + blocks.length + 'ブロック検出）');
       return;
     }
 
     var res = await postJson('/api/teacher/ai-drafts', {
-      classId: cid, weekKey: weekKey(), replace: true, items: items
+      classId: cid, weekKey: weekKey(), replace: !appendMode, items: items
     });
-    if (!res || !res.ok) { say('下書きの保存に失敗しました'); return; }
-    say('✓ ' + res.saved + '件を下書きに取り込みました。下の「④ 先生が確認して公開」を見てください' +
+    if (!res || !res.ok) { say2('下書きの保存に失敗しました'); return; }
+    say2('✓ ' + res.saved + '件を下書きに' + (appendMode ? '追加' : '取り込み') + 'ました。下の「④ 先生が確認して公開」を見てください' +
         (unmatched.length ? '（名前が一致しなかったもの: ' + unmatched.slice(0, 5).join(', ') + '）' : ''));
     if (ta) ta.value = '';
     taiLoadDrafts();
@@ -1035,7 +1058,33 @@
         }), cid);
       }
     } catch (e) {}
+    try { taiOneFill(roster); } catch (e) {}
   }
+
+  // --- 🔁 1人だけ作り直す（旧「1人ずつの計画コピー」の置きかえ） ---
+  function taiOneEsc(s) {
+    return String(s == null ? '' : s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
+  }
+  function taiOneFill(roster) {
+    var sel = $('taiOneStu');
+    if (!sel) return;
+    var cur = sel.value;
+    var h = '<option value="">児童をえらぶ</option>';
+    (roster || []).forEach(function (r) {
+      h += '<option value="' + taiOneEsc(r.userId) + '">' + taiOneEsc(nameOf(r.loginId, r.name)) + '</option>';
+    });
+    sel.innerHTML = h;
+    if (cur) { try { sel.value = cur; } catch (e) {} }
+  }
+  async function taiOneOpen() { try { await taiLoadRoster(); } catch (e) {} }
+  async function taiOneCopy() {
+    var sel = $('taiOneStu'), kd = $('taiOneKind');
+    var sid = sel ? sel.value : '';
+    if (!sid) { sayOne('児童をえらんでください'); return; }
+    sayOne('この子のぶんを作っています…');
+    await taiCopyAll({ onlyStudentId: sid, onlyKind: (kd ? kd.value : 'DAILY') });
+  }
+  async function taiOneImport() { await taiImport({ append: true }); }
 
   // ---------- 公開（グローバル） ----------
   window.taiCopyAll = taiCopyAll;
@@ -1047,6 +1096,9 @@
   window.taiLoadRoster = taiLoadRoster;
   window.taiPrintKartes = taiPrintKartes;
   window.taiCopyFresh = taiCopyFresh;
+  window.taiOneOpen = taiOneOpen;
+  window.taiOneCopy = taiOneCopy;
+  window.taiOneImport = taiOneImport;
 
   // ---------- 初期化 ----------
   // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）

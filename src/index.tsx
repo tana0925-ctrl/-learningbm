@@ -4956,109 +4956,9 @@ app.get('/api/student/weekly-reflection', async (c) => {
   return c.json({ ok: true, reflection: row || null })
 })
 
-// 生徒：自分の学習ダッシュボード（成長の見える化）
-app.get('/api/student/dashboard', async (c) => {
-  const u = c.get('user')
-  if (!u) return jsonError(c, 403, 'forbidden')
-  const weekKey = getWeekKey()
-  const prevWeekKey = getPrevWeekKey(weekKey)
-
-  // 1) 今週・先週の宿題提出データ
-  const thisWeekHW = await c.env.DB.prepare(`
-    SELECT COUNT(*) as cnt, COALESCE(SUM(minutes),0) as totalMin, COALESCE(AVG(minutes),0) as avgMin
-    FROM homework_submissions WHERE user_id=? AND week_key=?
-  `).bind(u.id, weekKey).first<any>()
-  const prevWeekHW = await c.env.DB.prepare(`
-    SELECT COUNT(*) as cnt, COALESCE(SUM(minutes),0) as totalMin, COALESCE(AVG(minutes),0) as avgMin
-    FROM homework_submissions WHERE user_id=? AND week_key=?
-  `).bind(u.id, prevWeekKey).first<any>()
-
-  // 2) 教科別正答率（今週 vs 先週）
-  const thisWeekResults = await c.env.DB.prepare(`
-    SELECT unit, COUNT(*) as total,
-           SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
-    FROM learning_results WHERE user_id=? AND week_key=?
-    GROUP BY unit
-  `).bind(u.id, weekKey).all<any>()
-  const prevWeekResults = await c.env.DB.prepare(`
-    SELECT unit, COUNT(*) as total,
-           SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count
-    FROM learning_results WHERE user_id=? AND week_key=?
-    GROUP BY unit
-  `).bind(u.id, prevWeekKey).all<any>()
-
-  // 3) ストリーク
-  const streakRow = await c.env.DB.prepare(`
-    SELECT streak_after as streak FROM homework_submissions
-    WHERE user_id=? ORDER BY submitted_at DESC LIMIT 1
-  `).bind(u.id).first<any>()
-
-  // 4) 自己調整スコア算出
-  const planRow = await c.env.DB.prepare(`
-    SELECT revision_count, plan_approved FROM student_weekly_plans WHERE user_id=? AND week_key=?
-  `).bind(u.id, weekKey).first<any>()
-  const reflectionRow = await c.env.DB.prepare(`
-    SELECT concentration, good_point, improve_point, next_action FROM structured_reflections WHERE user_id=? AND week_key=?
-  `).bind(u.id, weekKey).first<any>()
-
-  // 修正理由の質もチェック
-  const revisions = await c.env.DB.prepare(`
-    SELECT reason FROM plan_revisions WHERE user_id=? AND week_key=?
-  `).bind(u.id, weekKey).all<any>()
-
-  // スコア計算
-  let selfRegScore = 0
-  // 計画力: 計画を立てたか (+2)
-  if (planRow) selfRegScore += 2
-  // 実行力: 提出回数/5曜日 (+3 max)
-  const execRate = Math.min(1, (thisWeekHW?.cnt || 0) / 5)
-  selfRegScore += Math.round(execRate * 3)
-  // 調整力: 理由付き修正 (+2/回, max +6)
-  const reasonedRevs = (revisions.results || []).filter((r: any) => r.reason && r.reason.length > 0).length
-  selfRegScore += Math.min(6, reasonedRevs * 2)
-  // 内省力: ふりかえりの充実度 (+3 max)
-  if (reflectionRow) {
-    let refScore = 0
-    if (reflectionRow.good_point && reflectionRow.good_point.length >= 5) refScore += 1
-    if (reflectionRow.improve_point && reflectionRow.improve_point.length >= 5) refScore += 1
-    if (reflectionRow.next_action) refScore += 1
-    selfRegScore += refScore
-  }
-
-  // 5) 自動フィードバックメッセージ生成
-  const feedback = generateFeedback({
-    streak: streakRow?.streak || 0,
-    thisWeekMin: thisWeekHW?.totalMin || 0,
-    prevWeekMin: prevWeekHW?.totalMin || 0,
-    thisWeekCount: thisWeekHW?.cnt || 0,
-    thisWeekResults: thisWeekResults.results || [],
-    prevWeekResults: prevWeekResults.results || [],
-    selfRegScore,
-    revisionCount: planRow?.revision_count || 0,
-  })
-
-  return c.json({
-    ok: true,
-    weekKey,
-    homework: {
-      thisWeek: { count: thisWeekHW?.cnt || 0, totalMin: thisWeekHW?.totalMin || 0, avgMin: Math.round(thisWeekHW?.avgMin || 0) },
-      prevWeek: { count: prevWeekHW?.cnt || 0, totalMin: prevWeekHW?.totalMin || 0, avgMin: Math.round(prevWeekHW?.avgMin || 0) },
-    },
-    results: {
-      thisWeek: (thisWeekResults.results || []).map((r: any) => ({ unit: r.unit, rate: r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0, total: r.total })),
-      prevWeek: (prevWeekResults.results || []).map((r: any) => ({ unit: r.unit, rate: r.total > 0 ? Math.round(r.correct_count / r.total * 100) : 0, total: r.total })),
-    },
-    streak: streakRow?.streak || 0,
-    selfRegulation: {
-      score: selfRegScore,
-      maxScore: 14,
-      planMade: !!planRow,
-      revisionCount: planRow?.revision_count || 0,
-      reflectionDone: !!reflectionRow,
-    },
-    feedback,
-  })
-})
+// 🗑 2026-09: /api/student/dashboard は削除しました。
+//   定義だけあって、画面からもスクリプトからも一度も呼ばれていませんでした（確認ずみ）。
+//   この中で使っていた generateFeedback() は /api/teacher/auto-feedback がまだ使うので残しています。
 
 // 自動フィードバックメッセージ生成ロジック
 function generateFeedback(data: {
@@ -8768,6 +8668,28 @@ app.get('/teacher', (c) => {
               <button onclick="taiPrintKartes()" class="bg-white border border-rose-300 text-rose-700 rounded-lg px-3 py-2 text-xs font-bold hover:bg-rose-100">📄 全員分のカルテを印刷（A4・1人1枚）</button>
               <span id="taiPrintStatus" class="text-xs text-rose-700"></span>
             </div>
+            <details class="mt-2 pt-2 border-t border-rose-200" ontoggle="if(this.open){try{taiOneOpen()}catch(e){}}">
+              <summary class="text-xs text-rose-700 cursor-pointer">🔁 1人だけ作り直す</summary>
+              <div class="mt-2 p-2 rounded-lg bg-white border border-rose-200 space-y-2">
+                <p class="text-xs text-slate-500">1人ぶんだけ気に入らないときに。作り直した文も、上の「公開」を通ります。</p>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <select id="taiOneStu" class="text-xs border border-slate-300 rounded px-2 py-1"><option value="">児童をえらぶ</option></select>
+                  <select id="taiOneKind" class="text-xs border border-slate-300 rounded px-2 py-1">
+                    <option value="DAILY">家庭学習コメント</option>
+                    <option value="KARTE">個人カルテ</option>
+                    <option value="PLAN">計画アドバイス</option>
+                    <option value="REFLECT">振り返りの返却</option>
+                    <option value="SUGGEST">おすすめ計画</option>
+                  </select>
+                  <button onclick="taiOneCopy()" class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold hover:bg-emerald-700">① コピー</button>
+                </div>
+                <textarea id="taiOnePaste" rows="3" class="w-full border border-slate-300 rounded p-2 text-xs" placeholder="AIの返事をここに貼る"></textarea>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <button onclick="taiOneImport()" class="bg-indigo-600 text-white rounded px-3 py-1 text-xs font-bold hover:bg-indigo-700">② 下書きに追加</button>
+                  <span id="taiOneStatus" class="text-xs text-slate-500"></span>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -13251,7 +13173,7 @@ wrap.innerHTML = '';
         await renderClasses();
       })();
     </script>
-    <script src="/teacher-ai.js?v=5"></script>
+    <script src="/teacher-ai.js?v=6"></script>
   </body></html>`)
 })
 

@@ -44813,6 +44813,11 @@ function hsPhotoClear() {
   if (list) list.innerHTML = '';
   var statusEl = document.getElementById('hsPhotoStatus');
   if (statusEl) statusEl.textContent = '';
+  var previewEl = document.getElementById('hsPhotoPreview');
+  if (previewEl) previewEl.style.display = 'none';
+  var analysisEl = document.getElementById('hsPhotoAnalysis');
+  if (analysisEl) { analysisEl.style.display = 'none'; analysisEl.textContent = ''; }
+  try { window._hsPhotoAnalysisResult = ''; } catch (e) {}
 }
 
 window._hsPhotoAnalysisResult = '';
@@ -44859,17 +44864,9 @@ function hsPhotoSelected(input) {
   })();
 }
 
-function hsPhotoClear() {
-  const input = document.getElementById('hsPhotoInput');
-  const statusEl = document.getElementById('hsPhotoStatus');
-  const previewEl = document.getElementById('hsPhotoPreview');
-  const analysisEl = document.getElementById('hsPhotoAnalysis');
-  if (input) input.value = '';
-  if (statusEl) statusEl.textContent = '';
-  if (previewEl) previewEl.style.display = 'none';
-  if (analysisEl) { analysisEl.style.display = 'none'; analysisEl.textContent = ''; }
-  window._hsPhotoAnalysisResult = '';
-}
+/* 🗑 2026-09: 旧・単一写真版の hsPhotoClear は削除しました。
+   あとから定義されたこちらが上の複数枚版を上書きしてしまい、
+   提出したあとも写真が残る状態になっていました。 */
 
 async function hsSubmitAndExport(){
   const btn = document.getElementById('hsExportBtn');
