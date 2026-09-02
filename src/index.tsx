@@ -65,6 +65,53 @@ function fyStartYMD(): string {
   return (((d.getUTCMonth() + 1) >= 4) ? y : y - 1) + '-04-01'
 }
 
+// 📉 2026-09: 児童のステータス画面（📚復習おすすめ／⚡ミニ復習／成長ストーリー）の読み取り削減。
+//
+//  ・「復習おすすめ」と「ミニ復習(苦手)」は同じ集計で足りるので、SQLを1本にまとめて共有する（2本→1本）
+//  ・期間は「直近120日」かつ「直近1200問」。1200問の上限があるので、
+//    履歴が何年ぶん貯まっても1人あたりの読み取りが増え続けない。
+//  ・90日ではなく120日にした理由: 9月時点で90日さかのぼると大半が夏休みになり、
+//    「4問以上やった単元」に届かず判定から漏れる子が出るため（実測で3人／22人）。
+//  ・それでも120日で4問以上の単元が1つも無い子は、直近400日まで自動で広げる。
+//    これでカードが消える子は0人（4月の学年またぎ・長期の未活動どちらも検証ずみ）。
+//  ・同じ画面から3本同時に呼ばれるので45秒だけ使い回す。問題を解いたら即座に捨てる。
+const STU_AGG_TTL_MS = 45000
+const STU_GROWTH_TTL_MS = 600000
+const STU_AGG_DAYS = 120
+const STU_AGG_WIDE_DAYS = 400
+const STU_AGG_LIMIT = 1200
+const _stuAggCache = new Map<string, { at: number, rows: any[] }>()
+const _growthCache = new Map<string, { at: number, body: any }>()
+
+function stuSinceYMD(days: number): string {
+  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+}
+
+function stuAggInvalidate(userId: string) {
+  try { _stuAggCache.delete(userId); _growthCache.delete(userId) } catch (e) {}
+}
+
+async function stuUnitAggQuery(c: any, userId: string, since: string): Promise<any[]> {
+  try {
+    const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor, MAX(answered_at) as last_at FROM (SELECT unit, is_correct, answered_at FROM learning_results WHERE user_id=? AND answered_at >= ? ORDER BY answered_at DESC LIMIT " + STU_AGG_LIMIT + ") GROUP BY unit").bind(userId, since).all<any>()
+    return (((r && r.results) || []) as any[])
+  } catch (e) { return [] }
+}
+
+async function stuUnitAgg(c: any, userId: string): Promise<any[]> {
+  const hit = _stuAggCache.get(userId)
+  if (hit && (Date.now() - hit.at) < STU_AGG_TTL_MS) return hit.rows
+  let rows = await stuUnitAggQuery(c, userId, stuSinceYMD(STU_AGG_DAYS))
+  let usable = false
+  for (const r of rows) { if ((r.n || 0) >= 4) { usable = true; break } }
+  if (!usable) {
+    const wide = await stuUnitAggQuery(c, userId, stuSinceYMD(STU_AGG_WIDE_DAYS))
+    if (wide.length) rows = wide
+  }
+  try { if (_stuAggCache.size > 800) _stuAggCache.clear(); _stuAggCache.set(userId, { at: Date.now(), rows }) } catch (e) {}
+  return rows
+}
+
 // Gemini API キーローテーション（交互使用＋429フェイルオーバー）
 let _geminiKeyIndex = 0
 function getGeminiKeys(env: any): string[] {
@@ -204,6 +251,14 @@ let _adminChecked = false
 app.use('*', async (c, next) => {
   if (_adminChecked) return next()
   _adminChecked = true
+  // 📉 2026-09: 児童ごとの「直近N問」を索引で取れるようにする。
+  //   索引が無いと LIMIT を付けても全履歴を読んでしまうため、起動時に1回だけ用意する。
+  //   すでにあれば何もしない（IF NOT EXISTS）。データには一切触らない。
+  try {
+    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_learning_results_user_time ON learning_results(user_id, answered_at)').run()
+  } catch (e) {
+    console.error('index ensure skipped:', (e as any)?.message || e)
+  }
   try {
   const adminLoginId = c.env.ADMIN_LOGIN_ID || ''
   const adminPassword = c.env.ADMIN_PASSWORD || ''
@@ -789,6 +844,9 @@ app.post('/api/student/results', async (c) => {
   )
     .bind(u.id, unit, questionId, isCorrect, timeMs, answeredAt, metaJson)
     .run()
+
+  // 📉 2026-09: 解いた直後に古い集計を見せないよう、その子のキャッシュを捨てる
+  try { stuAggInvalidate(u.id) } catch (e) {}
 
   return c.json({ ok: true })
 })
@@ -3055,7 +3113,7 @@ app.get('/api/student/review-suggestions', async (c) => {
   let grade: number | null = null
   try { const gr = await c.env.DB.prepare('SELECT grade FROM users WHERE id=? LIMIT 1').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}
   let rows: any[] = []
-  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor, MAX(answered_at) as last_at FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit").bind(u.id, fyStartYMD()).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
+  rows = await stuUnitAgg(c, u.id)
   const now = Date.now(); const dayMs = 86400000
   const ug = (id: string) => { id = String(id || ''); const c0 = id.charAt(0); if ((c0 === 'm' || c0 === 'j' || c0 === 'r' || c0 === 's') && id.charAt(2) === '-') { const dch = id.charAt(1); if (dch >= '1' && dch <= '6') return parseInt(dch, 10) } return null }
   const thr = (acc: number) => acc >= 0.9 ? 21 : acc >= 0.8 ? 14 : acc >= 0.6 ? 7 : 4
@@ -3081,7 +3139,7 @@ app.get('/api/student/weak-units', async (c) => {
   let grade: number | null = null
   try { const gr = await c.env.DB.prepare('SELECT grade FROM users WHERE id=? LIMIT 1').bind(u.id).first<any>(); grade = gr ? gr.grade : null } catch {}
   let rows: any[] = []
-  try { const r = await c.env.DB.prepare("SELECT unit, COUNT(*) as n, SUM(is_correct) as cor FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit").bind(u.id, fyStartYMD()).all<any>(); rows = (((r && r.results) || []) as any[]) } catch {}
+  rows = await stuUnitAgg(c, u.id)
   const ug = (id: string) => { id = String(id || ''); const c0 = id.charAt(0); if ((c0 === 'm' || c0 === 'j' || c0 === 'r' || c0 === 's') && id.charAt(2) === '-') { const dch = id.charAt(1); if (dch >= '1' && dch <= '6') return parseInt(dch, 10) } return null }
   const items: any[] = []
   for (const row of rows) {
@@ -4650,6 +4708,9 @@ app.post('/api/student/weekly-plan', async (c) => {
 // 生徒：構造化ふりかえりを提出
 app.get('/api/student/growth-story', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 403, 'forbidden')
+  // 📉 2026-09: 年間の伸びを見る画面なので10分使い回す。問題を解いたら捨てる。
+  const _gHit = _growthCache.get(u.id)
+  if (_gHit && (Date.now() - _gHit.at) < STU_GROWTH_TTL_MS) return c.json(_gHit.body)
   const now = new Date(); const y = now.getUTCFullYear(); const mo = now.getUTCMonth() + 1
   const fyY = (mo >= 4) ? y : y - 1
   const fyStart = fyY + '-04-01'
@@ -4696,7 +4757,9 @@ app.get('/api/student/growth-story', async (c) => {
   if (improved.length >= 1) message = 'すごい！前よりできるようになった単元があるよ🎉'
   else if (masteredCount >= 3) message = 'マスター単元がいっぱい！この調子💪'
   else if (submissions >= 10) message = '毎日コツコツ続けてるね。えらい！✨'
-  return c.json({ ok: true, show, periodLabel: fyY + '年度（4月〜）', start: { rate: startRate }, now: { rate: nowRate }, improved: improved.slice(0, 4), masteredCount, overallRate, totalProblems, submissions, maxStreak, message })
+  const _gBody = { ok: true, show, periodLabel: fyY + '年度（4月〜）', start: { rate: startRate }, now: { rate: nowRate }, improved: improved.slice(0, 4), masteredCount, overallRate, totalProblems, submissions, maxStreak, message }
+  try { if (_growthCache.size > 800) _growthCache.clear(); _growthCache.set(u.id, { at: Date.now(), body: _gBody }) } catch (e) {}
+  return c.json(_gBody)
 })
 app.post('/api/student/weekly-reflection', async (c) => {
   const u = c.get('user')
