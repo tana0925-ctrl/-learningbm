@@ -1,0 +1,24 @@
+name: 個人カルテを今週中心に (自動コメントの見直し)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_analysis_v6.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "個人カルテ: 今週のようすを主役に / 先生のレビューを通さない自動の声かけ文を削除" && git push)
