@@ -9101,85 +9101,19 @@ app.get('/teacher', (c) => {
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画</div>
             <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
-            <button onclick="aiPlanCheck()" class="bg-red-500 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90" id="aiPlanCheckBtn">🤖 AI計画チェック</button>
-          </div>
-          <div id="aiPlanCheckResult" class="hidden bg-white border border-red-200 rounded-lg p-2 space-y-1"></div><div class="bg-white border border-violet-200 rounded-lg p-2 space-y-2 mt-2"><div class="font-bold text-xs text-violet-800">📋 外部AIで計画チェック（全員分まとめて）</div><p class="text-[11px] text-violet-600">①「AI用にコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて返却」。各児童の計画に先生（AI）アドバイスが保存され、子ども側に表示されます。</p><div class="flex flex-wrap gap-2 items-center"><button onclick="copyPlansForAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 全員分の今週の計画をAI用にコピー</button><span id="planAiStatus" class="text-xs text-violet-700 font-bold"></span></div><textarea id="planAiPaste" rows="4" placeholder="ここにAIの出力を全部貼り付け（=== [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea><div><button onclick="savePlanAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-violet-700">💬 まとめて返却（計画コメント保存）</button></div></div>
+            </div>
           <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
             <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
           </div>
-          <!-- 振り返り一括AI返却 -->
-          <div id="bulkRefPanel" class="hidden border-t border-blue-200 pt-3 space-y-3">
-            <!-- アプリ内AI -->
-            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-2 space-y-2">
-              <div class="font-bold text-xs text-emerald-800">🤖 AIで一括コメント生成</div>
-              <button onclick="generateWeeklyAIComments()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90" id="weeklyAiGenBtn">🤖 AIコメント一括生成</button>
-              <div id="weeklyAiGenMsg" class="text-xs text-emerald-700"></div>
-            </div>
-            <!-- 手動Gemini（折りたたみ） -->
-            <details class="bg-purple-50 border border-purple-200 rounded-lg">
-              <summary class="cursor-pointer p-2 text-xs font-bold text-purple-800 select-none">📋 Geminiでも手動で返却できます</summary>
-              <div class="px-2 pb-2 space-y-2">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs text-slate-500">①</span>
-                  <button onclick="copyWeeklyReflections()" class="bg-purple-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
-                  <span class="text-xs text-slate-400">→ GeminiのGemに貼り付けてコメントを生成 →</span>
-                </div>
-                <div class="text-xs text-slate-500">② Geminiの返答をここに貼り付け</div>
-                <textarea id="bulkRefComments" class="w-full border border-purple-300 rounded-lg p-2 text-xs" rows="3" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
-                <button onclick="bulkReturnReflections()" class="bg-purple-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">✅ 貼り付けて一括返却</button>
-                <div id="bulkRefMsg" class="text-xs text-purple-700"></div>
-              </div>
-            </details>
-          </div>
+          
         </div>
 
         </div>
         <!-- サブタブ③: 毎日の振り返り -->
         <div id="hwPane_daily" class="hidden space-y-3">
-        <!-- アプリ内AIコメント生成パネル -->
-        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
-          <div class="font-bold text-sm text-emerald-800">🤖 AIで一括コメント生成</div>
-          <div class="text-xs text-emerald-600">ボタンを押すと内蔵AIが未返却の家庭学習にコメントを自動生成し、各コメント欄に反映します。確認・修正してから返却できます。</div>
-          <button onclick="generateHWAIComments()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90" id="hwAiGenBtn">🤖 AIコメント一括生成</button>
-          <div id="hwAiGenMsg" class="text-xs text-emerald-700 min-h-[16px]"></div>
-        </div>
+        
 
-        <!-- Gemini連携パネル（折りたたみ） -->
-        <details class="bg-amber-50 border border-amber-200 rounded-xl">
-          <summary class="cursor-pointer p-3 text-sm font-bold text-amber-800 select-none">📋 Geminiでも手動で返却できます</summary>
-          <div class="px-3 pb-3 space-y-3">
-            <button onclick="toggleGemPrompt()" class="text-xs text-amber-700 underline hover:no-underline">📝 Gem設定用プロンプトを表示</button>
-          <!-- Gemプロンプト表示エリア（初期非表示） -->
-          <div id="gemPromptArea" class="hidden bg-white border border-amber-300 rounded-lg p-3 space-y-2">
-            <div class="text-xs font-bold text-amber-800">Gemini の「Gem」に以下をシステムプロンプトとして設定してください</div>
-            <pre id="gemPromptText" class="text-xs text-slate-700 whitespace-pre-wrap bg-slate-50 rounded p-2 border select-all">あなたは小学校の担任の先生の代わりにコメントを書くアシスタントです。
-
-【ルール】
-- 児童の「今日の振り返り」と「過去の振り返り」を読む
-- 各児童への温かく具体的な先生コメントを30文字以内で考える
-- その子の成長・課題・継続している努力を踏まえた個別最適な内容にする
-- 必ずJSON形式だけで返答する（他のテキストは一切不要）
-
-【返答形式】
-{"comments":["コメント1","コメント2","コメント3",...]}
-
-貼り付けられたテキストを読んだら、上記形式で即座に返答してください。</pre>
-            <button onclick="copyGemPrompt()" class="bg-amber-500 text-white rounded px-3 py-1 text-xs font-bold">📋 このプロンプトをコピー</button>
-            <div id="gemPromptCopyMsg" class="text-xs text-emerald-600"></div>
-          </div>
-          <div class="flex items-center gap-3 flex-wrap">
-            <span class="text-xs text-amber-700 font-bold">① </span>
-            <button onclick="copyReflections()" class="bg-amber-500 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:opacity-90">📋 振り返りをコピー</button>
-            <span class="text-xs text-amber-600">→ GeminiのGemに貼り付けてコメントを生成 →</span>
-          </div>
-          <div class="space-y-1">
-            <div class="text-xs font-bold text-amber-700">② Geminiの返答をここに貼り付け</div>
-            <textarea id="aiPasteArea" rows="4" class="w-full border border-amber-300 rounded-lg p-2 text-xs bg-white focus:outline-none focus:border-amber-500" placeholder='{"comments":["よく頑張りました！","毎日続けてえらいね",...]}&#10;または番号付きリスト形式でもOK'></textarea>
-          </div>
-          <button onclick="pasteAndBulkReturn()" class="w-full bg-emerald-600 text-white rounded-lg px-4 py-2.5 text-sm font-bold shadow hover:opacity-90">✅ ③ 貼り付けて一括返却</button>
-          <div id="aiGenMsg" class="text-xs text-amber-700 min-h-[16px]"></div>
-          </div>
-        </details>
+        
         <!-- 毎日の宿題一覧（日次返却） -->
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap items-center">
@@ -9205,33 +9139,12 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ④: 今週の振り返り -->
         <div id="hwPane_weekly" class="hidden space-y-3">
-        <!-- 自動フィードバック（週間） -->
-        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-yellow-800">💡 今週の自動フィードバック</div>
-            <div class="flex gap-2 items-center">
-              <select id="fbClassFilter" class="border p-1.5 rounded text-sm bg-white">
-                <option value="">クラスを選択...</option>
-              </select>
-              <button onclick="loadAutoFeedback()" class="bg-yellow-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔄 生成</button>
-            </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="font-bold text-sm text-slate-700">今週の振り返りへの返却は、分析タブに移りました</div>
+            <p class="text-xs text-slate-500 mt-1">分析タブの「📋 今日のひと往復」で、「今回ふくめるもの」の<b>週の振り返りの返却</b>にチェックを入れてください。金曜日は自動でチェックが入ります。</p>
           </div>
-          <p class="text-xs text-yellow-700">1週間の提出回数・学習時間・計画修正などから、児童ごとの声かけ候補を自動生成します。コメントは編集してから送信できます。</p>
-          <div id="autoFeedbackList" class="space-y-2 text-sm">
-            <p class="text-xs text-slate-400">クラスを選んで「生成」を押してください</p>
-          </div>
-        </div>
-          <!-- 外部AIで今週の振り返りに返却 -->
-          <div class="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
-            <div class="font-bold text-sm text-violet-800">📋 外部AIで今週の振り返りにコメント（全員分まとめて）</div>
-            <p class="text-[11px] text-violet-600">①「AI用にコピー」→ ChatGPT/Gemini等に貼り付け → ②AIの結果を下に貼って「まとめて返却」。各児童の今週の振り返りに先生（AI）コメントが返却され、子ども側に表示されます（+300コイン+5かけら）。返却済みの子はスキップ。上の「クラスを選択」を使います。</p>
-            <div class="flex flex-wrap gap-2 items-center">
-              <button onclick="copyReflectionsForAi()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 全員分の今週の振り返りをAI用にコピー</button>
-              <span id="refAiStatus" class="text-xs text-violet-700 font-bold"></span>
-            </div>
-            <textarea id="refAiPaste" rows="4" placeholder="ここにAIの出力を全部貼り付け（=== [児童ID] 名前 === の目印ごとに自動でふり分けます）" class="w-full text-xs border border-violet-300 rounded-lg p-2"></textarea>
-            <div><button onclick="saveReflectionAiComments()" class="bg-violet-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-violet-700">💬 まとめて返却（振り返りコメント保存）</button></div>
-          </div>
+        
+          
         </div>
       </div>
 
@@ -10402,10 +10315,6 @@ app.get('/teacher', (c) => {
             }
 
             (function(){ var _dl=['月','火','水','木','金']; var _pl=[]; for(var _di=0;_di<5;_di++){ var _kk=keys[_di]||''; var _vv=_kk?parsed[_kk]:''; var _tt=(typeof _vv==='object'&&_vv)?(_vv.free||''):(_vv||''); if(_tt&&String(_tt).trim()) _pl.push(_dl[_di]+'：'+_tt); } if(!window._planTextByUser) window._planTextByUser={}; window._planTextByUser[p.userId]={name:__pName, lines:_pl}; })();
-            html += '<div class="mt-1 border-t border-violet-100 pt-1 space-y-1">'
-              + '<div class="flex items-center gap-1 flex-wrap"><button onclick="copyOnePlanForAi(&#39;'+escH(p.userId)+'&#39;)" class="bg-emerald-600 text-white rounded px-2 py-0.5 text-[11px] font-bold hover:opacity-90">📋 この子の計画＋履歴をAIにコピー</button><span id="planOneStatus_'+escH(p.userId)+'" class="text-[10px] text-violet-700 font-bold"></span></div>'
-              + '<div class="flex items-center gap-1"><textarea id="planOnePaste_'+escH(p.userId)+'" class="flex-1 border border-violet-300 rounded p-1 text-[11px]" rows="1" placeholder="AIの結果を貼って保存（この子の計画アドバイス）"></textarea><button onclick="saveOnePlanAiComment(&#39;'+escH(p.userId)+'&#39;)" class="bg-violet-600 text-white rounded px-2 py-0.5 text-[11px] font-bold hover:opacity-90 shrink-0">保存</button></div>'
-              + '</div>';
             card.innerHTML = html;
             wrap.appendChild(card);
           }
