@@ -1,0 +1,24 @@
+name: 復旧 起動時の索引作成を撤去
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_rollback_startup_ddl.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "復旧: 全リクエスト経路の CREATE INDEX 6本を撤去（複数APIの500の原因）" && git push)
