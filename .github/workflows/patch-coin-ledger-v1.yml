@@ -1,0 +1,39 @@
+name: コイン台帳の穴ふさぎ v1（シール交換けんの支払い / 宿題返却ボーナスの二重付与）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite（統合テストで D1 を再現する）を使うので 22 以上が必要
+          node-version: '22'
+
+      - name: パッチを適用（冪等・アンカー一意性の検証つき）
+        run: python3 scripts/patch_coin_ledger_v1.py
+
+      - name: 依存を入れる
+        run: npm install
+
+      - name: ビルドが通るか確認
+        run: npm run build
+
+      - name: 統合テスト（node:sqlite で D1 を再現し、実ハンドラを app.fetch で呼ぶ）
+        run: |
+          npx esbuild src/index.tsx --bundle --format=esm --platform=neutral \
+            --jsx=automatic --jsx-import-source=hono/jsx \
+            --outfile=tests/app.after.mjs --log-level=warning
+          node --no-warnings tests/coin_ledger.test.mjs ./app.after.mjs
+
+      - name: 変更をコミット&プッシュ
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add src/index.tsx scripts/patch_coin_ledger_v1.py tests/d1.mjs tests/coin_ledger.test.mjs
+          git diff --staged --quiet && echo "no changes" || (git commit -m "fix(coins): シール交換けん300コインが古い端末の保存で復活する不具合を修正 / 宿題返却ボーナスに付与台帳(homework_rewards)を追加して二重付与を構造的に防止" && git push)
