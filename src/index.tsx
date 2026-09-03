@@ -212,21 +212,12 @@ let _adminChecked = false
 app.use('*', async (c, next) => {
   if (_adminChecked) return next()
   _adminChecked = true
-  // 📉 2026-09: 児童ごとの「直近N問」を索引で取れるようにする。
-  //   索引が無いと LIMIT を付けても全履歴を読んでしまうため、起動時に1回だけ用意する。
-  //   すでにあれば何もしない（IF NOT EXISTS）。データには一切触らない。
-  try {
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_learning_results_user_time ON learning_results(user_id, answered_at)').run()
-    // 🚨 2026-09-03: class_members には索引が1つも無かった。
-    //    クラス全体を見る問い合わせ（ミッション進捗・リスク予測・分析）が全部ここを通る。
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_class_members_class ON class_members(class_id, user_id)').run()
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_class_members_user ON class_members(user_id)').run()
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_contact_notes_class ON contact_notes(class_id, created_at)').run()
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, read_at)').run()
-    await c.env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)').run()
-  } catch (e) {
-    console.error('index ensure skipped:', (e as any)?.message || e)
-  }
+  // 🚑 2026-09-03 復旧: ここにあった CREATE INDEX 6本を撤去した。
+  //   全リクエストが通る経路で巨大テーブルへの索引作成を await していたため、
+  //   /api/teacher/classes ・ /api/teacher/all-students ・ /api/defense/status など
+  //   複数のAPIが 500 になっていた（try/catch では止められない種類の巻き添え）。
+  //   索引が無くても動作は正しい（重いだけ）。索引を足すなら、リクエスト経路ではなく
+  //   マイグレーションか wrangler d1 execute で一度だけ流すこと（索引作成のSQL自体は書かない）。
   try {
   const adminLoginId = c.env.ADMIN_LOGIN_ID || ''
   const adminPassword = c.env.ADMIN_PASSWORD || ''
