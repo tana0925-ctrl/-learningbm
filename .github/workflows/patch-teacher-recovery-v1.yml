@@ -1,0 +1,24 @@
+name: 教師用ログイン復旧を追加 (teacher-recovery v1)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（SHA-256とアンカーが一致しなければ中止）
+        run: python3 scripts/patch_teacher_recovery_v1.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "教師用ログイン復旧 /teacher-recovery を追加（一覧・絞り込み・パスワード一括再発行・印刷）" && git push)
