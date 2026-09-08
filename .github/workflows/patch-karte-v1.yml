@@ -1,0 +1,24 @@
+name: カルテ 2026-09 改修 (先週分・今週のおすすめ・A4裏表)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_karte_v1.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "カルテ: 先週分に切替 / ふりかえり表示バグを修正 / A4裏表に整理 / 今週のおすすめ" && git push)
