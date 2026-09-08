@@ -1,0 +1,38 @@
+name: D1 調査（読み取りのみ・書き込みなし）
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+      DB: learningbm-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+
+      - name: 索引の一覧（sqlite_master・とても軽い）
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT tbl_name, name FROM sqlite_master WHERE type='index' ORDER BY tbl_name, name"
+
+      - name: 家庭学習の提出 総数と未返却数
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT COUNT(*) AS total, SUM(CASE WHEN returned_at IS NULL THEN 1 ELSE 0 END) AS unreturned, MIN(day_key) AS oldest, MAX(day_key) AS newest FROM homework_submissions"
+
+      - name: 未返却の提出を古い順に（上位20件・日付だけ）
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT day_key, COUNT(*) AS n FROM homework_submissions WHERE returned_at IS NULL GROUP BY day_key ORDER BY day_key ASC LIMIT 20"
+
+      - name: 直近100件がどこで切れるか（LIMIT 100 の境界）
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT MIN(day_key) AS cut_day, COUNT(*) AS n FROM (SELECT day_key FROM homework_submissions ORDER BY submitted_at DESC LIMIT 100)"
+
+      - name: 100件の外に未返却がどれだけ埋もれているか
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT COUNT(*) AS hidden_unreturned FROM homework_submissions WHERE returned_at IS NULL AND submitted_at < (SELECT MIN(submitted_at) FROM (SELECT submitted_at FROM homework_submissions ORDER BY submitted_at DESC LIMIT 100))"
+
+      - name: ポーリング対象テーブルの行数（性能改善の見積もり用）
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT (SELECT COUNT(*) FROM messages) AS messages, (SELECT COUNT(*) FROM contact_notes) AS contact_notes, (SELECT COUNT(*) FROM contact_note_reads) AS contact_note_reads, (SELECT COUNT(*) FROM announcements) AS announcements, (SELECT COUNT(*) FROM class_members) AS class_members"
+
+      - name: student_weekly_plans が実在するか（0030の判断用）
+        run: npx wrangler d1 execute $DB --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('student_weekly_plans','ranking_rewards','homework_rewards','class_mission_progress')"
