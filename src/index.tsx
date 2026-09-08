@@ -6599,6 +6599,12 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/student-karte.js?v=1"></script></body>')
       // 🧭 MIしらべ の入口を「ステータス」画面の中へ。既存の「復習チャレンジ」カードと同じ作法。
       t = t.replace(`<div id="classMissionCard"`, `<div class="rounded-2xl border-2 border-indigo-300 p-4" style="background: linear-gradient(135deg, #eef2ff, #e0e7ff);"><div class="flex items-center justify-between"><div class="font-black text-indigo-800 flex items-center gap-2"><span>🧭</span>MIしらべ</div><span class="text-xs text-indigo-600">32問・なんどでもOK</span></div><div class="mt-2 text-sm text-gray-600">いまの自分が「好き・とくい」と感じていることを、8つのまとまりで見てみよう。テストではないよ。</div><div class="mt-3 flex gap-2 flex-wrap"><button onclick="location.href='/mi'" class="bg-indigo-500 hover:bg-indigo-600 text-white font-black px-4 py-2 rounded-xl shadow text-sm">🧭 MIしらべをひらく</button></div></div><div id="classMissionCard"`)
+      // 📱 iPad: サイドバー(overflow:auto)の中の position:fixed が iOS Safari で描画クリップされ、
+      //    バトル／友達通信／システムのサブメニューが「見えないのにタップは効く」状態になる問題の修正。
+      //    開くときにメニューを body 直下へ移して、クリップする親をなくす。
+      t = t.replace(["            var rect = btnEl.getBoundingClientRect();","            m.style.position = 'fixed';","            m.style.left = (rect.right + 4) + 'px';"].join("\n"), ["            /* IPAD_SIDEMENU_PORTAL: iOS Safari は overflow:auto の中の position:fixed を描画クリップするため、","               サイドバーの中に置いたままだと iPad でサブメニューが見えない（タップは効く）。開くとき body 直下へ移す。 */","            if (m.parentElement !== document.body) { document.body.appendChild(m); }","            m.style.margin = '0';","            var rect = btnEl.getBoundingClientRect();","            m.style.position = 'fixed';","            m.style.right = 'auto';","            m.style.left = (rect.right + 8) + 'px';"].join("\n"))
+      //    あわせて、画面の右端からはみ出さないよう左位置を丸め込む（スマホのボトムナビでも有効）。
+      t = t.replace(["            var mRect = m.getBoundingClientRect();","            var desiredTop = rect.bottom - mRect.height;"].join("\n"), ["            var mRect = m.getBoundingClientRect();","            /* IPAD_SIDEMENU_CLAMP: 画面の右端からはみ出さないように左位置を丸め込む（スマホのボトムナビでも有効） */","            var _vwSM = document.documentElement.clientWidth || window.innerWidth;","            var _dLeft = parseFloat(m.style.left) || 0;","            if (_dLeft + mRect.width > _vwSM - 8) { _dLeft = _vwSM - 8 - mRect.width; }","            if (_dLeft < 8) { _dLeft = 8; }","            m.style.left = Math.round(_dLeft) + 'px';","            var desiredTop = rect.bottom - mRect.height;"].join("\n"))
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
