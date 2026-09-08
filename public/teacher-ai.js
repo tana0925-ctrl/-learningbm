@@ -739,103 +739,323 @@
   //  ③ 貼り戻し → 下書きに取り込む
   // ===================================================================
   function parseBlocks(raw) {
-    var lines = String(raw || '').split(/\r?\n/);
-    var blocks = [], cur = null;
-    var re = /^[\s　]*[=＝]{2,}[\s　]*[\[［]\s*([^\]］]+?)\s*[\]］]/;
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(re);
-      if (m) { if (cur) blocks.push(cur); cur = { id: m[1], lines: [] }; }
-      else if (cur) { cur.lines.push(lines[i]); }
+  return _taiParse(raw);
+}
+
+// --- 目印として認めるもの ---
+var TAI_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT'];
+
+function reEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// 装飾（** ## - > ` 全角空白など）を落とす。ChatGPT が目印を太字や見出しにすることがあるため。
+function stripDeco(line) {
+  var s = String(line == null ? '' : line);
+  s = s.replace(/[​﻿]/g, '');
+  s = s.replace(/^[\s　>＞#＃*＊・`\-–—]+/, '');
+  s = s.replace(/[\s　*＊#＃`]+$/, '');
+  return s;
+}
+
+// 1行が目印なら {kind, idPart, after, isSample} を返す。ちがえば null。
+function matchMarker(line) {
+  var s = stripDeco(line);
+  if (!s) return null;
+  s = s.replace(/^[=＝]+[\s　]*/, '');
+  var m = s.match(/^[\[［]\s*([^\]］]{1,160}?)\s*[\]］]([\s\S]*)$/);
+  if (!m) return null;
+  var inner = String(m[1]);
+  var after = String(m[2] || '')
+    .replace(/[=＝\s　*＊]+$/, '')
+    .replace(/^[\s　:：|｜]+/, '');
+  var kind = inner, idPart = '';
+  var ci = inner.indexOf(':');
+  if (ci < 0) ci = inner.indexOf('：');
+  if (ci >= 0) { kind = inner.slice(0, ci); idPart = inner.slice(ci + 1); }
+  var k = kind.toUpperCase().replace(/[^A-Z]/g, '');
+  if (k === '' && inner.indexOf('クラス') >= 0) k = 'CLASS';
+  if (TAI_KINDS.indexOf(k) < 0) return null;
+  idPart = idPart.replace(/[\s　]/g, '');
+  // 「=== [KARTE:...] === … 個人カルテ。」のような、貼り付ける前の説明文の見本
+  var isSample = /^[.．・…]*$/.test(idPart) && (k !== 'CLASS' && k !== 'WEEKREPORT');
+  return { kind: k, idPart: idPart, after: after, isSample: isSample };
+}
+
+// 先生がプロンプト（元データ）ごと貼ってしまったときにだけ現れる行。
+// これが出たら、そこから先はAIの文章ではないので本文から切り離す。
+var TAI_DATA_HEAD = [
+  '▼ 児童データ',
+  '【この1週間',
+  '【ふだんの様子',
+  '【テスト・成績',
+  '【クラス平均との差',
+  '【まもってほしいこと】',
+  '【目印の種類】',
+  '【児童ごとのデータの並び】',
+  '【直近の学習記録',
+  '【ポートフォリオ',
+  '【先生の観察メモ',
+  '【教科別の正答率',
+  '【A】', '【B】', '【C】',
+  '■ ',
+  'あなたは小学校の担任の先生を手伝う'
+];
+function isDataLine(line) {
+  // 区切り線は装飾を落とすと空になるので、先に生の行で見る
+  var bare = String(line == null ? '' : line).replace(/[\s　]/g, '');
+  if (/^[-=＝─―ー_]{10,}$/.test(bare)) return true;
+  var s = stripDeco(line);
+  if (!s) return false;
+  for (var i = 0; i < TAI_DATA_HEAD.length; i++) {
+    if (s.indexOf(TAI_DATA_HEAD[i]) === 0) return true;
+  }
+  return false;
+}
+
+// 目印ごとに切り分ける。
+// ★ 読み取れなかった塊は、直前の児童の本文に吸収させず orphans へよける。
+function _taiParse(raw) {
+  var lines = String(raw || '').split(/\r?\n/);
+  var blocks = [], orphans = [], cur = null, pre = [];
+  function flush(arr, why, near) {
+    var t = arr.join(NL).replace(/^\s+|\s+$/g, '');
+    if (t) orphans.push({ why: why, near: near || '', text: t });
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var mk = matchMarker(lines[i]);
+    if (mk) {
+      if (cur) blocks.push(cur);
+      else { flush(pre, '目印より前にあった文', ''); pre = []; }
+      cur = { kind: mk.kind, idPart: mk.idPart, after: mk.after, isSample: mk.isSample, marker: lines[i], lines: [], cut: [] };
+      continue;
     }
-    if (cur) blocks.push(cur);
-    return blocks.map(function (b) {
-      return { id: b.id, body: b.lines.join(NL).replace(/^\s+|\s+$/g, '') };
+    if (!cur) { pre.push(lines[i]); continue; }
+    if (cur.cut.length || isDataLine(lines[i])) { cur.cut.push(lines[i]); continue; }
+    cur.lines.push(lines[i]);
+  }
+  if (cur) blocks.push(cur);
+  else flush(pre, '目印より前にあった文', '');
+  var out = [];
+  for (var j = 0; j < blocks.length; j++) {
+    var b = blocks[j];
+    if (b.cut.length) {
+      flush(b.cut, '目印のない余分な行（元データを一緒に貼った可能性）', b.marker);
+    }
+    out.push({
+      kind: b.kind, idPart: b.idPart, after: b.after, isSample: b.isSample,
+      marker: String(b.marker || '').replace(/^\s+|\s+$/g, ''),
+      body: b.lines.join(NL).replace(/^\s+|\s+$/g, '')
     });
   }
-  function normId(s) {
-    return String(s == null ? '' : s)
-      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); })
-      .replace(/[\s　]/g, '').toLowerCase();
+  return { blocks: out, orphans: orphans };
+}
+
+function normId(s) {
+  return String(s == null ? '' : s)
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); })
+    .replace(/[\s　]/g, '').toLowerCase();
+}
+function normName(s) {
+  return String(s == null ? '' : s)
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); })
+    .replace(/[\s　・,，]/g, '')
+    .replace(/(さん|くん|君|ちゃん|様|さま)$/, '')
+    .toLowerCase();
+}
+
+// 名簿 → 突き合わせ用の人リスト
+var _rosterPeople = [];
+var _rosterCache = {};
+function buildPeople(roster) {
+  var arr = [];
+  (roster || []).forEach(function (s) {
+    var dn = nameOf(s.loginId, s.name) || s.name || s.loginId || '';
+    arr.push({ uid: s.userId, name: String(dn), sei: String(dn).slice(0, 2), loginId: String(s.loginId || '') });
+  });
+  return arr;
+}
+async function ensureRoster(cid) {
+  if (!cid) return;
+  if (_rosterCache[cid]) { _rosterPeople = _rosterCache[cid]; return; }
+  var rd = await postJson('/api/teacher/records/parse', { classId: cid, text: '' });
+  var pp = buildPeople((rd && rd.roster) || []);
+  if (pp.length) { _rosterCache[cid] = pp; _rosterPeople = pp; }
+}
+
+// 文章に「その子以外の実名」が入っていないか。
+// strong = 赤字警告してチェックを外す / weak = 念のための注意
+function scanOthers(body, selfUid, selfName, people) {
+  var strong = [], weak = [], t = String(body || '');
+  if (t.indexOf('=== [') >= 0 || t.indexOf('＝＝') >= 0) strong.push('目印らしい行');
+  for (var i = 0; i < (people || []).length; i++) {
+    var p = people[i];
+    if (selfUid && p.uid === selfUid) continue;
+    if (!selfUid && selfName && p.name === selfName) continue;
+    if (p.name && p.name.length >= 2 && t.indexOf(p.name) >= 0) { strong.push(p.name); continue; }
+    if (p.loginId && p.loginId.length >= 4 && /[A-Za-z]/.test(p.loginId) && t.indexOf(p.loginId) >= 0) { strong.push(p.loginId); continue; }
+    if (p.sei && p.sei.length >= 2) {
+      if (new RegExp(reEsc(p.sei) + '(さん|くん|君|ちゃん|さま|様)').test(t)) { strong.push(p.sei + 'さん'); continue; }
+      if (t.indexOf(p.sei) >= 0) weak.push(p.sei);
+    }
   }
+  return { strong: strong, weak: weak };
+}
+function warnOf(d) {
+  var k = KIND_JA[d.kind] || {};
+  if (k.to !== 'kid') return { strong: [], weak: [] };   // 先生だけが読むものは名前が出て当然
+  return scanOthers(d.body, d.targetId || '', d.targetName || '', _rosterPeople);
+}
 
-  //  opts.append=true のときは、いまある下書きを消さずに追加する（1人だけ作り直すとき）
-  async function taiImport(opts) {
-    opts = opts || {};
-    var appendMode = !!opts.append;
-    var say2 = appendMode ? sayOne : say;
-    var cid = classId();
-    var ta = $(appendMode ? 'taiOnePaste' : 'taiPaste');
-    var raw = ta ? ta.value : '';
-    if (!cid) { say2('先にクラスを選んでください'); return; }
-    if (!raw || !raw.trim()) { say2('AIの返事を貼り付けてください'); return; }
+// 「どこにも割り当てなかったもの」を先生に見せる箱（HTMLは触らずJSで差し込む）
+function holdBox(create) {
+  var el = $('taiHoldBox');
+  if (el || !create) return el;
+  var anchor = $('taiStatus') || $('taiDraftList');
+  if (!anchor || !anchor.parentNode) return null;
+  el = document.createElement('div');
+  el.id = 'taiHoldBox';
+  el.className = 'mt-2';
+  el.style.display = 'none';
+  anchor.parentNode.insertBefore(el, anchor.nextSibling);
+  return el;
+}
+function showHolds(holds) {
+  var el = holdBox(true);
+  if (!el) return;
+  if (!holds || !holds.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  var h = '<div class="rounded-lg border-2 border-red-300 bg-red-50 p-2">' +
+    '<div class="text-xs font-black text-red-700">⚠ どこにも割り当てなかったもの（' + holds.length + '件）</div>' +
+    '<div class="text-[11px] text-red-700 mb-1">下の④には入れていません。貼り方を確かめて、目印と本文だけを貼り直してください。</div>' +
+    '<ul class="text-[11px] text-red-800 list-disc pl-4 space-y-0.5">';
+  holds.forEach(function (x) {
+    h += '<li>' + esc(x.why) + (x.marker ? '｜' + esc(String(x.marker).slice(0, 60)) : '') +
+      (x.detail ? '<div class="text-[10px] text-red-600 whitespace-pre-wrap">' + esc(x.detail) + '</div>' : '') + '</li>';
+  });
+  h += '</ul></div>';
+  el.innerHTML = h;
+  el.style.display = '';
+}
 
-    say2('読み取り中...');
-    var roster = [];
-    try {
-      var rd = await postJson('/api/teacher/records/parse', { classId: cid, text: '' });
-      roster = (rd && rd.roster) || [];
-    } catch (e) {}
-    var map = {}, nameMap = {};
-    roster.forEach(function (s) {
-      if (s.loginId) { map[normId(s.loginId)] = s.userId; }
-      if (s.userId)  { map[normId(s.userId)]  = s.userId; }
-      if (s.name)    { map[normId(s.name)]    = s.userId; }
-      var dn = nameOf(s.loginId, s.name);
-      if (dn) map[normId(dn)] = s.userId;
-      nameMap[s.userId] = dn || s.name || s.loginId;
-    });
+// opts.append=true のときは、いまある下書きを消さずに追加する（1人だけ作り直すとき）
+async function taiImport(opts) {
+  opts = opts || {};
+  var appendMode = !!opts.append;
+  var say2 = appendMode ? sayOne : say;
+  var cid = classId();
+  var ta = $(appendMode ? 'taiOnePaste' : 'taiPaste');
+  var raw = ta ? ta.value : '';
+  if (!cid) { say2('先にクラスを選んでください'); return; }
+  if (!raw || !raw.trim()) { say2('AIの返事を貼り付けてください'); return; }
 
-    var blocks = parseBlocks(raw);
-    var items = [], unmatched = [];
-    blocks.forEach(function (b) {
-      var body = b.body;
-      if (!body) return;
-      var idRaw = String(b.id || '');
-      var kind = 'KARTE', idPart = idRaw;
-      var ci = idRaw.indexOf(':');
-      if (ci >= 0) {
-        kind = idRaw.slice(0, ci).toUpperCase().replace(/[^A-Z]/g, '');
-        idPart = idRaw.slice(ci + 1);
-      } else {
-        var up = idRaw.toUpperCase();
-        if (up.indexOf('WEEKREPORT') >= 0) kind = 'WEEKREPORT';
-        else if (up.indexOf('CLASS') >= 0 || idRaw.indexOf('クラス') >= 0) kind = 'CLASS';
-      }
-      if (kind === 'CLASS' || kind === 'WEEKREPORT') {
-        items.push({ kind: kind, targetId: '', targetName: '', refKey: '', body: body });
-        return;
-      }
-      if (kind === 'DAILY') {
-        // DAILY の ID は「提出ID」。名前は目印の後ろに書いてある。
-        var hwId = idPart.replace(/[\s　]/g, '');
-        items.push({ kind: 'DAILY', targetId: '', targetName: '', refKey: hwId, body: body });
-        return;
-      }
-      var uid = map[normId(idPart)];
-      if (!uid) { unmatched.push(idRaw); return; }
-      items.push({ kind: kind, targetId: uid, targetName: nameMap[uid] || '', refKey: '', body: body });
-    });
+  say2('読み取り中...');
+  var roster = [];
+  try {
+    var rd = await postJson('/api/teacher/records/parse', { classId: cid, text: '' });
+    roster = (rd && rd.roster) || [];
+  } catch (e) {}
+  if (!roster.length) { say2('名簿が取得できませんでした。取り込みを中止します'); return; }
 
-    if (!items.length) {
-      say2('目印（=== [ ... ] === ）が見つかりませんでした（' + blocks.length + 'ブロック検出）');
+  var map = {}, ambiguous = {}, nameMap = {};
+  function put(key, uid) {
+    if (!key) return;
+    if (map[key] && map[key] !== uid) { ambiguous[key] = 1; return; }
+    map[key] = uid;
+  }
+  roster.forEach(function (s) {
+    var dn = nameOf(s.loginId, s.name) || s.name || s.loginId || '';
+    // ★ 子どもが自由に変えられる表示名（s.name）はキーにしない。
+    put(normId(s.loginId), s.userId);
+    put(normId(s.userId), s.userId);
+    put(normId(dn), s.userId);
+    nameMap[s.userId] = dn;
+  });
+  _rosterPeople = buildPeople(roster);
+  _rosterCache[cid] = _rosterPeople;
+
+  var parsed = _taiParse(raw);
+  var items = [], holds = [];
+  function hold(why, marker, detail) { holds.push({ why: why, marker: marker || '', detail: detail || '' }); }
+
+  parsed.orphans.forEach(function (o) {
+    hold(o.why, o.near, o.text.length > 140 ? o.text.slice(0, 140) + '…' : o.text);
+  });
+
+  parsed.blocks.forEach(function (b) {
+    var label = b.marker;
+    if (b.isSample) { hold('貼り付ける前の説明文のようです', label, ''); return; }
+    if (!b.body) { hold('本文が空でした', label, ''); return; }
+
+    if (b.kind === 'CLASS' || b.kind === 'WEEKREPORT') {
+      items.push({ kind: b.kind, targetId: '', targetName: '', refKey: '', body: b.body });
       return;
     }
 
-    var res = await postJson('/api/teacher/ai-drafts', {
-      classId: cid, weekKey: weekKey(), replace: !appendMode, items: items
-    });
-    if (!res || !res.ok) { say2('下書きの保存に失敗しました'); return; }
-    say2('✓ ' + res.saved + '件を下書きに' + (appendMode ? '追加' : '取り込み') + 'ました。下の「④ 先生が確認して公開」を見てください' +
-        (unmatched.length ? '（名前が一致しなかったもの: ' + unmatched.slice(0, 5).join(', ') + '）' : ''));
-    if (ta) ta.value = '';
-    taiLoadDrafts();
+    var afterName = String(b.after || '').split(/[｜|]/)[0].replace(/^\s+|\s+$/g, '');
+
+    if (b.kind === 'DAILY') {
+      if (!b.idPart) { hold('DAILY の提出が読み取れませんでした', label, ''); return; }
+      if (!afterName) { hold('DAILY に氏名がなく、だれ宛てか確かめられません', label, ''); return; }
+      items.push({ kind: 'DAILY', targetId: '', targetName: afterName, refKey: b.idPart, body: b.body });
+      return;
+    }
+
+    var key = normId(b.idPart);
+    if (!key) { hold('目印にIDがありません', label, ''); return; }
+    if (ambiguous[key]) { hold('同じ名前・IDの子が複数いて、どちらか決められません', label, ''); return; }
+    var uid = map[key];
+    if (!uid) { hold('名簿に一致する児童が見つかりません', label, ''); return; }
+
+    var expect = nameMap[uid] || '';
+    if (afterName && expect) {
+      var a = normName(afterName), e2 = normName(expect);
+      if (a && e2 && a.indexOf(e2) < 0 && e2.indexOf(a) < 0) {
+        hold('IDと氏名が食い違っています（ID→' + expect + ' ／ 目印には「' + afterName + '」）', label, '');
+        return;
+      }
+    }
+    items.push({ kind: b.kind, targetId: uid, targetName: expect, refKey: '', body: b.body });
+  });
+
+  // ★ ①で渡した欄の数よりも読み取れた欄が少ないときは、目印が消えている
+  var _expect = 0;
+  try { _expect = Number((window.__taiLast && window.__taiLast.blocks) || 0) || 0; } catch (e) {}
+  if (!_expect) {
+    try {
+      var _o = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (_o && _o.blocks) _expect = Number(_o.blocks) || 0;
+    } catch (e) {}
+  }
+  if (!appendMode && _expect && parsed.blocks.length < _expect) {
+    hold('①で渡した欄は ' + _expect + '個ですが、返事から読み取れた欄は ' + parsed.blocks.length + '個です。目印が消えて、前の子の文にくっついているおそれがあります', '', '');
+  }
+  var risky = 0;
+  items.forEach(function (it) {
+    if (warnOf(it).strong.length) risky++;
+  });
+
+  if (!items.length) {
+    showHolds(holds);
+    say2('取り込めるものがありませんでした（読めた目印 ' + parsed.blocks.length + '件 ／ 保留 ' + holds.length + '件）');
+    return;
   }
 
-  // ===================================================================
-  //  ④ 先生が確認して公開
-  // ===================================================================
-  // to: 'kid'=子どものアプリ画面に出る / 'paper'=紙のカルテに載る（画面には出ない） / 'teacher'=先生だけ
-  var KIND_JA = {
+  var res = await postJson('/api/teacher/ai-drafts', {
+    classId: cid, weekKey: weekKey(), replace: !appendMode, items: items
+  });
+  if (!res || !res.ok) { say2('下書きの保存に失敗しました'); return; }
+  showHolds(holds);
+  say2('✓ ' + res.saved + '件を下書きに' + (appendMode ? '追加' : '取り込み') + 'ました。' +
+    (holds.length ? '⚠ ' + holds.length + '件は割り当てず保留しました（上の赤い枠）。' : '') +
+    (risky ? '⚠ ' + risky + '件にほかの子の名前が入っている可能性があります。' : '') +
+    '下の「④ 先生が確認して公開」を見てください');
+  if (ta) ta.value = '';
+  taiLoadDrafts();
+}
+
+// ===================================================================
+// ④ 先生が確認して公開
+// ===================================================================
+// to: 'kid'=子どものアプリ画面に出る / 'paper'=紙のカルテに載る / 'teacher'=先生だけ
+var KIND_JA = {
     DAILY:     { ja: '家庭学習コメント', to: 'kid',     badge: '子どもの画面に出る' },
     KARTE:     { ja: '個人カルテ',       to: 'kid',     badge: '子どもの画面に出る／印刷もできる' },
     PLAN:      { ja: '計画アドバイス',   to: 'kid',     badge: '子どもの画面に出る' },
@@ -855,62 +1075,76 @@
     var d = await getJson('/api/teacher/ai-drafts?classId=' + encodeURIComponent(cid));
     if (!d || !d.ok) { box.innerHTML = '<p class="text-xs text-red-500">読み込みに失敗しました</p>'; return; }
     _drafts = d.drafts || [];
+  try { await ensureRoster(cid); } catch (e) {}
     renderDrafts();
   }
 
   function renderDrafts() {
-    var box = $('taiDraftList');
-    if (!box) return;
-    var pend = _drafts.filter(function (x) { return x.status === 'draft'; });
-    var done = _drafts.filter(function (x) { return x.status === 'published'; });
-    if (!pend.length && !done.length) {
-      box.innerHTML = '<p class="text-xs text-slate-400">まだ下書きはありません。上の①〜③をやってみてください。</p>';
-      var c0 = $('taiPubCount'); if (c0) c0.textContent = '';
-      return;
-    }
-    var h = '';
-    if (pend.length) {
-      h += '<div class="flex items-center gap-2 mb-2 flex-wrap">' +
-           '<button onclick="taiCheckAll(true)" class="bg-slate-200 text-slate-700 rounded px-2 py-1 text-xs font-bold hover:bg-slate-300">すべて選ぶ</button>' +
-           '<button onclick="taiCheckAll(false)" class="bg-slate-200 text-slate-700 rounded px-2 py-1 text-xs font-bold hover:bg-slate-300">選択を外す</button>' +
-           '<span class="text-xs text-slate-500">中身を読んで、直したいところは書きかえられます</span></div>';
-      h += '<div class="space-y-2 max-h-[28rem] overflow-y-auto">';
-      pend.forEach(function (x) {
-        var k = KIND_JA[x.kind] || { ja: x.kind, to: '', badge: '' };
-        var toCls = k.to === 'kid' ? 'bg-rose-100 text-rose-700' : (k.to === 'paper' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600');
-        h += '<div class="bg-white rounded-lg border border-slate-200 p-2">' +
-             '<div class="flex items-center gap-2 flex-wrap mb-1">' +
-             '<input type="checkbox" class="tai-chk accent-indigo-600" data-id="' + esc(x.id) + '" checked>' +
-             '<span class="text-xs font-bold text-slate-700">' + esc(k.ja) + '</span>' +
-             (x.targetName ? '<span class="text-xs text-slate-600">' + esc(x.targetName) + '</span>' : '') +
-             (x.refLabel ? '<span class="text-[10px] text-slate-400">' + esc(x.refLabel) + '</span>' : '') +
-             '<span class="text-[10px] px-1.5 py-0.5 rounded ' + toCls + '">' + esc(k.badge) + '</span>' +
-             '</div>' +
-             '<textarea class="tai-body w-full border border-slate-200 rounded p-1.5 text-xs" rows="' +
-             Math.min(8, Math.max(2, String(x.body || '').split(NL).length)) + '" data-id="' + esc(x.id) + '">' +
-             esc(x.body) + '</textarea></div>';
-      });
-      h += '</div>';
-    } else {
-      h += '<p class="text-xs text-slate-400">未公開の下書きはありません。</p>';
-    }
-    if (done.length) {
-      h += '<details class="mt-2"><summary class="cursor-pointer text-xs font-bold text-slate-500 select-none">公開ずみ（' + done.length + '件）</summary><div class="mt-1 space-y-1">';
-      done.forEach(function (x) {
-        var k = KIND_JA[x.kind] || { ja: x.kind };
-        h += '<div class="bg-slate-50 rounded border border-slate-200 p-2"><div class="text-xs font-bold text-slate-600">' +
-             esc(k.ja) + ' ' + esc(x.targetName || '') + ' <span class="text-[10px] text-slate-400 font-normal">' +
-             esc(x.publishedAt || '') + '</span></div><div class="text-xs text-slate-600 whitespace-pre-wrap">' +
-             esc(x.body) + '</div></div>';
-      });
-      h += '</div></details>';
-    }
-    box.innerHTML = h;
-    var cEl = $('taiPubCount');
-    if (cEl) cEl.textContent = pend.length ? ('未公開 ' + pend.length + '件') : '';
+  var box = $('taiDraftList');
+  if (!box) return;
+  var pend = _drafts.filter(function (x) { return x.status === 'draft'; });
+  var done = _drafts.filter(function (x) { return x.status === 'published'; });
+  if (!pend.length && !done.length) {
+    box.innerHTML = '<p class="text-xs text-slate-400">まだ下書きはありません。上の①〜③をやってみてください。</p>';
+    var c0 = $('taiPubCount'); if (c0) c0.textContent = '';
+    return;
   }
+  var h = '';
+  var dangerCount = 0;
+  if (pend.length) {
+    h += '<div class="flex items-center gap-2 mb-2 flex-wrap">' +
+      '<button onclick="taiCheckAll(true)" class="bg-slate-200 text-slate-700 rounded px-2 py-1 text-xs font-bold hover:bg-slate-300">すべて選ぶ</button>' +
+      '<button onclick="taiCheckAll(false)" class="bg-slate-200 text-slate-700 rounded px-2 py-1 text-xs font-bold hover:bg-slate-300">選択を外す</button>' +
+      '<span class="text-xs text-slate-500">中身を読んで、直したいところは書きかえられます</span></div>';
+    h += '<div class="space-y-2 max-h-[28rem] overflow-y-auto">';
+    pend.forEach(function (x) {
+      var k = KIND_JA[x.kind] || { ja: x.kind, to: '', badge: '' };
+      var w = warnOf(x);
+      x.__warn = w;
+      var danger = w.strong.length > 0;
+      if (danger) dangerCount++;
+      var toCls = k.to === 'kid' ? 'bg-rose-100 text-rose-700' : (k.to === 'paper' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600');
+      h += '<div class="rounded-lg p-2 ' + (danger ? 'bg-red-50 border-2 border-red-400' : 'bg-white border border-slate-200') + '">' +
+        '<div class="flex items-center gap-2 flex-wrap mb-1">' +
+        '<input type="checkbox" class="tai-chk accent-indigo-600" data-id="' + esc(x.id) + '"' + (danger ? '' : ' checked') + '>' +
+        '<span class="text-xs font-bold text-slate-700">' + esc(k.ja) + '</span>' +
+        (x.targetName ? '<span class="text-xs text-slate-600">' + esc(x.targetName) + '</span>'
+                      : '<span class="text-xs text-red-600 font-bold">氏名なし</span>') +
+        (x.refLabel ? '<span class="text-[10px] text-slate-400">' + esc(x.refLabel) + '</span>' : '') +
+        '<span class="text-[10px] px-1.5 py-0.5 rounded ' + toCls + '">' + esc(k.badge) + '</span>' +
+        '</div>';
+      if (danger) {
+        h += '<div class="text-xs font-black text-red-700 mb-1">⚠ ほかの子の名前が入っているかもしれません：' +
+          esc(w.strong.join('、')) +
+          '<div class="font-bold">この文は' + esc(k.badge) + 'ため、チェックを外してあります。直してから公開してください。</div></div>';
+      } else if (w.weak.length) {
+        h += '<div class="text-[11px] font-bold text-amber-700 mb-1">△ 念のため確認：「' + esc(w.weak.join('」「')) + '」という言葉が入っています</div>';
+      }
+      h += '<textarea class="tai-body w-full border ' + (danger ? 'border-red-300' : 'border-slate-200') + ' rounded p-1.5 text-xs" rows="' +
+        Math.min(8, Math.max(2, String(x.body || '').split(NL).length)) + '" data-id="' + esc(x.id) + '">' +
+        esc(x.body) + '</textarea></div>';
+    });
+    h += '</div>';
+  } else {
+    h += '<p class="text-xs text-slate-400">未公開の下書きはありません。</p>';
+  }
+  if (done.length) {
+    h += '<details class="mt-2"><summary class="cursor-pointer text-xs font-bold text-slate-500 select-none">公開ずみ（' + done.length + '件）</summary><div class="mt-1 space-y-1">';
+    done.forEach(function (x) {
+      var k = KIND_JA[x.kind] || { ja: x.kind };
+      h += '<div class="bg-slate-50 rounded border border-slate-200 p-2"><div class="text-xs font-bold text-slate-600">' +
+        esc(k.ja) + ' ' + esc(x.targetName || '') + ' <span class="text-[10px] text-slate-400 font-normal">' +
+        esc(x.publishedAt || '') + '</span></div><div class="text-xs text-slate-600 whitespace-pre-wrap">' +
+        esc(x.body) + '</div></div>';
+    });
+    h += '</div></details>';
+  }
+  box.innerHTML = h;
+  var cEl = $('taiPubCount');
+  if (cEl) cEl.textContent = pend.length ? ('未公開 ' + pend.length + '件' + (dangerCount ? ' / ⚠要確認 ' + dangerCount + '件' : '')) : '';
+}
 
-  function taiCheckAll(on) {
+function taiCheckAll(on) {
     var els = document.querySelectorAll('.tai-chk');
     for (var i = 0; i < els.length; i++) els[i].checked = !!on;
   }
@@ -925,7 +1159,7 @@
       var d = null;
       for (var j = 0; j < _drafts.length; j++) if (_drafts[j].id === id) d = _drafts[j];
       if (!d) continue;
-      out.push({ id: id, kind: d.kind, targetId: d.targetId, refKey: d.refKey, body: ta ? ta.value : d.body });
+      out.push({ id: id, kind: d.kind, targetId: d.targetId, targetName: d.targetName || '', refKey: d.refKey, body: ta ? ta.value : d.body });
     }
     return out;
   }
@@ -935,7 +1169,19 @@
     var picks = collectChecked();
     if (!cid) { sayPub('クラスを選んでください'); return; }
     if (!picks.length) { sayPub('公開するものにチェックを入れてください'); return; }
-    var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === 'kid'; }).length;
+      // ★ 公開の直前に、いま画面にある文章をもう一度見て、ほかの子の名前が残っていないか確かめる
+  var _risky = picks.filter(function (p) {
+    var kk = KIND_JA[p.kind] || {};
+    if (kk.to !== 'kid') return false;
+    return scanOthers(p.body, p.targetId || '', p.targetName || '', _rosterPeople).strong.length > 0;
+  });
+  if (_risky.length) {
+    if (!confirm('⚠ ' + _risky.length + '件に、ほかの子の名前が入っているかもしれません。\nこのまま公開すると、その文は子どもの画面に出ます。\n本当に公開しますか？')) {
+      sayPub('公開をやめました。赤い警告のところを直してから、もう一度おしてください');
+      return;
+    }
+  }
+var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === 'kid'; }).length;
     var paperCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to === 'paper'; }).length;
     if (!confirm('チェックした ' + picks.length + '件を公開します。\n・子どもの画面に出る: ' + kidCount + '件\n・紙のカルテに載る（印刷して渡す）: ' + paperCount + '件\nよろしいですか？')) return;
 
