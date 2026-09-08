@@ -3905,7 +3905,22 @@ app.get('/api/teacher/homework', async (c) => {
   `
   const binds: any[] = [u.id]
   if (classId) { sql += ` AND cl.id = ?`; binds.push(classId) }
-  sql += ` ORDER BY hs.submitted_at DESC LIMIT 100`
+  // 📌 2026-09: 「昔の提出が返せない」対策。
+  //   ここは日付ではなく件数（LIMIT 100）で切っていたため、2学期に入って
+  //   新しい提出が積み上がると、7月ぶんが一覧から押し出されていた。
+  //   ・?unreturned=1 … 未返却だけを、件数を広げて返す（先生が取りこぼしを拾うため）
+  //   ・?from= / ?to= / ?month= … day_key（YYYY-MM-DD）での期間しぼりこみ
+  //   ふだんの表示は今までどおり LIMIT 100 のまま（読み取り量を増やさない）。
+  const onlyUnreturned = c.req.query('unreturned') === '1'
+  let from = String(c.req.query('from') || '')
+  let to   = String(c.req.query('to') || '')
+  const month = String(c.req.query('month') || '')
+  if (/^\d{4}-\d{2}$/.test(month)) { from = month + '-01'; to = month + '-31' }
+  if (onlyUnreturned) sql += ` AND hs.returned_at IS NULL`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { sql += ` AND hs.day_key >= ?`; binds.push(from) }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to))   { sql += ` AND hs.day_key <= ?`; binds.push(to) }
+  const lim = (onlyUnreturned || from || to) ? 500 : 100
+  sql += ` ORDER BY hs.submitted_at DESC LIMIT ` + lim
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
   return c.json({ ok: true, submissions: res.results })
@@ -3939,13 +3954,44 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
   `).bind(u.id, hwId).first<any>()
   if (!row) return jsonError(c, 404, 'not_found')
 
+  // 📌 2026-09: 返却済みのコメントを直せるようにした（editOnly）。
+  //   ・returned_at は動かさない（「いつ返したか」を書き換えない／子どもの画面も静かなまま）
+  //   ・ごほうびの処理には一切入らない（下の noReward 判定より前に return する）
+  //   ・reward_claimed は絶対に 0 に戻さない。
+  //     POST /api/homework/:id/claim は reward_claimed だけを見てごほうびを渡すので、
+  //     戻すと同じごほうびを二重に受け取れてしまう。
+  const editOnly = (body && body.editOnly === true)
+  const comment = String(body.comment || '').slice(0, 500)
+  if (editOnly) {
+    const cur = await c.env.DB.prepare('SELECT user_id, day_key, returned_at FROM homework_submissions WHERE id=? LIMIT 1').bind(hwId).first<any>()
+    if (!cur || !cur.returned_at) return jsonError(c, 400, 'not_returned_yet')
+    await c.env.DB.prepare(`
+      UPDATE homework_submissions SET teacher_comment=?, has_physical=? WHERE id=?
+    `).bind(comment, body.hasPhysical ? 1 : 0, hwId).run()
+    // 「この直しを子どもに知らせる」がONのときだけ、お知らせを1通だけ送る。
+    //   コイン系には触れない（ぬか喜びさせない）。
+    if (body && body.notify === true) {
+      try {
+        const cm = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(cur.user_id).first<any>()
+        if (cm?.class_id) {
+          await c.env.DB.prepare(
+            'INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)'
+          ).bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher',
+                 cur.user_id,
+                 String(cur.day_key || '') + ' の家庭学習に、先生がコメントを書きました。\n' + comment).run()
+        }
+      } catch (e) { console.error('edit notify failed:', e) }
+    }
+    return c.json({ ok: true, edited: true })
+  }
+
   await c.env.DB.prepare(`
     UPDATE homework_submissions
     SET teacher_id=?, teacher_comment=?, has_physical=?, returned_at=?
     WHERE id=?
   `).bind(
     u.id,
-    String(body.comment || '').slice(0, 500),
+    comment,
     body.hasPhysical ? 1 : 0,
     Date.now(),
     hwId
@@ -8241,6 +8287,11 @@ app.get('/teacher', (c) => {
             </select>
             <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
+            <!-- 📌 2026-09: 一覧は新しい100件で打ち切られるため、古い提出に辿り着けなかった。
+                 「未返却をぜんぶ」と「月しぼりこみ」を足して、7月ぶんにも届くようにする。 -->
+            <button onclick="hwShowAllUnreturned()" id="hwAllUnreturnedBtn" class="bg-red-500 text-white rounded px-3 py-1 text-sm font-bold">🔴 未返却をぜんぶ表示</button>
+            <input type="month" id="hwMonthFilter" class="border p-1 rounded text-sm bg-white" onchange="loadHomework()" title="この月の提出だけを表示します"/>
+            <button onclick="hwClearFilters()" class="bg-slate-100 rounded px-2 py-1 text-xs">絞り込みを解除</button>
             <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
           </div>
           <!-- サマリーバー -->
@@ -11043,7 +11094,13 @@ wrap.innerHTML = '';
         wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
         const classId = document.getElementById('hwClassFilter').value;
         const status = document.getElementById('hwStatusFilter').value;
-        let qs = classId ? '?classId='+encodeURIComponent(classId) : '';
+        // 📌 2026-09: 未返却モード／月しぼりこみをサーバに渡す
+        var _qp = [];
+        if(classId) _qp.push('classId='+encodeURIComponent(classId));
+        if(window._hwOnlyUnreturned) _qp.push('unreturned=1');
+        var _mEl = document.getElementById('hwMonthFilter');
+        if(_mEl && _mEl.value) _qp.push('month='+encodeURIComponent(_mEl.value));
+        let qs = _qp.length ? ('?'+_qp.join('&')) : '';
         let data;
         try{ data = await api('/api/teacher/homework'+qs); }
         catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; return; }
@@ -11178,13 +11235,77 @@ wrap.innerHTML = '';
               + '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="returnHomework(&#39;'+escH(s.id)+'&#39;, this)">✅ 返却する</button>'
               + '<button class="bg-slate-500 text-white rounded px-3 py-1 text-xs font-bold ml-1" onclick="returnHomeworkNoReward(&#39;'+escH(s.id)+'&#39;, this)">🚫 報酬なしで返す</button>';
             card.appendChild(formDiv);
-          } else if(s.teacherComment) {
-            const commentDiv = document.createElement('div');
-            commentDiv.className='text-xs text-emerald-700 bg-emerald-50 rounded p-2 border border-emerald-200';
-            commentDiv.textContent = '💬 ' + s.teacherComment;
-            card.appendChild(commentDiv);
+          } else {
+            // 📌 2026-09: 返却済みでも、コメントを直して再返却できるようにする。
+            //   ・returned_at は動かさない（いつ返したかは変わらない）
+            //   ・コインは増えない（サーバ側でごほうび処理に入らない）
+            //   ・「この直しを子どもに知らせる」は既定OFF。
+            //     コインが増えないのに「届きました！」だけ出ると、子どもが期待して落胆するため。
+            const doneDiv = document.createElement('div');
+            doneDiv.className='space-y-2 border-t pt-2';
+            const __cmt = s.teacherComment || '';
+            doneDiv.innerHTML =
+              (__cmt
+                ? '<div class="text-xs text-emerald-700 bg-emerald-50 rounded p-2 border border-emerald-200">💬 '+escH(__cmt)+'</div>'
+                : '<div class="text-xs text-slate-400">コメントなしで返却しました</div>')
+              + '<button class="bg-white border border-emerald-500 text-emerald-700 rounded px-3 py-1 text-xs font-bold" onclick="hwToggleEdit(&#39;'+escH(s.id)+'&#39;)">✏️ コメントを直して再返却</button>'
+              + '<div id="hwEditBox_'+escH(s.id)+'" class="hidden space-y-2 bg-slate-50 rounded p-2 border">'
+              +   '<div class="text-xs font-bold text-slate-600">先生コメント</div>'
+              +   '<textarea class="w-full border rounded p-2 text-xs" rows="2" id="hwEditComment_'+escH(s.id)+'"></textarea>'
+              +   '<label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="hwEditPhysical_'+escH(s.id)+'"'+(s.hasPhysical?' checked':'')+'/> <span>成果物（ノートなど）も提出あり ⭐</span></label>'
+              +   '<label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="hwEditNotify_'+escH(s.id)+'"/> <span>この直しを子どもに知らせる</span></label>'
+              +   '<p class="text-[10px] text-slate-400">直してもコインは増えません。知らせるにチェックを入れると、お知らせが1通だけ届きます。</p>'
+              +   '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="hwSaveEdit(&#39;'+escH(s.id)+'&#39;, this)">保存する</button>'
+              + '</div>';
+            card.appendChild(doneDiv);
+            // 値は innerHTML ではなく value で入れる（コメントに < や & があっても壊れないように）
+            const __ta = doneDiv.querySelector('textarea');
+            if(__ta) __ta.value = __cmt;
           }
           wrap.appendChild(card);
+        }
+      }
+
+      // 📌 2026-09: 「🔴 未返却をぜんぶ表示」の ON/OFF
+      window._hwOnlyUnreturned = false;
+      function hwShowAllUnreturned(){
+        window._hwOnlyUnreturned = !window._hwOnlyUnreturned;
+        var b = document.getElementById('hwAllUnreturnedBtn');
+        if(b){
+          b.textContent = window._hwOnlyUnreturned ? '🔴 未返却だけ表示中（解除）' : '🔴 未返却をぜんぶ表示';
+          b.className = window._hwOnlyUnreturned
+            ? 'bg-red-700 text-white rounded px-3 py-1 text-sm font-bold'
+            : 'bg-red-500 text-white rounded px-3 py-1 text-sm font-bold';
+        }
+        _hwDateFilter = '';
+        loadHomework();
+      }
+      function hwClearFilters(){
+        window._hwOnlyUnreturned = false;
+        var m = document.getElementById('hwMonthFilter'); if(m) m.value = '';
+        var b = document.getElementById('hwAllUnreturnedBtn');
+        if(b){ b.textContent='🔴 未返却をぜんぶ表示'; b.className='bg-red-500 text-white rounded px-3 py-1 text-sm font-bold'; }
+        _hwDateFilter = '';
+        loadHomework();
+      }
+
+      // 📌 2026-09: 返却済みのコメントを直して再返却する
+      function hwToggleEdit(id){
+        var box = document.getElementById('hwEditBox_'+id);
+        if(box) box.classList.toggle('hidden');
+      }
+      async function hwSaveEdit(id, btn){
+        btn.disabled = true;
+        var comment = (document.getElementById('hwEditComment_'+id)||{}).value || '';
+        var hasPhysical = (document.getElementById('hwEditPhysical_'+id)||{}).checked || false;
+        var notify = (document.getElementById('hwEditNotify_'+id)||{}).checked || false;
+        try{
+          await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({comment:comment, hasPhysical:hasPhysical, editOnly:true, notify:notify})});
+          await loadHomework();
+        }catch(e){
+          btn.disabled=false;
+          alert('エラー: '+String(e.message||e));
         }
       }
 
