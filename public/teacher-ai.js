@@ -350,7 +350,22 @@ out.push(' - 上の「突き合わせの型」を1つ使って、この子だけ
       out.push('      - この下に先生がプリントやノートの内容を貼ることがあります。');
       out.push('        貼ってあれば、その中身を読んで具体的にほめてください（例：どこの説明がよかったか）。');
     }
-    if (want.plan)    out.push('・=== [PLAN:...] === … 今週の計画へのアドバイス。①よい点 ②もっとよくする点 ③ひとこと。子ども向け。');
+    if (want.plan)    {
+out.push('・=== [PLAN:...] === … 今週の計画へのアドバイス。①よい点 ②もっとよくする点 ③ひとこと。子ども向け。');
+out.push('   ※計画アドバイスのきまり（大事）:');
+out.push('   - これは過去のふり返りではなく、これから始まる1週間への助言です。');
+out.push('   - 本人が書いた計画の中身に、必ず具体的に触れる。');
+out.push('     例：「月曜に漢字ドリル37まで、と書いてあるね」');
+out.push('   - 【A】の「今週の先生からの課題」にテストの予定があるときは、計画と突き合わせる。');
+out.push('     例：「金曜に社会のテストがあるから、木曜にまとめてやるより、火曜から分けるといいよ」');
+out.push('     予定が書かれていないときは、そのことに触れない。');
+out.push('   - 空の日が多い子・書いた量が少ない子を責めない。');
+out.push('     「まずは1日だけ決めてみよう」のような、小さくて確実にできる提案にする。');
+out.push('   - ★「書きなおした回数」は、迷っている印ではありません。よく考えて直せた印です。');
+out.push('     回数の多さを否定的に書かない。触れるなら「考え直せたね」の向きだけ。');
+out.push('   - テストの点数・得点率・順位には いっさい触れない。ほかの子とも比べない。');
+out.push('   - 全部で3行以内・150字以内。');
+}
     if (want.reflect) out.push('・=== [REFLECT:...] === … 今週の振り返りへの返却コメント。2〜3文。子ども向け。');
     if (want.suggest) {
 out.push('・=== [SUGGEST:...] === … 今週のおすすめ。1〜2つだけ。子ども向け。');
@@ -369,6 +384,7 @@ out.push('   - 「がんばっているから」「力がつくから」のよ�
 out.push('   - 理由を「◯◯ができていないから」「正答率が低いから」とは書かない。');
 out.push('     「まだあまりやっていないから」「先週これが楽しそうだったから」のような前向きな言い方にする。');
 out.push('   - テストの点数・得点率・順位には いっさい触れない。ほかの子とも比べない。');
+out.push('   - 1行目だけを読んでも意味が通るように書く。この文は紙だけでなく、子どものアプリ画面にも出ます。');
 out.push('   - 全部で4行以内・200字以内。紙に印刷して配るので、それより長く書かない。');
 }
     if (want.classOv) out.push('・=== [CLASS] === … クラス全体の所見。5〜8行（よい傾向／気になる点／来週の手立て）。先生向け。【テスト・成績】も使ってよい。');
@@ -651,7 +667,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
         if (planLines.length) {
           out.push('・今週の計画（本人が書いたもの）');
           planLines.forEach(function (l) { out.push('　' + l); });
-          if (p.revisionCount) out.push('　（' + p.revisionCount + '回 書きなおしています）');
+          if (p.revisionCount) out.push('　（' + p.revisionCount + '回 考え直して書きなおしています）');
         }
         if (reflText && String(reflText).trim()) {
           out.push('・今週の振り返り（本人が書いたもの）: ' + reflText);
@@ -1443,7 +1459,89 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
 
   // ---------- 初期化 ----------
   // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）
-  function applyFriday() {
+  function isMondayJst() { return jstNow().getDay() === 1; }
+
+// 月曜は「計画アドバイス」を既定でONにする（金曜の振り返り返却と同じ作法）
+function applyMonday() {
+  if (!isMondayJst()) return;
+  var cb = $('taiOptPlan');
+  if (!cb || cb.getAttribute('data-mon')) return;
+  cb.setAttribute('data-mon', '1');
+  cb.checked = true;
+  if ($('taiMonNote')) return;
+  var row = cb.parentNode && cb.parentNode.parentNode;
+  if (!row || !row.parentNode) return;
+  var note = document.createElement('div');
+  note.id = 'taiMonNote';
+  note.className = 'bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5 text-xs text-sky-800 font-bold mb-2';
+  note.textContent = '\U0001F4C5 今日は月曜日です。「今週の計画へのアドバイス」も入れてあります。子どもが計画を出しおわってから①を押してください。';
+  row.parentNode.insertBefore(note, row.nextSibling);
+}
+
+// 押す前に「いま何人ぶんの材料があるか」を見せる。
+// 2026-09-08 は、子どもが計画を書く2時間半前にコピーしたため、22人中4人ぶんしか出なかった。
+function matBox(create) {
+  var el = $('taiMatBox');
+  if (el || !create) return el;
+  var anchor = $('taiStatus') || $('taiDraftList');
+  if (!anchor || !anchor.parentNode) return null;
+  el = document.createElement('div');
+  el.id = 'taiMatBox';
+  el.className = 'mb-2';
+  el.style.display = 'none';
+  anchor.parentNode.insertBefore(el, anchor);
+  return el;
+}
+async function taiShowMaterials(cid) {
+  var el = matBox(true);
+  if (!el || !cid) return;
+  var total = (_rosterPeople || []).length;
+  var planN = 0, reflN = 0, hwN = 0, ok = false;
+  try {
+    var pd = await getJson('/api/teacher/weekly-plans?weekKey=' + encodeURIComponent(weekKey()) + '&classId=' + encodeURIComponent(cid));
+    ((pd && pd.plans) || []).forEach(function (p) {
+      var o = {};
+      try { o = JSON.parse(p.plansJson || '{}'); } catch (e) {}
+      var wrote = false, refl = false;
+      Object.keys(o).forEach(function (k) {
+        if (k === '_modified') return;
+        var v = o[k];
+        var tx = (v && typeof v === 'object') ? (v.free || '') : (v || '');
+        if (String(tx).trim()) wrote = true;
+        if (v && typeof v === 'object' && String(v.reflection || '').trim()) refl = true;
+      });
+      if (wrote) planN++;
+      if (refl) reflN++;
+    });
+    ok = true;
+  } catch (e) {}
+  try {
+    var hd = await getJson('/api/teacher/homework?classId=' + encodeURIComponent(cid));
+    var seen = {};
+    ((hd && hd.submissions) || []).forEach(function (s) {
+      if (!s.returnedAt && s.userId && !seen[s.userId]) { seen[s.userId] = 1; hwN++; }
+    });
+    ok = true;
+  } catch (e) {}
+  if (!ok) { el.style.display = 'none'; return; }
+  var warn = !!(total && planN < total);
+  var tone = warn ? 'amber' : 'emerald';
+  var h = '<div class="rounded-lg border-2 border-' + tone + '-300 bg-' + tone + '-50 p-2">';
+  h += '<div class="text-xs font-black text-' + tone + '-800">\U0001F4CA いま何人ぶんの材料があるか</div>';
+  h += '<ul class="text-[11px] text-' + tone + '-800 list-disc pl-4 mt-1 space-y-0.5">';
+  h += '<li>今週の計画を書いているのは <b>' + total + '人中 ' + planN + '人</b> です（計画アドバイス）</li>';
+  h += '<li>まだ返していない家庭学習は <b>' + hwN + '人ぶん</b> です（家庭学習コメント）</li>';
+  h += '<li>今週の振り返りを書いているのは <b>' + reflN + '人</b> です（振り返りの返却）</li>';
+  h += '</ul>';
+  if (warn) {
+    h += '<div class="text-[11px] font-bold text-amber-800 mt-1">全員ぶん出すなら、提出がそろってから①を押してください。いま押すと、書いている子のぶんしか出ません。</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+  el.style.display = '';
+}
+
+function applyFriday() {
     if (!isFridayJst()) return;
     var cb = $('taiOptReflect');
     if (!cb || cb.getAttribute('data-fri')) return;
@@ -1462,6 +1560,7 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
   var _lastCid = null;
   function init() {
     applyFriday();
+  applyMonday();
     var sel = $('analyticsClassFilter');
     if (sel && !sel.getAttribute('data-tai')) {
       sel.setAttribute('data-tai', '1');
