@@ -3847,10 +3847,26 @@ app.post('/api/homework/:id/claim', async (c) => {
   const shards = Math.floor((Number(row.reward_shards || 0) + Number(row.bonus_shards || 0)) * rate)
   const rewardKind = String(row.reward_kind || 'coin')
 
-  // 受け取り済みにマーク
-  await c.env.DB.prepare(`
-    UPDATE homework_submissions SET reward_claimed=1, reward_claimed_at=? WHERE id=?
-  `).bind(Date.now(), hwId).run()
+  // 🧾 2026-09: ここが「reward_claimed フラグだけ」で守られていた。
+  //   コインの加算は児童の端末側で行われるため、サーバが弾けないと素通りで増える。
+  //   台帳に先に枠を確保し、INSERT が通ったときだけ渡す。
+  //   （上の reward_claimed チェックは残してある。台帳が無い過去ぶんはそちらで止まる）
+  await ensureHomeworkClaimTable(c.env)
+  let claimed = false
+  try {
+    await c.env.DB.prepare(
+      "INSERT INTO homework_claims (submission_id, user_id, coins, shards, reward_kind, created_at) VALUES (?,?,?,?,?,datetime('now'))"
+    ).bind(hwId, u.id, coins, shards, rewardKind).run()
+    claimed = true
+  } catch (_e) { claimed = false }
+  if (!claimed) return jsonError(c, 400, 'already_claimed')
+
+  // 表示用フラグ。ここが失敗しても台帳が二重受け取りを止める。
+  try {
+    await c.env.DB.prepare(`
+      UPDATE homework_submissions SET reward_claimed=1, reward_claimed_at=? WHERE id=?
+    `).bind(Date.now(), hwId).run()
+  } catch (e) { console.error('reward_claimed flag update failed:', e) }
 
   return c.json({ ok: true, coins, shards, rewardKind, hasPhysical: !!row.has_physical })
 })
@@ -3931,6 +3947,19 @@ app.get('/api/teacher/homework', async (c) => {
 //    構造的に INSERT できないようにする（アプリ側の判定ミスでは二重付与できない）。
 //    mi_rewards(user_id, month_key) と同じ考え方。既存テーブルには一切手を触れない。
 let _hwRewardTableReady = false
+// 🧾 家庭学習の「ごほうび受け取り」台帳。submission_id を PRIMARY KEY にすることで
+//    「同じ提出に2回目」が構造的に INSERT できない。
+//    homework_rewards（先生ボーナス）や mi_rewards と同じ考え方。
+//    ⚠ ここを起動時ミドルウェアで呼ばないこと。使う API の中でだけ呼ぶ。
+let _hwClaimTableReady = false
+async function ensureHomeworkClaimTable(env: any) {
+  if (_hwClaimTableReady) return
+  try {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS homework_claims (submission_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0, shards INTEGER NOT NULL DEFAULT 0, reward_kind TEXT, created_at TEXT)").run()
+    _hwClaimTableReady = true
+  } catch (_e) {}
+}
+
 async function ensureHomeworkRewardTable(env: any) {
   if (_hwRewardTableReady) return
   try {
@@ -6465,6 +6494,16 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
   if (progress < m.goal_correct) return jsonError(c, 400, 'not_achieved')
   const rewardCoins = Number(m.reward_coins) || 0
   const rewardShards = Number(m.reward_shards) || 0
+  // 🧾 2026-09: 順番を homework_rewards / mi_rewards に合わせた。
+  //   もとは「①SELECTで確認 → ②コイン加算 → ③INSERT OR IGNORE」で、
+  //   同時に2回来ると①を両方通り、②が2回走ってしまう構造だった。
+  //   先に台帳の枠を確保し、確保できたときだけ加算する。
+  const _cmLock = await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO class_mission_claims (mission_id, user_id, reward_coins, reward_shards) VALUES (?,?,?,?)`
+  ).bind(missionId, u.id, rewardCoins, rewardShards).run()
+  if (!_cmLock.meta || _cmLock.meta.changes === 0) {
+    return c.json({ ok: true, alreadyClaimed: true, rewardCoins: 0, rewardShards: 0 })
+  }
   let applyOk = false
   try {
     const prog = await c.env.DB.prepare(`SELECT state_json FROM progress WHERE user_id=?`).bind(u.id).first<any>()
@@ -6483,10 +6522,13 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
   } catch (e: any) {
     console.error('[class-mission/claim] reward apply error:', e?.message || e)
   }
-  if (!applyOk) return jsonError(c, 500, 'reward_apply_failed')
-  await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO class_mission_claims (mission_id, user_id, reward_coins, reward_shards) VALUES (?,?,?,?)`
-  ).bind(missionId, u.id, rewardCoins, rewardShards).run()
+  // 加算できなかったら枠を解放して、次回やり直せるようにする（ごほうびを失わせない）
+  if (!applyOk) {
+    try {
+      await c.env.DB.prepare(`DELETE FROM class_mission_claims WHERE mission_id=? AND user_id=?`).bind(missionId, u.id).run()
+    } catch (_e) {}
+    return jsonError(c, 500, 'reward_apply_failed')
+  }
   return c.json({ ok: true, rewardCoins, rewardShards })
 })
 
