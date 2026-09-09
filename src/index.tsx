@@ -274,12 +274,74 @@ function normalizeAnswer(s: string): string {
   t = t.replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
   return t
 }
+// 子どもが読めて打てることを最優先にした単語リスト（30語）。
+// ・すべて小文字のローマ字。l（エル）は使わない＝1 と見間違えない
+// ・rn（m に見える）が並ぶ語を入れない
+const LOGIN_PW_WORDS = [
+  'sora', 'hana', 'mori', 'kaze', 'yama', 'umi', 'tori', 'hoshi', 'niji', 'yuki',
+  'tsuki', 'kawa', 'sakura', 'ringo', 'nami', 'kumo', 'hato', 'sakana', 'kame', 'usagi',
+  'tanuki', 'kitsune', 'momo', 'ichigo', 'budou', 'mikan', 'panda', 'koara', 'zou', 'kirin'
+]
 function genKidPassword(): string {
-  const words = ['sora','hana','mori','kaze','yama','umi','tori','hoshi','niji','yuki','tuki','kawa','sakura','ringo','nami']
-  const a = new Uint32Array(2); crypto.getRandomValues(a)
-  return words[a[0] % words.length] + String(10 + (a[1] % 90))
+  // 数字は 2〜9 のみ。0 と 1 を出さないので o/0・l/1 の取り違えが起きない。
+  // 30語 × 8^3 = 15,360通り（旧: 15語 × 90 = 1,350通り）
+  const a = new Uint32Array(4); crypto.getRandomValues(a)
+  const d = (n: number) => String(2 + (a[n] % 8))
+  return LOGIN_PW_WORDS[a[0] % LOGIN_PW_WORDS.length] + d(1) + d(2) + d(3)
 }
 const _recoverAttempts = new Map<string, { n: number, t: number }>()
+
+// -------------------- ログインの試行制限（総当たり対策） --------------------
+// 台帳は D1 の login_attempts。DDL はこのコードでは作らない（人が別途適用する）。
+// ログインは全児童が毎朝叩く経路なので、リクエストの中で DDL を走らせない。
+// テーブルが無い・読めない場合は必ず「ロックしない」側に倒す（fail open）。
+const LOGIN_MAX_FAILS = 10                       // 打ち間違いの多い低学年でも届かない回数
+const LOGIN_LOCK_MS = 15 * 60 * 1000             // ロックする長さ
+const LOGIN_FAIL_WINDOW_MS = 60 * 60 * 1000      // 失敗を数えるさかのぼり範囲
+
+// ロック中なら残りミリ秒、そうでなければ 0。何かあっても 0（＝通す）。
+async function loginLockRemainingMs(env: any, loginId: string): Promise<number> {
+  try {
+    const r = await env.DB.prepare('SELECT locked_until FROM login_attempts WHERE login_id=? LIMIT 1')
+      .bind(loginId).first<any>()
+    const until = Number(r && r.locked_until) || 0
+    const left = until - Date.now()
+    return left > 0 ? left : 0
+  } catch (e) { return 0 }
+}
+
+// 失敗を1件数える。しきい値に達したらロックする。何かあっても握りつぶす。
+async function loginRecordFail(env: any, loginId: string): Promise<void> {
+  try {
+    const now = Date.now()
+    const r = await env.DB.prepare('SELECT fail_count, first_fail_at, locked_until FROM login_attempts WHERE login_id=? LIMIT 1')
+      .bind(loginId).first<any>()
+    // 前のロックが明けていたら、そこで数え直す。
+    // これをしないと「ロックが明けた直後の1回の打ち間違い」で即また15分ロックされる。
+    const prevLocked = Number(r && r.locked_until) || 0
+    const lockExpired = prevLocked > 0 && prevLocked <= now
+    const firstAt = Number(r && r.first_fail_at) || 0
+    const inWindow = !!r && !lockExpired && (now - firstAt < LOGIN_FAIL_WINDOW_MS)
+    const count = inWindow ? (Number(r.fail_count) || 0) + 1 : 1
+    const startedAt = inWindow ? (firstAt || now) : now
+    const lockedUntil = count >= LOGIN_MAX_FAILS ? now + LOGIN_LOCK_MS : 0
+    await env.DB.prepare(
+      `INSERT INTO login_attempts (login_id, fail_count, first_fail_at, last_fail_at, locked_until)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT(login_id) DO UPDATE SET
+         fail_count=excluded.fail_count, first_fail_at=excluded.first_fail_at,
+         last_fail_at=excluded.last_fail_at, locked_until=excluded.locked_until`
+    ).bind(loginId, count, startedAt, now, lockedUntil).run()
+  } catch (e) {}
+}
+
+// ログインできた／パスワードを直した。台帳を消す。何かあっても握りつぶす。
+async function loginClearFails(env: any, loginId: string): Promise<void> {
+  try {
+    if (!loginId) return
+    await env.DB.prepare('DELETE FROM login_attempts WHERE login_id=?').bind(loginId).run()
+  } catch (e) {}
+}
 
 // -------------------- auth middleware --------------------
 app.use('/api/*', async (c, next) => {
@@ -420,8 +482,25 @@ app.post('/api/auth/login', async (c) => {
 
   if (!row) return jsonError(c, 401, 'invalid_credentials')
 
+  // 数えるキーは入力値ではなく保存側の login_id。
+  // 全角「１３２８」と半角「1328」で別カウントになるのを防ぐ。
+  const _lockKey = String(row.loginId || loginId)
+  const _lockLeft = await loginLockRemainingMs(c.env, _lockKey)
+  if (_lockLeft > 0) {
+    // ロック中は照合そのものを行わない＝何回押してもロックは延びない
+    return c.json({
+      ok: false, error: 'too_many_attempts',
+      retryAfterSec: Math.ceil(_lockLeft / 1000),
+      retryAfterMin: Math.max(1, Math.ceil(_lockLeft / 60000)),
+    }, 429)
+  }
+
   const calc = await pbkdf2Hash(password, row.salt)
-  if (calc !== row.hash) return jsonError(c, 401, 'invalid_credentials')
+  if (calc !== row.hash) {
+    await loginRecordFail(c.env, _lockKey)
+    return jsonError(c, 401, 'invalid_credentials')
+  }
+  await loginClearFails(c.env, _lockKey)
 
   // students/teachers must be approved
   if ((row.role === 'student' || row.role === 'teacher') && !row.isActive) {
@@ -1077,6 +1156,12 @@ app.post('/api/admin/reset-password/:id', async (c) => {
     .bind(hash, salt, id)
     .run()
 
+  // 直したのに入れない、を作らない（管理者）
+  try {
+    const _t = await c.env.DB.prepare(`SELECT login_id as loginId FROM users WHERE id=? LIMIT 1`).bind(id).first<any>()
+    if (_t && _t.loginId) await loginClearFails(c.env, String(_t.loginId))
+  } catch (e) {}
+
   return c.json({ ok: true, tempPassword: temp })
 })
 
@@ -1092,7 +1177,8 @@ app.post('/api/teacher/reset-student-password/:studentId', async (c) => {
     ).bind(studentId, u.id).first<any>()
     if (!owned) return jsonError(c, 403, 'not_your_student')
   }
-  const target = await c.env.DB.prepare(`SELECT id, role FROM users WHERE id = ? LIMIT 1`).bind(studentId).first<any>()
+  const target = await c.env.DB.prepare(`SELECT id, role, login_id as loginId FROM users WHERE id = ? LIMIT 1`).bind(studentId).first<any>()
+  // 直したのに入れない、を作らない（先生・個別）※解除は下の UPDATE の後
   if (!target || target.role !== 'student') return jsonError(c, 404, 'student_not_found')
   const body = await c.req.json().catch(() => ({} as any))
   let newPassword = String((body && body.newPassword) || '').trim()
@@ -1104,6 +1190,7 @@ app.post('/api/teacher/reset-student-password/:studentId', async (c) => {
     `UPDATE users SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=0
      WHERE id=? AND role='student'`
   ).bind(hash, salt, studentId).run()
+  if (target.loginId) await loginClearFails(c.env, String(target.loginId))
   return c.json({ ok: true, tempPassword: newPassword })
 })
 
@@ -7122,6 +7209,14 @@ app.get('/login', (c) => {
             pending_approval: '承認待ちです。管理者の承認をお待ちください',
             missing_credentials: 'IDとパスワードを入力してください',
           };
+          if(j.error === 'too_many_attempts'){
+            const m = Number(j.retryAfterMin) || 15;
+            msg.textContent = 'まちがえた回数が おおいので、いまは ログインできません。'
+              + 'あと ' + m + ' 分 まってから、もう一度 ためしてね。'
+              + '（ここで なんかい おしても、まつ時間は のびません）'
+              + ' いそぐときは 先生に 言ってね。';
+            return;
+          }
           msg.textContent = errMap[j.error] || (j.error || 'ログインに失敗しました');
           return;
         }
@@ -12397,6 +12492,8 @@ app.post('/api/teacher/recovery/bulk-reset', async (c) => {
       `UPDATE users SET password_hash=?, password_salt=?, password_updated_at=datetime('now'), must_change_password=0
        WHERE id=? AND role='student'`
     ).bind(hash, salt, s.userId).run()
+    // 直したのに入れない、を作らない（先生・一括）
+    await loginClearFails(c.env, String(s.loginId == null ? '' : s.loginId))
     results.push({ userId: s.userId, loginId: String(s.loginId == null ? '' : s.loginId), name: s.name || '', newPassword })
   }
   const okMap: Record<string, boolean> = {}
