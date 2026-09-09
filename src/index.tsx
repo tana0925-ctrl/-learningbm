@@ -7231,6 +7231,9 @@ app.get('/', async (c) => {
       t = t.replace('if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)) return \'イベント・攻略モード\';', 'if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)||(id>=1501 && id<=1510)) return \'イベント・攻略モード\';')
       // IDが衝突したら黙って捨てず、コンソールに残す（2か所まとめて）
       t = t.replace(/!MONSTERS\.some\(function\(m\)\{ return m\.id === d\.id; \}\)/g, '(function(){var _p=MONSTERS.filter(function(m){return m.id===d.id;})[0];if(_p){try{console.error(\'[ID衝突] id=\'+d.id+\' 「\'+d.name+\'」は既にある「\'+_p.name+\'」と衝突していて登録されません\');}catch(e){}return false;}return true;})()')
+      // ⚖️ 比: 公約数 g で割っただけで既約になっておらず、36%の問題で採点上の正解がまちがっていた（例: 6：6 の左の数の正解が 3 になっていた）。
+      //    約分(genFracReduce5)と同じ型のバグ。同じ作法で _gcd(a,b) で割る。__RATIO6_GCD_FIX__
+      t = t.replace("function genRatio6(){\n  const g=_ri(2,5),a=_ri(1,6)*g,b=_ri(1,6)*g;\n  const p=_ri(0,1);\n  if(p===0)return{q:a+'：'+b+'\\nかんたんな比にすると？\\n（左の数を答えて）',ans:a/g};\n  return{q:a+'：'+b+'\\nかんたんな比にすると？\\n（右の数を答えて）',ans:b/g};\n}", "function genRatio6(){\n  const g=_ri(2,5),a=_ri(1,6)*g,b=_ri(1,6)*g;\n  const p=_ri(0,1);\n  const G=_gcd(a,b);\n  if(p===0)return{q:a+'：'+b+'\\nかんたんな比にすると？\\n（左の数を答えて）',ans:a/G};\n  return{q:a+'：'+b+'\\nかんたんな比にすると？\\n（右の数を答えて）',ans:b/G};\n}")
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
