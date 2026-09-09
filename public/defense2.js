@@ -177,13 +177,50 @@ function def2HypeHtml(log, st){
       return best;
     }catch(e){ return null; }
   }
+  /* DEF2FIX_FROZEN_STATS_20260909
+     出陣時に保存されたステータスで戦わせる。決戦ボタンを押した児童の
+     isDailyFatigued / getStarMultiplier が他人のモンスターに適用されるのを防ぐ。
+     autoBattleRT は同期実行なので、finally で必ず元に戻る。 */
+  function withFrozenStats(entries, fn){
+    var g = window;
+    var oGS = g.getStats, oFat = g.isDailyFatigued, oStar = g.getStarMultiplier;
+    var q = {};
+    (entries || []).forEach(function(e){
+      var m = (e && e.monster) || null; if(!m) return;
+      var k = Number(m.id) + '@' + Number(m.level || 1);
+      (q[k] = q[k] || []).push(m);
+    });
+    try{
+      if(typeof oFat  === 'function') g.isDailyFatigued  = function(){ return false; };
+      if(typeof oStar === 'function') g.getStarMultiplier = function(){ return 1; };
+      if(typeof oGS   === 'function') g.getStats = function(mon, lvl){
+        var neutral = oGS.apply(this, arguments) || {};
+        var k = Number(mon && mon.id) + '@' + Number(lvl || 1);
+        var list = q[k];
+        if(list && list.length){
+          var m = list.shift();
+          var hp = Number(m.hp || neutral.hp || neutral.maxHp || 1);
+          return { hp: hp, maxHp: hp,
+                   atk: Number(m.atk || neutral.atk || 1),
+                   def: Number(m.def || neutral.def || 1),
+                   spd: Number(neutral.spd || 10) };
+        }
+        return neutral;
+      };
+      return fn();
+    } finally {
+      if(typeof oGS   === 'function') g.getStats          = oGS;
+      if(typeof oFat  === 'function') g.isDailyFatigued   = oFat;
+      if(typeof oStar === 'function') g.getStarMultiplier = oStar;
+    }
+  }
   function buildBattle(st){
     var entries = (st.entries||[]).filter(function(e){return e && e.monster && e.monster.id;});
     var defenders = entries.map(function(e){ return {id:e.monster.id, level:e.monster.level||1, strategy:e.monster.strategy||e.strategy||'balance'}; });
     var programsA = entries.map(function(e){ return (e.monster.prog && e.monster.prog.length)? e.monster.prog : DEFAULT_PROG; });
     var enemies = (st.enemy_squad||[]).map(function(en){ return {raw:{name:en.name,sprite:en.sprite,hp:en.hp,atk:en.atk,def:en.def,buff:en.buff,skillPow:en.skillPow}, strategy:'attack'}; });
     var seed = seedFromKey(st.event_key);
-    var rep = window.autoBattleRT(defenders, enemies, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:programsA,programB:ENEMY_PROG,forts:false,tactics:true,contact:true});
+    var rep = withFrozenStats(entries, function(){ return window.autoBattleRT(defenders, enemies, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:programsA,programB:ENEMY_PROG,forts:false,tactics:true,contact:true}); });
     return {rep:rep, entries:entries, seed:seed};
   }
 
