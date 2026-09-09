@@ -1,0 +1,182 @@
+name: 【小6算数】比の答えが36%まちがっている件を直す
+on:
+  workflow_dispatch:
+
+# 注意: 最後の push は GITHUB_TOKEN によるものなので、GitHub の仕様により
+#       deploy.yml（on: push -> main）は自動起動しません。
+#       このワークフローが成功したら、Actions から「Deploy to Cloudflare Pages」を
+#       手動実行し、本番URLで反映を確認すること。
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # チェーンを実際に走らせて built.html を作る共通処理
+      - name: 変換スクリプトを用意
+        run: |
+          cat > /tmp/build_chain.py << 'PYEOF'
+          import re, subprocess, sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          decls = [re.search(r'^const ' + n + r' = ".*?"$', s, re.M).group(0).replace('const ', 'var ', 1)
+                   for n in ['SUDDEN_OLD', 'SUDDEN_NEW']]
+          open('/tmp/decls.js', 'w', encoding='utf-8').write('\n'.join(decls) + '\n')
+          js = """
+          const fs=require('fs');
+          const src=fs.readFileSync('src/index.tsx','utf8');
+          const a=src.indexOf('let t = await a.text()');
+          const b=src.indexOf('_rootHtmlCache = t');
+          const body=src.slice(a,b).replace('let t = await a.text()','');
+          const decls=fs.readFileSync('/tmp/decls.js','utf8');
+          const html=fs.readFileSync('public/index.html','utf8');
+          const out=new Function('t', decls+body+'\\n return t;')(html);
+          fs.writeFileSync('/tmp/built.html', out);
+          console.log('built bytes', Buffer.byteLength(out,'utf8'));
+          """
+          open('/tmp/build_chain.js', 'w', encoding='utf-8').write(js)
+          r = subprocess.run(['node', '/tmp/build_chain.js'], capture_output=True, text=True)
+          print(r.stdout, r.stderr)
+          sys.exit(r.returncode)
+          PYEOF
+
+      - name: 適用前の確認（バグが実在すること）
+        run: |
+          python3 /tmp/build_chain.py
+          python3 - << 'PYEOF'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from patch_ratio6_gcd import verify_ratio6
+          ok, msg = verify_ratio6(open('/tmp/built.html', encoding='utf-8').read(), 20000)
+          print('適用前:', msg)
+          if ok:
+            print('NG: 適用前なのに誤りが0件。すでに別経路で直っている可能性がある。中止する。')
+            sys.exit(1)
+          print('想定どおり、適用前は誤りがある。')
+          PYEOF
+
+      - name: パッチを適用（アンカーが一致しなければ中止）
+        run: python3 scripts/patch_ratio6_gcd.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: |
+          python3 scripts/patch_ratio6_gcd.py
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {"); j = s.index("app.get('/logout'")
+          n = s[i:j].count('.replace(')
+          print('チェーン件数:', n)
+          if n != 48:
+            print('NG: 48件でない'); sys.exit(1)
+          if s.count('__RATIO6_GCD_FIX__') != 1:
+            print('NG: 目印が1個でない'); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: 変換後に答えが正しくなったことを確認（目印は見ない。2万回生成して検算）
+        run: |
+          python3 /tmp/build_chain.py
+          python3 - << 'PYEOF'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from patch_ratio6_gcd import verify_ratio6
+          ok, msg = verify_ratio6(open('/tmp/built.html', encoding='utf-8').read(), 20000)
+          print('適用後:', msg)
+          if not ok:
+            sys.exit(1)
+          PYEOF
+
+      - name: 既存の修正が無傷であることを確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('/tmp/built.html', encoding='utf-8').read()
+          checks = [
+            ("約分 分子",            "分子は？',ans:n/_gcd(n,d)}", 1),
+            ("約分 分母",            "分母は？',ans:d/_gcd(n,d)}", 1),
+            ("genPlant6",            "function genPlant6(", 1),
+            ("genElectric6",         "function genElectric6(", 1),
+            ("genEnvironment6",      "function genEnvironment6(", 1),
+            ("小数点キー修正",        "window.trainingQ && window.trainingQ.isDecimal", 2),
+            ("旧・小数点ガード",      "if (trainingMode !== 'decimal') return;", 0),
+            ("PBハッシュ",           "/*__PB_HASH_FIX__*/", 2),
+            ("student-karte",        '<script src="/student-karte.js?v=1"></script>', 1),
+            ("g8xmath",              '<script src="/g8xmath.js?v=1"></script>', 1),
+            ("ID衝突 1501",          "SUMMER_WATAGASHI_ID = 1501", 1),
+            ("旧・比のバグ(左)",      "（左の数を答えて）',ans:a/g}", 0),
+            ("旧・比のバグ(右)",      "（右の数を答えて）',ans:b/g}", 0),
+            ("新・比(左)",           "（左の数を答えて）',ans:a/G}", 1),
+            ("新・比(右)",           "（右の数を答えて）',ans:b/G}", 1),
+            ("_gcd 定義",            "function _gcd(", 1),
+          ]
+          bad = 0
+          for name, pat, want in checks:
+            got = s.count(pat)
+            if got != want:
+              bad += 1
+              print('NG %s: 期待%d 実際%d' % (name, want, got))
+          if bad:
+            print('%d件 失敗' % bad); sys.exit(1)
+          print('既存の修正はすべて無傷')
+          PYEOF
+
+      - name: 比以外は1文字も変わっていないことを確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys, subprocess
+          # パッチ適用前の src/index.tsx でチェーンを走らせ、適用後と比べる
+          subprocess.run(['git', 'stash', 'push', '--', 'src/index.tsx'], check=True)
+          subprocess.run(['python3', '/tmp/build_chain.py'], check=True)
+          before = open('/tmp/built.html', encoding='utf-8').read()
+          subprocess.run(['git', 'stash', 'pop'], check=True)
+          subprocess.run(['python3', '/tmp/build_chain.py'], check=True)
+          after = open('/tmp/built.html', encoding='utf-8').read()
+
+          i = 0
+          while i < min(len(before), len(after)) and before[i] == after[i]:
+            i += 1
+          j = 0
+          while j < min(len(before), len(after)) - i and before[-1 - j] == after[-1 - j]:
+            j += 1
+          diff_before = before[i:len(before) - j]
+          diff_after = after[i:len(after) - j]
+          print('変更前:', repr(diff_before))
+          print('変更後:', repr(diff_after))
+          # 差分は genRatio6 の中だけであること
+          if 'genRatio6' not in before[max(0, i - 400):i + 400]:
+            print('NG: 差分が genRatio6 の中にない'); sys.exit(1)
+          if len(diff_before) > 300 or len(diff_after) > 300:
+            print('NG: 差分が想定より大きい'); sys.exit(1)
+          print('OK: 差分は genRatio6 の中だけ')
+          PYEOF
+
+      - name: 既存ルートの確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          for r in ["app.get('/'", "app.get('/teacher'", "app.get('/logout'", "app.get('/login'"]:
+            if r not in s:
+              print('NG: 既存ルートが消えた: ' + r); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミットして push（この push で deploy.yml が自動的に走る）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_ratio6_gcd.py
+          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "fix(修行): 比の答えを既約にする（36%の問題で正解がまちがっていた・例 6：6 の答えが3）" && git push)
