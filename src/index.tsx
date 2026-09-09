@@ -1500,6 +1500,8 @@ app.get('/api/defense/status', async (c) => {
   const classId = await defenseClassId(c.env, u.id)
   const out: any = { ok: true, active: st.active, decision_at: st.decisionAt, event_key: st.eventKey, class_id: classId, base_hp: DEFENSE_BASE_HP, enemy_squad: DEFENSE_ENEMIES, my_entry: null, decided: false, result: null, entries: null, my_reward: null }
   if (!st.eventKey) return c.json(out)
+  // DEFFIX23_ORDER_AND_CLASS_20260909 : クラス未所属は防衛戦の対象外（空文字クラスの独立バトルを作らない）
+  if (!classId) { out.active = false; out.no_class = true; return c.json(out) }
   const decided = !!st.decisionAt && Date.now() >= Date.parse(st.decisionAt)
   out.decided = decided
   try {
@@ -1517,7 +1519,7 @@ app.get('/api/defense/status', async (c) => {
     } catch (_e) {}
     if (decided && !out.result) {
       try {
-        const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=?").bind(st.eventKey, classId).all<any>()
+        const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
         out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { user_id: r.uid, name: r.nm, monster: m, strategy: r.strat } })
       } catch (_e) {}
     }
@@ -1536,6 +1538,7 @@ app.post('/api/defense/entry', async (c) => {
   if (!st.active || st.eventKey !== String(body.event_key)) return jsonError(c, 400, 'event_closed')
   if (st.decisionAt && Date.now() >= Date.parse(st.decisionAt)) return jsonError(c, 400, 'closed')
   const classId = await defenseClassId(c.env, u.id)
+  if (!classId) return jsonError(c, 403, 'no_class')
   const mj = JSON.stringify(body.monster).slice(0, 4000)
   const strat = String(body.strategy || 'balance').slice(0, 20)
   await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO UPDATE SET class_id=excluded.class_id, monster_json=excluded.monster_json, strategy=excluded.strategy, created_at=datetime('now')").bind(st.eventKey, u.id, classId, mj, strat).run()
@@ -1552,7 +1555,8 @@ app.post('/api/defense/resolve', async (c) => {
   if (st.eventKey !== String(body.event_key)) return jsonError(c, 400, 'event_mismatch')
   if (!(st.decisionAt && Date.now() >= Date.parse(st.decisionAt))) return jsonError(c, 400, 'not_yet')
   const classId = await defenseClassId(c.env, u.id)
-  if (classId == null || classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
+  if (!classId) return jsonError(c, 403, 'no_class')
+  if (classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
   const result = (String(body.result) === 'win') ? 'win' : 'lose'
   const logJson = JSON.stringify(body.log || null).slice(0, 100000)
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
