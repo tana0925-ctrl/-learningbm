@@ -47,7 +47,28 @@
     for (var i = 0; i < 5; i++) out.push(fmtDay(new Date(mon.getTime() + i * 86400000)));
     return out;
   }
-  var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+  // カルテは月曜に印刷して配るので、児童の週の記録は「直前に終わった週」を使う
+function lastWeekDaysJst() {
+  var d = jstNow();
+  var wd = (d.getDay() + 6) % 7;
+  var mon = new Date(d.getTime() - wd * 86400000 - 7 * 86400000);
+  var out = [];
+  for (var i = 0; i < 5; i++) out.push(fmtDay(new Date(mon.getTime() + i * 86400000)));
+  return out;
+}
+function jaDay(s) { var p = String(s).split('-'); return Number(p[1]) + '月' + Number(p[2]) + '日'; }
+function isoWeekOf(ymd) {
+  var p = String(ymd).split('-');
+  var x = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  var dn = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - dn + 3);
+  var f = new Date(x.getFullYear(), 0, 4);
+  var fn = (f.getDay() + 6) % 7;
+  f.setDate(f.getDate() - fn + 3);
+  var w = 1 + Math.round((x.getTime() - f.getTime()) / (7 * 86400000));
+  return x.getFullYear() + '-W' + (w < 10 ? '0' + w : '' + w);
+}
+var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
   // ---- コピー結果のキャッシュ ----
   //  同じクラス・同じチェック・同じ日なら、2回目以降はデータベースを一切読み直さない。
@@ -237,7 +258,8 @@
 
     // 金曜日は週の振り返りを厚めに入れる（先生がチェックを外していれば入れない）
     var isFri = isFridayJst() && want.reflect;
-    var weekDays = weekDaysJst();
+    var weekDays = lastWeekDaysJst();
+  var weekLabel = jaDay(weekDays[0]) + '〜' + jaDay(weekDays[4]);
     // テストの点数は「クラス所見・週報」を作るときだけ入れる。
     // 個人カルテはその週の家庭学習が主役で、テストの点数には触れない方針。
     var wantWide = want.classOv || want.report;
@@ -279,8 +301,15 @@
     out.push('8. そのかわり、同じ子の名前が複数のデータ（提出・正答率・満足度・振り返り' + (wantWide ? '・テスト' : '') + '）で');
     out.push('   重なって出てきたときは、そこを重く見て、何が起きていそうかを書いてください。');
     out.push('   逆に1つのサインしか出ていない子は、まだ様子見であることが分かるように書いてください。');
+out.push('9. データは全部読んでよいが、書くのは絞ること。数字を並べるほど文章は当たり障りがなくなります。');
+out.push('   「この子について本当に言うべきこと」を1〜2点えらび、具体的に書いてください。');
+out.push('10. 【MIしらべ】は、本人が自分をどう見ているかの自己申告であって、能力の判定ではありません。');
+out.push('   - 「◯◯タイプ」「◯◯型」のような決めつけ・タイプ分けは絶対に書かない。');
+out.push('   - 点が低い項目を「苦手」と決めつけない。');
+out.push('   - MIだけを根拠にしない。ほかのデータと重なったときだけ、きっかけとして使う。');
+out.push('   - MIしらべが無い子には、そのことに触れない（「受けていないので分からない」等は書かない）。');
     if (isFri) {
-      out.push('9. 今日は金曜日です。児童ごとの【この1週間（月〜金）】に、その週の記録と振り返りを');
+      out.push('11. 今日は金曜日です。児童ごとの【先週（' + weekLabel + '）】に、その週の記録と振り返りを');
       out.push('   入れてあります。REFLECT には、その1週間の流れ（月曜からどう変わったか）を');
       out.push('   ふまえた返却コメントを書いてください。1日だけを見て書かないこと。');
     }
@@ -290,7 +319,7 @@
     if (want.karte)   out.push('・=== [KARTE:...] === … 個人カルテ。①よいところ ②気になるところ ③次の一歩。子ども向け。');
     if (want.karte) {
       out.push('    ※個人カルテのきまり（大事）:');
-      out.push('      - 【この1週間（月〜金）】を主役にする。今週やったこと・書いたことを具体的に取り上げる。');
+      out.push('      - 【先週（' + weekLabel + '）】を主役にする。先週やったこと・書いたことを具体的に取り上げる。');
       out.push('      - 【ふだんの様子】は背景。触れるとしても一言まで。今年度ぜんたいの話にしない。');
       out.push('      - テストの点数・得点率・順位には いっさい触れない。');
       out.push('      - この下に先生がプリントやノートの内容を貼ることがあります。');
@@ -298,12 +327,24 @@
     }
     if (want.plan)    out.push('・=== [PLAN:...] === … 今週の計画へのアドバイス。①よい点 ②もっとよくする点 ③ひとこと。子ども向け。');
     if (want.reflect) out.push('・=== [REFLECT:...] === … 今週の振り返りへの返却コメント。2〜3文。子ども向け。');
-    if (want.suggest) out.push('・=== [SUGGEST:...] === … 今週のおすすめ家庭学習。曜日ごとに3〜5項目。子ども向け。');
+    if (want.suggest) {
+out.push('・=== [SUGGEST:...] === … 今週のおすすめ。1〜2つだけ。子ども向け。');
+out.push('   ※今週のおすすめのきまり（大事）:');
+out.push('   - おすすめは1〜2つだけ。たくさん挙げない。曜日ごとの一覧にしない。');
+out.push('   - 「なぜそれがおすすめか」を必ず書く。形は「先週◯◯だったから、今週は△△をやってみよう」。');
+out.push('   - 理由はこの子のデータに根ざした具体的なものにする。');
+out.push('     例：「先週は水曜に理科を20分やって『楽しかった』と書いていたから」');
+out.push('   - 「がんばっているから」「力がつくから」のような、だれにでも当てはまる理由は書かない。');
+out.push('   - 理由を「◯◯ができていないから」「正答率が低いから」とは書かない。');
+out.push('     「まだあまりやっていないから」「先週これが楽しそうだったから」のような前向きな言い方にする。');
+out.push('   - テストの点数・得点率・順位には いっさい触れない。ほかの子とも比べない。');
+out.push('   - 全部で3行以内・120字以内。紙に印刷して配るので、それより長く書かない。');
+}
     if (want.classOv) out.push('・=== [CLASS] === … クラス全体の所見。5〜8行（よい傾向／気になる点／来週の手立て）。先生向け。【テスト・成績】も使ってよい。');
     if (want.report)  out.push('・=== [WEEKREPORT] === … 今週の週報。管理職・保護者にも見せられる文体で10行程度。先生向け。【テスト・成績】も使ってよい。');
     out.push('');
     out.push('【児童ごとのデータの並び】');
-    out.push('・【この1週間（月〜金）】…個人カルテ・家庭学習コメント・振り返り返却は、ここを主役に。');
+    out.push('・【先週（' + weekLabel + '）】…個人カルテ・今週のおすすめ・振り返り返却は、ここを主役に。');
     out.push('・【ふだんの様子（今年度の積み上げ）】…背景。カルテでは軽く触れる程度に。');
     if (wantWide) out.push('・【テスト・成績】…クラス所見と週報のための材料。個人カルテには使わないこと。');
     else out.push('（今回はテストの点数を渡していません。テストの話は書かないでください。）');
@@ -536,7 +577,7 @@
       var weekRefl = null;
       var planLines = [], reflText = '';
       var p = planByUser[st.userId];
-      out.push('【この1週間（月〜金）】※個人カルテはここを主役に書く');
+      out.push('【先週（' + weekLabel + '）】※個人カルテと今週のおすすめは、ここを主役に書く');
       if (data && data.ok) {
         try {
           var wsubs = (data.recentSubmissions || []).filter(function (r) {
@@ -555,9 +596,9 @@
             });
             var mins = wsubs.reduce(function (a2, r) { return a2 + (Number(r.minutes) || 0); }, 0);
             var suns = wsubs.filter(function (r) { return r.end_weather === 'sun'; }).length;
-            out.push('・今週の合計：' + wsubs.length + '日 / ' + mins + '分 / ☀' + suns + '日');
+            out.push('・先週の合計：' + wsubs.length + '日 / ' + mins + '分 / ☀' + suns + '日');
           } else {
-            out.push('・（今週の提出はまだありません）');
+            out.push('・（先週の提出はありませんでした）');
           }
         } catch (e) {}
       }
@@ -616,7 +657,30 @@
         if (hw.restDay)        out.push('　（おやすみの記録）');
       }
 
-      // ===== ② ふだんの様子（今年度の積み上げ・カルテでは背景あつかい） =====
+      // 先週のふりかえり（紙のカルテに載るのと同じ週のもの）
+try {
+  var _lwk = isoWeekOf(weekDays[0]);
+  var _lref = null;
+  ((data && data.reflections) || []).forEach(function (r) { if (r && String(r.weekKey) === _lwk) _lref = r; });
+  if (_lref && (_lref.goodPoint || _lref.improvePoint || _lref.nextAction)) {
+    out.push('・先週のふりかえり（本人が書いたもの）');
+    if (_lref.goodPoint) out.push('  よかったこと: ' + _lref.goodPoint);
+    if (_lref.improvePoint) out.push('  もっとよくしたいこと: ' + _lref.improvePoint);
+    if (_lref.nextAction) out.push('  来週やること: ' + _lref.nextAction);
+  }
+} catch (e) {}
+// MIしらべ（本人の自己申告。能力の判定ではない）
+try {
+  var _mi = data && data.mi;
+  if (_mi && _mi.scores) {
+    var _mj = JSON.parse(_mi.scores);
+    var _mr = (_mj && _mj.ranking) || [];
+    if (_mr.length) {
+      out.push('・MIしらべ（自己申告・' + String(_mi.takenAt || '').slice(0, 10) + '）本人が「好き・得意」と答えた上位: ' + _mr.slice(0, 3).map(function (x) { return x.name; }).join('、'));
+    }
+  }
+} catch (e) {}
+// ===== ② ふだんの様子（今年度の積み上げ・カルテでは背景あつかい） =====
       if (data && data.ok) {
         var body = { main: [], test: [] };
         try {
