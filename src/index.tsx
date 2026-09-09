@@ -5603,7 +5603,7 @@ app.post('/api/trade/offer', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json<any>().catch(() => null)
   if (!body?.monster) return jsonError(c, 400, 'monster_required')
-  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||(i>=957&&i<=963)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(body.monster)) return jsonError(c, 400, 'cannot_trade_special'); }
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||(i>=1501&&i<=1507)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(body.monster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 既存の有効なオファーがあればキャンセル
   await c.env.DB.prepare(
@@ -5674,7 +5674,7 @@ app.post('/api/trade/complete', async (c) => {
 
   const fromMonster = JSON.parse(offer.from_monster_json)
   const toMonster = body.monster
-  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||(i>=957&&i<=963)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(fromMonster)||_sp(toMonster)) return jsonError(c, 400, 'cannot_trade_special'); }
+  { const _sp=(m)=>{ if(!m) return false; const i=Number(m.id); return i===152||i===153||i===154||(i>=935&&i<=939)||(i>=1501&&i<=1507)||m.uncapturable===true||m.isBoss===true||m.isGymLeader===true||m.isWarBoss===true; }; if(_sp(fromMonster)||_sp(toMonster)) return jsonError(c, 400, 'cannot_trade_special'); }
 
   // 申請者(from)のstateを取得してモンスターを入れ替え
   const fromProgress = await c.env.DB.prepare(
@@ -7048,6 +7048,25 @@ app.get('/', async (c) => {
       t = t.replace(["            var rect = btnEl.getBoundingClientRect();","            m.style.position = 'fixed';","            m.style.left = (rect.right + 4) + 'px';"].join("\n"), ["            /* IPAD_SIDEMENU_PORTAL: iOS Safari は overflow:auto の中の position:fixed を描画クリップするため、","               サイドバーの中に置いたままだと iPad でサブメニューが見えない（タップは効く）。開くとき body 直下へ移す。 */","            if (m.parentElement !== document.body) { document.body.appendChild(m); }","            m.style.margin = '0';","            var rect = btnEl.getBoundingClientRect();","            m.style.position = 'fixed';","            m.style.right = 'auto';","            m.style.left = (rect.right + 8) + 'px';"].join("\n"))
       //    あわせて、画面の右端からはみ出さないよう左位置を丸め込む（スマホのボトムナビでも有効）。
       t = t.replace(["            var mRect = m.getBoundingClientRect();","            var desiredTop = rect.bottom - mRect.height;"].join("\n"), ["            var mRect = m.getBoundingClientRect();","            /* IPAD_SIDEMENU_CLAMP: 画面の右端からはみ出さないように左位置を丸め込む（スマホのボトムナビでも有効） */","            var _vwSM = document.documentElement.clientWidth || window.innerWidth;","            var _dLeft = parseFloat(m.style.left) || 0;","            if (_dLeft + mRect.width > _vwSM - 8) { _dLeft = _vwSM - 8 - mRect.width; }","            if (_dLeft < 8) { _dLeft = 8; }","            m.style.left = Math.round(_dLeft) + 'px';","            var desiredTop = rect.bottom - mRect.height;"].join("\n"))
+      // __IDFIX_V1__ キャラIDの衝突解消（第1弾）。既存IDは1つも動かしていない。
+      // 夏フェス定数 958-963 → 1502-1507
+      t = t.replace('        const SUMMER_SOFUZO_ID    = 958; // 🍦 ソフ蔵（前半）\n        const SUMMER_MOROKOSHI_ID = 959; // 🌽 モロコシオ（前半）\n        const SUMMER_DANGO_ID     = 960; // 🍡 だんごさぶろう（前半）\n        const SUMMER_FURIN_ID     = 961; // 🎐 フウリンタロウ（後半）\n        const SUMMER_MELON_ID     = 962; // 🍈 マスクメロ夫（後半）\n        const SUMMER_AME_ID       = 963; // 🍭 アメジロウ（後半）', '        const SUMMER_SOFUZO_ID    = 1502; // 🍦 ソフ蔵（前半）\n        const SUMMER_MOROKOSHI_ID = 1503; // 🌽 モロコシオ（前半）\n        const SUMMER_DANGO_ID     = 1504; // 🍡 だんごさぶろう（前半）\n        const SUMMER_FURIN_ID     = 1505; // 🎐 フウリンタロウ（後半）\n        const SUMMER_MELON_ID     = 1506; // 🍈 マスクメロ夫（後半）\n        const SUMMER_AME_ID       = 1507; // 🍭 アメジロウ（後半）')
+      // わたがしフワリン 957 → 1501
+      t = t.replace('        var SUMMER_WATAGASHI_ID = 957; // 🍬 わたがしフワリン（スタンプ10日限定・配布）※940はリバイブ博士と衝突するため957', '        var SUMMER_WATAGASHI_ID = 1501; // 🍬 わたがしフワリン（スタンプ10日限定・配布）※957はSECRET_ELEC4（バッテリン）と衝突していたため1501へ。940→957の変更は衝突を移しただけだった。')
+      // 敬語ライン 1042-1044 → 1511-1513
+      t = t.replace('const SECRET_KEIGO5_MONSTER_ID = 1042;\nconst SECRET_KEIGO5_EVOLVE_1_ID = 1043;\nconst SECRET_KEIGO5_EVOLVE_2_ID = 1044;', 'const SECRET_KEIGO5_MONSTER_ID = 1511;  // 旧1042: オチャと衝突し、ソンケイが存在しなかった\nconst SECRET_KEIGO5_EVOLVE_1_ID = 1512; // 旧1043: オチャ大魔王と衝突\nconst SECRET_KEIGO5_EVOLVE_2_ID = 1513; // 旧1044: ブロッコリー大先生と衝突')
+      // ネンリキ 1045 → 1514
+      t = t.replace('const SECRET_COMBUST6_MONSTER_ID = 1045;', 'const SECRET_COMBUST6_MONSTER_ID = 1514; // 旧1045: ミユウツーと衝突。nextIdの1046/1047は所持者がいるため動かさない')
+      // まるやまード 1050 → 1515
+      t = t.replace('    id: 1050,\n    name: \'まるやまード\',', '    id: 1515,\n    name: \'まるやまード\',')
+      // まるやまーンの進化先 1050 → 1515（Lv36でポポになる不具合の修正）
+      t = t.replace('    evoLevel: 36,\n    nextId: 1050,', '    evoLevel: 36,\n    nextId: 1515,')
+      // ボール無効の範囲 957-963 → 1501-1507
+      t = t.replace('(enemy.id >= 957 && enemy.id <= 963)', '(enemy.id >= 1501 && enemy.id <= 1507)')
+      // 図鑑カテゴリに夏フェスの新範囲を追加
+      t = t.replace('if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)) return \'イベント・攻略モード\';', 'if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)||(id>=1501 && id<=1510)) return \'イベント・攻略モード\';')
+      // IDが衝突したら黙って捨てず、コンソールに残す（2か所まとめて）
+      t = t.replace(/!MONSTERS\.some\(function\(m\)\{ return m\.id === d\.id; \}\)/g, '(function(){var _p=MONSTERS.filter(function(m){return m.id===d.id;})[0];if(_p){try{console.error(\'[ID衝突] id=\'+d.id+\' 「\'+d.name+\'」は既にある「\'+_p.name+\'」と衝突していて登録されません\');}catch(e){}return false;}return true;})()')
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
