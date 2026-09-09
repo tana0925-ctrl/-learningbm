@@ -1,0 +1,55 @@
+name: ドリルパークのエクセル取り込みを追加
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_drillpark_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_drillpark_v1.py
+
+      - name: 適用後の中身を確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {"); j = s.index("app.get('/logout'")
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 25:
+            print('NG: .replace() チェーンが25件でない'); sys.exit(1)
+          need = ["app.post('/api/teacher/drillpark/parse'",
+                  "app.post('/api/teacher/drillpark/save'",
+                  "app.get('/drillpark.js'",
+                  'ON CONFLICT(row_key) DO NOTHING',
+                  '<script src="/drillpark.js?v=1"></script>',
+                  'FROM drill_sessions WHERE user_id=?']
+          for x in need:
+            if s.count(x) != 1:
+              print('NG: %r が %d 個' % (x, s.count(x))); sys.exit(1)
+          for x in ['CREATE TABLE drill_sessions', 'ALTER TABLE drill_sessions']:
+            if x in s:
+              print('NG: リクエスト経路にDDLがある: ' + x); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx public/drillpark.js migrations/0029_drillpark_sessions.sql scripts/drillpark_block.ts scripts/patch_drillpark_v1.py
+          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "feat(drillpark): ドリルパークのエクセル取り込み（1問ごとの正誤つき）を追加" && git push)
