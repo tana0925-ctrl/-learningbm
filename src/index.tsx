@@ -7121,6 +7121,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
+      // 🔥 九九の単元IDが m2-kuku に改名されたのに、ククマスター解放判定が旧ID(kuku)のままで一度も発動しなかった
+      t = t.replace("if (trainingMode === 'kuku' && trainingCombo === 50) {", "if ((trainingMode === 'kuku' || trainingMode === 'm2-kuku') && trainingCombo === 50) {")
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（PC版）。既存項目と同じ作法で1項目だけ追記。
       t = t.replace(`<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100" onclick="trySetMode('report'); closeSysMenu()"><span>📝</span>バグ報告・要望</button>`, `<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100" onclick="trySetMode('report'); closeSysMenu()"><span>📝</span>バグ報告・要望</button><button class="w-full px-4 py-3 text-sm font-bold text-amber-700 hover:bg-amber-50 flex items-center gap-2 border-t border-slate-100" onclick="location.href='/himitsu'; closeSysMenu()"><span>🔒</span>ひみつのしつもん</button>`)
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（モバイル版）。
