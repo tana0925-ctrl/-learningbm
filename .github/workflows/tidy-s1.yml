@@ -1,0 +1,24 @@
+name: 家庭学習タブの整理 段階1
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_tidy_s1.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "整理(段階1): 家庭学習③の操作を8→5に統合 / 空だった今週の振り返りタブを畳んで案内を③へ / 機能は削除なし" && git push)
