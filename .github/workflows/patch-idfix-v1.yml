@@ -1,0 +1,117 @@
+name: 【第1弾】キャラIDの衝突を解消
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 適用前の状態を記録（衝突が実在することの確認）
+        run: |
+          python3 - << 'PYEOF'
+          import re
+          src = re.sub(r'\nmain\(\)\s*$', '\n', open('scripts/patch_idfix_v1.py', encoding='utf-8').read())
+          ns = {}
+          exec(compile(src, 'p', 'exec'), ns)
+          ok, msg = ns['verify_no_collision'](open('public/index.html', encoding='utf-8').read())
+          print(msg)
+          print('適用前の判定:', 'OK' if ok else 'NG（衝突あり＝想定どおり）')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_idfix_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_idfix_v1.py
+
+      - name: チェーンを実際に走らせて結果を確認
+        run: |
+          python3 - << 'PYEOF'
+          import re
+          s = open('src/index.tsx', encoding='utf-8').read()
+          decls = [re.search(r'^const ' + n + r' = ".*?"$', s, re.M).group(0).replace('const ', 'var ', 1)
+                   for n in ['SUDDEN_OLD', 'SUDDEN_NEW']]
+          open('/tmp/decls.js', 'w', encoding='utf-8').write('\n'.join(decls) + '\n')
+          PYEOF
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const src = fs.readFileSync('src/index.tsx','utf8');
+          const a = src.indexOf('let t = await a.text()');
+          const b = src.indexOf('_rootHtmlCache = t');
+          const body = src.slice(a, b).replace('let t = await a.text()','');
+          const decls = fs.readFileSync('/tmp/decls.js','utf8');
+          const html = fs.readFileSync('public/index.html','utf8');
+          const out = new Function('t', decls + body + '\n return t;')(html);
+          const c = n => out.split(n).length - 1;
+          const checks = [
+            ['SUMMER_WATAGASHI_ID = 1501',1], ['SUMMER_SOFUZO_ID    = 1502',1], ['SUMMER_AME_ID       = 1507',1],
+            ['SECRET_KEIGO5_MONSTER_ID = 1511',1], ['SECRET_KEIGO5_EVOLVE_2_ID = 1513',1],
+            ['SECRET_COMBUST6_MONSTER_ID = 1514',1],
+            ["id: 1515,\n    name: 'まるやまード'",1], ['evoLevel: 36,\n    nextId: 1515,',1],
+            ['(enemy.id >= 1501 && enemy.id <= 1507)',1], ['(id>=1501 && id<=1510)',1],
+            ['SUMMER_WATAGASHI_ID = 957',0], ['SECRET_KEIGO5_MONSTER_ID = 1042',0],
+            ['SECRET_COMBUST6_MONSTER_ID = 1045',0], ['(enemy.id >= 957 && enemy.id <= 963)',0],
+            ['nextId: 1050,',0], ['!MONSTERS.some(function(m){ return m.id === d.id; })',0],
+            ['[ID衝突] id=',2],
+            ['/*__PB_HASH_FIX__*/',2], ['<script src="/student-karte.js?v=1"></script>',1],
+            ['<script src="/g8xmath.js?v=1"></script>',1], ['<script src="/drillpark.js?v=1"></script>',0],
+          ];
+          let bad = 0;
+          for (const [n,w] of checks) { const g = c(n); if (g!==w) { bad++; console.log('NG', w, g, n.slice(0,50)); } }
+          if (bad) { console.log(bad + '件 失敗'); process.exit(1); }
+          console.log('チェーンの結果: すべて期待どおり');
+          fs.writeFileSync('/tmp/built.html', out);
+          JSEOF
+
+      - name: 変換後のHTMLで衝突が消えたことを確認（定義そのものを数える）
+        run: |
+          python3 - << 'PYEOF'
+          import re, sys
+          src = re.sub(r'\nmain\(\)\s*$', '\n', open('scripts/patch_idfix_v1.py', encoding='utf-8').read())
+          ns = {}
+          exec(compile(src, 'p', 'exec'), ns)
+          built = open('/tmp/built.html', encoding='utf-8').read()
+          ok, msg = ns['verify_no_collision'](built)
+          print(msg)
+          if not ok:
+            print('NG: 適用後も衝突が残っている'); sys.exit(1)
+          if '!MONSTERS.some(function(m){ return m.id === d.id; })' in built:
+            print('NG: 黙って捨てるガードが残っている'); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: チェーン本数と既存ルートの確認
+        run: |
+          python3 - << 'PYEOF'
+          import re, sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {"); j = s.index("app.get('/logout'")
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 34:
+            print('NG: 34件でない'); sys.exit(1)
+          if s.count('(i>=1501&&i<=1507)') != 2 or '(i>=957&&i<=963)' in s:
+            print('NG: 交換禁止の範囲が更新されていない'); sys.exit(1)
+          for r in ["app.get('/'", "app.get('/teacher'", "app.get('/logout'",
+                    "app.post('/api/teacher/drillpark/save'"]:
+            if r not in s:
+              print('NG: 既存ルートが消えた: ' + r); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_idfix_v1.py
+          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "fix(id): キャラIDの衝突を解消（夏フェス7体・敬語3体・ネンリキ・まるやまード を1501以上へ）" && git push)
