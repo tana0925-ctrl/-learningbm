@@ -3918,6 +3918,9 @@ app.post('/api/homework/analyze-photo', async (c) => {
 
     const dayKey = String(formData.get('dayKey') || '').slice(0, 10)
     if (!dayKey) return jsonError(c, 400, 'day_key_required')
+    // 写真の保存先キーは homework_submissions と合わせるためクライアント申告のままだが、
+    // 任意の日付は受け付けない（サーバの学習日から前後1日まで）。
+    if (!isNearStudyDayKey(dayKey)) return jsonError(c, 400, 'day_key_out_of_range')
 
     const photo = formData.get('photo') as File | null
     if (!photo || !photo.size) return jsonError(c, 400, 'photo_required')
@@ -3966,7 +3969,7 @@ app.post('/api/homework/analyze-photo', async (c) => {
         else if (_roll < 92) { _res = 'balls'; _amt = 3 }
         else if (_roll < 97) { _res = 'coins'; _amt = 100 }
         else { _res = 'upgradeTickets'; _amt = 1 }
-        const _ins = await c.env.DB.prepare("INSERT OR IGNORE INTO photo_bonus_rewards (user_id, day_key, res, amount, created_at) VALUES (?,?,?,?,datetime('now'))").bind(u.id, dayKey, _res, _amt).run()
+        const _ins = await c.env.DB.prepare("INSERT OR IGNORE INTO photo_bonus_rewards (user_id, day_key, res, amount, created_at) VALUES (?,?,?,?,datetime('now'))").bind(u.id, jstStudyDayKey(), _res, _amt).run()
         if (_ins.meta && _ins.meta.changes === 1) {
           const prog = await c.env.DB.prepare("SELECT state_json FROM progress WHERE user_id=?").bind(u.id).first<any>()
           if (prog?.state_json) {
@@ -4823,15 +4826,28 @@ app.get('/api/teacher/class-analytics', async (c) => {
   `).bind(classId).all<any>()
 
   // 提出率ヒートマップ用（曜日×児童）
+  // 週の月曜〜日曜（UTC基準）。submission-dashboard とまったく同じ出し方にそろえる。
+  // homework_submissions に week_key 列は存在しない（day_key だけ）ので範囲で引く。
+  const _caMonday = getMondayFromWeekKey(weekKey)
+  const _caSunday = new Date(_caMonday)
+  _caSunday.setUTCDate(_caMonday.getUTCDate() + 6)
+  const _caMonStr = _caMonday.toISOString().split('T')[0]
+  const _caSunStr = _caSunday.toISOString().split('T')[0]
+  const _caPrevMonday = getMondayFromWeekKey(prevWeekKey)
+  const _caPrevSunday = new Date(_caPrevMonday)
+  _caPrevSunday.setUTCDate(_caPrevMonday.getUTCDate() + 6)
+  const _caPrevMonStr = _caPrevMonday.toISOString().split('T')[0]
+  const _caPrevSunStr = _caPrevSunday.toISOString().split('T')[0]
+
   let hwData: any = { results: [] }, prevHwData: any = { results: [] }
   try {
     hwData = await c.env.DB.prepare(`
     SELECT hs.user_id, hs.submitted_at, hs.minutes
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
-    WHERE hs.week_key=?
-  `).bind(classId, weekKey).all<any>()
-  } catch {}
+    WHERE hs.day_key >= ? AND hs.day_key <= ?
+  `).bind(classId, _caMonStr, _caSunStr).all<any>()
+  } catch (e) { console.error('class-analytics hwData error:', e) }
 
   // 先週の提出データ（変化検知用）
   try {
@@ -4839,10 +4855,10 @@ app.get('/api/teacher/class-analytics', async (c) => {
     SELECT hs.user_id, COUNT(*) as cnt, SUM(hs.minutes) as totalMin
     FROM homework_submissions hs
     JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id=?
-    WHERE hs.week_key=?
+    WHERE hs.day_key >= ? AND hs.day_key <= ?
     GROUP BY hs.user_id
-  `).bind(classId, prevWeekKey).all<any>()
-  } catch {}
+  `).bind(classId, _caPrevMonStr, _caPrevSunStr).all<any>()
+  } catch (e) { console.error('class-analytics prevHwData error:', e) }
 
   // 自己調整データ
   const planData = await c.env.DB.prepare(`
@@ -4871,6 +4887,11 @@ app.get('/api/teacher/class-analytics', async (c) => {
     thisHwByUser[r.user_id].totalMin += (r.minutes || 0)
   }
 
+  // クラスで誰か1人でも今週の提出があるか。
+  // 月曜の朝は全員がまだ0件なので、そのまま no_submission を出すと
+  // 毎週「在籍児童全員に🔴」になり、警告として意味がなくなる。
+  const _caAnySubmission = Object.keys(thisHwByUser).length > 0
+
   const alerts: { userId: string, loginId: string, name: string, type: string, detail: string }[] = []
   for (const m of (members.results || [])) {
     const thisW = thisHwByUser[m.id]
@@ -4883,8 +4904,8 @@ app.get('/api/teacher/class-analytics', async (c) => {
     if (prevW && prevW.totalMin >= 60 && thisW && thisW.totalMin < prevW.totalMin * 0.5) {
       alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'time_drop', detail: '学習時間が先週の半分以下' })
     }
-    // 今週ゼロ提出
-    if (!thisW && (members.results || []).length > 0) {
+    // 今週ゼロ提出（クラスで誰か1人でも提出があってから出す）
+    if (!thisW && _caAnySubmission) {
       alerts.push({ userId: m.id, loginId: m.loginId, name: m.name, type: 'no_submission', detail: '今週まだ提出なし' })
     }
   }
@@ -6058,6 +6079,24 @@ app.post('/api/rt/relay/:roomId', async (c) => {
 // ===== 🎟️ シール1枚交換権（サーバー権威：1日1回・300コイン・15分期限・交換済み管理）=====
 function jstDayKey(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+// 家庭学習の「学習日」キー。区切りは深夜0時ではなく朝8:30。
+// クライアントの hsGetDayKey830()（public/index.html）= ローカル時刻 −8時間30分 と同じ定義。
+// UTC +9時間(JST) −8時間30分 = UTC +30分。
+function jstStudyDayKey(atMs?: number): string {
+  return new Date((atMs || Date.now()) + 30 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+// クライアントが申告した学習日キーが、サーバの学習日から前後1日以内かを見る。
+// 端末の時計ずれや時差は許すが、任意の日付でゲートをすり抜けることは許さない。
+function isNearStudyDayKey(k: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return false
+  const now = Date.now()
+  for (let d = -1; d <= 1; d++) {
+    if (jstStudyDayKey(now + d * 86400000) === k) return true
+  }
+  return false
 }
 async function ensureStickerTable(env: any) {
   try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS sticker_vouchers (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, day_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, expires_at TEXT NOT NULL, redeemed_at TEXT)").run() } catch (e) {}
