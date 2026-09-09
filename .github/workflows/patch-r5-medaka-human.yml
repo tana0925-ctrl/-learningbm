@@ -1,0 +1,189 @@
+name: 【小5理科】メダカ・人のたんじょうに問題が無い件を直す
+on:
+  workflow_dispatch:
+
+# 前提: 先に「【小6算数】比の答えが36%まちがっている件を直す」を流しておくこと
+#       （チェーン件数 48 を前提にしているため）
+# 注意: 最後の push は GITHUB_TOKEN によるものなので、GitHub の仕様により
+#       deploy.yml（on: push -> main）は自動起動しません。
+#       このワークフローが成功したら、Actions から「Deploy to Cloudflare Pages」を
+#       手動実行し、本番URLで反映を確認すること。
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 変換スクリプトを用意
+        run: |
+          cat > /tmp/build_chain.py << 'PYEOF'
+          import re, subprocess, sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          decls = [re.search(r'^const ' + n + r' = ".*?"$', s, re.M).group(0).replace('const ', 'var ', 1)
+                   for n in ['SUDDEN_OLD', 'SUDDEN_NEW']]
+          open('/tmp/decls.js', 'w', encoding='utf-8').write('\n'.join(decls) + '\n')
+          js = """
+          const fs=require('fs');
+          const src=fs.readFileSync('src/index.tsx','utf8');
+          const a=src.indexOf('let t = await a.text()');
+          const b=src.indexOf('_rootHtmlCache = t');
+          const body=src.slice(a,b).replace('let t = await a.text()','');
+          const decls=fs.readFileSync('/tmp/decls.js','utf8');
+          const html=fs.readFileSync('public/index.html','utf8');
+          const out=new Function('t', decls+body+'\\n return t;')(html);
+          fs.writeFileSync('/tmp/built.html', out);
+          console.log('built bytes', Buffer.byteLength(out,'utf8'));
+          """
+          open('/tmp/build_chain.js', 'w', encoding='utf-8').write(js)
+          r = subprocess.run(['node', '/tmp/build_chain.js'], capture_output=True, text=True)
+          print(r.stdout, r.stderr)
+          sys.exit(r.returncode)
+          PYEOF
+
+      - name: 適用前の確認（単元が壊れていること）
+        run: |
+          python3 /tmp/build_chain.py
+          python3 - << 'PYEOF'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from patch_r5_medaka_human import verify_units
+          ok, msg = verify_units(open('/tmp/built.html', encoding='utf-8').read(), 5000)
+          print('適用前:', msg)
+          if ok:
+            print('NG: 適用前なのに単元が成立している。すでに別経路で直っている可能性がある。中止する。')
+            sys.exit(1)
+          print('想定どおり、適用前は生成関数が無い。')
+          PYEOF
+
+      - name: パッチを適用（アンカーが一致しなければ中止）
+        run: python3 scripts/patch_r5_medaka_human.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: |
+          python3 scripts/patch_r5_medaka_human.py
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {"); j = s.index("app.get('/logout'")
+          n = s[i:j].count('.replace(')
+          print('チェーン件数:', n)
+          if n != 49:
+            print('NG: 49件でない'); sys.exit(1)
+          if s.count('__R5_MEDAKA_HUMAN__') != 1:
+            print('NG: 目印が1個でない'); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: 単元が成立したことを確認（目印は見ない。各5000回生成して数える）
+        run: |
+          python3 /tmp/build_chain.py
+          python3 - << 'PYEOF'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from patch_r5_medaka_human import verify_units
+          ok, msg = verify_units(open('/tmp/built.html', encoding='utf-8').read(), 5000)
+          print('適用後:'); print(msg)
+          if not ok:
+            sys.exit(1)
+          PYEOF
+
+      - name: CURRICULUM が参照する生成関数がすべて存在することを確認
+        run: |
+          node - << 'JSEOF'
+          const fs=require('fs');
+          const src=fs.readFileSync('/tmp/built.html','utf8');
+          const uniq=[...new Set([...src.matchAll(/gen:'([A-Za-z0-9_]+)'/g)].map(m=>m[1]))];
+          const missing=uniq.filter(n=>!new RegExp('function '+n+'\\s*\\(').test(src)
+                                     && !new RegExp('window\\.'+n+'\\s*=').test(src));
+          console.log('参照される生成関数:', uniq.length, '件');
+          if (missing.length) { console.log('NG: 定義が無い:', missing.join(', ')); process.exit(1); }
+          console.log('OK: すべて定義あり');
+          JSEOF
+
+      - name: 既存の修正が無傷であることを確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('/tmp/built.html', encoding='utf-8').read()
+          checks = [
+            ("約分",             "分子は？',ans:n/_gcd(n,d)}", 1),
+            ("比（修正後）",      "（左の数を答えて）',ans:a/G}", 1),
+            ("比（修正前）",      "（左の数を答えて）',ans:a/g}", 0),
+            ("genPlant6",        "function genPlant6(", 1),
+            ("genElectric6",     "function genElectric6(", 1),
+            ("genEnvironment6",  "function genEnvironment6(", 1),
+            ("genMedaka5",       "function genMedaka5(", 1),
+            ("genHuman5",        "function genHuman5(", 1),
+            ("genFlowWater5",    "function genFlowWater5(", 1),
+            ("小数点キー修正",    "window.trainingQ && window.trainingQ.isDecimal", 2),
+            ("旧・小数点ガード",  "if (trainingMode !== 'decimal') return;", 0),
+            ("PBハッシュ",       "/*__PB_HASH_FIX__*/", 2),
+            ("ID衝突 1501",      "SUMMER_WATAGASHI_ID = 1501", 1),
+          ]
+          bad = 0
+          for name, pat, want in checks:
+            got = s.count(pat)
+            if got != want:
+              bad += 1
+              print('NG %s: 期待%d 実際%d' % (name, want, got))
+          if bad:
+            print('%d件 失敗' % bad); sys.exit(1)
+          print('既存の修正はすべて無傷')
+          PYEOF
+
+      - name: 追加した2単元以外は1文字も変わっていないことを確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys, subprocess
+          subprocess.run(['git', 'stash', 'push', '--', 'src/index.tsx'], check=True)
+          subprocess.run(['python3', '/tmp/build_chain.py'], check=True)
+          before = open('/tmp/built.html', encoding='utf-8').read()
+          subprocess.run(['git', 'stash', 'pop'], check=True)
+          subprocess.run(['python3', '/tmp/build_chain.py'], check=True)
+          after = open('/tmp/built.html', encoding='utf-8').read()
+
+          i = 0
+          while i < min(len(before), len(after)) and before[i] == after[i]:
+            i += 1
+          j = 0
+          while j < min(len(before), len(after)) - i and before[-1 - j] == after[-1 - j]:
+            j += 1
+          diff_before = before[i:len(before) - j]
+          diff_after = after[i:len(after) - j]
+          if diff_before != '':
+            print('NG: 既存部分が消えている:', repr(diff_before[:200])); sys.exit(1)
+          if 'genMedaka5' not in diff_after or 'genHuman5' not in diff_after:
+            print('NG: 追加分が想定と違う:', repr(diff_after[:200])); sys.exit(1)
+          print('OK: 追加は %d 文字。既存部分の削除・変更はなし。' % len(diff_after))
+          PYEOF
+
+      - name: 既存ルートの確認
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          for r in ["app.get('/'", "app.get('/teacher'", "app.get('/logout'", "app.get('/login'"]:
+            if r not in s:
+              print('NG: 既存ルートが消えた: ' + r); sys.exit(1)
+          print('OK')
+          PYEOF
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミットして push（この push で deploy.yml が自動的に走る）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_r5_medaka_human.py
+          git diff --staged --quiet && echo "No changes to commit" || (git commit -m "fix(修行): 小5理科「メダカのたんじょう」「人のたんじょう」に問題を追加（生成関数が無く、答えても採点されない行き止まりだった）" && git push)
