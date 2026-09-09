@@ -1,0 +1,169 @@
+name: 総点検 第2陣(4) ログインの試行制限と仮パスワードの強化
+# このワークフロー1本で完結します（scripts/patch_fix_s2_login.py も中で復元してコミットします）。
+#
+# ・/api/auth/login に試行回数の制限がまったく無かった。
+#   仮パスワードは「単語15種 × 2桁 = 1,350通り」で、IDが分かれば総当たりできた。
+# ・仮パスワードを「単語1つ + 3桁(2〜9)」= 15,360通りにする。形は今までどおり。
+#   既存のパスワードには触らない（次のリセットから新形式）。
+# ・10回失敗で15分ロック。ロック中は照合しないので、何回押してもロックは延びない。
+#   児童の画面に「あと何分」を出す。
+# ・パスワードを再設定したらロックも解除する（管理者／先生個別／先生一括）。
+#
+# ⚠️ login_attempts テーブルの DDL は、このコードでは作りません。
+#    ログインは全児童が毎朝叩く経路なので、リクエストの中で DDL を走らせません
+#    （app.use('*') の CREATE INDEX の await で本番が落ちた事故と同じ型を避ける）。
+#    テーブルが無い間は「ロックしない」側に倒れるだけで、ログインは通ります（fail open）。
+#
+# ⚠️ このワークフローの push は GITHUB_TOKEN によるものなので Deploy は自動起動しません。
+#    完了後に必ず Deploy を手動実行し、本番URLで反映を確認してください。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチスクリプトを復元（SHA-256照合）
+        env:
+          PATCH_B64: |
+            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
+          PATCH_SHA: a03bdc9d57fcb38b2c145fc2914d12bbaf1c33a7a4c5bab5551c54479897af92
+        run: |
+          set -e
+          mkdir -p scripts
+          printf '%s' "$PATCH_B64" | tr -d '\n' | base64 -d | gunzip > scripts/patch_fix_s2_login.py
+          echo "$PATCH_SHA  scripts/patch_fix_s2_login.py" > /tmp/patch.sha256
+          sha256sum -c /tmp/patch.sha256
+          wc -c scripts/patch_fix_s2_login.py
+
+      - name: パッチを適用（アンカーが一致しなければ中止）
+        run: python3 scripts/patch_fix_s2_login.py
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      # vite が関数名を潰すので、バンドル側の確認は
+      # 「minify で消えない文字列」だけで行う。
+      # 関数名・語数・呼び出し回数の確認は patch_fix_s2_login.py の MUST/BAD が担当。
+      - name: 出力の確認
+        run: |
+          set -e
+          n=$(grep -o 'login_attempts' dist/_worker.js | wc -l)
+          echo "login_attempts : $n 件（4のはず: SELECT2 + INSERT1 + DELETE1）"
+          [ "$n" = "4" ] || { echo "NG: 件数が違います"; exit 1; }
+
+          if grep -q 'CREATE TABLE IF NOT EXISTS login_attempts' dist/_worker.js; then
+            echo "NG: リクエスト経路にDDLが入っています"; exit 1
+          fi
+          echo "OK: コードにDDLは入っていません"
+
+          if grep -q 'String(10 + (a\[1\] % 90))' dist/_worker.js; then
+            echo "NG: 旧パスワード生成が残っています"; exit 1
+          fi
+          echo "OK: 旧パスワード生成は消えました"
+
+          grep -q 'まちがえた回数が おおいので' dist/_worker.js \
+            && echo "OK: ロック時の案内文が入りました" \
+            || { echo "NG: 案内文がありません"; exit 1; }
+
+          for w in tsuki kitsune ichigo kirin; do
+            grep -q "$w" dist/_worker.js || { echo "NG: 単語 $w がありません"; exit 1; }
+          done
+          echo "OK: 新しい単語リストが入りました"
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_fix_s2_login.py
+          git diff --staged --quiet && echo "No changes" || (git commit -m "ログイン: 10回失敗で15分ロック(fail open) / 仮パスワードを15,360通りに / 再設定でロック解除" && git push)
+
+      - name: 次にやること
+        run: |
+          echo "=================================================="
+          echo " 1) D1 に login_attempts テーブルを作る（人が実行）"
+          echo "    作るまでロックは働きません（ログインは通ります）"
+          echo " 2) Actions から Deploy を手動実行"
+          echo "    GITHUB_TOKEN の push は Deploy を自動起動しません"
+          echo " 3) https://learning-bm.pages.dev で反映を確認"
+          echo "=================================================="
