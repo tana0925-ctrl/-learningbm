@@ -601,6 +601,51 @@ function requireStudent(c: any) {
   return u
 }
 
+// 💰 補填コイン（makeup_grants）
+//    誤検知などでコインを失った児童へ、台帳経由で一度だけ返す仕組み。
+//    homework_rewards と同じ「枠を先に確保 → 加算 → 失敗したら枠を戻す」作法で、二重付与を構造的に防ぐ。
+const MAKEUP_NOTICE_ENABLED = true   // 先生の判断で表示ON。静かに配りたくなったら false に戻すだけ
+const MAKEUP_NOTICE_TEXT = '7がつに コインが きえてしまった ぶんを おかえしします。ごめんね。'
+
+async function applyMakeupGrants(env: any, userId: string, stateJson: string): Promise<string | null> {
+  const claimed: string[] = []
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT grant_key, coins FROM makeup_grants WHERE user_id=? AND applied_at IS NULL`
+    ).bind(userId).all<any>()
+    const list = ((rows && rows.results) || []) as any[]
+    if (!list.length) return null
+
+    const state = JSON.parse(stateJson)
+    let total = 0
+    for (const g of list) {
+      const amount = Number(g.coins) || 0
+      if (amount <= 0) continue
+      // 枠を先に確保。同時アクセスでも changes===1 になるのは1回だけ。
+      const claim = await env.DB.prepare(
+        `UPDATE makeup_grants SET applied_at=datetime('now') WHERE grant_key=? AND applied_at IS NULL`
+      ).bind(String(g.grant_key)).run()
+      if (!claim.meta || claim.meta.changes !== 1) continue
+      claimed.push(String(g.grant_key))
+      total += amount
+    }
+    if (!total) return null
+
+    state.coins = (Number(state.coins) || 0) + total
+    state._makeupCoinsApplied = (Number(state._makeupCoinsApplied) || 0) + total
+    if (MAKEUP_NOTICE_ENABLED) state._makeupNotice = { coins: total, text: MAKEUP_NOTICE_TEXT }
+    const out = JSON.stringify(state)
+    await env.DB.prepare(`UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?`).bind(out, userId).run()
+    return out
+  } catch (_e) {
+    // 失敗したら確保した枠をすべて戻す（次回また配られる）
+    for (const k of claimed) {
+      try { await env.DB.prepare(`UPDATE makeup_grants SET applied_at=NULL WHERE grant_key=?`).bind(k).run() } catch (_e2) {}
+    }
+    return null
+  }
+}
+
 app.get('/api/student/progress', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -618,6 +663,9 @@ app.get('/api/student/progress', async (c) => {
         if (applyTradeDeliveries(_st, _dv.results as any[])) _stateJson = JSON.stringify(_st)
       }
     } catch (_e) {}
+  }
+  if (_stateJson) {
+    try { const _mk = await applyMakeupGrants(c.env, u.id, _stateJson); if (_mk) _stateJson = _mk } catch (_e) {}
   }
   return c.json({ ok: true, progress: row ? { stateJson: _stateJson, updatedAt: row.updatedAt } : null })
 })
@@ -649,6 +697,14 @@ app.put('/api/student/progress', async (c) => {
       if (_srvApplied > _cliApplied) {
         _inc.coins = (Number(_inc.coins) || 0) + (_srvApplied - _cliApplied)
         _inc._contactCoinsApplied = _srvApplied
+        saveJson = JSON.stringify(_inc)
+      }
+      // 💰 補填コイン：サーバが付与済みなら、古い端末の全置換保存でも必ず補填（_contactCoinsApplied と同型）
+      const _srvMk = Number(_srv._makeupCoinsApplied) || 0
+      const _cliMk = Number(_inc._makeupCoinsApplied) || 0
+      if (_srvMk > _cliMk) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvMk - _cliMk)
+        _inc._makeupCoinsApplied = _srvMk
         saveJson = JSON.stringify(_inc)
       }
       // 🧭 MIしらべの特典コイン：サーバが付与済みなら、クライアントの全置換保存でも必ず補填
@@ -7140,6 +7196,8 @@ app.get('/', async (c) => {
       // ✏️ 名前の上限を12→16文字に（上限自体は残す。過去に576文字を貼られた事故があるため）。案内文とalertも数字を揃える。
       t = t.replace(`            const newName = prompt("新しい名前を入力してください（12文字まで）", player.name);`, `            const newName = prompt("新しい名前を入力してください（16文字まで）", player.name);`)
       t = t.replace(`                if (Array.from(_nm).length > 12) { alert("名前は12文字までにしてね"); return; }`, `                if (Array.from(_nm).length > 16) { alert("名前は16文字までにしてね"); return; }`)
+      // 💰 補填コインの一言メッセージ（補填を受けた子にだけ1回だけ表示。閉じたら消える。MAKEUP_NOTICE_ENABLED で切替）
+      t = t.replace('</body>', '<script>(function(){var n=0;var iv=setInterval(function(){try{if(typeof player!==\'undefined\'&&player&&player._makeupNotice){var d=player._makeupNotice;delete player._makeupNotice;try{if(typeof saveData===\'function\')saveData();}catch(e){}clearInterval(iv);setTimeout(function(){try{alert(String(d.text||\'\')+\'\\n（\'+(d.coins||0)+\'コイン）\');}catch(e){}},1500);}}catch(e){}if(++n>600)clearInterval(iv);},500);})();</script></body>')
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（PC版）。既存項目と同じ作法で1項目だけ追記。
       t = t.replace(`<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100" onclick="trySetMode('report'); closeSysMenu()"><span>📝</span>バグ報告・要望</button>`, `<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100" onclick="trySetMode('report'); closeSysMenu()"><span>📝</span>バグ報告・要望</button><button class="w-full px-4 py-3 text-sm font-bold text-amber-700 hover:bg-amber-50 flex items-center gap-2 border-t border-slate-100" onclick="location.href='/himitsu'; closeSysMenu()"><span>🔒</span>ひみつのしつもん</button>`)
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（モバイル版）。
