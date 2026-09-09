@@ -8191,9 +8191,6 @@ app.get('/teacher', (c) => {
           <button id="hwSubTab_daily" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('daily')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 毎日の振り返り
           </button>
-          <button id="hwSubTab_weekly" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('weekly')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> 今週の振り返り
-          </button>
           <button id="hwSubTab_dashboard" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('dashboard')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">📊</span> 提出状況
           </button>
@@ -8325,19 +8322,23 @@ app.get('/teacher', (c) => {
         <!-- 毎日の宿題一覧（日次返却） -->
         <div class="bg-white rounded-xl shadow p-4">
           <div class="flex gap-2 mb-3 flex-wrap items-center">
-            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white"></select>
-            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white">
+            <!-- 📌 2026-09 整理: ここは操作が8つ並んでいて、しかも
+                   ・「絞り込み」と「更新」が同じ関数（loadHomework）
+                   ・状態の「未返却」と「🔴 未返却をぜんぶ表示」が同じことを言っている
+                 という重複があった。機能は1つも減らさず、5つにまとめている。 -->
+            <label class="text-xs text-slate-500">クラス</label>
+            <select id="hwClassFilter" class="border p-2 rounded text-sm bg-white" onchange="loadHomework()"></select>
+            <label class="text-xs text-slate-500">表示</label>
+            <select id="hwStatusFilter" class="border p-2 rounded text-sm bg-white" onchange="loadHomework()">
               <option value="">すべて</option>
-              <option value="unreturned">未返却</option>
-              <option value="returned">返却済み</option>
+              <option value="unreturned">未返却だけ（月をまたいで全部）</option>
+              <option value="returned">返却済みだけ</option>
             </select>
-            <button onclick="loadHomework()" class="bg-emerald-600 text-white rounded px-3 py-1 text-sm font-bold">絞り込み</button>
-            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm">更新</button>
-            <!-- 📌 2026-09: 一覧は新しい100件で打ち切られるため、古い提出に辿り着けなかった。
-                 「未返却をぜんぶ」と「月しぼりこみ」を足して、7月ぶんにも届くようにする。 -->
-            <button onclick="hwShowAllUnreturned()" id="hwAllUnreturnedBtn" class="bg-red-500 text-white rounded px-3 py-1 text-sm font-bold">🔴 未返却をぜんぶ表示</button>
-            <input type="month" id="hwMonthFilter" class="border p-1 rounded text-sm bg-white" onchange="loadHomework()" title="この月の提出だけを表示します"/>
-            <button onclick="hwClearFilters()" class="bg-slate-100 rounded px-2 py-1 text-xs">絞り込みを解除</button>
+            <label class="text-xs text-slate-500">期間</label>
+            <select id="hwMonthFilter" class="border p-2 rounded text-sm bg-white" onchange="loadHomework()" title="この月の提出だけを表示します">
+              <option value="">すべての期間</option>
+            </select>
+            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm" title="いまの条件でもう一度読み込みます">🔄 更新</button>
             <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
           </div>
           <!-- サマリーバー -->
@@ -8346,19 +8347,17 @@ app.get('/teacher', (c) => {
           <div id="hwUnsubmittedList" class="hidden mb-3 p-3 bg-orange-50 rounded-lg border border-orange-200 text-sm"></div>
           <!-- 日付タブ -->
           <div id="hwDateTabs" class="flex gap-1 mb-3 flex-wrap hidden"></div>
-          <div id="hwList" class="space-y-3 text-sm"></div>
+          <div id="hwList" class="space-y-3 text-sm">
+          <!-- 📌 2026-09 整理: 空だった「4 今週の振り返り」タブの案内を、ここに1行で移した -->
+          <p class="text-[11px] text-slate-400 mt-2 border-t pt-2">
+            週の振り返りへの返却は <b>分析タブ →「📋 今日のひと往復」</b> です。
+            「今回ふくめるもの」の<b>週の振り返りの返却</b>にチェックを入れてください（金曜日は自動でON）。
+          </p></div>
         </div>
         </div>
 
-        <!-- サブタブ④: 今週の振り返り -->
-        <div id="hwPane_weekly" class="hidden space-y-3">
-          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
-            <div class="font-bold text-sm text-slate-700">今週の振り返りへの返却は、分析タブに移りました</div>
-            <p class="text-xs text-slate-500 mt-1">分析タブの「📋 今日のひと往復」で、「今回ふくめるもの」の<b>週の振り返りの返却</b>にチェックを入れてください。金曜日は自動でチェックが入ります。</p>
-          </div>
-        
-          
-        </div>
+        <!-- 📌 2026-09 整理: 「4 今週の振り返り」は案内文だけのサブタブだったので、
+             タブごと畳んで③の下に1行の案内として置いた。機能は元から無い。 -->
       </div>
 
 
@@ -8732,8 +8731,8 @@ app.get('/teacher', (c) => {
 
       // --- 家庭学習サブタブ切り替え ---
       function switchHomeworkSubTab(sub){
-        const tabs = ['dashboard','menu','plan','daily','weekly'];
-        const colors = {dashboard:'indigo',menu:'green',plan:'blue',daily:'emerald',weekly:'yellow'};
+        const tabs = ['dashboard','menu','plan','daily'];
+        const colors = {dashboard:'indigo',menu:'green',plan:'blue',daily:'emerald'};
         tabs.forEach(function(t){
           var pane = document.getElementById('hwPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -8752,7 +8751,6 @@ app.get('/teacher', (c) => {
         });
         if(sub === 'daily') loadHomework();
         if(sub === 'plan') loadStudentPlans();
-        if(sub === 'weekly'){ initNewTabFilters(); }
         if(sub === 'dashboard') loadSubmissionDashboard();
       }
 
@@ -11136,6 +11134,8 @@ wrap.innerHTML = '';
       }
 
       async function loadHomework(){
+        hwFillMonthOptions();
+        hwSyncUnreturnedMode();
         const wrap = document.getElementById('hwList');
         wrap.innerHTML='<p class="text-slate-400">読み込み中...</p>';
         const classId = document.getElementById('hwClassFilter').value;
@@ -11312,8 +11312,39 @@ wrap.innerHTML = '';
         }
       }
 
-      // 📌 2026-09: 「🔴 未返却をぜんぶ表示」の ON/OFF
+      // 📌 2026-09 整理: 期間プルダウンの中身を作る（年度はじめ4月〜今月）。
+      //   <input type="month"> の数字入力より、並んでいる中から選ぶほうが速い。
+      //   先頭の「すべての期間」を選べば解除になるので、解除ボタンが要らない。
+      function hwFillMonthOptions(){
+        var sel = document.getElementById('hwMonthFilter');
+        if(!sel || sel.dataset.filled === '1') return;
+        var now = new Date();
+        var y = now.getFullYear(), m = now.getMonth() + 1;
+        var fyStartY = (m >= 4) ? y : y - 1;   // 年度は4月はじまり
+        var opts = [];
+        var cy = fyStartY, cm = 4;
+        while (cy < y || (cy === y && cm <= m)) {
+          opts.push({ v: cy + '-' + String(cm).padStart(2,'0'), t: cy + '年' + cm + '月' });
+          cm++; if(cm > 12){ cm = 1; cy++; }
+        }
+        opts.reverse();  // 新しい月を上に
+        opts.forEach(function(o){
+          var el = document.createElement('option');
+          el.value = o.v; el.textContent = o.t;
+          sel.appendChild(el);
+        });
+        sel.dataset.filled = '1';
+      }
+
+      // 📌 2026-09 整理: 「未返却だけ」を選んだら、画面のしぼりこみ（従来）と
+      //   サーバ側の未返却モード（unreturned=1／月をまたいで最大500件）の両方を効かせる。
+      //   もとは同じ意味の操作が2つ（状態プルダウンと 🔴 ボタン）に分かれていた。
       window._hwOnlyUnreturned = false;
+      function hwSyncUnreturnedMode(){
+        var st = document.getElementById('hwStatusFilter');
+        window._hwOnlyUnreturned = !!(st && st.value === 'unreturned');
+      }
+
       function hwShowAllUnreturned(){
         window._hwOnlyUnreturned = !window._hwOnlyUnreturned;
         var b = document.getElementById('hwAllUnreturnedBtn');
