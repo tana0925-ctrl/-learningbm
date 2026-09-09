@@ -1,0 +1,151 @@
+name: 総点検 第1陣 (1)クラス分析の提出データ (2)写真ボーナスの1日1回 (3)月曜朝の誤アラート
+# このワークフロー1本で完結します（scripts/patch_fix_s1.py も中で復元してコミットします）。
+#
+# 【1】/api/teacher/class-analytics が存在しない列 homework_submissions.week_key を
+#      参照していたため提出データが常に空で、提出率が常に0%、
+#      在籍児童「全員」に毎回 🔴「今週まだ提出なし」の誤アラートが出ていた。
+#      本番D1で列を確認済み（day_key はあるが week_key は無い）。
+#      両クエリとも try/catch に握り潰されていたため誰にも見えていなかった。
+#
+# 【2】/api/homework/analyze-photo の「1日1回」ゲートが児童のブラウザが送った
+#      dayKey で決まっていたため、日付を変えるだけで写真ボーナスと
+#      聖なる神(1/1000)の抽選を無制限に回せた。
+#      台帳キーだけサーバ権威にする（写真の保存先キーは提出レコードと
+#      合わせる必要があるため据え置き。学習日の区切りは朝8:30）。
+#
+# 【3】(1)を直しても no_submission は「今週まだ提出なし」なので、月曜の朝は
+#      やはり全員に🔴が出る。クラスで誰か1人でも提出があってから出すようにする。
+#      submission_drop / time_drop は従来どおり。
+#
+# ⚠️ このワークフローの push は GITHUB_TOKEN によるものなので Deploy は自動起動しません。
+#    完了後に必ず Deploy を手動実行し、本番URLで反映を確認してください。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチスクリプトを復元（SHA-256照合）
+        env:
+          PATCH_B64: |
+            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
+          PATCH_SHA: d1c40bcc5d247d1bff96898099bafccc3f4af873be0a743c92340d2a3e1a564d
+        run: |
+          set -e
+          mkdir -p scripts
+          printf '%s' "$PATCH_B64" | tr -d '\n' | base64 -d | gunzip > scripts/patch_fix_s1.py
+          echo "$PATCH_SHA  scripts/patch_fix_s1.py" > /tmp/patch.sha256
+          sha256sum -c /tmp/patch.sha256
+          wc -c scripts/patch_fix_s1.py
+
+      - name: パッチを適用（アンカーが一致しなければ中止）
+        run: python3 scripts/patch_fix_s1.py
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      # vite が関数名を潰すので、バンドル側の確認は
+      # 「minify で消えない文字列（SQL とエラーコード）」だけで行う。
+      # 関数名レベルの確認は patch_fix_s1.py の MUST/BAD/COUNTS が担当。
+      - name: 出力の確認
+        run: |
+          set -e
+          n=$(grep -o 'hs.day_key >= ?' dist/_worker.js | wc -l)
+          echo "hs.day_key >= ? : $n 件（5 のはず: submission-dashboard 3 + class-analytics 2）"
+          if [ "$n" != "5" ]; then echo "NG: 件数が違います"; exit 1; fi
+          if grep -q 'hs.week_key' dist/_worker.js; then
+            echo "NG: 存在しない列 hs.week_key がまだ残っています"; exit 1
+          fi
+          echo "OK: hs.week_key は消えました"
+          if grep -q 'day_key_out_of_range' dist/_worker.js; then
+            echo "OK: analyze-photo の日付チェックが入りました"
+          else
+            echo "NG: day_key_out_of_range がありません"; exit 1
+          fi
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_fix_s1.py
+          git diff --staged --quiet && echo "No changes" || (git commit -m "クラス分析: 存在しない week_key 参照を day_key の範囲検索に修正 / 写真ボーナスの1日1回をサーバ判定に" && git push)
+
+      - name: 次にやること
+        run: |
+          echo "=================================================="
+          echo " このpushは GITHUB_TOKEN によるものなので"
+          echo " Deploy ワークフローは自動起動しません。"
+          echo " → Actions から Deploy を手動実行してください。"
+          echo " → そのあと https://learning-bm.pages.dev で反映を確認。"
+          echo "=================================================="
