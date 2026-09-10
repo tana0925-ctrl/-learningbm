@@ -8445,6 +8445,41 @@ app.get('/teacher', (c) => {
       <!-- クラス一覧タブ -->
       <div id="tabPaneClasses" class="space-y-4">
         <div id="classList" class="space-y-4"></div>
+        <!-- 📌 2026-09 整理: 名簿とプライバシーは「年度はじめの作業」で、
+             毎週の家庭学習とは別の話。クラスと名簿は同じ話なのでこちらへ移した。
+             機能は1つも減らしていない（CSV方式・画面方式とも そのまま）。
+             普段は閉じておき、使うときだけ開く。 -->
+        <details id="rosterAdminBox" class="bg-white rounded-xl shadow p-3">
+          <summary class="cursor-pointer font-bold text-sm text-rose-800 select-none">🔒 名簿管理（プライバシー保護）</summary>
+          <div class="mt-3">
+<!-- 名簿管理（プライバシー保護） -->
+        <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3">
+          <div class="font-bold text-sm text-rose-800">🔒 名簿管理（プライバシー保護）</div>
+          <div class="text-xs text-rose-700 leading-relaxed">
+            児童の実名をクラウドに保存せず、先生のPCの中だけで管理する仕組みです。<br>
+            ① CSVをダウンロード → 表計算ソフトで実名に直す → ② そのCSVをアップロード（先生のブラウザにだけ保存されます）。<br>
+            <span class="font-bold">③最後に「クラウド側の名前を空にする」を押すと完全匿名化されます。</span>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <button onclick="downloadStudentCSV()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📥 ① 名簿をCSVでダウンロード</button>
+            <label class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90 cursor-pointer">
+              📤 ② 直したCSVをアップロード
+              <input type="file" accept=".csv" onchange="uploadStudentCSV(event)" class="hidden"/>
+            </label>
+            <button onclick="anonymizeCloudNames()" class="bg-red-700 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔒 ③ クラウド側の名前を空にする</button>
+            <button onclick="clearStudentCSV()" class="bg-slate-400 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🗑 名簿リセット（このブラウザのみ）</button>
+          </div>
+          <div class="border-t border-rose-200 pt-3">
+            <div class="flex items-center gap-2 flex-wrap mb-2">
+              <button onclick="loadNameEditor()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">✏️ 表示名（実名）を編集・保存</button>
+              <span class="text-[11px] text-rose-700">CSVを使わず、画面で実名を入力・修正できます。保存先はこのブラウザのみ（クラウドには出ません）。</span>
+            </div>
+            <div id="nameEditList"></div>
+          </div>
+          <div id="csvStatusMsg" class="text-xs text-rose-700 font-bold"></div>
+        </div>
+          </div>
+        </details>
       </div>
 
       <!-- 分析タブ（統合） -->
@@ -8792,11 +8827,8 @@ app.get('/teacher', (c) => {
           <button id="hwSubTab_menu" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold bg-green-500 text-white" onclick="switchHomeworkSubTab('menu')">
             <span class="bg-white text-green-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">1</span> 先生メニュー
           </button>
-          <button id="hwSubTab_plan" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('plan')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 今週の計画
-          </button>
           <button id="hwSubTab_daily" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('daily')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 毎日の振り返り
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">2</span> 毎日の振り返り
           </button>
           <button id="hwSubTab_dashboard" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchHomeworkSubTab('dashboard')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">📊</span> 提出状況
@@ -8878,49 +8910,11 @@ app.get('/teacher', (c) => {
           </div>
         </div>
 
-        <!-- 名簿管理（プライバシー保護） -->
-        <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3">
-          <div class="font-bold text-sm text-rose-800">🔒 名簿管理（プライバシー保護）</div>
-          <div class="text-xs text-rose-700 leading-relaxed">
-            児童の実名をクラウドに保存せず、先生のPCの中だけで管理する仕組みです。<br>
-            ① 「名簿CSVダウンロード」で現在の児童リストを取得 → ②必要なら実名に編集 → ③「名簿CSVアップロード」で先生のブラウザに保存。<br>
-            <span class="font-bold">④最後に「クラウド側の名前を空にする」を押すと完全匿名化されます。</span>
-          </div>
-          <div class="flex gap-2 items-center flex-wrap">
-            <button onclick="downloadStudentCSV()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">📥 ① 現在の名簿をCSVダウンロード</button>
-            <label class="bg-rose-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90 cursor-pointer">
-              📤 ③ 名簿CSVアップロード
-              <input type="file" accept=".csv" onchange="uploadStudentCSV(event)" class="hidden"/>
-            </label>
-            <button onclick="anonymizeCloudNames()" class="bg-red-700 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🔒 ④ クラウド側の名前を空にする</button>
-            <button onclick="clearStudentCSV()" class="bg-slate-400 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🗑 名簿リセット（このブラウザのみ）</button>
-          </div>
-          <div class="border-t border-rose-200 pt-3">
-            <div class="flex items-center gap-2 flex-wrap mb-2">
-              <button onclick="loadNameEditor()" class="bg-rose-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">✏️ 表示名（実名）を編集・保存</button>
-              <span class="text-[11px] text-rose-700">CSVを使わず、画面で実名を入力・修正できます。保存先はこのブラウザのみ（クラウドには出ません）。</span>
-            </div>
-            <div id="nameEditList"></div>
-          </div>
-          <div id="csvStatusMsg" class="text-xs text-rose-700 font-bold"></div>
-        </div>
+        
 
         </div>
-        <!-- サブタブ②: 今週の計画 -->
-        <div id="hwPane_plan" class="hidden space-y-3">
-        <!-- 生徒の今週の計画 -->
-        <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画</div>
-            <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込む</button>
-            </div>
-          <div id="studentPlansList" class="space-y-2 text-sm text-slate-700">
-            <p class="text-xs text-slate-400">「読み込む」を押すと表示されます</p>
-          </div>
-          
-        </div>
-
-        </div>
+        <!-- 📌 2026-09 整理: 「2 今週の計画」はボタン1個ぶんの中身しかないサブタブだった。
+             返す作業をしている③の中へ、折りたたみとして移した（機能はそのまま）。 -->
         <!-- サブタブ③: 毎日の振り返り -->
         <div id="hwPane_daily" class="hidden space-y-3">
         
@@ -8954,6 +8948,17 @@ app.get('/teacher', (c) => {
           <div id="hwUnsubmittedList" class="hidden mb-3 p-3 bg-orange-50 rounded-lg border border-orange-200 text-sm"></div>
           <!-- 日付タブ -->
           <div id="hwDateTabs" class="flex gap-1 mb-3 flex-wrap hidden"></div>
+          <!-- 📌 2026-09 整理: 「2 今週の計画」をここへ畳んだ。
+               開いたときに自動で読み込むので、毎回ボタンを押さなくてよい。 -->
+          <details id="hwPlanBox" class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3" ontoggle="if(this.open) hwPlanOpened();">
+            <summary class="cursor-pointer font-bold text-sm text-blue-800 select-none">📝 生徒の今週の計画</summary>
+            <div class="mt-2 flex justify-end">
+              <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込み直す</button>
+            </div>
+            <div id="studentPlansList" class="space-y-2 text-sm text-slate-700 mt-2">
+              <p class="text-xs text-slate-400">開くと読み込みます</p>
+            </div>
+          </details>
           <div id="hwList" class="space-y-3 text-sm">
           <!-- 📌 2026-09 整理: 空だった「4 今週の振り返り」タブの案内を、ここに1行で移した -->
           <p class="text-[11px] text-slate-400 mt-2 border-t pt-2">
@@ -9338,8 +9343,8 @@ app.get('/teacher', (c) => {
 
       // --- 家庭学習サブタブ切り替え ---
       function switchHomeworkSubTab(sub){
-        const tabs = ['dashboard','menu','plan','daily'];
-        const colors = {dashboard:'indigo',menu:'green',plan:'blue',daily:'emerald'};
+        const tabs = ['dashboard','menu','daily'];
+        const colors = {dashboard:'indigo',menu:'green',daily:'emerald'};
         tabs.forEach(function(t){
           var pane = document.getElementById('hwPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -9357,7 +9362,6 @@ app.get('/teacher', (c) => {
           }
         });
         if(sub === 'daily') loadHomework();
-        if(sub === 'plan') loadStudentPlans();
         if(sub === 'dashboard') loadSubmissionDashboard();
       }
 
@@ -11946,6 +11950,16 @@ wrap.innerHTML = '';
           }
           wrap.appendChild(card);
         }
+      }
+
+      // 📌 2026-09 整理: 「今週の計画」を開いたら1回だけ読み込む。
+      //   毎回「読み込む」を押させないため。閉じて開き直しても読み直さない
+      //   （読み直したいときは中の「🔄 読み込み直す」を押す）。
+      window._hwPlanLoaded = false;
+      function hwPlanOpened(){
+        if(window._hwPlanLoaded) return;
+        window._hwPlanLoaded = true;
+        try{ loadStudentPlans(); }catch(e){}
       }
 
       // 📌 2026-09 整理: 期間プルダウンの中身を作る（年度はじめ4月〜今月）。
