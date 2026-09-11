@@ -1,0 +1,49 @@
+name: 阪神マン アドバイス未登録を可視化 (src/index.tsx チェーンに1本追加)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 適用前の実測
+        run: |
+          echo -n '.replace( 総数: '; grep -o '\.replace(' src/index.tsx | wc -l
+          echo -n 'ENSURE 出現数: '; grep -c '__HANSHIN_ADV2_ENSURE' src/index.tsx || true
+          echo -n 'public/index.html の lookup 行: '; grep -c 'const rootNode = HANSHIN_ADVICE_TREE\[trainingMode\];' public/index.html || true
+
+      - name: パッチ適用（アンカー不一致なら中止）
+        run: python3 scripts/patch_hanshin_lookup_warn_v1.py
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          F=src/index.tsx
+          N=$(grep -c '__HANSHIN_ADV2_ENSURE' "$F" || true)
+          if [ "$N" != '1' ]; then echo "NG: ENSURE を含む行が $N 行 (1行であるべき)"; exit 1; fi
+          M=$(grep -c 'アドバイス未登録 単元ID' "$F" || true)
+          if [ "$M" != '1' ]; then echo "NG: 警告文が $M 行 (1行であるべき)"; exit 1; fi
+          grep -q 'const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {' "$F" || { echo 'NG: 既存の露出replaceを壊した'; exit 1; }
+          echo '検証OK'
+
+      - name: ビルド確認（TSXが壊れていないこと）
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          git diff --staged --quiet && echo '変更なし（適用済み）' || (git commit -m '阪神マン: アドバイス未登録時に単元IDをconsole.warn＋参照直前にマージ保証（.replace()を1本追加）' && git push)
+
+      - name: 次の手順
+        run: echo 'このpushではDeployは起動しません。Deploy to Cloudflare Pages を手動実行してください。'
