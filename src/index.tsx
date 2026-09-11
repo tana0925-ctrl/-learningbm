@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 import { defServerResolve, defEntryOk } from './def_resolve'
+import { defStageEnemies } from './def_stage'
 
 type Bindings = {
   DB: D1Database
@@ -1695,6 +1696,8 @@ app.get('/api/defense/status', async (c) => {
     const sgN = Number(sgRow && sgRow.stage)
     if (Number.isFinite(sgN) && sgN >= 1) out.stage = Math.floor(sgN)
   } catch (e) { /* テーブルが読めなくても stage=1 のまま返す */ }
+  // DEF_STAGE_V2 __DEFSTAGE_V2_SENTINEL__ ステージに応じて敵を強くする。体数は8体のまま増やさない。
+  out.enemy_squad = defStageEnemies(DEFENSE_ENEMIES, out.stage)
   out.decided = decided
   try {
     const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
@@ -1868,7 +1871,22 @@ app.get('/api/teacher/defense/dry-run', async (c) => {
   }
   _drOut.entries = { total: _drList.length, ok: _drPass, ng: _drList.length - _drPass, detail: _drDetail }
   _drOut.gate = { open: (_drList.length > 0 && _drPass === _drList.length) }
-  const _drRes = await defServerResolve(c.env, _drSt, _drCid, DEFENSE_ENEMIES)
+  // DEF_STAGE_V2 dry-run にステージを足す（?stage=N で上書きできる）。ここでは何も書き込まない。
+  let _drStage = 1
+  try {
+    const _drQ = Number(c.req.query('stage'))
+    if (Number.isFinite(_drQ) && _drQ >= 1) {
+      _drStage = Math.floor(_drQ)
+    } else {
+      const _drSg: any = await c.env.DB.prepare("SELECT stage FROM defense_stage WHERE class_id = ? LIMIT 1").bind(_drCid).first()
+      const _drSgN = Number(_drSg && _drSg.stage)
+      if (Number.isFinite(_drSgN) && _drSgN >= 1) _drStage = Math.floor(_drSgN)
+    }
+  } catch (_e) {}
+  const _drEnemies = defStageEnemies(DEFENSE_ENEMIES, _drStage)
+  _drOut.stage = _drStage
+  _drOut.enemy_squad = _drEnemies
+  const _drRes = await defServerResolve(c.env, _drSt, _drCid, _drEnemies)
   _drOut.server = _drRes
     ? { would_resolve: true, result: _drRes.result, base_hp_end: _drRes.baseHpEnd, seed: _drRes.seed, entries: _drRes.entries, log_bytes: String(_drRes.logJson || '').length }
     : { would_resolve: false }
@@ -1891,11 +1909,23 @@ app.post('/api/defense/resolve', async (c) => {
   if (_srvDone) return c.json({ ok: true, already: true })
   // 全エントリが spd と skills を持っているときだけサーバで計算する。
   // 1件でも欠けていたら null が返る＝これまで通りクライアントの申告で流す（fail-closed）。
-  const _srv = await defServerResolve(c.env, st, classId, DEFENSE_ENEMIES)
+  // DEF_STAGE_V2 いまのステージを読む（行が無ければ 1）。この値を勝ったときの楽観ロックの条件に使う。
+  let _dsStage = 1
+  try {
+    const _dsRow: any = await c.env.DB.prepare("SELECT stage FROM defense_stage WHERE class_id = ? LIMIT 1").bind(classId).first()
+    const _dsN = Number(_dsRow && _dsRow.stage)
+    if (Number.isFinite(_dsN) && _dsN >= 1) _dsStage = Math.floor(_dsN)
+  } catch (_e) {}
+  const _srv = await defServerResolve(c.env, st, classId, defStageEnemies(DEFENSE_ENEMIES, _dsStage))
   if (_srv) {
     const _srvLock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, _srv.result, _srv.logJson, _srv.baseHpEnd).run()
     if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })
     if (_srv.result === 'win') {
+      // DEF_STAGE_V2 勝ったときだけ 1つ進める。読んだ値を条件に入れる（楽観ロック）。負けても下げない。
+      try {
+        await c.env.DB.prepare("INSERT OR IGNORE INTO defense_stage (class_id, stage, updated_at) VALUES (?, 1, datetime('now'))").bind(classId).run()
+        await c.env.DB.prepare("UPDATE defense_stage SET stage = stage + 1, updated_at = datetime('now') WHERE class_id = ? AND stage = ?").bind(classId, _dsStage).run()
+      } catch (_e) {}
       try {
         const _srvEs = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
         for (const _srvR of ((_srvEs && _srvEs.results) || [])) {
@@ -1938,6 +1968,11 @@ app.post('/api/defense/resolve', async (c) => {
   const lock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, result, logJson, baseHpEnd).run()
   if (!lock.meta || lock.meta.changes === 0) return c.json({ ok: true, already: true })
   if (result === 'win') {
+    // DEF_STAGE_V2 勝ったときだけ 1つ進める。読んだ値を条件に入れる（楽観ロック）。負けても下げない。
+    try {
+      await c.env.DB.prepare("INSERT OR IGNORE INTO defense_stage (class_id, stage, updated_at) VALUES (?, 1, datetime('now'))").bind(classId).run()
+      await c.env.DB.prepare("UPDATE defense_stage SET stage = stage + 1, updated_at = datetime('now') WHERE class_id = ? AND stage = ?").bind(classId, _dsStage).run()
+    } catch (_e) {}
     try {
       const es = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
       for (const r of ((es && es.results) || [])) {
