@@ -568,30 +568,70 @@ function def2HypeHtml(log, st){
     var c=document.getElementById('def2TryClose'); if(c) c.addEventListener('click', tbClose);
   }
 
+  /* DEF2TRY_RULETALLY_V1_MARK
+     じぶんが 書いた ルール 1本ずつに 見えない ばんごうを つける。
+     たたかいの まいコマには、そのとき うごいた ルールの ばんごうが
+     もともと のこっているので、それを かぞえるだけで
+     「どの めいれいが 何かい うごいたか」が わかる。
+     0かいの めいれいを めだたせるのが ねらい。
+     まえの わりあいバーは、この ひょうに まとめた。 */
+  function tbNumberRules(prog){
+    var out=[], i, r, o;
+    for(i=0;i<(prog||[]).length;i++){
+      r=prog[i]||{}; o={c:r.c,a:r.a,_id:(i+1)};
+      if(r.cn!=null) o.cn=r.cn;
+      out.push(o);
+    }
+    return out;
+  }
+
+  function tbCondLabel(r){
+    var i, cd=null;
+    for(i=0;i<COND.length;i++){ if(COND[i].v===r.c){ cd=COND[i]; break; } }
+    if(!cd) return String(r.c||'');
+    if(cd.num) return cd.label+' '+(r.cn!=null?r.cn:(cd.dflt||0))+'%';
+    return cd.label;
+  }
+
+  function tbRuleLine(r){ return 'もし '+tbCondLabel(r)+' なら → '+tbActLabel(r.a); }
+
   function tbTallyHtml(rep, prog){
-    var m={}, total=0, evs=(rep && rep.events) || [], i, k, pa, a, keys, pct, out, used, never;
+    var evs=(rep&&rep.events)||[], rules=prog||[], i, k, pa, p;
+    var cnt={}, none=0, total=0, mx=1, zero=0, n, pct, on, out;
     for(i=0;i<evs.length;i++){
       pa=evs[i].posA; if(!pa) continue;
-      for(k=0;k<pa.length;k++){ a=pa[k] && pa[k].act; if(!a) continue; m[a]=(m[a]||0)+1; total++; }
+      for(k=0;k<pa.length;k++){
+        p=pa[k]; if(!p||!p.act) continue;
+        total++;
+        if(p.n!=null&&p.n>0){ cnt[p.n]=(cnt[p.n]||0)+1; } else { none++; }
+      }
     }
-    keys=Object.keys(m);
-    if(!total || !keys.length) return '';
-    keys.sort(function(x,y){ return m[y]-m[x]; });
-    out='<div style="font-weight:900;font-size:13px;color:#334155;margin:10px 0 4px;">🧭 じぶんの モンスターが した こと</div>';
-    for(i=0;i<keys.length;i++){
-      pct=Math.round(m[keys[i]]*100/total);
-      out+='<div style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px;">'
-        +'<div style="width:150px;color:#334155;">'+esc(tbActLabel(keys[i]))+'</div>'
-        +'<div style="flex:1;background:#e2e8f0;border-radius:999px;height:10px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:#0d9488;"></div></div>'
-        +'<div style="width:42px;text-align:right;color:#64748b;">'+pct+'%</div></div>';
+    if(!total||!rules.length) return '';
+    for(i=0;i<rules.length;i++){ n=cnt[rules[i]._id]||0; if(n>mx) mx=n; }
+    out='<div style="font-weight:900;font-size:13px;color:#334155;margin:10px 0 2px;">🧭 じぶんの めいれいは 何かい うごいた？</div>'
+      +'<div style="font-size:11px;color:#64748b;margin-bottom:5px;">上から じゅんに 見て、さいしょに あてはまった 1つだけ うごくよ。</div>';
+    for(i=0;i<rules.length;i++){
+      n=cnt[rules[i]._id]||0; on=(n>0); pct=Math.round(n*100/mx); if(!on) zero++;
+      out+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;'
+        +(on?'':'background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:4px 6px;')+'">'
+        +'<div style="flex:0 0 20px;height:20px;line-height:20px;text-align:center;border-radius:999px;font-weight:900;color:#fff;background:'+(on?'#0d9488':'#f97316')+';">'+(i+1)+'</div>'
+        +'<div style="flex:1;color:'+(on?'#334155':'#9a3412')+';font-weight:'+(on?'400':'900')+';">'+esc(tbRuleLine(rules[i]))
+        +(on?'':'<br><span style="font-size:11px;font-weight:400;">1かいも うごかなかった</span>')+'</div>'
+        +'<div style="flex:0 0 56px;background:#e2e8f0;border-radius:999px;height:9px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+(on?'#0d9488':'#fdba74')+';"></div></div>'
+        +'<div style="flex:0 0 58px;text-align:right;font-weight:900;color:'+(on?'#0f766e':'#9a3412')+';">'+n+'かい</div>'
+        +'</div>';
     }
-    used={}; for(i=0;i<keys.length;i++) used[keys[i]]=1;
-    never=[];
-    for(i=0;i<(prog||[]).length;i++){ if(!used[prog[i].a] && never.indexOf(prog[i].a)<0) never.push(prog[i].a); }
-    if(never.length){
-      out+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:8px;font-size:12px;color:#9a3412;margin-top:6px;">⚠ 1かいも つかわれなかった めいれい: '
-        + never.map(function(x){ return esc(tbActLabel(x)); }).join('、')
-        + '<br>じょうけんが 当てはまらなかったのかも。上の行から じゅんに 見られていくよ。</div>';
+    if(none>0){
+      out+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;color:#64748b;">'
+        +'<div style="flex:0 0 20px;text-align:center;">－</div>'
+        +'<div style="flex:1;">どの めいれいにも あてはまらなかった とき</div>'
+        +'<div style="flex:0 0 56px;"></div>'
+        +'<div style="flex:0 0 58px;text-align:right;font-weight:900;">'+none+'かい</div></div>';
+    }
+    if(zero>0){
+      out+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:8px;font-size:12px;color:#9a3412;margin-top:6px;line-height:1.6;">'
+        +'⚠ '+zero+'本の めいれいが 1かいも うごかなかったよ。<br>'
+        +'じょうけんが あてはまらなかったのかも。上の ほうに 「いつも」が あると、そこで とまるよ。▲▼で じゅんばんを かえて、もういちど ためしてみよう。</div>';
     }
     return out;
   }
@@ -661,6 +701,7 @@ function def2HypeHtml(log, st){
     TB.busy=true;
     tbStatus().then(function(){
       var prog=progFromRules(); if(!prog || !prog.length) prog=DEFAULT_PROG;
+      prog=tbNumberRules(prog);
       var A=[], pa=[], i, rep=null;
       for(i=0;i<TB.allies;i++){ A.push({id:pick.id, level:pick.level, strategy:pick.strategy}); pa.push(prog); }
       var pb=(TB.move==='stop') ? TB_STAND : ENEMY_PROG;
