@@ -1,0 +1,52 @@
+name: 家庭学習の写真提出を改修（1/2）
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_hs_photo_20260911.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_hs_photo_20260911.py
+
+      - name: 適用後の中身を確認（結果そのものを見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("let t = await a.text()")
+          j = s.index("return c.html(", i)
+          n = s[i:j].count(".replace(")
+          print("replace chain:", n)
+          ok = True
+          if n != 58:
+              print("NG: チェーンが58件ではありません"); ok = False
+          need = [
+              "hs-photo-submit-20260911",
+              "function hsShrinkPhoto",
+              "hsShrinkPhoto(_hsPhotoFiles[0], function(_sent)",
+              "写真をつけるとボーナス",
+              "photo.jpg",
+          ]
+          for x in need:
+              if x not in s:
+                  print("NG: 見つかりません:", x); ok = False
+          if not ok:
+              sys.exit(1)
+          print("OK: すべて確認しました")
+          PYEOF
+
+      - name: コミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git commit -m "家庭学習の写真提出を改修（1/2）を適用: チェーン 53 -> 58" || echo "no changes"
+          git push
