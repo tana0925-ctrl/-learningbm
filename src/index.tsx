@@ -1795,6 +1795,30 @@ app.post('/api/defense/resolve', async (c) => {
   const result = (String(body.result) === 'win') ? 'win' : 'lose'
   const logJson = JSON.stringify(body.log || null).slice(0, 100000)
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
+  // __DEF_RESOLVE_VERIFY_V1__ 送られてきた log と付き合わせて、矛盾する申告をはじく（切り詰める前の body.log を見る）
+  const _dvFnv = (x: any) => { const s = String(x == null ? '' : x); let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) } return h >>> 0 }
+  const _dvSeedFromKey = (k: any) => ((_dvFnv(k) ^ 0x9e3779b9) >>> 0)
+  const _dvLog: any = body.log
+  if (_dvLog && typeof _dvLog === 'object' && !Array.isArray(_dvLog) && Number(_dvLog.v) === 2) {
+    // 1) seed が event_key から作られたものと一致するか
+    if (Number(_dvLog.seed) !== _dvSeedFromKey(st.eventKey)) return jsonError(c, 400, 'log_seed_mismatch')
+    const _dvRep: any = _dvLog.replay
+    if (!_dvRep || typeof _dvRep !== 'object') return jsonError(c, 400, 'log_replay_missing')
+    // 2) 勝敗が replay と一致するか
+    if (((_dvRep.winner === 'A') ? 'win' : 'lose') !== result) return jsonError(c, 400, 'log_result_mismatch')
+    // 3) 基地HP が replay と一致するか（replay が baseHpA を返さない時だけ client 側の代替値を許す）
+    if (_dvRep.baseHpA != null && Number.isFinite(Number(_dvRep.baseHpA))) {
+      if (Math.max(0, Math.floor(Number(_dvRep.baseHpA))) !== baseHpEnd) return jsonError(c, 400, 'log_base_hp_mismatch')
+    }
+    // 4) エントリーの件数と順序。持ち越しの materialize はクラスの1人目が引き金なので、
+    //    人数が違うのは正常。ここで 400 にすると全員はじかれてクラスに結果が出ないため retry を返す。
+    const _dvEs = await c.env.DB.prepare("SELECT de.monster_json as mj, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
+    const _dvWant: string[] = []
+    for (const _r of ((_dvEs && _dvEs.results) || [])) { let _m: any = null; try { _m = JSON.parse(_r.mj) } catch (_e) {} if (_m && _m.id) _dvWant.push(String(_r.nm)) }
+    const _dvGot: string[] = (Array.isArray(_dvLog.entrants) ? _dvLog.entrants : []).map((e: any) => String((e && e.name) || ''))
+    if (_dvWant.length !== _dvGot.length) return c.json({ ok: true, retry: true })
+    for (let _i = 0; _i < _dvWant.length; _i++) { if (_dvWant[_i] !== _dvGot[_i]) return c.json({ ok: true, retry: true }) }
+  }
   const lock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, result, logJson, baseHpEnd).run()
   if (!lock.meta || lock.meta.changes === 0) return c.json({ ok: true, already: true })
   if (result === 'win') {
