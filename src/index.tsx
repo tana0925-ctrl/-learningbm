@@ -7787,6 +7787,8 @@ app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fet
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+// DEF_JOIN_NUDGE_V1_WIRED 防衛戦のお知らせカードを配る道。student-karte.js とまったく同じ形。
+app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
 let _rootHtmlCache: string | null = null
 
@@ -7839,6 +7841,8 @@ app.get('/', async (c) => {
       // 👾 __DEFSTAGE_CHARS_V1__ 防衛戦ステージ初クリアの げんていキャラ（4体）の名前とすがた。
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')
+      // 🏰 DEF_JOIN_NUDGE_V1_WIRED まだ とうろくしていない子にだけ出るお知らせカード。中身は public/def_join_nudge.js。
+      t = t.replace('</body>', '<script src="/def_join_nudge.js?v=1"></script></body>')
       // 🧭 MIしらべ の入口を「ステータス」画面の中へ。既存の「復習チャレンジ」カードと同じ作法。
       t = t.replace(`<div id="classMissionCard"`, `<div class="rounded-2xl border-2 border-indigo-300 p-4" style="background: linear-gradient(135deg, #eef2ff, #e0e7ff);"><div class="flex items-center justify-between"><div class="font-black text-indigo-800 flex items-center gap-2"><span>🧭</span>MIしらべ</div><span class="text-xs text-indigo-600">32問・なんどでもOK</span></div><div class="mt-2 text-sm text-gray-600">いまの自分が「好き・とくい」と感じていることを、8つのまとまりで見てみよう。テストではないよ。</div><div class="mt-3 flex gap-2 flex-wrap"><button onclick="location.href='/mi'" class="bg-indigo-500 hover:bg-indigo-600 text-white font-black px-4 py-2 rounded-xl shadow text-sm">🧭 MIしらべをひらく</button></div></div><div id="classMissionCard"`)
       // 📱 iPad: サイドバー(overflow:auto)の中の position:fixed が iOS Safari で描画クリップされ、
