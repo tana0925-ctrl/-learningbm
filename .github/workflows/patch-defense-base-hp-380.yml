@@ -1,0 +1,29 @@
+name: 基地防衛 基地HPを380に統一 (DEFENSE_BASE_HP)
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（適用前チェックに一致しなければ中止／ファイルに触れない）
+        run: python3 scripts/patch_defense_base_hp_380.py
+      - name: 検証（DEFENSE_BASE_HP = 380 / .replace チェーン 69件）
+        run: |
+          grep -qF "const DEFENSE_BASE_HP = 380" src/index.tsx
+          ! grep -qF "const DEFENSE_BASE_HP = 1200" src/index.tsx
+          python3 -c "import sys; sys.path.insert(0,'scripts'); import patch_defense_base_hp_380 as p; c=p.chain_count(open(p.TARGET,encoding='utf-8',newline='').read()); print('chain=',c); sys.exit(0 if c==69 else 1)"
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git diff --staged --quiet && echo "No changes" || (git commit -m "基地防衛: 基地HPを380に統一 (DEFENSE_BASE_HP 1200 -> 380)" && git pull --rebase origin main && git push)
