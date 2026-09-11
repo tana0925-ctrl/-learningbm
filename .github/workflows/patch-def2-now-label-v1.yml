@@ -1,0 +1,217 @@
+name: 防衛戦 エンジン（DEF2TRY_NOWLABEL_V1・「いま：」の 名まえに うごかない を 足す）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンとアンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = 'DEF2TRY_NOWLABEL_V1_MARK' in h
+          print('chain=', n, 'applied=', applied)
+          if n != 78:
+              print('NG: チェーンが %d 件（期待 78）' % n); sys.exit(1)
+          if applied:
+              print('すでに適用ずみ。アンカーの点検はとばす')
+          else:
+              for label, text, t, want in (
+                  ('root', "app.get('/', async (c) => {", s, 1),
+                  ('logout', "app.get('/logout'", s, 1),
+                  ('名まえの ひょう', '_GC_ACTSHORT', h, 2),
+                  ('まつ の 名まえ', ",wait:'まつ',emoteCheer:'おうえん📣'", h, 1),
+                  ('うごかない の 名まえは まだ無い', "standStill:'うごかない'", h, 0),
+              ):
+                  c = t.count(text)
+                  if c != want:
+                      print('NG: アンカー %s が %d 件（期待 %d）' % (label, c, want)); sys.exit(1)
+              print('アンカーはすべて一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def2_now_label_v1.py
+
+      - name: 名まえの ひょうだけ 取り出して 文法を見る
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          h = io.open('public/index.html', encoding='utf-8').read()
+          k = h.index('_GC_ACTSHORT')
+          b = h.index('{', k)
+          depth = 0
+          end = -1
+          for p in range(b, len(h)):
+              ch = h[p]
+              if ch == '{':
+                  depth += 1
+              elif ch == '}':
+                  depth -= 1
+                  if depth == 0:
+                      end = p + 1
+                      break
+          if end < 0:
+              print('NG: かっこが とじていない'); sys.exit(1)
+          io.open('/tmp/chk.js', 'w', encoding='utf-8').write('var _t=' + h[b:end] + ';\n')
+          print('とりだした 長さ', end - b)
+          PYEOF
+          node --check /tmp/chk.js
+          echo '取り出した ひょうの 文法は OK'
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- src public/defense2.js || (echo 'NG: src か public/defense2.js が変わっている'; exit 1)
+          CHANGED="$(git diff --name-only | tr '\n' ' ' | xargs)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/index.html" ]; then
+            echo "NG: さわったファイルが public/index.html だけでない: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン（増減なし）', s[i:j].count('.replace('), 78)
+
+          chk('うごかない の 名まえ', h.count("standStill:'うごかない'"), 1)
+          chk('まつ の 名まえは そのまま', h.count("wait:'まつ'"), 1)
+          chk('名まえの ひょう', h.count('_GC_ACTSHORT'), 2)
+          chk('名まえを ひく ところ', h.count('function _gcActLabel(a){'), 1)
+          chk('あたまの上の ふきだし', h.count('function _gcUpdateNow(e){'), 1)
+          chk('ふるまいの番兵', h.count('DEF2TRY_STANDSTILL_MARK'), 1)
+          chk('goal の番兵', h.count('DEF2TRY_STANDSTILL_GOAL_MARK'), 1)
+          chk('うごきの ひょう', h.count('function _cGoal(f){'), 1)
+          chk('エンジン本体', h.count('autoBattleRT'), 5)
+          chk('基地HP 380 の既定', h.count('Number(opts.baseHp||380)'), 1)
+
+          chk('ためしの 大きい みため', d.count('#def2TryAnim .gc-now{'), 1)
+          chk('本番の 小さい みため', d.count('#def2Anim .gc-now{'), 1)
+          chk('みための 入口', d.count('tbInjectNowCss'), 2)
+          chk('ためしバトルの入口', d.count('function tryMountTryBattle()'), 1)
+          chk('install からの 呼び出し', d.count('tryMountEditor(); tryMountTryBattle();'), 1)
+          chk('うごかない 相手の めいれい', d.count("{c:'always', a:'standStill'}"), 1)
+          chk('エントリーは 1か所だけ', d.count('/api/defense/entry'), 1)
+          chk('けっせんは 1か所だけ', d.count('/api/defense/resolve'), 1)
+          chk('本番のたねは ためしに つかわない', d.count('seedFromKey'), 2)
+          chk('けっか表に さわらない', d.count('defense_results'), 0)
+          chk('ボタンの上に入れる', d.count('btn.parentNode.insertBefore(box, btn)'), 1)
+          chk('ほぞん先 defProgram', d.count('p.defProgram'), 2)
+          chk('おしらせ', d.count('この下は うごきません'), 1)
+          chk('行入れかえ 上ボタン', d.count('>▲</button>'), 1)
+          chk('行入れかえ 下ボタン', d.count('>▼</button>'), 1)
+
+          chk('よみこみ v8', s.count('/defense2.js' + '?v' + '=8'), 1)
+          chk('配る道', s.count("app.get('/defense2.js'"), 1)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合1 seed', s.count('log_seed_mismatch'), 1)
+          chk('照合2 replay', s.count('log_replay_missing'), 1)
+          chk('照合3 result', s.count('log_result_mismatch'), 1)
+          chk('照合4 base_hp', s.count('log_base_hp_mismatch'), 1)
+          chk('log の v が 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA 有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('敵の定数', s.count('const DEFENSE_ENEMIES = ['), 1)
+          chk('DEFENSE_ENEMIES の参照', s.count('DEFENSE_ENEMIES'), 5)
+          chk('まおうの素の値', s.count("hp: 520, atk: 60, def: 24"), 1)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('__H6MERGE_SRC_V1__', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('__H6BANK_LIVE_V1__', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('__H6U11_BOOST_V1__', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('def_join_nudge.js', s.count('def_join_nudge.js'), 4)
+          chk('げんていキャラの道', s.count("app.get('/defstage_monsters.js'"), 1)
+
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INS' + 'ERT', 'UPD' + 'ATE', 'DEL' + 'ETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に かきこみ %s が 入っている' % _w); ok[0] = False
+          if 'stage ' + '- 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: さげる経路が 入っている'); ok[0] = False
+
+          chk('倍率の曲線', g.count('DEF_STAGE_V3_CURVE'), 1)
+          chk('def_stage の関数', g.count('export function defStageEnemies(base, stage) {'), 1)
+
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          if 'defense2.js' not in w:
+              print('NG: ビルドに 入っていない'); ok[0] = False
+
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/index.html
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF2TRY_NOWLABEL_V1: いま の 名まえに うごかない を 足す'
+          git pull --rebase origin main
+          git push origin HEAD:main
