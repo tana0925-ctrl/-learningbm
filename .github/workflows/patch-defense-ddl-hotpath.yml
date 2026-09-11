@@ -1,0 +1,112 @@
+name: patch-defense-ddl-hotpath
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Reset working tree and sync with main
+        run: |
+          git checkout -- .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: Apply patch (fail-closed)
+        run: python scripts/patch_remove_ensure_defense_tables.py
+
+      - name: Verify - replace chain is still 69
+        run: |
+          python - <<'PY'
+          import re, sys
+          src = open('src/index.tsx', encoding='utf-8', newline='').read()
+          lines = src.splitlines(keepends=True)
+
+          def brace_end(start):
+              d, started = 0, False
+              for i in range(start, len(lines)):
+                  for ch in lines[i]:
+                      if ch == '{':
+                          d += 1
+                          started = True
+                      elif ch == '}':
+                          d -= 1
+                  if started and d <= 0:
+                      return i + 1
+              return None
+
+          blocks = []
+          for i, l in enumerate(lines):
+              if re.search(r"app\.get\((['\"])/\1", l):
+                  e = brace_end(i)
+                  if e and e - i > 10:
+                      blocks.append((i, e))
+          if len(blocks) != 1:
+              print('VERIFY FAILED: app.get(/) block not unique: %r' % (blocks,))
+              sys.exit(1)
+          s, e = blocks[0]
+          chain = ''.join(lines[s:e]).count('.replace(')
+          total = src.count('.replace(')
+          calls = len(re.findall(r'ensureDefenseTables\s*\(', src))
+          print('chain .replace( = %d (lines %d-%d)' % (chain, s + 1, e))
+          print('file-wide .replace( = %d' % total)
+          print('ensureDefenseTables( occurrences = %d' % calls)
+          fail = []
+          if chain != 69:
+              fail.append('chain is %d, expected 69' % chain)
+          if total != 128:
+              fail.append('file-wide is %d, expected 128' % total)
+          if calls != 1:
+              fail.append('ensureDefenseTables( is %d, expected 1 (definition only)' % calls)
+          if fail:
+              print('VERIFY FAILED: ' + '; '.join(fail))
+              sys.exit(1)
+          print('VERIFY OK')
+          PY
+
+      - name: Verify - only the two expected paths changed
+        run: |
+          changed=$(git status --porcelain | awk '{ print $NF }' | sort | tr '\n' ' ')
+          echo "changed: $changed"
+          expected="migrations/0030_defense_tables.sql src/index.tsx "
+          if [ "$changed" != "$expected" ]; then
+            echo "VERIFY FAILED: unexpected change set"
+            exit 1
+          fi
+          if ! git diff --quiet -- public/index.html; then
+            echo "VERIFY FAILED: public/index.html was modified"
+            exit 1
+          fi
+          echo "VERIFY OK: public/index.html untouched"
+
+      - name: Diff summary
+        run: |
+          git --no-pager diff --stat
+          git --no-pager diff -- src/index.tsx | head -100
+
+      - name: Commit and push
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing to commit (sentinel: already applied)"
+            exit 0
+          fi
+          git add src/index.tsx migrations/0030_defense_tables.sql
+          git commit -m "perf(defense): drop per-request ensureDefenseTables() DDL from 5 routes" -m "The 3 CREATE TABLE IF NOT EXISTS statements ran on every defense API request. At 12:30 a whole class hits these routes at once and awaiting DDL per request serialises the concurrent queries (2026-09-03 incident). The tables already exist in production D1, so removing the calls is a no-op there. The DDL is recorded in migrations/0030_defense_tables.sql and the function definition itself is kept."
+          git pull --rebase origin main
+          git push
+          echo "pushed $(git rev-parse HEAD)"
