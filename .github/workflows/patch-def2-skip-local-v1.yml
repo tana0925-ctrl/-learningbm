@@ -1,0 +1,140 @@
+name: iPad側の負荷を下げる（DEF2_SKIP_LOCAL_V1・結果があればローカル戦闘をしない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンを実測する（このパッチは src/index.tsx に触らない）
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          if n != 72:
+              print('NG: 流す前のチェーンが 72 件でない'); sys.exit(1)
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def2_skip_local_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def2_skip_local_v1.py
+
+      - name: src/index.tsx に触っていないこと
+        run: |
+          git diff --quiet -- src/index.tsx || (echo 'NG: src/index.tsx が変わっている'; exit 1)
+          echo 'src/index.tsx は無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys, io
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = True
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 72:
+              print('NG: チェーンが 72 件でない'); ok = False
+
+          if d.count('if(st.result){') != 1:
+              print('NG: 先読みの分岐が1件でない'); ok = False
+          if d.count('__DEF2_SKIP_LOCAL_V1__') != 1:
+              print('NG: 番兵が1件でない'); ok = False
+          si = d.find('if(st.result){')
+          bi = d.find('var built = buildBattle(st);')
+          if si < 0 or bi < 0 or si > bi:
+              print('NG: 先読みが buildBattle より後ろにある'); ok = False
+          mr = d.find('function makeResolve(orig){')
+          if mr < 0 or si < mr or si - mr > 2000:
+              print('NG: 先読みが makeResolve の中にない'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがある'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+          for k in ["jget('/api/defense/status')", "fetch('/api/defense/resolve'",
+                    'def2GetReplayData', 'DEF2_STAGE0A_GCHOME_20260911']:
+              if k not in d:
+                  print('NG: defense2.js から消えている:', k); ok = False
+
+          need = [
+              "app.get('/api/teacher/defense/dry-run'",
+              '__DEF_DRYRUN_V1__',
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              '__DEF_SERVER_RESOLVE_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('    src/index.tsx', k[:56], c)
+              if c < 1:
+                  print('NG: 消えている:', k); ok = False
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の出現が 1 件でない'); ok = False
+          if v.count('logJson.length > 900000') != 1:
+              print('NG: ログの上限チェックが無い'); ok = False
+          if v.count('export function defEntryOk(m) {') != 1:
+              print('NG: 番人が壊れている'); ok = False
+          if e.count('function autoBattleRT(') != 1:
+              print('NG: def_engine.ts が壊れている'); ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（public だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/defense2.js
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF2_SKIP_LOCAL_V1: 結果があれば端末で戦闘を回さずリプレイ再生へ（makeResolve 1箇所）'
+          git pull --rebase origin main
+          git push origin HEAD:main
