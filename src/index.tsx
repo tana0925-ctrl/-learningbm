@@ -1638,7 +1638,6 @@ async function defenseSettings(env: any) {
 // 児童：防衛戦の状態
 app.get('/api/defense/status', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
-  await ensureDefenseTables(c.env)
   const st = await defenseSettings(c.env)
   const classId = await defenseClassId(c.env, u.id)
   const out: any = { ok: true, active: st.active, decision_at: st.decisionAt, event_key: st.eventKey, class_id: classId, base_hp: DEFENSE_BASE_HP, enemy_squad: DEFENSE_ENEMIES, my_entry: null, decided: false, result: null, entries: null, my_reward: null }
@@ -1674,7 +1673,6 @@ app.get('/api/defense/status', async (c) => {
 app.post('/api/defense/entry', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   if (false) return jsonError(c, 403, 'students_only')
-  await ensureDefenseTables(c.env)
   const body = await c.req.json().catch(() => null)
   if (!body || !body.event_key || !body.monster) return jsonError(c, 400, 'invalid_json')
   const st = await defenseSettings(c.env)
@@ -1691,7 +1689,6 @@ app.post('/api/defense/entry', async (c) => {
 // 児童：決戦を1回だけ保存（冪等ロック）＋勝利なら参加者へ報酬記録
 app.post('/api/defense/resolve', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
-  await ensureDefenseTables(c.env)
   const body = await c.req.json().catch(() => null)
   if (!body || !body.event_key || body.class_id == null || !body.result) return jsonError(c, 400, 'invalid_json')
   const st = await defenseSettings(c.env)
@@ -1719,7 +1716,6 @@ app.post('/api/defense/resolve', async (c) => {
 // 児童：報酬を1回だけ受け取り（コイン額を返すのは初回のみ）
 app.post('/api/defense/reward-claim', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
-  await ensureDefenseTables(c.env)
   const body = await c.req.json().catch(() => null)
   if (!body || !body.event_key) return jsonError(c, 400, 'invalid_json')
   const classId = await defenseClassId(c.env, u.id)
@@ -1734,7 +1730,6 @@ app.post('/api/defense/reward-claim', async (c) => {
 // 教師：防衛戦の開始＋決戦時刻設定
 app.put('/api/admin/defense-toggle', async (c) => {
   const u = c.get('user'); if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 401, 'unauthorized')
-  await ensureDefenseTables(c.env)
   const body = await c.req.json().catch(() => null)
   if (!body) return jsonError(c, 400, 'invalid_json')
   const active = body.active ? '1' : '0'
