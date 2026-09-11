@@ -1,0 +1,79 @@
+name: raw経路が本物のelementType/skillsを読む（AB_RAW_ELEM_SKILLS_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_ab_raw_elem_skills_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_ab_raw_elem_skills_v1.py
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          d = open('public/defense2.js', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          ok = True
+          if n != 72:
+              print('NG: チェーンが72件ではありません'); ok = False
+          need = [
+              "elementType:(R.elementType!=null?R.elementType:'normal')",
+              "skills:(Array.isArray(R.skills)&&R.skills.length)?R.skills",
+              'var base=getMonster(Number(spec.id)); if(!base) return null;',
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('   ', k[:56], c)
+              if c < 1:
+                  print('NG: 見つからない:', k); ok = False
+          if s.count("elementType:'normal',skills:[{name:'こうげき'") != 0:
+              print('NG: 古いraw経路が残っています'); ok = False
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の呼び出しが0件ではありません'); ok = False
+          if d.count('elementType:en.elementType,skills:en.skills') != 1:
+              print('NG: defense2.js の enemies に elementType/skills が通っていません'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがあります'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git add src/index.tsx public/defense2.js
+          git commit -m 'AB_RAW_ELEM_SKILLS_V1: _abFighter の raw 経路が raw.elementType / raw.skills を読む（チェーンは72件のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
