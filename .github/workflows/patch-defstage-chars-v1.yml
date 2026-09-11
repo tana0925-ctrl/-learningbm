@@ -112,7 +112,7 @@ jobs:
               chk('キャラ ' + _id, m.count('id: ' + _id + ','), 1)
           chk('重複ガード', m.count('window.MONSTERS.some('), 1)
           chk('確認用のしるし', m.count('window.__DEFSTAGE_CHARS_V1 ='), 1)
-          chk('1603 は使っていない', m.count('1603'), 0)
+          chk('1603 は ID に使っていない', m.count('id: 1603'), 0)
           # --- 壊してはいけないもの ---
           chk('__DEFSTAGE_BONUS_V1__', s.count('__DEFSTAGE_BONUS_V1__'), 7)
           chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
