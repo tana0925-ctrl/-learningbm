@@ -1,0 +1,170 @@
+name: 防衛戦 第3便・第1段（DEFSTAGE_BONUS_V1・台帳と付与）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンとアンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = '__DEFSTAGE_BONUS_V1__' in s
+          print('chain before =', n, 'applied =', applied)
+          if n != 73:
+              print('NG: 流す前のチェーンが 73 件でない'); sys.exit(1)
+          if not applied:
+              for label, t in [
+                  ('root', "app.get('/', async (c) => {"),
+                  ('logout', "app.get('/logout'"),
+                  ('DEFENSE_WIN_COINS', 'const DEFENSE_WIN_COINS = 20'),
+                  ('resolve', "app.post('/api/defense/resolve'"),
+                  ('status', "app.get('/api/defense/status'"),
+                  ('dry-run', "app.get('/api/teacher/defense/dry-run'"),
+                  ('makeup の呼び出し', 'await applyMakeupGrants(c.env, u.id, _stateJson)'),
+              ]:
+                  c = s.count(t)
+                  if c != 1:
+                      print('NG: アンカー %s が %d 件（期待 1）' % (label, c)); sys.exit(1)
+              if s.count('defense_stage_rewards') != 0:
+                  print('NG: defense_stage_rewards がすでに src/index.tsx にある'); sys.exit(1)
+              print('アンカーはすべて一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_defstage_bonus_v1.py
+
+      - name: 冪等の確認（2回流しても増えない・番兵で抜ける）
+        run: python3 scripts/patch_defstage_bonus_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          git diff --name-only
+          if git diff --name-only | grep -vE '^src/index\.tsx$' | grep -q .; then
+            echo 'NG: src/index.tsx 以外が変わっている'; exit 1
+          fi
+
+      - name: 流したあとの検証
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          chk('チェーン', n, 73)
+          # --- 今回入れたもの ---
+          chk('番兵', s.count('__DEFSTAGE_BONUS_V1__'), 7)
+          chk('台帳を作る関数の定義', s.count('async function defStageMakeLedger('), 1)
+          chk('台帳を作る関数の呼び出し', s.count('await defStageMakeLedger(c.env, classId, _dsStage)'), 2)
+          chk('付与関数の定義', s.count('async function applyDefStageGrants('), 1)
+          chk('付与関数の呼び出し', s.count('await applyDefStageGrants(c.env, u.id)'), 1)
+          chk('枠の予約', s.count("UPDATE defense_stage_rewards SET applied_at = datetime('now')"), 1)
+          chk('枠の解放', s.count('UPDATE defense_stage_rewards SET applied_at = NULL'), 1)
+          chk('コインの json_set', s.count("json_set(state_json, '$.coins'"), 1)
+          chk('クラス全員に配る', s.count('SELECT user_id FROM class_members WHERE class_id = ? LIMIT 200'), 1)
+          chk('水増しガード', s.count('} else if (_cliDs > _srvDs) {'), 1)
+          chk('サーバ累計の読み取り', s.count('_srv._defStageCoinsApplied'), 1)
+          chk('限定キャラ 1601', s.count('id: 1601'), 1)
+          chk('限定キャラ 1602', s.count('id: 1602'), 1)
+          chk('限定キャラ 1604', s.count('id: 1604'), 1)
+          chk('限定キャラ 1605', s.count('id: 1605'), 1)
+          chk('もとからある全置換の数が変わっていない', s.count('UPDATE progress SET state_json=?'), 11)
+          chk('status のボーナス', s.count('out.stage_bonus = {'), 1)
+          # --- 降格の経路がないこと ---
+          chk('stage - 1 の書き込み', s.count('UPDATE defense_stage SET stage = stage - 1'), 0)
+          chk('stage - 1', s.count('stage - 1'), 0)
+          chk('stage-1', s.count('stage-1'), 0)
+          chk('ステージ前進の UPDATE', s.count('UPDATE defense_stage SET stage = stage + 1'), 2)
+          # --- 壊してはいけないもの ---
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('log の v===2 条件', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA の有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('ensureDefenseTables() の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('defStageEnemies の呼び出し', s.count('defStageEnemies('), 3)
+          chk('def_stage の import', s.count("from './def_stage'"), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('def_engine の autoBattleRT', e.count('function autoBattleRT('), 1)
+          chk('def_resolve の番人', v.count('export function defEntryOk(m) {'), 1)
+          chk('def_resolve の 900000 上限', v.count('900000'), 1)
+          chk('defense2.js の早期抜け', d.count('__DEF2_SKIP_LOCAL_V1__'), 1)
+          chk('defense2.js の makeResolve', d.count('function makeResolve(orig){'), 1)
+          chk('def_stage の倍率', g.count('export function defStageEnemies('), 1)
+          # --- dry-run は書き込みゼロ ---
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INSERT', 'UPDATE', 'DELETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に書き込み %s が入っている' % _w); ok[0] = False
+          # --- 敵の素は変えていない ---
+          _i = s.index('const DEFENSE_ENEMIES = [')
+          _j = s.index(chr(10) + ']', _i)
+          chk('敵の体数', s[_i:_j].count('{ name:'), 8)
+          chk('まおうの素の値', s.count('hp: 520, atk: 60, def: 24'), 1)
+          if not ok[0]:
+              sys.exit(1)
+          print('検証 OK')
+          PYEOF
+
+      - name: ビルドが通ること（dist は元に戻す）
+        run: |
+          npm install
+          npm run build
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- build 後の差分 ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEFSTAGE_BONUS_V1(第1段): ステージ初クリアのボーナスを台帳経由でクラス全員に配る（金額も資格もサーバ側で決める）'
+          git pull --rebase origin main
+          git push origin HEAD:main
