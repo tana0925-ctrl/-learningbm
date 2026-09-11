@@ -154,6 +154,31 @@ function def2HypeHtml(log, st){
           + '<div style="font-size:11px;opacity:.9;">きちHP のこり '+Math.max(0,Math.round(baseEnd||0))+' / '+baseMax+'</div>';
       }
       hero += '</div>';
+      /* DEFSTAGE_CHARS_V1 ステージ初クリアのごほうび。
+         出すのは /api/defense/status が返した stage_bonus だけ。
+         金額もキャラもサーバが決めた値で、ここでは1つも足さない。 */
+      try {
+        var _sb = st && st.stage_bonus;
+        if (win && _sb && _sb.stage) {
+          var _sbLines = '';
+          if (_sb.coins > 0) {
+            _sbLines += '<div style="font-size:15px;font-weight:900;">🪙 ボーナス ' + Number(_sb.coins) + ' コイン</div>';
+          }
+          if (_sb.monster_id) {
+            var _sbM = null;
+            try { _sbM = window.getMonster ? window.getMonster(Number(_sb.monster_id)) : null; } catch (e2) { _sbM = null; }
+            var _sbHit = !!(_sbM && Number(_sbM.id) === Number(_sb.monster_id));
+            var _sbNm = _sbHit ? _sbM.name : 'げんていキャラ';
+            var _sbSp = _sbHit ? (_sbM.sprite || '🎁') : '🎁';
+            _sbLines += '<div style="font-size:15px;font-weight:900;margin-top:2px;">' + esc(_sbSp) + ' げんてい ' + esc(_sbNm) + ' をゲット！</div>';
+          }
+          hero += '<div style="border-radius:14px;padding:12px;margin:8px 0 10px;text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;color:#7c2d12;">'
+            + '<div style="font-size:20px;font-weight:900;">🏁 ステージ' + Number(_sb.stage) + ' クリア！</div>'
+            + '<div style="font-size:13px;font-weight:800;margin:2px 0 6px;">つぎは ステージ' + Number(_sb.next || (Number(_sb.stage) + 1)) + '</div>'
+            + _sbLines
+            + '</div>';
+        }
+      } catch (e) {}
       var top = c.list[0]||{};
       var mvpSprite = (mvp && mvp.sprite) || top.sprite || '⭐';
       var mvpName = (mvp && mvp.name) || top.name || '';
