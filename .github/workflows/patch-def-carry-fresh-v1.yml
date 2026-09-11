@@ -1,0 +1,128 @@
+name: 防衛戦の持ち越しを新形式だけにする（DEF_CARRY_FRESH_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: パッチを適用（一致しなければ中止＝src/index.tsx に触らない）
+        run: python3 scripts/patch_def_carry_fresh_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_carry_fresh_v1.py
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open("src/index.tsx", encoding="utf-8").read()
+          d = open("public/defense2.js", encoding="utf-8").read()
+          dr = open("src/def_resolve.ts", encoding="utf-8").read()
+          eng = open("src/def_engine.ts", encoding="utf-8").read()
+          ok = True
+
+          def ng(m):
+              global ok
+              print("NG: " + m)
+              ok = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count(".replace(")
+          print("replace chain:", n)
+          if n != 75:
+              ng("チェーンが75件ではありません（74件＋今回の1件が正解）")
+
+          # --- 今回入れたもの ---
+          if s.count("defCarrySnapOk") != 4:
+              ng("defCarrySnapOk が4件ではありません: %d" % s.count("defCarrySnapOk"))
+          if s.count("needs_reselect") != 3:
+              ng("needs_reselect が3件ではありません: %d" % s.count("needs_reselect"))
+          if s.count("もういちど えらんでね") != 1:
+              ng("児童へのお知らせ文がありません")
+          if s.count("defCarrySnapOk(_dsRow.mj)") != 1:
+              ng("決戦前の持ち越しに番人が入っていません")
+          if s.count("defCarrySnapOk(r.mj)") != 1:
+              ng("決戦後のクラス一括に番人が入っていません")
+          if s.count("defCarrySnapOk(_dsMe.mj)") != 1:
+              ng("決戦後の自分の分に番人が入っていません")
+
+          # --- 壊してはいけないもの ---
+          for k in ("__DEFSTAGE_SENTINEL_V1__", "__DEF_SNAP_SPDSKILLS_V1__", "__DEF_RESOLVE_VERIFY_V1__"):
+              if s.count(k) != 1:
+                  ng("番兵が1件ではありません: %s" % k)
+          for k in ("log_seed_mismatch", "log_replay_missing", "log_result_mismatch", "log_base_hp_mismatch"):
+              if s.count(k) < 1:
+                  ng("照合が消えています: %s" % k)
+          if s.count("Number(_dvLog.v) === 2") != 1:
+              ng("log のバージョン照合が1件ではありません")
+          if dr.count("if (rep.baseHpA == null || !Number.isFinite(Number(rep.baseHpA))) return null") != 1:
+              ng("baseHpA の有限数条件がありません")
+          if s.count("retry: true") != 2:
+              ng("retry: true が2件ではありません: %d" % s.count("retry: true"))
+          for k in ("defense_standing", "defense_carry_lock", "defAutoAdvanceV1", "defEntryOk",
+                    "defStageEnemies", "defStageMakeLedger", "applyDefStageGrants", "_defStageCoinsApplied"):
+              if s.count(k) < 1:
+                  ng("消えています: %s" % k)
+          if dr.count("export function defEntryOk") != 1:
+              ng("defEntryOk の定義がありません")
+          if s.count("ensureDefenseTables(") != 1:
+              ng("ensureDefenseTables の呼び出しが増えています")
+          if s.count("const DEFENSE_BASE_HP = 380") != 1:
+              ng("基地HPが380ではありません")
+          if s.count("const DEFENSE_WIN_COINS = 20") != 1:
+              ng("勝利コインが20ではありません")
+          if s.count("900000") < 1 or dr.count("900000") < 1:
+              ng("900000 の上限が消えています")
+          if eng.count("defAutoBattleRT") < 1:
+              ng("defAutoBattleRT が消えています")
+          if d.count("withFrozenStats(entries, function(){ return window.autoBattleRT(") != 1:
+              ng("withFrozenStats 経由の autoBattleRT が1件ではありません")
+          if d.count("window.autoBattleRT(") != 1:
+              ng("素の autoBattleRT 呼び出しがあります")
+          if d.count("function makeResolve(orig)") != 1 or d.count("__DEF2_SKIP_LOCAL_V1__") != 1:
+              ng("defense2.js の makeResolve 早期抜けがありません")
+
+          # 降格の経路が入っていないこと（語は組み立てて持つ）
+          if ("stage" + " - " + "1") in s or ("stage" + " - " + "1") in d:
+              ng("ステージを下げる経路が入っています")
+
+          # dry-run は読むだけ（語は組み立てて持つ）
+          a = s.index("/api/teacher/defense/dry-run")
+          b = s.index("app.", a + 10)
+          seg = s[a:b]
+          for w in ("INS" + "ERT", "UPD" + "ATE", "DEL" + "ETE", "CRE" + "ATE TABLE", "DR" + "OP", "batch(", ".run()"):
+              if seg.count(w) != 0:
+                  ng("dry-run に書き込みがあります: %s" % w)
+
+          if not ok:
+              sys.exit(1)
+          print("OK")
+          PYEOF
+
+      - name: ビルドが通るか確認
+        run: |
+          npm ci
+          npm run build
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git commit -m "防衛戦: 古い形式の持ち越しは参加させない（DEF_CARRY_FRESH_V1）チェーン74->75" || echo "no changes"
+          git checkout -- .
+          git pull --rebase origin main
+          git push
