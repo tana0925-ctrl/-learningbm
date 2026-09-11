@@ -559,31 +559,57 @@
     fetch('/api/rt/damage/' + V.roomId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ damage: dmg || 0, monsterId: 0, eventType: (dmg ? 'self_damage' : 'damage'), meta: meta }) })
       .then(function (r) { return r.json(); }).then(function (d) { if (d && d.eventId) V.mine[d.eventId] = 1; }).catch(function () {});
   }
+  /* rtdedupe-v1 : ポーリング多重化と重複スポーンの対策
+   * 1. polling フラグ : 実行中は次を投げない。完了時（成功・失敗とも）に必ず倒す。
+   * 2. seen マップ    : 適用済み ev.id は二度と画面に出さない（本命の保険）。
+   * 3. lastEventId は最大 id で単調前進。0 件でも巻き戻さない。
+   * setInterval はやめ、応答が返ってから次を投げる自己再帰 setTimeout にした。
+   * ctx は「このポーリングが属する対戦」。別の対戦に切り替わったら何もしない。
+   */
+  var V_POLL_GAP_MS = 200;
+  function vPollSchedule(ctx) {
+    if (!ctx || ctx !== V || ctx.ended || !ctx.roomId) return;
+    ctx.poll = setTimeout(function () { if (ctx === V) vPoll(); }, V_POLL_GAP_MS);
+  }
+  function vPollDone(ctx) {
+    /* finally 相当。ここを必ず通すこと（通らないとポーリングが永久に止まる）。 */
+    if (!ctx) return;
+    ctx.polling = false;
+    vPollSchedule(ctx);
+  }
   function vPoll() {
     if (!V || !V.roomId) return;
-    fetch('/api/rt/room/' + V.roomId + '?after=' + V.lastEventId).then(function (r) { return r.json(); }).then(function (d) {
+    if (V.polling) return;
+    var ctx = V;
+    ctx.polling = true;
+    fetch('/api/rt/room/' + ctx.roomId + '?after=' + ctx.lastEventId).then(function (r) { return r.json(); }).then(function (d) {
+      if (ctx !== V) return;
       if (!d || !d.ok) return;
       var room = d.room || {};
-      if (V.role === 'host') { V.myHp = room.hostHp; V.oppHp = room.guestHp; } else { V.myHp = room.guestHp; V.oppHp = room.hostHp; }
+      if (ctx.role === 'host') { ctx.myHp = room.hostHp; ctx.oppHp = room.guestHp; } else { ctx.myHp = room.guestHp; ctx.oppHp = room.hostHp; }
       vSetBars();
       var evs = d.events || [];
+      var maxId = ctx.lastEventId;
       for (var i = 0; i < evs.length; i++) {
         var ev = evs[i];
-        if (ev.id > V.lastEventId) V.lastEventId = ev.id;
-        if (!V.synced) continue;
-        if (V.mine[ev.id]) continue;
+        if (ev.id > maxId) maxId = ev.id;
+        if (ctx.seen[ev.id]) continue;
+        ctx.seen[ev.id] = 1;
+        if (!ctx.synced) continue;
+        if (ctx.mine[ev.id]) continue;
         var m = null; try { m = ev.meta_json ? JSON.parse(ev.meta_json) : null; } catch (e) {}
-        if (m && m.from === V.role) continue;
+        if (m && m.from === ctx.role) continue;
         if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal');
       }
-      if (!V.synced && evs.length < 50) V.synced = true;
+      if (maxId > ctx.lastEventId) ctx.lastEventId = maxId;
+      if (!ctx.synced && evs.length < 50) ctx.synced = true;
       if (room.status === 'finished' || room.winner) vFinish(room.winner);
-    }).catch(function () {});
+    }).catch(function () {}).then(function () { vPollDone(ctx); });
   }
   function vFinish(winner) {
     if (!V || V.ended) return; V.ended = true;
     if (V.raf) cancelAnimationFrame(V.raf);
-    if (V.poll) { clearInterval(V.poll); V.poll = null; }
+    if (V.poll) { clearTimeout(V.poll); V.poll = null; }
     document.removeEventListener('keydown', vKey, true);
     var iWon = (winner === V.role); var draw = (winner === 'draw');
     var r = el('tsvResult');
@@ -594,7 +620,7 @@
     el('tsvBack').onclick = vClose;
   }
   function vClose() {
-    if (V) { V.ended = true; if (V.raf) cancelAnimationFrame(V.raf); if (V.poll) clearInterval(V.poll); for (var i = 0; i < V.missiles.length; i++) { try { V.missiles[i].node.remove(); } catch (e) {} } }
+    if (V) { V.ended = true; if (V.raf) cancelAnimationFrame(V.raf); if (V.poll) { clearTimeout(V.poll); V.poll = null; } for (var i = 0; i < V.missiles.length; i++) { try { V.missiles[i].node.remove(); } catch (e) {} } }
     document.removeEventListener('keydown', vKey, true);
     if (el('tsvOverlay')) el('tsvOverlay').style.display = 'none';
     V = null;
@@ -609,7 +635,7 @@
     try {
       vBuild();
       var mon = vMyMon();
-      V = { roomId: roomId, role: role || 'host', oppName: oppName || 'あいて', mode: 'attack', word: '', pats: [], typed: '', myHp: 100, oppHp: 100, missiles: [], raf: null, poll: null, last: 0, ended: false, ready: false, mine: {}, lastEventId: 0, synced: false };
+      V = { roomId: roomId, role: role || 'host', oppName: oppName || 'あいて', mode: 'attack', word: '', pats: [], typed: '', myHp: 100, oppHp: 100, missiles: [], raf: null, poll: null, last: 0, ended: false, ready: false, mine: {}, lastEventId: 0, synced: false, seen: {}, polling: false };
       el('tsvOverlay').style.display = 'flex';
       el('tsvResult').style.display = 'none';
       if (el('tsvOppName')) el('tsvOppName').textContent = oppName || '';
@@ -618,7 +644,7 @@
       vSetMode('attack'); vSetBars(); vSetWord();
       document.addEventListener('keydown', vKey, true);
       V.raf = requestAnimationFrame(vLoop);
-      V.poll = setInterval(vPoll, 250);
+      vPoll(); /* 初回は即時。以後は応答が返ってから自己再帰でスケジュールする */
       vCountdown(3);
     } catch (e) { console.error('[TypeShoot VS] start error', e); }
   }
