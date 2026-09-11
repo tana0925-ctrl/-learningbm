@@ -7539,6 +7539,8 @@ app.get('/', async (c) => {
           if (d.carry_over_error==='monster_gone') { head+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px;margin-bottom:8px;color:#c2410c;font-weight:900;">前に出したモンスターがいなくなったよ。もう一度えらんでね。</div>'; }`)
       t = t.replace(`          var d=await _defFetch(); _defStatus=d;`, `          var d=await _defFetch(); _defStatus=d;
           try { if (d && d.ok && d.active && d.carry_over_stale && !d.decided && d.my_entry && d.my_entry.monster && d.event_key) { var _dsSnap=_defSnapshot(d.my_entry.monster.id); if (_dsSnap) { await fetch('/api/defense/entry',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_key:d.event_key,monster:_dsSnap,strategy:(d.my_entry.strategy||'balance')})}); d=await _defFetch(); _defStatus=d; } } } catch(e) {}`)
+      // __DEF_SNAP_SPDSKILLS_V1__ _defSnapshot に spd / skills を追加
+      t = t.replace("buff:base.buff||'lucky',elementType:el,skillPow:10}", "buff:base.buff||'lucky',elementType:el,skillPow:10,spd:Number((s&&s.spd)||10),skills:(Array.isArray(base.skills)?base.skills.map(function(_sk){return Object.assign({},_sk)}):[])}")
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
