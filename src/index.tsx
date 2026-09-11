@@ -7315,6 +7315,13 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
+      // __HANSHIN_ADV2_LOOKUP_V1__ 阪神マン: アドバイス参照の直前にマージを保証し、未登録なら単元IDをコンソールに出す
+      t = t.replace(
+        "                const rootNode = HANSHIN_ADVICE_TREE[trainingMode];",
+        "                if (window.__HANSHIN_ADV2_ENSURE) { try { window.__HANSHIN_ADV2_ENSURE(); } catch (e) {} }\n" +
+        "                const rootNode = HANSHIN_ADVICE_TREE[trainingMode];\n" +
+        "                if (!rootNode) { try { console.warn('[阪神マン] アドバイス未登録 単元ID:', trainingMode); } catch (e) {} }"
+      )
       // 🔥 九九の単元IDが m2-kuku に改名されたのに、ククマスター解放判定が旧ID(kuku)のままで一度も発動しなかった
       t = t.replace("if (trainingMode === 'kuku' && trainingCombo === 50) {", "if ((trainingMode === 'kuku' || trainingMode === 'm2-kuku') && trainingCombo === 50) {")
       // 🔢 小数点キーが「小数(×÷)」単元でしか押せず、円の面積(m6-circle)や小数×小数(m5-dec-mul)で答えを入力できなかった。
