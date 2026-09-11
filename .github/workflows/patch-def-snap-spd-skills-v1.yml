@@ -1,0 +1,30 @@
+name: patch-def-snap-spd-skills-v1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply patch (fail-closed)
+        run: python3 scripts/patch_def_snap_spd_skills_v1.py
+      - name: commit and push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "def: _defSnapshot に spd / skills を追加 (__DEF_SNAP_SPDSKILLS_V1__)"
+          git push origin HEAD:main
