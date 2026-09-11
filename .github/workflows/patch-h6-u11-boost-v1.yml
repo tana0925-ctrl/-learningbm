@@ -31,7 +31,12 @@ jobs:
       - name: 検証（冪等性の番兵とは別の条件で確かめる）
         run: |
           python3 - << 'PYEOF'
-          import sys
+          import sys, importlib.util
+
+          # チェーン数の想定はパッチスクリプトを唯一の出どころにする
+          _sp = importlib.util.spec_from_file_location('p', 'scripts/patch_h6_u11_boost_v1.py')
+          _m = importlib.util.module_from_spec(_sp); _sp.loader.exec_module(_m)
+          WANT = _m.CHAIN_AFTER
 
           s = open('src/index.tsx', encoding='utf-8').read()
           h = open('public/index.html', encoding='utf-8').read()
@@ -43,9 +48,9 @@ jobs:
 
           ok = True
 
-          # 1) チェーンは 76 -> 77（増分は自分の追加分1件だけ）
-          if n != 77:
-              print('NG: チェーンが', n, '件（想定 77件）'); ok = False
+          # 1) チェーンの増分は自分の追加分1件だけ
+          if n != WANT:
+              print('NG: チェーンが', n, '件（想定', WANT, '件）'); ok = False
 
           # 2) 置換の足場が想定どおり3件（元の1件＋検索語＋置換語）
           anchor = "function genH6u11(){return _pickBank(_H6M('h6u11'));}"
