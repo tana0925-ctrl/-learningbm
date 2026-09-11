@@ -1,0 +1,112 @@
+name: 小6歴史 死蔵バンク(_SC)を配線して全単元50問以上にする（H6MERGE_SRC_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: 最新を取り込む
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_h6_merge_bank_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_h6_merge_bank_v1.py
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          ok = True
+
+          # 1) チェーンは 75 -> 76（増えたのは今回の1本だけ）
+          if n != 76:
+              print('NG: チェーンが76件でない'); ok = False
+
+          # 2) 検証マーカー（冪等性の番兵 __H6MERGE_SRC_V1__ とは別の文字列で見る）
+          if s.count('__H6BANK_LIVE_V1__') != 1:
+              print('NG: __H6BANK_LIVE_V1__ が1件でない'); ok = False
+
+          # 3) 11本の gen が結合バンクを見ている
+          for k in range(1, 12):
+              if s.count("function genH6u%d(){return _pickBank(_H6M('h6u%d'));}" % (k, k)) != 1:
+                  print('NG: genH6u%d が結合バンクを見ていない' % k); ok = False
+
+          # 4) 既存データは触っていない（public/index.html は元のまま）
+          anchor = "\n".join(
+              "function genH6u%d(){return _pickBank(_SS.h6u%d);}" % (k, k) for k in range(1, 12)
+          )
+          if h.count(anchor) != 1:
+              print('NG: public/index.html のアンカーが1件でない'); ok = False
+          if h.count('__H6BANK_LIVE_V1__') != 0:
+              print('NG: public/index.html を書き換えてしまっている'); ok = False
+
+          # 5) 結合ロジックが _SS と _SC の両方を読む
+          for k in ['_SS[k]', '_SC[k]', '_H6ADD[k]', '_H6DROP[k]']:
+              if s.count(k) < 1:
+                  print('NG: 結合ロジックに %s がない' % k); ok = False
+
+          # 6) 壊してはいけない既存の目印
+          for m in ['__S6WORLD_50__', '__DEFSTAGE_SENTINEL_V1__',
+                    '__DEF_SNAP_SPDSKILLS_V1__', '__DEF_RESOLVE_VERIFY_V1__']:
+              c = s.count(m)
+              print('   ', m, c)
+              if c < 1:
+                  print('NG: 目印が消えた ' + m); ok = False
+
+          # 7) 追加した置換行に $ が混ざっていないか（String.replace の $ 展開よけ）
+          k = s.index('__H6MERGE_SRC_V1__')
+          seg = s[k:s.index('\n    _rootHtmlCache = t\n', k)]
+          if '$' in seg:
+              print('NG: 追加した置換行に $ がある'); ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ビルドが通ることを確認（dist は元に戻す）
+        run: |
+          npm ci
+          npm run build
+          git checkout -- dist 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- git status ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- src/index.tsx; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git add src/index.tsx
+          git commit -m 'H6MERGE_SRC_V1: 小6歴史 _SC(死蔵50問バンク)を_SSに結合＋範囲外/重複を除去＋不足分を追加（チェーン 75->76）'
+          git pull --rebase origin main
+          git push origin HEAD:main
