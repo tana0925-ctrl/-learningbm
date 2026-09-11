@@ -613,6 +613,20 @@ function def2HypeHtml(log, st){
     return s;
   }
 
+  /* DEF2TRY_NOWCSS_V1_MARK
+     ためしバトルの わくの 中だけ、あたまの上の 「いま：」を 大きく する。
+     えらび方を #def2TryAnim に かぎっているので、
+     みんなで見る 本番の リプレイ（#def2Anim）には あたらない。
+     あいて（B）の ふきだしは 小さいままに して、
+     じぶんの モンスターの ほうが 先に 目に入るようにする。 */
+  function tbInjectNowCss(){
+    if(document.getElementById('def2TryNowCss')) return;
+    var st=document.createElement('style'); st.id='def2TryNowCss';
+    st.textContent='#def2TryAnim .gc-now{font-size:12px !important;line-height:1.3 !important;opacity:1 !important;max-width:none !important;overflow:visible !important;text-overflow:clip !important;white-space:nowrap !important;padding:2px 7px !important;top:-19px !important;background:rgba(15,23,42,.95) !important;box-shadow:0 1px 4px rgba(0,0,0,.35) !important;z-index:9 !important;}'
+      +'#def2TryAnim [id^="gc-now-B-"]{font-size:9px !important;opacity:.5 !important;top:-15px !important;box-shadow:none !important;z-index:8 !important;}';
+    document.head.appendChild(st);
+  }
+
   function tbShow(rep, prog){
     tbOverlay(
       '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e2e8f0;position:sticky;top:0;background:#fff;">'
@@ -628,6 +642,7 @@ function def2HypeHtml(log, st){
     );
     try{ document.getElementById('def2TryInfo').innerHTML=tbInfoHtml(rep, prog); }catch(e){}
     try{
+      tbInjectNowCss();
       var host=document.getElementById('def2TryAnim');
       if(host && typeof window._defRenderBattle==='function'){ relocateGymInto(host); window._defRenderBattle(rep); }
     }catch(e){}
