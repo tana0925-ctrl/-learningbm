@@ -238,7 +238,7 @@ function def2HypeHtml(log, st){
     var entries = (st.entries||[]).filter(function(e){return e && e.monster && e.monster.id;});
     var defenders = entries.map(function(e){ return {id:e.monster.id, level:e.monster.level||1, strategy:e.monster.strategy||e.strategy||'balance'}; });
     var programsA = entries.map(function(e){ return (e.monster.prog && e.monster.prog.length)? e.monster.prog : DEFAULT_PROG; });
-    var enemies = (st.enemy_squad||[]).map(function(en){ return {raw:{name:en.name,sprite:en.sprite,hp:en.hp,atk:en.atk,def:en.def,buff:en.buff,skillPow:en.skillPow}, strategy:'attack'}; });
+    var enemies = (st.enemy_squad||[]).map(function(en){ return {raw:{name:en.name,sprite:en.sprite,hp:en.hp,atk:en.atk,def:en.def,buff:en.buff,skillPow:en.skillPow,elementType:en.elementType,skills:en.skills}, strategy:'attack'}; });
     var seed = seedFromKey(st.event_key);
     var rep = withFrozenStats(entries, function(){ return window.autoBattleRT(defenders, enemies, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:programsA,programB:ENEMY_PROG,forts:false,tactics:true,contact:true}); });
     return {rep:rep, entries:entries, seed:seed};
