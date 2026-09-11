@@ -45,8 +45,10 @@ KEEP = [
     '__DEF_RESOLVE_VERIFY_V1__',
 ]
 
-CHAIN_BEFORE = 76
-CHAIN_AFTER = 77
+# 流す直前に main で実測した値（ここが違えば書き込まずに中止する）
+CHAIN_BEFORE = 77
+# 自分が足すのは 1件だけ
+CHAIN_AFTER = CHAIN_BEFORE + 1
 
 # ---------------------------------------------------------------------------
 # 誤答の差し替え
