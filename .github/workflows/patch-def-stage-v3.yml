@@ -1,0 +1,196 @@
+name: 防衛戦 第3便（DEF_STAGE_V3_CURVE・敵の強さの曲線だけ入れ替える）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンとアンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = 'DEF_STAGE_V3_CURVE' in g
+          print('chain before =', n, 'applied =', applied)
+          if n != 76:
+              print('NG: チェーンが 76 件でない'); sys.exit(1)
+          if not applied:
+              for label, text, hay, want in [
+                  ('root',   "app.get('/', async (c) => {", s, 1),
+                  ('logout', "app.get('/logout'", s, 1),
+                  ('敵の定数', 'const DEFENSE_ENEMIES = [', s, 1),
+                  ('倍率の関数', 'export function defStageEnemies(base, stage) {', g, 1),
+                  ('旧hp倍率', '(1 + 0.25 * k)', g, 1),
+                  ('旧atk倍率', '(1 + 0.12 * k)', g, 1),
+              ]:
+                  c = hay.count(text)
+                  if c != want:
+                      print('NG: アンカー %s が %d 件（期待 %d）' % (label, c, want)); sys.exit(1)
+              print('アンカーはすべて一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_stage_v3.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/index.tsx || (echo 'NG: src/index.tsx が変わっている'; exit 1)
+          git diff --quiet -- public/defense2.js src/def_engine.ts src/def_resolve.ts || (echo 'NG: 防衛戦の他ファイルが変わっている'; exit 1)
+          echo 'src/def_stage.ts 以外は無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 倍率そのものを実行して確かめる（番兵とは別の条件）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const src = fs.readFileSync('src/def_stage.ts', 'utf8').replace(/^export /gm, '');
+          const mod = new Function(src + '\nreturn { defStageEnemies, defStageClamp, DEF_STAGE_MAX };')();
+          const base = [
+            { name: 'slime', hp: 120, atk: 30, def: 8,  buff: 'attack', skillPow: 10 },
+            { name: 'maou',  hp: 520, atk: 60, def: 24, buff: 'guard',  skillPow: 12 },
+          ];
+          let ok = true;
+          const eq = (label, got, want) => {
+            if (got !== want) { console.log('NG: ' + label + ' = ' + got + ' (want ' + want + ')'); ok = false; }
+          };
+          const s1 = mod.defStageEnemies(base, 1);
+          eq('stage1 体数', s1.length, 2);
+          eq('stage1 maou hp', s1[1].hp, 520);
+          eq('stage1 maou atk', s1[1].atk, 60);
+          eq('stage1 maou def', s1[1].def, 24);
+          eq('stage1 maou skillPow', s1[1].skillPow, 12);
+          eq('stage1 は spd を足さない', s1[1].spd, undefined);
+          const s5 = mod.defStageEnemies(base, 5);
+          eq('stage5 maou hp', s5[1].hp, 2703);
+          eq('stage5 maou atk', s5[1].atk, 251);
+          eq('stage5 maou spd', s5[1].spd, 49);
+          const s10 = mod.defStageEnemies(base, 10);
+          eq('stage10 体数', s10.length, 2);
+          eq('stage10 maou hp', s10[1].hp, 13520);
+          eq('stage10 maou atk', s10[1].atk, 1200);
+          eq('stage10 maou def', s10[1].def, 168);
+          eq('stage10 maou skillPow', s10[1].skillPow, 228);
+          eq('stage10 maou spd', s10[1].spd, 240);
+          eq('上限で丸める', JSON.stringify(mod.defStageEnemies(base, 99)), JSON.stringify(s10));
+          eq('壊れた値は1扱い', JSON.stringify(mod.defStageEnemies(base, 'x')), JSON.stringify(s1));
+          eq('base を書き換えない', base[1].hp, 520);
+          eq('上限ステージ', mod.DEF_STAGE_MAX, 10);
+          if (!(s10[1].hp > 520 * 3.25 && s10[1].atk > 60 * 2.08)) { console.log('NG: 今より強くなっていない'); ok = false; }
+          if (!ok) process.exit(1);
+          console.log('CURVE OK');
+          JSEOF
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン', s[i:j].count('.replace('), 76)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('照合1 seed', s.count('log_seed_mismatch'), 1)
+          chk('照合2 replay', s.count('log_replay_missing'), 1)
+          chk('照合3 result', s.count('log_result_mismatch'), 1)
+          chk('照合4 base_hp', s.count('log_base_hp_mismatch'), 1)
+          chk('log の v が 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA 有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables() の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('敵の定数', s.count('const DEFENSE_ENEMIES = ['), 1)
+          chk('DEFENSE_ENEMIES の参照', s.count('DEFENSE_ENEMIES'), 5)
+          _i = s.index('const DEFENSE_ENEMIES = [')
+          _j = s.index('\n]', _i)
+          chk('敵の体数', s[_i:_j].count('{ name:'), 8)
+          chk('まおうの素の値', s.count("hp: 520, atk: 60, def: 24"), 1)
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INSERT', 'UPDATE', 'DELETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に書き込み %s が入っている' % _w); ok[0] = False
+          if 'stage - 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: 降格の経路が入っている'); ok[0] = False
+          chk('def_engine の autoBattleRT', e.count('function autoBattleRT('), 1)
+          chk('def_resolve の番人', v.count('export function defEntryOk(m) {'), 1)
+          chk('def_resolve の 900000 上限', v.count('900000'), 1)
+          chk('defense2.js の早期抜け', d.count('__DEF2_SKIP_LOCAL_V1__'), 1)
+          chk('defense2.js の makeResolve', d.count('function makeResolve(o'), 1)
+          chk('def_stage の関数', g.count('export function defStageEnemies(base, stage) {'), 1)
+          chk('上限ステージ 10', g.count('DEF_STAGE_MAX = 10'), 1)
+          chk('体数を増やしていない', g.count('base.map('), 1)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/def_stage.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_STAGE_V3_CURVE: 防衛戦の敵の強さの曲線を入れ替える（体数は8体のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
