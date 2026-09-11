@@ -1,0 +1,116 @@
+name: 防衛戦の勝敗をサーバで確定（DEF_SERVER_RESOLVE_V1・番人つき fail-closed）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_server_resolve_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_server_resolve_v1.py
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys, io
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = True
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 72:
+              print('NG: チェーンが 72 件でない'); ok = False
+          need = [
+              "from './def_resolve'",
+              'defServerResolve(c.env, st, classId, DEFENSE_ENEMIES)',
+              "SELECT 1 AS x FROM defense_results WHERE event_key=? AND class_id=? LIMIT 1",
+              'INSERT OR IGNORE INTO defense_results',
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              '__AB_RAW_ELEM_SKILLS_V1__',
+              '__DEF_SERVER_ENGINE_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('    src/index.tsx', k[:56], c)
+              if c < 1:
+                  print('NG: 消えている:', k); ok = False
+          # __DEF_RESOLVE_VERIFY_V1__ の照合4本が安全側の作りのまま残っているか
+          verify = ["'log_seed_mismatch'", "'log_replay_missing'", "'log_result_mismatch'",
+                    "'log_base_hp_mismatch'", 'Number(_dvLog.v) === 2',
+                    'Number.isFinite(Number(_dvRep.baseHpA))', 'retry: true']
+          for k in verify:
+              c = s.count(k)
+              print('    照合', k[:52], c)
+              if c < 1:
+                  print('NG: 照合が壊れている:', k); ok = False
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の出現が 1 件でない（呼び出しは0件のまま）'); ok = False
+          # 番人：spd / skills が無ければサーバ計算しない
+          guard = ['Number(m.spd)', 'Array.isArray(m.skills)', 'm.skills.length === 0',
+                   'function computeMVP(', 'export async function defServerResolve(',
+                   'ORDER BY de.created_at ASC, de.user_id ASC']
+          for k in guard:
+              c = v.count(k)
+              print('    src/def_resolve.ts', k[:52], c)
+              if c < 1:
+                  print('NG: def_resolve.ts に無い:', k); ok = False
+          if v.count('logJson.length > 900000') != 1:
+              print('NG: ログの上限チェックが無い'); ok = False
+          if e.count('function autoBattleRT(') != 1:
+              print('NG: def_engine.ts が壊れている'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがある'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx src/def_resolve.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_SERVER_RESOLVE_V1: 勝敗をサーバで確定（spd/skills が揃っているときだけ・欠けたら従来経路・チェーンは72件のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
