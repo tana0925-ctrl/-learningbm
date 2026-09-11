@@ -1,0 +1,147 @@
+name: 従来経路のログ切り詰めを外す（DEF_LOG_NOTRUNC_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンを実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          if n != 72:
+              print('NG: 流す前のチェーンが 72 件でない'); sys.exit(1)
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_log_notrunc_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_log_notrunc_v1.py
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys, io
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = True
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 72:
+              print('NG: チェーンが 72 件でない（増減が自分の追加分0と一致しない）'); ok = False
+
+          if s.count('.slice(0, 100000)') != 0:
+              print('NG: 切り詰めが残っている'); ok = False
+          if s.count("const logJson = (_lnFull && _lnFull.length <= 900000) ? _lnFull : 'null'") != 1:
+              print('NG: 置き換え後の行が1本でない'); ok = False
+          if s.count('JSON.stringify(body.log || null)') != 1:
+              print('NG: body.log の文字列化が1本でない'); ok = False
+
+          need = [
+              "from './def_resolve'",
+              'defServerResolve(c.env, st, classId, DEFENSE_ENEMIES)',
+              'INSERT OR IGNORE INTO defense_results',
+              "app.get('/api/teacher/defense/dry-run'",
+              '__DEF_DRYRUN_V1__',
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              '__DEF_SERVER_RESOLVE_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('    src/index.tsx', k[:56], c)
+              if c < 1:
+                  print('NG: 消えている:', k); ok = False
+
+          verify = ["'log_seed_mismatch'", "'log_replay_missing'", "'log_result_mismatch'",
+                    "'log_base_hp_mismatch'", 'Number(_dvLog.v) === 2',
+                    'Number.isFinite(Number(_dvRep.baseHpA))', 'retry: true']
+          for k in verify:
+              c = s.count(k)
+              print('    照合', k[:52], c)
+              if c < 1:
+                  print('NG: 照合が壊れている:', k); ok = False
+
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の出現が 1 件でない（呼び出しは0件のまま）'); ok = False
+
+          guard = ['Number(m.spd)', 'Array.isArray(m.skills)', 'm.skills.length === 0',
+                   'function computeMVP(', 'export async function defServerResolve(',
+                   'export function defEntryOk(m) {',
+                   'ORDER BY de.created_at ASC, de.user_id ASC']
+          for k in guard:
+              c = v.count(k)
+              print('    src/def_resolve.ts', k[:52], c)
+              if c < 1:
+                  print('NG: def_resolve.ts に無い:', k); ok = False
+          if v.count('logJson.length > 900000') != 1:
+              print('NG: ログの上限チェックが無い'); ok = False
+          if e.count('function autoBattleRT(') != 1:
+              print('NG: def_engine.ts が壊れている'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがある'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_LOG_NOTRUNC_V1: 従来経路の log_json を切り詰めない（壊れた JSON を保存しない・チェーンは72件のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
