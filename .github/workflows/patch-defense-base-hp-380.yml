@@ -26,4 +26,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add src/index.tsx
-          git diff --staged --quiet && echo "No changes" || (git commit -m "基地防衛: 基地HPを380に統一 (DEFENSE_BASE_HP 1200 -> 380)" && git pull --rebase origin main && git push)
+          if git diff --staged --quiet; then echo "No changes"; else
+            git commit -m "基地防衛: 基地HPを380に統一 (DEFENSE_BASE_HP 1200 -> 380)"
+            git checkout -- .
+            git pull --rebase origin main
+            git push
+          fi
