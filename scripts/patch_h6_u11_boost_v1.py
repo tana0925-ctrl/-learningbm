@@ -315,9 +315,9 @@ def main():
         die('挿入後のチェーンが %d件（想定 %d件）' % (n1, CHAIN_AFTER))
     if s2.count(ANCHOR) != 3:
         die('挿入後の genH6u11 アンカーが %d件（想定 3件）' % s2.count(ANCHOR))
-    if s2.count('wrongs') - s.count('wrongs') != len(ADD):
+    if s2.count('wrongs') - s.count('wrongs') != payload.count('wrongs'):
         die('wrongs の増分が %d（想定 %d）'
-            % (s2.count('wrongs') - s.count('wrongs'), len(ADD)))
+            % (s2.count('wrongs') - s.count('wrongs'), payload.count('wrongs')))
     for tok in ('_H6U11ADD_V1', '_H6U11FIX_V1'):
         want = payload.count(tok)
         if want < 2:
