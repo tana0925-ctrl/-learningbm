@@ -1601,7 +1601,8 @@ app.put('/api/admin/fest-toggle', async (c) => {
 })
 
 // ==================== 🏰 クラス基地防衛戦（第1弾コア） ====================
-const DEFENSE_BASE_HP = 1200
+// DEF2_BASEHP_UNIFY_380_20260911
+const DEFENSE_BASE_HP = 380
 const DEFENSE_ENEMIES = [
   { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
   { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
