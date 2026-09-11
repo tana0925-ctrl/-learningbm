@@ -1900,7 +1900,10 @@ app.post('/api/defense/resolve', async (c) => {
     return c.json({ ok: true, resolved: true, result: _srv.result, server: true })
   }
   const result = (String(body.result) === 'win') ? 'win' : 'lose'
-  const logJson = JSON.stringify(body.log || null).slice(0, 100000)
+  // __DEF_LOG_NOTRUNC_V1__ 切り詰めると壊れた JSON を保存してしまい、クラス全員がリプレイを見られなくなる。
+  // サーバ経路と同じ上限。超えたときだけ諦めて 'null' を入れる（切れた文字列は保存しない）。
+  const _lnFull = JSON.stringify(body.log || null)
+  const logJson = (_lnFull && _lnFull.length <= 900000) ? _lnFull : 'null'
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
   // __DEF_RESOLVE_VERIFY_V1__ 送られてきた log と付き合わせて、矛盾する申告をはじく（切り詰める前の body.log を見る）
   const _dvFnv = (x: any) => { const s = String(x == null ? '' : x); let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) } return h >>> 0 }
