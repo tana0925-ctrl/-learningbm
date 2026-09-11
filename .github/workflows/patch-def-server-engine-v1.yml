@@ -1,0 +1,103 @@
+name: 防衛戦エンジンをサーバへ移植（DEF_SERVER_ENGINE_V1・計算だけ／resolveはまだ切り替えない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_server_engine_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_server_engine_v1.py
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys, io
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = True
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 72:
+              print('NG: チェーンが 72 件でない'); ok = False
+          need = [
+              "from './def_engine'",
+              "'/api/defense/_engine_check'",
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              '__AB_RAW_ELEM_SKILLS_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('    src/index.tsx', k[:52], c)
+              if c < 1:
+                  print('NG: 消えている:', k); ok = False
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の出現が 1 件でない（呼び出しは0件のまま）'); ok = False
+          for k in ['function autoBattleRT(', 'function _abRng(', 'function _abFighter(',
+                    'function _abAdv(', 'function _abPickSkill(', 'function _abDmg(',
+                    'function _pbRun(', 'function _pbBehavior(', 'function _pbIsTree(',
+                    'function _pbCond(', 'function getTypeMultiplier(',
+                    'function getElementTypeMultiplier(', 'const TYPE_CHART =']:
+              c = e.count(k)
+              print('    src/def_engine.ts', k[:52], c)
+              if c != 1:
+                  print('NG: def_engine.ts に 1 件でない:', k); ok = False
+          if "elementType:(R.elementType!=null?R.elementType:'normal')" not in e:
+              print('NG: def_engine.ts の _abFighter が raw の elementType を読んでいない'); ok = False
+          if 'DEF_ENGINE_MONSTER_DB_REQUIRED' not in e:
+              print('NG: getMonster のガードが無い'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがある'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx src/def_engine.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_SERVER_ENGINE_V1: 戦闘エンジンをサーバ側へ移植（GETの突き合わせ口だけ・resolveは未変更・チェーンは72件のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
