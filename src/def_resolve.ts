@@ -30,7 +30,7 @@ export function defSeedFromKey(k) { return ((defFnv(k) ^ 0x9e3779b9) >>> 0) }
 
 // 番人：1件でも spd / skills を欠いていたら null を返す。
 // 劣化した条件（spd=10 固定・こうげき1本）で勝敗が確定することを原理的に起こさないため。
-function defEntryOk(m) {
+export function defEntryOk(m) {
   if (!m || typeof m !== 'object') return false
   if (!Number.isFinite(Number(m.spd)) || Number(m.spd) <= 0) return false
   if (!Array.isArray(m.skills) || m.skills.length === 0) return false

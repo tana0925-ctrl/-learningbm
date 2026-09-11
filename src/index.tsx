@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
-import { defServerResolve } from './def_resolve'
+import { defServerResolve, defEntryOk } from './def_resolve'
 
 type Bindings = {
   DB: D1Database
@@ -1806,6 +1806,67 @@ app.get('/api/defense/_engine_check', (c) => {
     seed: seed, a: nA, b: nB, reps: reps,
     roster: withRoster ? roster : null, rep: rep
   })
+})
+
+// __DEF_DRYRUN_V1__ 防衛戦の空打ち（教師だけ・GET・DB には SELECT しか出さない）
+// 目的：次の開催の前に「番人が通るか」「サーバが何と判定するか」を、書き込まずに確かめる。
+// ここでは INSERT / UPDATE / DELETE を一切実行しない。報酬付与も走らせない。
+// defenseSettings() は呼ばない（defAutoAdvanceV1 が admin_settings を書くことがあるため）。
+app.get('/api/teacher/defense/dry-run', async (c) => {
+  const _drU = requireTeacher(c)
+  if (!_drU) return jsonError(c, 401, 'unauthorized')
+  const _drRows = await c.env.DB.prepare("SELECT key, value FROM admin_settings WHERE key IN ('defense_active','defense_decision_at','defense_event_key') LIMIT 8").all<any>()
+  const _drKv: any = {}
+  for (const _drR of ((_drRows && _drRows.results) || [])) _drKv[String(_drR.key)] = String(_drR.value == null ? '' : _drR.value)
+  const _drDecisionAt = String(_drKv.defense_decision_at || '')
+  const _drSt = {
+    active: _drKv.defense_active === '1',
+    decisionAt: _drDecisionAt,
+    eventKey: String(c.req.query('event_key') || _drKv.defense_event_key || _drDecisionAt || '')
+  }
+  const _drOut: any = {
+    ok: true, dry_run: true, wrote: false,
+    engine_sig: DEF_ENGINE_SIG,
+    active: _drSt.active, decision_at: _drSt.decisionAt, event_key: _drSt.eventKey,
+    classes: [], class_id: null, already: null, entries: null, gate: null, server: null
+  }
+  if (!_drSt.eventKey) { _drOut.note = 'event_key が未設定です'; return c.json(_drOut) }
+  const _drCls = await c.env.DB.prepare("SELECT class_id AS cid, COUNT(*) AS n FROM defense_entries WHERE event_key=? GROUP BY class_id ORDER BY class_id ASC LIMIT 50").bind(_drSt.eventKey).all<any>()
+  _drOut.classes = ((_drCls && _drCls.results) || []).map((r: any) => ({ class_id: String(r.cid == null ? '' : r.cid), entries: Number(r.n || 0) }))
+  const _drCid = String(c.req.query('class_id') || (_drOut.classes.length === 1 ? _drOut.classes[0].class_id : ''))
+  if (!_drCid) { _drOut.note = 'class_id を付けてください（classes から選ぶ）'; return c.json(_drOut) }
+  _drOut.class_id = _drCid
+  const _drDone = await c.env.DB.prepare("SELECT 1 AS x FROM defense_results WHERE event_key=? AND class_id=? LIMIT 1").bind(_drSt.eventKey, _drCid).first<any>()
+  _drOut.already = !!_drDone
+  const _drEs = await c.env.DB.prepare("SELECT de.monster_json AS mj, u.name AS nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC LIMIT 200").bind(_drSt.eventKey, _drCid).all<any>()
+  const _drList = ((_drEs && _drEs.results) || [])
+  const _drDetail: any[] = []
+  let _drPass = 0
+  for (const _drE of _drList) {
+    let _drM: any = null
+    let _drParsed = true
+    try { _drM = JSON.parse(String(_drE.mj)) } catch (_e) { _drParsed = false }
+    const _drOkE = _drParsed && defEntryOk(_drM)
+    if (_drOkE) _drPass++
+    _drDetail.push({
+      name: String(_drE.nm || ''),
+      parsed: _drParsed,
+      spd: (_drM && _drM.spd != null) ? Number(_drM.spd) : null,
+      skills: (_drM && Array.isArray(_drM.skills)) ? _drM.skills.length : null,
+      hp: (_drM && _drM.hp != null) ? Number(_drM.hp) : null,
+      atk: (_drM && _drM.atk != null) ? Number(_drM.atk) : null,
+      def: (_drM && _drM.def != null) ? Number(_drM.def) : null,
+      elementType: (_drM && _drM.elementType != null) ? String(_drM.elementType) : null,
+      ok: _drOkE
+    })
+  }
+  _drOut.entries = { total: _drList.length, ok: _drPass, ng: _drList.length - _drPass, detail: _drDetail }
+  _drOut.gate = { open: (_drList.length > 0 && _drPass === _drList.length) }
+  const _drRes = await defServerResolve(c.env, _drSt, _drCid, DEFENSE_ENEMIES)
+  _drOut.server = _drRes
+    ? { would_resolve: true, result: _drRes.result, base_hp_end: _drRes.baseHpEnd, seed: _drRes.seed, entries: _drRes.entries, log_bytes: String(_drRes.logJson || '').length }
+    : { would_resolve: false }
+  return c.json(_drOut)
 })
 
 app.post('/api/defense/resolve', async (c) => {
