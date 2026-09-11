@@ -1,0 +1,52 @@
+name: 児童画面プレビューを追加 (teacher-preview v1)
+on:
+  workflow_dispatch:
+    inputs:
+      expect_chain:
+        description: "app.get('/') の .replace() チェーン件数（流す直前に実測した値。空なら前後不変だけを見る）"
+        required: false
+        default: ""
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: パッチを適用（SHA-256とアンカーが一致しなければ中止）
+        env:
+          EXPECT_REPLACE_CHAIN: ${{ github.event.inputs.expect_chain }}
+        run: python3 scripts/patch_teacher_preview_v1.py
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: コミット&プッシュ（他セッションと衝突したら rebase して3回まで再試行）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          if git diff --staged --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "先生用の児童画面プレビュー（読み取り専用）を追加"
+          for i in 1 2 3; do
+            git fetch origin main
+            if git rebase origin/main; then
+              if git push; then
+                echo "pushed on attempt $i"
+                exit 0
+              fi
+            else
+              echo "rebase conflict on attempt $i -> abort"
+              git rebase --abort || true
+              exit 1
+            fi
+            echo "push rejected. retry $i"
+            sleep 5
+          done
+          echo "push failed after 3 attempts"
+          exit 1
