@@ -2,6 +2,7 @@
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
+import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 
 type Bindings = {
   DB: D1Database
@@ -1782,6 +1783,30 @@ app.post('/api/defense/entry', async (c) => {
 })
 
 // 児童：決戦を1回だけ保存（冪等ロック）＋勝利なら参加者へ報酬記録
+// __DEF_SERVER_ENGINE_V1__ サーバ側エンジンの突き合わせ用（GET・計算のみ・DB には一切さわらない）
+app.get('/api/defense/_engine_check', (c) => {
+  const seed = (Number(c.req.query('seed') || 1) >>> 0) || 1
+  const nA = Math.max(1, Math.min(40, Number(c.req.query('a') || 22) || 22))
+  const nB = Math.max(1, Math.min(40, Number(c.req.query('b') || 8) || 8))
+  const reps = Math.max(1, Math.min(24, Number(c.req.query('reps') || 1) || 1))
+  const withRoster = c.req.query('roster') !== '0'
+  const roster: any = defTestRoster(seed, nA, nB)
+  const mkOpts = () => ({
+    bases: true, lanes: true, laneCount: 3, seed: seed, program: true,
+    programsA: roster.programsA, programB: roster.programB,
+    forts: false, tactics: true, contact: true
+  })
+  let rep: any = null
+  for (let i = 0; i < reps; i++) {
+    rep = defAutoBattleRT(JSON.parse(JSON.stringify(roster.A)), JSON.parse(JSON.stringify(roster.B)), mkOpts())
+  }
+  return c.json({
+    ok: true, sig: DEF_ENGINE_SIG, bytes: DEF_ENGINE_BYTES,
+    seed: seed, a: nA, b: nB, reps: reps,
+    roster: withRoster ? roster : null, rep: rep
+  })
+})
+
 app.post('/api/defense/resolve', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   const body = await c.req.json().catch(() => null)
