@@ -1,0 +1,159 @@
+name: 防衛戦の空打ちの確認口（DEF_DRYRUN_V1・教師だけ・GET・書き込みなし）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンを実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          if n != 72:
+              print('NG: 流す前のチェーンが 72 件でない'); sys.exit(1)
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_dryrun_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_dryrun_v1.py
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys, io
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = True
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          if n != 72:
+              print('NG: チェーンが 72 件でない（増減が自分の追加分0と一致しない）'); ok = False
+
+          if s.count("app.get('/api/teacher/defense/dry-run'") != 1:
+              print('NG: 確認口が1本でない'); ok = False
+          if s.count("import { defServerResolve, defEntryOk } from './def_resolve'") != 1:
+              print('NG: import が書き換わっていない'); ok = False
+          if v.count('export function defEntryOk(m) {') != 1:
+              print('NG: def_resolve.ts の defEntryOk が export されていない'); ok = False
+
+          b0 = s.index('__DEF_DRYRUN_V1__')
+          b1 = s.index("app.post('/api/defense/resolve', async (c) => {", b0)
+          blk = s[b0:b1]
+          blk_code = '\n'.join([ln for ln in blk.split('\n') if not ln.lstrip().startswith('//')])
+          for bad in ['INSERT', 'UPDATE ', 'DELETE', 'CREATE ', 'DROP ', 'ALTER ',
+                      'ensureDefenseTables', 'defenseSettings(', '.run()', '.batch(']:
+              if bad in blk_code:
+                  print('NG: 確認口に書き込み系:', bad); ok = False
+          if 'SELECT' not in blk_code:
+              print('NG: 確認口が DB を読んでいない'); ok = False
+          if 'requireTeacher(c)' not in blk_code:
+              print('NG: 確認口が教師限定になっていない'); ok = False
+          if "jsonError(c, 401, 'unauthorized')" not in blk_code:
+              print('NG: 確認口の 401 が無い'); ok = False
+
+          need = [
+              "from './def_resolve'",
+              'defServerResolve(c.env, st, classId, DEFENSE_ENEMIES)',
+              'INSERT OR IGNORE INTO defense_results',
+              '__DEF_SNAP_SPDSKILLS_V1__',
+              '__DEF_RESOLVE_VERIFY_V1__',
+              '__DEF_SERVER_RESOLVE_V1__',
+              'defAutoAdvanceV1',
+              'defense_standing',
+              'defense_carry_lock',
+              'const DEFENSE_BASE_HP = 380',
+          ]
+          for k in need:
+              c = s.count(k)
+              print('    src/index.tsx', k[:56], c)
+              if c < 1:
+                  print('NG: 消えている:', k); ok = False
+
+          verify = ["'log_seed_mismatch'", "'log_replay_missing'", "'log_result_mismatch'",
+                    "'log_base_hp_mismatch'", 'Number(_dvLog.v) === 2',
+                    'Number.isFinite(Number(_dvRep.baseHpA))', 'retry: true']
+          for k in verify:
+              c = s.count(k)
+              print('    照合', k[:52], c)
+              if c < 1:
+                  print('NG: 照合が壊れている:', k); ok = False
+
+          if s.count('ensureDefenseTables') != 1:
+              print('NG: ensureDefenseTables の出現が 1 件でない（呼び出しは0件のまま）'); ok = False
+
+          guard = ['Number(m.spd)', 'Array.isArray(m.skills)', 'm.skills.length === 0',
+                   'function computeMVP(', 'export async function defServerResolve(',
+                   'ORDER BY de.created_at ASC, de.user_id ASC']
+          for k in guard:
+              c = v.count(k)
+              print('    src/def_resolve.ts', k[:52], c)
+              if c < 1:
+                  print('NG: def_resolve.ts に無い:', k); ok = False
+          if v.count('logJson.length > 900000') != 1:
+              print('NG: ログの上限チェックが無い'); ok = False
+          if e.count('function autoBattleRT(') != 1:
+              print('NG: def_engine.ts が壊れている'); ok = False
+          if d.count('autoBattleRT(') != d.count('window.autoBattleRT('):
+              print('NG: defense2.js に素の autoBattleRT( 呼び出しがある'); ok = False
+          if d.count('withFrozenStats(') < 2:
+              print('NG: withFrozenStats が見当たりません'); ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx src/def_resolve.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_DRYRUN_V1: 防衛戦の空打ちの確認口（教師だけ・GET・書き込みなし・チェーンは72件のまま）'
+          git pull --rebase origin main
+          git push origin HEAD:main
