@@ -47,7 +47,7 @@ export function defStageEnemies(base, stage) {
 
 '''
 
-A_IMPORT = '''import { defServerResolve, defEntryOk } from './def_resolve''''
+A_IMPORT = "import { defServerResolve, defEntryOk } from './def_resolve'"
 
 A_DEC = '''  } catch (e) { /* テーブルが読めなくても stage=1 のまま返す */ }
   out.decided = decided'''
