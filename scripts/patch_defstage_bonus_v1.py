@@ -276,7 +276,7 @@ N_PUT = A_PUT + '''      // 👾 ステージ初クリアのボーナスコイ�
 '''
 
 N_STATUS_END = '''  // __DEFSTAGE_BONUS_V1__ 直前に勝った回のステージボーナス（この子ぶん）。読むだけ。ここでは絶対に書かない。
-  //   out.stage はもう1つ進んだあとの値なので、クリアしたステージは out.stage - 1。
+  //   out.stage はもう1つ進んだあとの値なので、クリアしたステージは その1つ手前になる。
   try {
     if (out.result && out.result.result === 'win') {
       const _dsbCleared = Math.floor(Number(out.stage)) - 1
