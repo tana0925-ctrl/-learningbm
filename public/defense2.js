@@ -116,6 +116,23 @@
   }catch(e){ try{console.error('def2 enhance',e);}catch(_){} }
 }
 
+  /* DEF2_STAGE0A_REASON_20260911
+     autoBattleRT returns reason = 'wipe' | 'base' | 'judge' | 'timeout'.
+     'wipe' = one side was knocked out completely. Wording only; no balance
+     or difficulty change. */
+  function def2ReasonText(win, reason, baseEnd, baseMax){
+    try{
+      var noDmg = (baseMax!=null && baseEnd!=null && Math.round(baseEnd) >= Math.round(baseMax));
+      if(reason==='wipe'){
+        return win ? ('てきを ぜんぶ たおした！' + (noDmg ? 'きちは むきず！' : 'きちを まもりきったよ'))
+                   : 'みんな たおれてしまった…';
+      }
+      if(reason==='base'){ return win ? 'あいての きちを こわした！' : 'きちを こわされた…'; }
+      if(reason==='timeout' || reason==='judge'){ return win ? 'じかんぎれ！ はんていで かち！' : 'じかんぎれ… はんていで まけ'; }
+      return '';
+    }catch(e){ return ''; }
+  }
+
 function def2HypeHtml(log, st){
     try{
       var rep = (log && log.replay) || {};
@@ -128,6 +145,9 @@ function def2HypeHtml(log, st){
         + '<div style="font-size:12px;letter-spacing:3px;opacity:.85;">CLASS DEFENSE - 決戦</div>'
         + '<div style="font-size:30px;font-weight:900;margin:4px 0;text-shadow:0 2px 8px rgba(0,0,0,.4);">'+(win?'🎉 まもりきった！':'💥 とっぱされた…')+'</div>'
         + '<div style="font-size:13px;opacity:.9;">みんなの きち防衛 けっか</div>';
+      /* DEF2_STAGE0A_HERO_20260911 */
+      var _rsn = def2ReasonText(win, rep && rep.reason, baseEnd, baseMax);
+      if(_rsn){ hero += '<div style="margin-top:8px;display:inline-block;background:rgba(255,255,255,.20);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:800;">'+esc(_rsn)+'</div>'; }
       if(baseMax){
         var bpct = Math.max(0,Math.min(100,Math.round((baseEnd||0)/baseMax*100)));
         hero += '<div style="margin:10px auto 2px;max-width:340px;background:rgba(255,255,255,.25);border-radius:999px;height:14px;overflow:hidden;"><div style="width:'+bpct+'%;height:100%;background:'+(win?'#4ade80':'#fca5a5')+';"></div></div>'
@@ -244,14 +264,53 @@ function def2HypeHtml(log, st){
 
   var _gcHome = null;
   function relocateGymInto(host){ var g=document.getElementById('gymChallengeBody'); if(!g) return null; if(!_gcHome){ _gcHome={parent:g.parentNode, next:g.nextSibling}; } host.appendChild(g); return g; }
-  function restoreGym(){ try{ var g=document.getElementById('gymChallengeBody'); if(g&&_gcHome&&_gcHome.parent){ _gcHome.parent.insertBefore(g,_gcHome.next); } }catch(e){} }
+  /* DEF2_STAGE0A_GCHOME_20260911
+     restoreGym() never cleared _gcHome, so a stale parent/next pair survived a
+     re-render: insertBefore() then threw NotFoundError, was swallowed by catch,
+     and gymChallengeBody stayed orphaned inside the replay area. */
+  function restoreGym(){
+    try{
+      var g=document.getElementById('gymChallengeBody');
+      var h=_gcHome;
+      if(g && h && h.parent && document.contains(h.parent)){
+        var nx=(h.next && h.next.parentNode===h.parent) ? h.next : null;
+        h.parent.insertBefore(g, nx);
+      }
+    }catch(e){}
+    _gcHome = null;
+  }
+  /* DEF2_STAGE0A_REPLAYEP_20260911
+     Forward-compat: a later stage adds GET /api/defense/replay. Until it exists
+     (404, or the SPA HTML returned with 200) fall back to the current
+     /api/defense/status path, so today's behaviour is unchanged. */
+  function def2GetReplayData(){
+    function viaStatus(){
+      return jget('/api/defense/status').then(function(st){
+        return {st:st, log:(st && st.result) ? st.result.log : null};
+      });
+    }
+    try{
+      return fetch('/api/defense/replay',{cache:'no-store'}).then(function(r){
+        if(!r || !r.ok) return null;
+        var ct=(r.headers && r.headers.get && r.headers.get('content-type')) || '';
+        if(ct.indexOf('json')<0) return null;
+        return r.json();
+      }).catch(function(){ return null; }).then(function(j){
+        var lg = j && (j.log || (j.result && j.result.log));
+        if(lg && !Array.isArray(lg) && lg.v===2){ return {st:(j.status||j), log:lg}; }
+        return viaStatus();
+      }).catch(function(){ return viaStatus(); });
+    }catch(e){ return viaStatus(); }
+  }
+
   function makeReplay(orig){
     var f = function(){
       var args=arguments, self=this;
       try{
         var rp=document.getElementById('defReplay'); if(!rp){ if(typeof orig==='function') return orig.apply(self,args); return; }
-        jget('/api/defense/status').then(function(st){
-          var log = st && st.result ? st.result.log : null;
+        /* DEF2_STAGE0A_CALLSITE_20260911 */
+        def2GetReplayData().then(function(d){
+          var st = d && d.st, log = d && d.log;
           if(!log || (Array.isArray(log)) || log.v!==2){ if(typeof orig==='function'){ try{ return orig.apply(self,args); }catch(e){} } if(rp){ rp.textContent='リプレイデータがありません。'; } return; }
           var entrantsHtml = (log.entrants||[]).map(function(e){ return '<span style="display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;border-radius:999px;padding:2px 8px;margin:2px;font-size:12px;">'+esc(e.sprite)+esc(e.name)+'</span>'; }).join('');
           var mvpHtml = log.mvp ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px;margin:8px 0;font-weight:900;color:#b45309;">🏆 MVP：'+esc(log.mvp.sprite||'')+esc(log.mvp.name||'')+'</div>' : '';
