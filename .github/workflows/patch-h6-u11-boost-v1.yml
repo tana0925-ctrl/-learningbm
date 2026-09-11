@@ -1,0 +1,112 @@
+name: 小6歴史 u11（新しい日本へ）を59問にする（H6U11_BOOST_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを掃除
+        run: git checkout -- .
+
+      - name: 最新を取り込む
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_h6_u11_boost_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        run: python3 scripts/patch_h6_u11_boost_v1.py
+
+      - name: 検証（冪等性の番兵とは別の条件で確かめる）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+
+          ok = True
+
+          # 1) チェーンは 76 -> 77（増分は自分の追加分1件だけ）
+          if n != 77:
+              print('NG: チェーンが', n, '件（想定 77件）'); ok = False
+
+          # 2) 置換の足場が想定どおり3件（元の1件＋検索語＋置換語）
+          anchor = "function genH6u11(){return _pickBank(_H6M('h6u11'));}"
+          if s.count(anchor) != 3:
+              print('NG: genH6u11 アンカーが', s.count(anchor), '件（想定 3件）'); ok = False
+
+          # 3) 追加分・差し替え分が入っている
+          if s.count('_H6U11ADD_V1') != 2:
+              print('NG: _H6U11ADD_V1 が', s.count('_H6U11ADD_V1'), '件（想定 2件）'); ok = False
+          if s.count('_H6U11FIX_V1') != 4:
+              print('NG: _H6U11FIX_V1 が', s.count('_H6U11FIX_V1'), '件（想定 4件）'); ok = False
+
+          # 4) 壊してはいけない目印
+          for k in ['__H6MERGE_SRC_V1__', '__H6BANK_LIVE_V1__', '__S6WORLD_50__',
+                    '__DEFSTAGE_SENTINEL_V1__', '__DEF_SNAP_SPDSKILLS_V1__',
+                    '__DEF_RESOLVE_VERIFY_V1__']:
+              if k not in s:
+                  print('NG: 目印が消えた', k); ok = False
+
+          # 5) public/index.html は手で触っていないこと
+          if "function genH6u11(){return _pickBank(_SS.h6u11);}" not in h:
+              print('NG: public/index.html の元の genH6u11 が見つからない'); ok = False
+          if '_H6M(' in h:
+              print('NG: public/index.html に _H6M が混入している'); ok = False
+
+          # 6) 追加した問題が 34問そろっていること
+          k0 = s.index('_H6U11ADD_V1=')
+          k1 = s.index('var mp={}', k0)
+          seg = s[k0:k1]
+          nq = seg.count(chr(92) + '"q' + chr(92) + '":')
+          nw = seg.count(chr(92) + '"wrongs' + chr(92) + '":')
+          print('追加問題:', nq, '/ wrongs:', nw)
+          if nq != 34 or nw != 34:
+              print('NG: 追加問題が 34問になっていない'); ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ビルドが通ることを確認
+        run: |
+          npm ci
+          npm run build
+          git checkout -- dist 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- git status ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- src/index.tsx; then
+            echo '変更なし（既に適用済み）'; exit 0
+          fi
+          git add src/index.tsx
+          git commit -m 'H6U11_BOOST_V1: 小6歴史 u11（新しい日本へ）に34問追加＋誤答10問差し替え / chain 76->77'
+          git pull --rebase origin main
+          git push origin HEAD:main
