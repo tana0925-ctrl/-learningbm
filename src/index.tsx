@@ -4,6 +4,12 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 import { defServerResolve, defEntryOk } from './def_resolve'
+
+// __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
+// 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
+function defCarrySnapOk(mj: any): boolean {
+  try { return defEntryOk(JSON.parse(String(mj))) } catch (_e) { return false }
+}
 import { defStageEnemies } from './def_stage'
 
 type Bindings = {
@@ -1906,7 +1912,7 @@ app.get('/api/defense/status', async (c) => {
   if (!out.my_entry && !decided && classId) {
     try {
       const _dsRow = await c.env.DB.prepare("SELECT ds.strategy AS strat, ds.snapshot_json AS mj, ds.snapshot_level AS lv, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds LEFT JOIN progress p ON p.user_id = ds.user_id WHERE ds.user_id=? LIMIT 1").bind(u.id).first<any>()
-      if (_dsRow && _dsRow.mj) {
+      if (_dsRow && _dsRow.mj && !defCarrySnapOk(_dsRow.mj)) { out.carry_over_error = 'needs_reselect' } else if (_dsRow && _dsRow.mj) {
         if (_dsRow.curlv == null) {
           out.carry_over_error = 'monster_gone'
         } else {
@@ -1936,7 +1942,7 @@ app.get('/api/defense/status', async (c) => {
           const _dsLock = await c.env.DB.prepare("INSERT INTO defense_carry_lock (event_key, class_id, done_at) VALUES (?,?,datetime('now')) ON CONFLICT(event_key, class_id) DO NOTHING").bind(st.eventKey, classId).run()
           if (_dsLock && _dsLock.meta && Number(_dsLock.meta.changes || 0) > 0) {
             const _dsAll = await c.env.DB.prepare("SELECT ds.user_id AS uid, ds.snapshot_json AS mj, ds.strategy AS strat, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds JOIN class_members cm ON cm.user_id = ds.user_id LEFT JOIN progress p ON p.user_id = ds.user_id WHERE cm.class_id=? LIMIT 200").bind(classId).all<any>()
-            const _dsRows = ((_dsAll && _dsAll.results) || []).filter((r: any) => r && r.mj && r.curlv != null)
+            const _dsRows = ((_dsAll && _dsAll.results) || []).filter((r: any) => r && r.mj && r.curlv != null && defCarrySnapOk(r.mj))
             if (_dsRows.length) {
               const _dsIns = c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING")
               await c.env.DB.batch(_dsRows.map((r: any) => _dsIns.bind(st.eventKey, String(r.uid), classId, String(r.mj), String(r.strat || 'balance'))))
@@ -1944,7 +1950,7 @@ app.get('/api/defense/status', async (c) => {
           }
           if (!out.my_entry) {
             const _dsMe = await c.env.DB.prepare("SELECT ds.strategy AS strat, ds.snapshot_json AS mj, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds LEFT JOIN progress p ON p.user_id = ds.user_id WHERE ds.user_id=? LIMIT 1").bind(u.id).first<any>()
-            if (_dsMe && _dsMe.mj && _dsMe.curlv != null) {
+            if (_dsMe && _dsMe.mj && !defCarrySnapOk(_dsMe.mj)) { out.carry_over_error = 'needs_reselect' } else if (_dsMe && _dsMe.mj && _dsMe.curlv != null) {
               await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING").bind(st.eventKey, u.id, classId, String(_dsMe.mj), String(_dsMe.strat || 'balance')).run()
               out.carried_over = true
             } else if (_dsMe && _dsMe.mj) {
@@ -7912,7 +7918,10 @@ app.get('/', async (c) => {
       // __DEF_SNAP_SPDSKILLS_V1__ _defSnapshot に spd / skills を追加
       t = t.replace("buff:base.buff||'lucky',elementType:el,skillPow:10}", "buff:base.buff||'lucky',elementType:el,skillPow:10,spd:Number((s&&s.spd)||10),skills:(Array.isArray(base.skills)?base.skills.map(function(_sk){return Object.assign({},_sk)}):[])}")
       // __AB_RAW_ELEM_SKILLS_V1__ _abFighter の raw 経路が raw.elementType / raw.skills を読む（.replace は増やさない）
-      _rootHtmlCache = t
+      // __DEF_CARRY_FRESH_V1_UI__ 古い持ち越しのときのお知らせ
+    t = t.replace(`if (d.carry_over_error==='monster_gone') {`, `if (d.carry_over_error==='needs_reselect') { head+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px;margin-bottom:8px;color:#c2410c;font-weight:900;">まえの データが ふるいままだよ。もういちど えらんでね。</div>'; }
+    if (d.carry_over_error==='monster_gone') {`)
+    _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
   } catch (e) {
