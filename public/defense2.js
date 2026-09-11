@@ -249,6 +249,8 @@ function def2HypeHtml(log, st){
     var f = async function(){
       try{
         var st = await jget('/api/defense/status'); if(!st || !st.event_key || !st.decided){ if(typeof orig==='function') return orig.apply(this,arguments); return; }
+        /* __DEF2_SKIP_LOCAL_V1__ すでに結果があるなら、端末で戦闘を回さずリプレイ再生に回す */
+        if(st.result){ if(typeof window.openDefense==='function'){ try{ window.openDefense(); }catch(e){} } return; }
         var built = buildBattle(st); var rep=built.rep;
         var result = (rep.winner==='A') ? 'win' : 'lose';
         var baseHpEnd = (rep.baseHpA!=null)? Math.max(0,Math.floor(rep.baseHpA)) : (result==='win'? (st.base_hp||0):0);
