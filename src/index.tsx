@@ -7413,6 +7413,12 @@ app.get('/', async (c) => {
       // P9 提出ボタンの活性条件も緩める（P7とセット）
       t = t.replace("      const canExport = !!(sess && sess.started && unlocked && !submitted && minOk);", "      const canExport = !!(sess && (sess.started || minOk) && unlocked && !submitted && minOk);")
 
+      // __RESTORE3_V1__ 到達不能だった3単元をCURRICULUMへ復帰し、出題関数をwindowへ公開
+      t = t.replace(/(\{id:'m3-weight',[^\n]*\})(\n    \]\},\n    4:\{label:)/, "$1,\n      {id:'mushikuizan',name:'虫食い算',icon:'🧩',color:'yellow',gen:'generateMushikuizanProblem',input:'numpad',desc:'□に入る数をもとめよう'},\n      {id:'numberline',name:'数直線',icon:'📏',color:'red',gen:'generateNumberLineProblem',input:'numpad',desc:'？に入る数をもとめよう'}$2")
+      t = t.replace(/(\{id:'m5-unit-qty',[^\n]*\})(\n    \]\},\n    6:\{label:)/, "$1,\n      {id:'area-triangle',name:'三角形と平行四辺形の面積',icon:'📐',color:'blue',gen:'generateAreaTriangleProblem',input:'numpad',desc:'底辺×高さ(÷2)'}$2")
+      t = t.replace(/(        window\.generateLongDivisionProblem = generateLongDivisionProblem;\n)/, "$1        window.generateAreaTriangleProblem = generateAreaTriangleProblem;\n        window.generateMushikuizanProblem = generateMushikuizanProblem;\n        window.generateNumberLineProblem = generateNumberLineProblem;\n")
+      t = t.replace(/(\n          'area-triangle':')[^']*(',)/, "$1三角形と平行四辺形の面積$2")
+      t = t.replace(/(\{ mode: 'area-triangle', name: ')[^']*(')/, "$1三角形と平行四辺形の面積$2")
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
