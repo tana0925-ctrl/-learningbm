@@ -7394,6 +7394,18 @@ app.get('/', async (c) => {
       // P10 縮小コールバックを閉じる（P4とセット）
       t = t.replace("      .catch(function(e) { console.warn('[photo-analysis]', e); });\n  }\n}", "      .catch(function(e) { console.warn('[photo-analysis]', e); });\n    });\n  }\n}")
 
+      // ===== hs-minutes-input-20260911 =====
+      // P5 タイマー未使用時だけヒントを出す
+      t = t.replace("<div id=\"hsElapsedLine\" class=\"hs-elapsedLine hidden\">経過 0:00</div>", "<div id=\"hsElapsedLine\" class=\"hs-elapsedLine hidden\" data-hint=\"1\">経過 0:00</div><div id=\"hsMinHint\">⏱タイマーでも、手入力でもOK</div><style>#hsMinHint{display:none; position:absolute; left:8px; right:8px; top:31px; text-align:center; font-size:10px; font-weight:700; color:#0e7490; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;} #hsElapsedLine.hidden + #hsMinHint{display:block;}</style>")
+      // P6 タイマーが手入力を上書きしない
+      t = t.replace("      // 経過時間を自動でやった時間に反映\n      if(minEl && !submitted){\n        minEl.value = elapsedMin;\n        if(sess) sess.minutesManual = String(elapsedMin);\n      }", "      // 経過時間を自動でやった時間に反映（手で入力された値は上書きしない）\n      if(minEl && !submitted){\n        var _curMin = String(minEl.value || \"\").trim();\n        var _lastAuto = (sess && sess.minutesTimerLast != null) ? String(sess.minutesTimerLast) : \"\";\n        if (_curMin === \"\" || _curMin === _lastAuto){\n          minEl.value = elapsedMin;\n          if(sess){ sess.minutesManual = String(elapsedMin); sess.minutesTimerLast = String(elapsedMin); }\n        }\n      }")
+      // P7 スタート未押下でも分があれば提出可
+      t = t.replace("    if (!sess.started || !sess.unlocked) { hsRender(); if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } return; }", "    var _mEl0 = document.getElementById(\"hsMinutes\");\n    var _typedMin = Math.max(0, parseInt(String((_mEl0 && _mEl0.value) || sess.minutesManual || \"0\"), 10) || 0);\n    if ((!sess.started || !sess.unlocked) && _typedMin <= 0) { hsRender(); if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } return; }")
+      // P8 上限300分（責めない）／0分は1回だけ確認
+      t = t.replace("    const minEl = document.getElementById(\"hsMinutes\");\n    const minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||\"0\"), 10) || 0));", "    const minEl = document.getElementById(\"hsMinutes\");\n    let minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||\"0\"), 10) || 0));\n    if (minutes > 300){\n      minutes = 300;\n      if (minEl) minEl.value = \"300\";\n      try { alert('300分をこえたみたいだね。300分にしておくね。長くやったことは先生に伝わってるよ！'); } catch(_e0){}\n    }\n    if (minutes === 0 && !hsIsRestDay(dayKey) && !sess.zeroMinAsked){\n      sess.zeroMinAsked = true;\n      try { hsSetSession(sess); } catch(_e1){}\n      let _wantInput = false;\n      try { _wantInput = confirm('時間が0分のままだよ。\\n入れなくても出せるけど、だいたいでいいから入れる？\\n\\n［OK］入れる　／　［キャンセル］このまま出す'); } catch(_e2){ _wantInput = false; }\n      if (_wantInput){\n        if (minEl) { try { minEl.focus(); } catch(_e3){} }\n        hsRender();\n        if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }\n        return;\n      }\n    }")
+      // P9 提出ボタンの活性条件も緩める（P7とセット）
+      t = t.replace("      const canExport = !!(sess && sess.started && unlocked && !submitted && minOk);", "      const canExport = !!(sess && (sess.started || minOk) && unlocked && !submitted && minOk);")
+
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
