@@ -7178,12 +7178,109 @@ app.post('/api/summer/shiny-found', async (c) => {
   try {
     await c.env.DB.prepare(`INSERT INTO admin_settings (key, value) VALUES ('summer26_shiny_first', ?)`).bind(rec).run()
   } catch (e) { /* 既に第1号がいる場合はここに来る（上書きしない） */ }
+  // 捕獲したときだけ記録する（古い端末は captured を送らないので自然に除外）
+  if (body && body.captured) {
+    try {
+      const cur0 = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='shiny_catch_log' LIMIT 1`).first<any>()
+      let arr: any[] = []
+      try { arr = cur0?.value ? JSON.parse(cur0.value) : [] } catch (e2) { arr = [] }
+      if (!Array.isArray(arr)) arr = []
+      arr.unshift({ userId: u.id, name: finderName, monsterName, at: new Date().toISOString() })
+      arr = arr.slice(0, 20)
+      await c.env.DB.prepare(`INSERT INTO admin_settings (key, value, updated_at) VALUES ('shiny_catch_log', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`).bind(JSON.stringify(arr)).run()
+    } catch (e) {}
+  }
+  const nw = await shinyNewsData(c)
+  return c.json({ ok: true, first: nw.first, recent: nw.recent, isFirstDiscoverer: !!(nw.first && nw.first.userId === u.id) })
+})
+
+// ✨ 色違いのお知らせ（通年）— 第1号キー summer26_shiny_first は読むだけで変更しない
+async function shinyNewsData(c: any) {
   let first: any = null
+  let recent: any[] = []
   try {
-    const cur = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='summer26_shiny_first' LIMIT 1`).first<any>()
-    first = cur?.value ? JSON.parse(cur.value) : null
+    const a = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='summer26_shiny_first' LIMIT 1`).first<any>()
+    first = a?.value ? JSON.parse(a.value) : null
   } catch (e) {}
-  return c.json({ ok: true, first, isFirstDiscoverer: !!(first && first.userId === u.id) })
+  try {
+    const b = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='shiny_catch_log' LIMIT 1`).first<any>()
+    const arr = b?.value ? JSON.parse(b.value) : []
+    if (Array.isArray(arr)) recent = arr.slice(0, 5)
+  } catch (e) {}
+  return { first, recent }
+}
+
+app.get('/api/shiny/news', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return c.json({ first: null, recent: [] })
+  return c.json(await shinyNewsData(c))
+})
+
+const SHINY_NEWS_JS = `(function(){
+  var last = null;
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  window._shinyCaught = function(monName){
+    try {
+      fetch('/api/summer/shiny-found', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ monsterName: monName || '', captured: true }) })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          try { render(j); } catch(e) {}
+          var msg = '✨ 色違いだ！ ' + (monName || 'モンスター') + ' を つかまえた！';
+          if (j && j.isFirstDiscoverer) { msg += '  — きみは、いちばん最初に色違いを見つけた人です！'; }
+          setTimeout(function(){ try { alert(msg); } catch(e) {} }, 1800);
+        })
+        .catch(function(){});
+    } catch(e) {}
+  };
+  function slot(){
+    var host = document.getElementById('screen-map-select');
+    if (!host) return null;
+    var el = document.getElementById('shinyNewsBox');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'shinyNewsBox';
+      el.style.margin = '0 0 12px';
+      var t = document.getElementById('pveSelectTitle');
+      if (t && t.parentNode === host) { host.insertBefore(el, t.nextSibling); }
+      else { host.insertBefore(el, host.firstChild); }
+    }
+    return el;
+  }
+  function render(d){
+    if (d && (d.first !== undefined || d.recent !== undefined)) last = d;
+    var el = slot(); if (!el || !last) return;
+    var f = last.first, r = last.recent || [];
+    if (!f && (!r || !r.length)) { el.innerHTML = ''; return; }
+    var h = '';
+    if (r && r.length) {
+      h += '<div style="font-size:12px;color:#334155;margin-top:3px;">つかまえた人：</div>';
+      for (var i = 0; i < r.length && i < 5; i++) {
+        h += '<div style="font-size:12px;color:#334155;">・' + esc(r[i].name) + ' さん … ' + esc(r[i].monsterName || '?') + '</div>';
+      }
+    }
+    if (f) {
+      h += '<div style="font-size:11px;color:#7c3aed;margin-top:5px;">はじめて見つけた人：' + esc(f.name) + ' さん（' + esc(f.monsterName || '?') + '）</div>';
+    }
+    el.innerHTML = '<div style="background:#fdf4ff;border:2px solid #e879f9;border-radius:14px;padding:8px 12px;">'
+      + '<div style="font-weight:900;color:#a21caf;font-size:13px;">✨ 色違いのきろく ✨</div>' + h + '</div>';
+  }
+  function load(){
+    try {
+      fetch('/api/shiny/news', { credentials:'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(render)
+        .catch(function(){});
+    } catch(e) {}
+  }
+  try {
+    setTimeout(load, 4000);
+    setInterval(load, 300000);
+    setInterval(function(){ try { if (last) render(); } catch(e) {} }, 3000);
+  } catch(e) {}
+})();`
+
+app.get('/shiny-news.js', (c) => {
+  return new Response(SHINY_NEWS_JS, { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } })
 })
 
 app.get('/egg2p.js', (c) => {
@@ -7284,7 +7381,7 @@ app.get('/', async (c) => {
       //    しかも正解が最長である割合が86%で、内容を知らなくても選べた。
       //    指導要領の構成に合わせて50問に作り直す。範囲はつながりの深い5か国と
       //    国際連合・国際協力。数値や順位は作らない。__S6WORLD_50__
-      t = t.replace("function genWorld6(){return _pickBank(_SS.world6);}", "function genWorld6(){return _pickBank([{q:'🌍 アメリカ合衆国の首都はどこ？',correct:'ワシントンD.C.',wrongs:['ニューオーリンズ','サンフランシスコ','フィラデルフィア']},{q:'🌍 アメリカ合衆国で\\nおもに使われている言語は？',correct:'英語',wrongs:['スペイン語','フランス語','ドイツ語']},{q:'🌍 アメリカの農業の特色は？',correct:'広い農地で大型機械を使って行う',wrongs:['せまい農地で手作業を中心に行う','水田が耕地の大部分をしめる','山の斜面のだんだん畑が中心']},{q:'🌍 日本がアメリカから\\n多く輸入している農産物は？',correct:'とうもろこしや大豆',wrongs:['さとうきびやバナナ','コーヒー豆やカカオ豆','オリーブやぶどう']},{q:'🌍 アメリカの小学校で\\nよく見られるようすは？',correct:'スクールバスで通学する子が多い',wrongs:['決められた制服を着て通学する子が多い','そうじの時間が毎日ある','給食当番が配ぜんを行う']},{q:'🌍 さまざまな民族が\\nともに暮らすアメリカの社会を何という？',correct:'多民族社会',wrongs:['単一民族社会','鎖国した社会','農村中心の社会']},{q:'🌍 中国の首都はどこ？',correct:'ペキン',wrongs:['シャンハイ','ホンコン','ソウル']},{q:'🌍 中国でおもに使われている文字は？',correct:'漢字',wrongs:['ハングル','アルファベット','アラビア文字']},{q:'🌍 中国から日本に\\n多く輸入されているものは？',correct:'衣類や機械類',wrongs:['原油や天然ガス','鉄鉱石や石炭','小麦や牛肉']},{q:'🌍 中国の代表的な料理として\\n知られているものは？',correct:'ぎょうざやチャーハン',wrongs:['キムチやビビンバ','タコスやトルティーヤ','ナンやカレー']},{q:'🌍 中国で古くからの暦にもとづいて\\n祝われる正月を何という？',correct:'春節',wrongs:['七夕','感謝祭','イースター']},{q:'🌍 中国は日本から見て\\nどの方角にある？',correct:'西',wrongs:['東','南','北']},{q:'🌍 大韓民国の首都はどこ？',correct:'ソウル',wrongs:['ペキン','ハノイ','マニラ']},{q:'🌍 韓国で使われている文字は？',correct:'ハングル',wrongs:['アルファベット','アラビア文字','キリル文字']},{q:'🌍 韓国の食事でよく使われ\\n日本とちがうところは？',correct:'金属のはしとスプーンを使う',wrongs:['木のはしだけを使って食べる','ナイフとフォークを使って食べる','手を使って直接食べる']},{q:'🌍 韓国の代表的な\\nつけもの料理は？',correct:'キムチ',wrongs:['ぬかづけ','ザワークラウト','ピクルス']},{q:'🌍 韓国は日本から見て\\nどこにある？',correct:'西どなりの朝鮮半島にある',wrongs:['東どなりの太平洋上にある','南のはるか遠くの島にある','北の広い大陸の内陸にある']},{q:'🌍 ブラジルでおもに\\n使われている言語は？',correct:'ポルトガル語',wrongs:['スペイン語','イタリア語','フランス語']},{q:'🌍 ブラジルに広がる\\n世界最大の熱帯雨林は？',correct:'アマゾン',wrongs:['サハラ','ゴビ','ヒマラヤ']},{q:'🌍 ブラジルで毎年行われる\\n有名な祭りは？',correct:'カーニバル',wrongs:['ハロウィン','オクトーバーフェスト','ホーリー']},{q:'🌍 日本からブラジルへ移り住んだ人や\\nその子孫を何という？',correct:'日系人',wrongs:['帰国子女','留学生','旅行者']},{q:'🌍 ブラジルから日本に\\n多く輸入されている農産物は？',correct:'コーヒー豆',wrongs:['オリーブ','ぶどう','なつめやし']},{q:'🌍 サウジアラビアの人々が\\n多く信仰している宗教は？',correct:'イスラム教',wrongs:['キリスト教','仏教','ヒンドゥー教']},{q:'🌍 日本がサウジアラビアから\\n多く輸入しているものは？',correct:'石油',wrongs:['石炭','鉄鉱石','木材']},{q:'🌍 イスラム教の人々が\\n礼拝を行う建物を何という？',correct:'モスク',wrongs:['仏教寺院','キリスト教会','神社']},{q:'🌍 イスラム教で食べることが\\n禁じられている肉は？',correct:'ぶた肉',wrongs:['牛肉','とり肉','ひつじ肉']},{q:'🌍 サウジアラビアの国土の\\n多くをしめる地形は？',correct:'砂漠',wrongs:['森林','氷河','湿地']},{q:'🌍 国際連合の本部がある\\n都市はどこ？',correct:'ニューヨーク',wrongs:['アムステルダム','ブエノスアイレス','ヨハネスブルク']},{q:'🌍 国際連合がつくられた\\nいちばんの目的は？',correct:'世界の平和と安全を守ること',wrongs:['貿易の利益を大きくすること','強い国の力をさらに高めること','各国の軍隊を強くすること']},{q:'🌍 世界の子どもの命と健康を守る\\n活動をしている国連の機関は？',correct:'ユニセフ',wrongs:['ユネスコ','WTO','IOC']},{q:'🌍 教育・科学・文化を通じて\\n平和をつくる国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WTO','IOC']},{q:'🌍 世界遺産の登録を\\n行っている国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WHO','IOC']},{q:'🌍 世界の人々の健康を守る\\n活動をしている国連の機関は？',correct:'WHO',wrongs:['ユニセフ','ユネスコ','IOC']},{q:'🌍 加盟国のすべてが参加して\\n話し合う国連の場を何という？',correct:'総会',wrongs:['安全保障理事会','事務局','国際司法裁判所']},{q:'🌍 世界の平和と安全に\\nおもな責任をもつ国連の機関は？',correct:'安全保障理事会',wrongs:['国際司法裁判所','国連教育科学文化機関','国連児童基金']},{q:'🌍 2030年までに世界で達成しようと\\n国連が決めた目標を何という？',correct:'SDGs',wrongs:['ODA','NGO','GDP']},{q:'🌍 SDGsは、いくつの目標から\\nできている？',correct:'17',wrongs:['7','27','47']},{q:'🌍 日本の政府が発展途上国を助けるために\\n行っている援助を何という？',correct:'ODA',wrongs:['NGO','WHO','GDP']},{q:'🌍 政府ではなく民間の人々がつくり\\n国際協力を行う団体を何という？',correct:'NGO',wrongs:['ODA','GDP','IOC']},{q:'🌍 発展途上国へ行き\\n技術や知識を伝える日本の人たちは？',correct:'青年海外協力隊',wrongs:['日本赤十字社','国際交流基金','日本オリンピック委員会']},{q:'🌍 戦争や紛争のために自分の国を\\nはなれた人々を何という？',correct:'難民',wrongs:['移民','留学生','旅行者']},{q:'🌍 国際協力で大切な\\n考え方として正しいのは？',correct:'たがいの文化を尊重し合うこと',wrongs:['自分の国のやり方に合わせさせること','ゆたかな国だけで決めること','他の国と関わりを持たないこと']},{q:'🌍 日本が国際連合に\\n加盟したのはいつごろ？',correct:'第二次世界大戦が終わったあと',wrongs:['第一次世界大戦が始まるより前','江戸時代が終わるころ','明治時代が始まったころ']},{q:'🌍 日本が国際社会で果たしている\\n役割として正しいのは？',correct:'平和の実現に向けた協力や支援',wrongs:['他の国の政治を支配すること','武力によって紛争を解決すること','貿易をやめて孤立すること']},{q:'🌍 世界でいちばん面積が\\n大きい大陸は？',correct:'ユーラシア大陸',wrongs:['アフリカ大陸','北アメリカ大陸','南アメリカ大陸']},{q:'🌍 世界でいちばん面積が\\n大きい海は？',correct:'太平洋',wrongs:['大西洋','インド洋','北極海']},{q:'🌍 地球全体の気温が\\n高くなっていく問題を何という？',correct:'地球温暖化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 森林が減り土地があれて\\n広がっていく問題を何という？',correct:'砂漠化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 温室効果ガスを減らすために\\n大切な取り組みは？',correct:'再生可能エネルギーを増やすこと',wrongs:['石炭や石油をもっと燃やすこと','森林を切りひらいて広げること','電気を使う量をふやし続けること']},{q:'🌍 世界の国々が協力して\\n環境問題に取り組む理由は？',correct:'一つの国だけでは解決できないから',wrongs:['一部の大きな国だけが困っているから','決まりを作ることが目的だから','他の国の産業を止めたいから']}]);}")
+      t = t.replace("function genWorld6(){return _pickBank(_SS.world6);}", "function genWorld6(){return _pickBank([{q:'🌍 アメリカ合衆国の首都はどこ？',correct:'ワシントンD.C.',wrongs:['ニューオーリンズ','サンフランシスコ','フィラデルフィア']},{q:'🌍 アメリカ合衆国で\\nおもに使われている言語は？',correct:'英語',wrongs:['スペイン語','フランス語','ドイツ語']},{q:'🌍 アメリカの農業の特色は？',correct:'広い農地で大型機械を使って行う',wrongs:['せまい農地で手作業を中心に行う','水田が耕地の大部分をしめる','山の斜面のだんだん畑が中心']},{q:'🌍 日本がアメリカから\\n多く輸入している農産物は？',correct:'とうもろこしや大豆',wrongs:['さとうきびやバナナ','コーヒー豆やカカオ豆','オリーブやぶどう']},{q:'🌍 アメリカの小学校で\\nよく見られるようすは？',correct:'スクールバスで通学する子が多い',wrongs:['決められた制服を着て通学する子が多い','そうじの時間が毎日ある','給食当番が配ぜんを行う']},{q:'🌍 さまざまな民族が\\nともに暮らすアメリカの社会を何という？',correct:'多民族社会',wrongs:['単一民族社会','鎖国した社会','農村中心の社会']},{q:'🌍 中国の首都はどこ？',correct:'ペキン',wrongs:['シャンハイ','ホンコン','ソウル']},{q:'🌍 中国でおもに使われている文字は？',correct:'漢字',wrongs:['ハングル','アルファベット','アラビア文字']},{q:'🌍 中国から日本に\\n多く輸入されているものは？',correct:'衣類や機械類',wrongs:['原油や天然ガス','鉄鉱石や石炭','小麦や牛肉']},{q:'🌍 中国の代表的な料理として\\n知られているものは？',correct:'ぎょうざやチャーハン',wrongs:['キムチやビビンバ','タコスやトルティーヤ','ナンやカレー']},{q:'🌍 中国で古くからの暦にもとづいて\\n祝われる正月を何という？',correct:'春節',wrongs:['七夕','感謝祭','イースター']},{q:'🌍 中国は日本から見て\\nどの方角にある？',correct:'西',wrongs:['東','南','北']},{q:'🌍 大韓民国の首都はどこ？',correct:'ソウル',wrongs:['ペキン','ハノイ','マニラ']},{q:'🌍 韓国で使われている文字は？',correct:'ハングル',wrongs:['アルファベット','アラビア文字','キリル文字']},{q:'🌍 韓国の食事でよく使われ\\n日本とちがうところは？',correct:'金属のはしとスプーンを使う',wrongs:['木のはしだけを使って食べる','ナイフとフォークを使って食べる','手を使って直接食べる']},{q:'🌍 韓国の代表的な\\nつけもの料理は？',correct:'キムチ',wrongs:['ぬかづけ','ザワークラウト','ピクルス']},{q:'🌍 韓国は日本から見て\\nどこにある？',correct:'西どなりの朝鮮半島にある',wrongs:['東どなりの太平洋上にある','南のはるか遠くの島にある','北の広い大陸の内陸にある']},{q:'🌍 ブラジルでおもに\\n使われている言語は？',correct:'ポルトガル語',wrongs:['スペイン語','イタリア語','フランス語']},{q:'🌍 ブラジルに広がる\\n世界最大の熱帯雨林は？',correct:'アマゾン',wrongs:['サハラ','ゴビ','ヒマラヤ']},{q:'🌍 ブラジルで毎年行われる\\n有名な祭りは？',correct:'カーニバル',wrongs:['ハロウィン','オクトーバーフェスト','ホーリー']},{q:'🌍 日本からブラジルへ移り住んだ人や\\nその子孫を何という？',correct:'日系人',wrongs:['帰国子女','留学生','旅行者']},{q:'🌍 ブラジルから日本に\\n多く輸入されている農産物は？',correct:'コーヒー豆',wrongs:['オリーブ','ぶどう','なつめやし']},{q:'🌍 サウジアラビアの人々が\\n多く信仰している宗教は？',correct:'イスラム教',wrongs:['キリスト教','仏教','ヒンドゥー教']},{q:'🌍 日本がサウジアラビアから\\n多く輸入しているものは？',correct:'石油',wrongs:['石炭','鉄鉱石','木材']},{q:'🌍 イスラム教の人々が\\n礼拝を行う建物を何という？',correct:'モスク',wrongs:['仏教寺院','キリスト教会','神社']},{q:'🌍 イスラム教で食べることが\\n禁じられている肉は？',correct:'ぶた肉',wrongs:['牛肉','とり肉','ひつじ肉']},{q:'🌍 サウジアラビアの国土の\\n多くをしめる地形は？',correct:'砂漠',wrongs:['森林','氷河','湿地']},{q:'🌍 国際連合の本部がある\\n都市はどこ？',correct:'ニューヨーク',wrongs:['アムステルダム','ブエノスアイレス','ヨハネスブルク']},{q:'🌍 国際連合がつくられた\\nいちばんの目的は？',correct:'世界の平和と安全を守ること',wrongs:['貿易の利益を大きくすること','強い国の力をさらに高めること','各国の軍隊を強くすること']},{q:'🌍 世界の子どもの命と健康を守る\\n活動をしている国連の機関は？',correct:'ユニセフ',wrongs:['ユネスコ','WTO','IOC']},{q:'🌍 教育・科学・文化を通じて\\n平和をつくる国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WTO','IOC']},{q:'🌍 世界遺産の登録を\\n行っている国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WHO','IOC']},{q:'🌍 世界の人々の健康を守る\\n活動をしている国連の機関は？',correct:'WHO',wrongs:['ユニセフ','ユネスコ','IOC']},{q:'🌍 加盟国のすべてが参加して\\n話し合う国連の場を何という？',correct:'総会',wrongs:['安全保障理事会','事務局','国際司法裁判所']},{q:'🌍 世界の平和と安全に\\nおもな責任をもつ国連の機関は？',correct:'安全保障理事会',wrongs:['国際司法裁判所','国連教育科学文化機関','国連児童基金']},{q:'🌍 2030年までに世界で達成しようと\\n国連が決めた目標を何という？',correct:'SDGs',wrongs:['ODA','NGO','GDP']},{q:'🌍 SDGsは、いくつの目標から\\nできている？',correct:'17',wrongs:['7','27','47']},{q:'🌍 日本の政府が発展途上国を助けるために\\n行っている援助を何という？',correct:'ODA',wrongs:['NGO','WHO','GDP']},{q:'🌍 政府ではなく民間の人々がつくり\\n国際協力を行う団体を何という？',correct:'NGO',wrongs:['ODA','GDP','IOC']},{q:'🌍 発展途上国へ行き\\n技術や知識を伝える日本の人たちは？',correct:'青年海外協力隊',wrongs:['日本赤十字社','国際交流基金','日本オリンピック委員会']},{q:'🌍 戦争や紛争のために自分の国を\\nはなれた人々を何という？',correct:'難民',wrongs:['移民','留学生','旅行者']},{q:'🌍 国際協力で大切な\\n考え方として正しいのは？',correct:'たがいの文化を尊重し合うこと',wrongs:['自分の国のやり方に合わせさせること','ゆたかな国だけで決めること','他の国と関わりを持たないこと']},{q:'🌍 日本が国際連合に\\n加盟したのはいつごろ？',correct:'第二次世界大戦が終わったあと',wrongs:['第一次世界大戦が始まるより前','江戸時代が終わるころ','明治時代が始まったころ']},{q:'🌍 日本が国際社会で果たしている\\n役割として正しいのは？',correct:'平和の実現に向けた協力や支援',wrongs:['他の国の政治を支配すること','武力によって紛争を解決すること','貿易をやめて孤立すること']},{q:'🌍 世界でいちばん面積が\\n大きい大陸は？',correct:'ユーラシア大陸',wrongs:['アフリカ大陸','北アメリカ大陸','南アメリカ大陸']},{q:'🌍 世界でいちばん面積が\\n大きい海は？',correct:'太平洋',wrongs:['大西洋','インド洋','北極海']},{q:'🌍 地球全体の気温が\\n高くなっていく問題を何という？',correct:'地球温暖化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 森林が減り土地があれて\\n広がっていく問題を何という？',correct:'砂漠化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 温室効果ガスを減らすために\\n大切な取り組みは？',correct:'再生可能エネルギーを増やすこと',wrongs:['石炭や石油をもっと燃やすこと','森林を切りひらいて広げること','電気を使う量をふやし続けること']},{q:'🌍 世界の国々が協力して\\n環境問題に取り組む理由は？',correct:'一つの国だけでは解決できないから',wrongs:['一部の大きな国だけが困っているから','決まりを作ることが目的だから','他の国の産業を止めたいから']}]);}")/* SHINY_YEARROUND_V1 */.replace('                    if (_shCap && typeof isSummerFestSeason === \'function\' && isSummerFestSeason() && Math.random() < SHINY_RATE) {\n                        battle.enemyShiny = true;\n                        _sh0.shiny = true;\n                        try { if (window._sf26ReportShiny) window._sf26ReportShiny(_shm); } catch(e) {}\n                    }', '                    if (_shCap && Math.random() < SHINY_RATE) {\n                        battle.enemyShiny = true;\n                        _sh0.shiny = true;\n                    }').replace('// ✨ 色違いを永続保存（state_json の player.monsters と box に shiny:true）\n                    try { if (battle.enemyShiny) { if (!player.monsters[enemy.id]) player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) }; player.monsters[enemy.id].shiny = true; if (typeof boxEntry === \'object\' && boxEntry) boxEntry.shiny = true; } } catch(e){}', '// ✨ 色違いを永続保存（state_json の player.monsters と box に shiny:true）\n                    try { if (battle.enemyShiny) { if (!player.monsters[enemy.id]) player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) }; player.monsters[enemy.id].shiny = true; if (typeof boxEntry === \'object\' && boxEntry) boxEntry.shiny = true; } } catch(e){}\n                    try { if (battle.enemyShiny && window._shinyCaught) window._shinyCaught(enemy.name); } catch(e){}').replace('</body>', '<script src="/shiny-news.js?v=1"></script></body>')
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
