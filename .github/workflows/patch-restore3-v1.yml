@@ -1,0 +1,229 @@
+name: 消えていた3単元をメニューへ復帰（area-triangle / mushikuizan / numberline）
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 共通のビルド用ハーネスを置く
+        run: |
+          mkdir -p /tmp/h
+          cat > /tmp/h/build.js << 'JSEOF'
+          // src/index.tsx の app.get('/') 内の .replace() チェーンを
+          // public/index.html に実際に適用して、本番と同じHTMLを組み立てる。
+          const fs = require('fs');
+          function build() {
+            const src = fs.readFileSync('src/index.tsx', 'utf8');
+            const decls = ['SUDDEN_OLD', 'SUDDEN_NEW'].map(n => {
+              const m = src.match(new RegExp('^const ' + n + ' = ".*?"$', 'm'));
+              if (!m) throw new Error('宣言が見つからない: ' + n);
+              return m[0].replace('const ', 'var ');
+            }).join('\n') + '\n';
+            const a = src.indexOf('let t = await a.text()');
+            const b = src.indexOf('_rootHtmlCache = t');
+            if (a < 0 || b < 0 || b <= a) throw new Error('チェーンの範囲が取れない');
+            const body = src.slice(a, b).replace('let t = await a.text()', '');
+            const html = fs.readFileSync('public/index.html', 'utf8');
+            const out = new Function('t', decls + body + '\nreturn t;')(html);
+            if (typeof out !== 'string' || out.length < 5000000) throw new Error('組み立て結果が不正');
+            return out;
+          }
+          function chainCount() {
+            const src = fs.readFileSync('src/index.tsx', 'utf8');
+            const i = src.indexOf("app.get('/', async (c) => {");
+            const j = src.indexOf("app.get('/logout'");
+            return src.slice(i, j).split('.replace(').length - 1;
+          }
+          function curriculum(built) {
+            const s = built.indexOf('const CURRICULUM = {');
+            if (s < 0) throw new Error('CURRICULUM の宣言が見つからない');
+            const e = built.indexOf('\n};', s);
+            if (e < 0) throw new Error('CURRICULUM の終端が見つからない');
+            const lit = built.slice(s + 'const CURRICULUM = '.length, e + 2);
+            return new Function('return ' + lit)();   // 構文エラーならここで落ちる
+          }
+          function units(C) {
+            const out = [];
+            for (const sub in C) {
+              const gs = C[sub].grades || {};
+              for (const g in gs) (gs[g].units || []).forEach(u => out.push({ sub, grade: g, ...u }));
+            }
+            return out;
+          }
+          module.exports = { build, chainCount, curriculum, units };
+          JSEOF
+
+      - name: 適用前チェック（ここで止まれば src/index.tsx には一切触れない）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const H = require('/tmp/h/build.js');
+          let bad = 0;
+          const chain = H.chainCount();
+          console.log('.replace() チェーン:', chain);
+          if (chain !== 64) { console.log('NG: チェーンが64件でない'); bad++; }
+
+          const before = H.build();
+          fs.writeFileSync('/tmp/before.html', before);
+          console.log('組み立て後のHTML:', before.length, '文字');
+
+          // 5本のアンカーが「組み立て後のHTML」で1件ちょうどであること
+          const anchors = [
+            ['小3の単元配列の末尾', /(\{id:'m3-weight',[^\n]*\})(\n    \]\},\n    4:\{label:)/g],
+            ['小5の単元配列の末尾', /(\{id:'m5-unit-qty',[^\n]*\})(\n    \]\},\n    6:\{label:)/g],
+            ['window公開ブロック', /(        window\.generateLongDivisionProblem = generateLongDivisionProblem;\n)/g],
+            ['MODE_LABELSの表示名', /(\n          'area-triangle':')[^']*(',)/g],
+            ['旧メニューの表示名', /(\{ mode: 'area-triangle', name: ')[^']*(')/g],
+          ];
+          for (const [label, re] of anchors) {
+            const n = (before.match(re) || []).length;
+            console.log('アンカー[' + label + ']:', n, '件');
+            if (n !== 1) { console.log('NG: 1件でない'); bad++; }
+          }
+
+          // 適用前は3単元がCURRICULUMに無いこと（＝直す価値がある状態）
+          const C = H.curriculum(before);
+          const us = H.units(C);
+          const ids = us.map(u => u.id);
+          console.log('適用前の単元数:', us.length);
+          fs.writeFileSync('/tmp/before_units.json', JSON.stringify({ count: us.length, ids }));
+          for (const id of ['area-triangle', 'mushikuizan', 'numberline']) {
+            if (ids.includes(id)) { console.log('NG: 適用前なのに ' + id + ' が既にある'); bad++; }
+          }
+          // 適用前は window 公開が無いこと
+          for (const n of ['generateAreaTriangleProblem', 'generateMushikuizanProblem', 'generateNumberLineProblem']) {
+            if (before.includes('window.' + n + ' =')) { console.log('NG: 適用前なのに window.' + n + ' がある'); bad++; }
+          }
+          if (bad) { console.log(bad + '件 失敗。中止する。'); process.exit(1); }
+          console.log('適用前チェック: OK');
+          JSEOF
+
+      - name: パッチを適用（アンカーが一致しなければ中止）
+        run: python3 scripts/patch_restore3_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: |
+          python3 scripts/patch_restore3_v1.py
+          node -e "const H=require('/tmp/h/build.js'); const c=H.chainCount(); console.log('チェーン:',c); if(c!==69){console.log('NG: 69件でない');process.exit(1);}"
+
+      - name: 適用後チェック（チェーンを実際に走らせて中身を見る）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const H = require('/tmp/h/build.js');
+          let bad = 0;
+          const after = H.build();
+          fs.writeFileSync('/tmp/after.html', after);
+          const before = fs.readFileSync('/tmp/before.html', 'utf8');
+
+          // 1) CURRICULUM が構文エラーなく評価できる
+          const C = H.curriculum(after);
+          const us = H.units(C);
+          console.log('適用後の単元数:', us.length);
+
+          // 2) IDの重複なし
+          const cnt = {};
+          us.forEach(u => cnt[u.id] = (cnt[u.id] || 0) + 1);
+          const dups = Object.keys(cnt).filter(k => cnt[k] > 1);
+          if (dups.length) { console.log('NG: IDが重複:', dups); bad++; }
+
+          // 3) 3単元が正しい学年・gen・input で入っている
+          const want = [
+            ['mushikuizan', 'math', '3', 'generateMushikuizanProblem', 'numpad', '虫食い算'],
+            ['numberline', 'math', '3', 'generateNumberLineProblem', 'numpad', '数直線'],
+            ['area-triangle', 'math', '5', 'generateAreaTriangleProblem', 'numpad', '三角形と平行四辺形の面積'],
+          ];
+          for (const [id, sub, grade, gen, input, name] of want) {
+            const u = us.filter(x => x.id === id);
+            if (u.length !== 1) { console.log('NG: ' + id + ' が ' + u.length + ' 件'); bad++; continue; }
+            const g = u[0];
+            const ok = g.sub === sub && String(g.grade) === grade && g.gen === gen && g.input === input && g.name === name;
+            console.log((ok ? 'OK  ' : 'NG  ') + id + ' = ' + g.sub + '/' + g.grade + ' gen=' + g.gen + ' input=' + g.input + ' name=' + g.name);
+            if (!ok) bad++;
+          }
+
+          // 4) 単元数は +3 ちょうど、他の単元は増減していない
+          const b = JSON.parse(fs.readFileSync('/tmp/before_units.json', 'utf8'));
+          if (us.length !== b.count + 3) { console.log('NG: 単元数が ' + b.count + ' -> ' + us.length); bad++; }
+          const added = us.map(u => u.id).filter(id => !b.ids.includes(id)).sort();
+          const removed = b.ids.filter(id => !us.map(u => u.id).includes(id));
+          console.log('増えた単元:', added.join(','), '/ 消えた単元:', removed.join(',') || 'なし');
+          if (added.join(',') !== 'area-triangle,mushikuizan,numberline') { console.log('NG: 増えた単元が想定と違う'); bad++; }
+          if (removed.length) { console.log('NG: 単元が消えている'); bad++; }
+
+          // 5) window 公開（3つとも1件ずつ）
+          for (const n of ['generateAreaTriangleProblem', 'generateMushikuizanProblem', 'generateNumberLineProblem']) {
+            const c = after.split('window.' + n + ' = ' + n + ';').length - 1;
+            console.log('window.' + n + ':', c, '件');
+            if (c !== 1) { console.log('NG: 1件でない'); bad++; }
+          }
+
+          // 6) 旧表示名0件・新表示名3件
+          const oldNames = ['面積(三角形・平行四辺形)', '面積（三角形・平行四辺形）'];
+          for (const o of oldNames) {
+            const c = after.split(o).length - 1;
+            console.log('旧表示名[' + o + ']:', c, '件');
+            if (c !== 0) { console.log('NG: 0件でない'); bad++; }
+          }
+          const nn = after.split('三角形と平行四辺形の面積').length - 1;
+          console.log('新表示名:', nn, '件');
+          if (nn !== 3) { console.log('NG: 3件でない'); bad++; }
+
+          // 7) IDで引いている箇所は触っていない（出現数が変わらない）
+          for (const id of ["'area-triangle'", "'mushikuizan'", "'numberline'"]) {
+            const x = before.split(id).length - 1, y = after.split(id).length - 1;
+            console.log(id + ': ' + x + ' -> ' + y);
+            if (y !== x + 1) { console.log('NG: 増分が+1でない'); bad++; }
+          }
+
+          // 8) 差分がこの5箇所だけであること（行を多重集合として比べる）
+          const ms = s => { const m = new Map(); for (const L of s.split('\n')) m.set(L, (m.get(L) || 0) + 1); return m; };
+          const mb = ms(before), ma = ms(after);
+          const keys = ['area-triangle', 'mushikuizan', 'numberline', '三角形と平行四辺形の面積', 'generateAreaTriangleProblem', 'generateMushikuizanProblem', 'generateNumberLineProblem', 'm3-weight', 'm5-unit-qty'];
+          let changed = 0;
+          for (const L of new Set([...mb.keys(), ...ma.keys()])) {
+            const x = mb.get(L) || 0, y = ma.get(L) || 0;
+            if (x === y) continue;
+            changed++;
+            console.log('  ' + (y - x > 0 ? '+' : '-') + ' ' + L.trim().slice(0, 110));
+            if (!keys.some(k => L.includes(k))) { console.log('NG: 無関係な行が変わっている'); bad++; }
+          }
+          console.log('変化した行の種類:', changed);
+          if (changed > 14) { console.log('NG: 変化した行が多すぎる'); bad++; }
+
+          // 9) 既存の修正が無傷（src/index.tsx 側の目印）
+          const src = fs.readFileSync('src/index.tsx', 'utf8');
+          const marks = { '__DRILLPARK_V1__': 1, '__PB_HASH_FIX__': 1, '__HANSHIN_ADV2_LOOKUP_V1__': 1, '__IDFIX_V1__': 1, '__RATIO6_GCD_FIX__': 1, '__R5_MEDAKA_HUMAN__': 1, '__S6WORLD_50__': 1, '__TEACHER_RECOVERY_V1__': 2, '__TEACHER_SCREEN_PREVIEW_V1__': 2 };
+          for (const m in marks) {
+            const c = src.split(m).length - 1;
+            if (c !== marks[m]) { console.log('NG: 目印 ' + m + ' が ' + c + ' 件（' + marks[m] + '件であるべき）'); bad++; }
+          }
+          // 既存ルートが消えていない
+          for (const r of ["app.get('/'", "app.get('/teacher'", "app.get('/logout'"]) {
+            if (!src.includes(r)) { console.log('NG: 既存ルートが消えた: ' + r); bad++; }
+          }
+
+          if (bad) { console.log(bad + '件 失敗'); process.exit(1); }
+          console.log('適用後チェック: すべて期待どおり');
+          JSEOF
+
+      - name: ビルド確認
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_restore3_v1.py
+          git diff --staged --quiet && echo "変更なし" || git commit -m "fix(menu): 到達不能だった3単元を復帰（虫食い算・数直線を小3、三角形と平行四辺形の面積を小5へ／出題関数をwindowへ公開）"
+          git checkout -- .
+          git pull --rebase
+          git push
