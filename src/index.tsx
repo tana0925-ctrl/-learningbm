@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
+import { defServerResolve } from './def_resolve'
 
 type Bindings = {
   DB: D1Database
@@ -1817,6 +1818,26 @@ app.post('/api/defense/resolve', async (c) => {
   const classId = await defenseClassId(c.env, u.id)
   if (!classId) return jsonError(c, 403, 'no_class')
   if (classId !== String(body.class_id)) return jsonError(c, 403, 'class_mismatch')
+  // __DEF_SERVER_RESOLVE_V1__ 勝敗はサーバで決める。
+  // すでに結果があるなら、ここで打ち切る（戦闘を起こさない＝1クラス1回）。
+  const _srvDone = await c.env.DB.prepare("SELECT 1 AS x FROM defense_results WHERE event_key=? AND class_id=? LIMIT 1").bind(st.eventKey, classId).first<any>()
+  if (_srvDone) return c.json({ ok: true, already: true })
+  // 全エントリが spd と skills を持っているときだけサーバで計算する。
+  // 1件でも欠けていたら null が返る＝これまで通りクライアントの申告で流す（fail-closed）。
+  const _srv = await defServerResolve(c.env, st, classId, DEFENSE_ENEMIES)
+  if (_srv) {
+    const _srvLock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, _srv.result, _srv.logJson, _srv.baseHpEnd).run()
+    if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })
+    if (_srv.result === 'win') {
+      try {
+        const _srvEs = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
+        for (const _srvR of ((_srvEs && _srvEs.results) || [])) {
+          await c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))").bind(st.eventKey, classId, String(_srvR.user_id), DEFENSE_WIN_COINS).run()
+        }
+      } catch (_e) {}
+    }
+    return c.json({ ok: true, resolved: true, result: _srv.result, server: true })
+  }
   const result = (String(body.result) === 'win') ? 'win' : 'lose'
   const logJson = JSON.stringify(body.log || null).slice(0, 100000)
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
