@@ -1,0 +1,35 @@
+name: Patch TypeShoot RT dedupe (rtdedupe-v1)
+on:
+  workflow_dispatch:
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Show target before
+        run: |
+          wc -c public/typeshoot.js
+          grep -c "setInterval(vPoll, 250)" public/typeshoot.js || true
+      - name: Run patch
+        run: python3 scripts/patch_ts_rtdedupe.py
+      - name: Verify after
+        run: |
+          set -e
+          node --check public/typeshoot.js
+          test "$(grep -c 'rtdedupe-v1' public/typeshoot.js)" = "1"
+          test "$(grep -c 'setInterval(vPoll' public/typeshoot.js)" = "0"
+          test "$(grep -c 'clearInterval(V.poll)' public/typeshoot.js)" = "0"
+          test "$(grep -c 'ctx.seen\[ev.id\]' public/typeshoot.js)" = "2"
+          test "$(grep -c 'if (V.polling) return;' public/typeshoot.js)" = "1"
+          wc -c public/typeshoot.js
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/typeshoot.js
+          git diff --staged --quiet && echo "No changes" || (git commit -m "fix(typeshoot VS): ポーリング多重化による重複スポーンを修正 (rtdedupe-v1)" && git push)
