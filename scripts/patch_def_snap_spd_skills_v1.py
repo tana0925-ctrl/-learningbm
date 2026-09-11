@@ -7,7 +7,7 @@ import sys, io
 SRC = 'src/index.tsx'
 HTML = 'public/index.html'
 SENT = '__DEF_SNAP_SPDSKILLS_V1__'  # 冪等性の番兵（TSXのコメント＝HTML出力には出ない。検証条件とは別物）
-BS = "app.get('/'"
+BS = "app.get('/', async (c) => {"
 BE = "app.get('/logout'"
 EXPECT_CHAIN = 71
 A = "buff:base.buff||'lucky',elementType:el,skillPow:10}"
