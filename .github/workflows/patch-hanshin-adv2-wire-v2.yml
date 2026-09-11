@@ -1,0 +1,52 @@
+name: 阪神マン アドバイス配線v2 (再初期化で消えないようにする)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 適用前の状態を記録
+        run: |
+          echo '--- before ---'
+          wc -c public/hanshin_advice2.js
+          echo -n 'setInterval: '; grep -c 'setInterval' public/hanshin_advice2.js || true
+          echo -n 'ADDエントリ: '; grep -cE "^    '[a-z0-9-]+': \{ question:" public/hanshin_advice2.js || true
+
+      - name: パッチ適用（アンカー不一致なら中止）
+        run: python3 scripts/patch_hanshin_adv2_wire_v2.py
+
+      - name: 構文チェック
+        run: node --check public/hanshin_advice2.js
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          F=public/hanshin_advice2.js
+          if grep -q 'setInterval' "$F"; then echo 'NG: 旧待ち受けが残存'; exit 1; fi
+          if grep -q 'clearInterval' "$F"; then echo 'NG: 旧待ち受け停止が残存'; exit 1; fi
+          if grep -q '_adv2Last' "$F"; then echo 'NG: 旧マージ関数が残存'; exit 1; fi
+          N=$(grep -Fc "Object.defineProperty(window, 'HANSHIN_ADVICE_TREE'" "$F" || true)
+          if [ "$N" != '1' ]; then echo "NG: 代入フックが $N 個 (1個であるべき)"; exit 1; fi
+          grep -q '__HANSHIN_ADV2_ENSURE' "$F" || { echo 'NG: ENSURE が無い'; exit 1; }
+          grep -q '__HANSHIN_ADV2_READY' "$F" || { echo 'NG: READY フラグが無い'; exit 1; }
+          grep -q 'アドバイス未登録の単元ID' "$F" || { echo 'NG: 未登録単元の警告が無い'; exit 1; }
+          A=$(grep -cE "^    '[a-z0-9-]+': \{ question:" "$F" || true)
+          if [ "$A" != '93' ]; then echo "NG: ADDのエントリ数が $A 件 (93件であるべき)"; exit 1; fi
+          tail -n 1 "$F" | grep -q '})();' || { echo 'NG: 末尾が })(); でない'; exit 1; }
+          echo '検証OK'
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/hanshin_advice2.js
+          git diff --staged --quiet && echo '変更なし（適用済み）' || (git commit -m '阪神マン: アドバイス配線v2（ポーリング撤廃／initGame再実行でも中1〜高1の93件が消えない／未登録単元IDをconsole.warn）' && git push)
+
+      - name: 次の手順
+        run: echo 'このワークフローのpushではDeployは起動しません。Deploy to Cloudflare Pages を手動実行してください。'
