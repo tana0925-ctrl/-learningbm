@@ -1651,6 +1651,24 @@ app.get('/api/defense/status', async (c) => {
     const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
     if (e) { let mj: any = null; try { mj = JSON.parse(e.monster_json) } catch (_e) {} out.my_entry = { monster: mj, strategy: e.strategy } }
   } catch (_e) {}
+  // __DEF_STANDING_V1_STATUS__ 決戦前：前回の編成が残っていれば自動でエントリーする（持ち越し）
+  if (!out.my_entry && !decided && classId) {
+    try {
+      const _dsRow = await c.env.DB.prepare("SELECT ds.strategy AS strat, ds.snapshot_json AS mj, ds.snapshot_level AS lv, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds LEFT JOIN progress p ON p.user_id = ds.user_id WHERE ds.user_id=? LIMIT 1").bind(u.id).first<any>()
+      if (_dsRow && _dsRow.mj) {
+        if (_dsRow.curlv == null) {
+          out.carry_over_error = 'monster_gone'
+        } else {
+          await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING").bind(st.eventKey, u.id, classId, String(_dsRow.mj), String(_dsRow.strat || 'balance')).run()
+          let _dsM: any = null
+          try { _dsM = JSON.parse(String(_dsRow.mj)) } catch (_e2) {}
+          out.my_entry = { monster: _dsM, strategy: String(_dsRow.strat || 'balance') }
+          out.carried_over = true
+          if (Number(_dsRow.curlv || 0) > Number(_dsRow.lv || 0)) out.carry_over_stale = true
+        }
+      }
+    } catch (_e) {}
+  }
   if (classId != null) {
     try {
       const rr = await c.env.DB.prepare("SELECT result, log_json, base_hp_end FROM defense_results WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).first<any>()
@@ -1662,6 +1680,27 @@ app.get('/api/defense/status', async (c) => {
     } catch (_e) {}
     if (decided && !out.result) {
       try {
+        // __DEF_STANDING_V1_STATUS__ 決戦後：アプリを開かなかった子も前回の編成で参加できるようにする（クラスで最初の1人だけが走らせる）
+        try {
+          const _dsLock = await c.env.DB.prepare("INSERT INTO defense_carry_lock (event_key, class_id, done_at) VALUES (?,?,datetime('now')) ON CONFLICT(event_key, class_id) DO NOTHING").bind(st.eventKey, classId).run()
+          if (_dsLock && _dsLock.meta && Number(_dsLock.meta.changes || 0) > 0) {
+            const _dsAll = await c.env.DB.prepare("SELECT ds.user_id AS uid, ds.snapshot_json AS mj, ds.strategy AS strat, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds JOIN class_members cm ON cm.user_id = ds.user_id LEFT JOIN progress p ON p.user_id = ds.user_id WHERE cm.class_id=? LIMIT 200").bind(classId).all<any>()
+            const _dsRows = ((_dsAll && _dsAll.results) || []).filter((r: any) => r && r.mj && r.curlv != null)
+            if (_dsRows.length) {
+              const _dsIns = c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING")
+              await c.env.DB.batch(_dsRows.map((r: any) => _dsIns.bind(st.eventKey, String(r.uid), classId, String(r.mj), String(r.strat || 'balance'))))
+            }
+          }
+          if (!out.my_entry) {
+            const _dsMe = await c.env.DB.prepare("SELECT ds.strategy AS strat, ds.snapshot_json AS mj, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds LEFT JOIN progress p ON p.user_id = ds.user_id WHERE ds.user_id=? LIMIT 1").bind(u.id).first<any>()
+            if (_dsMe && _dsMe.mj && _dsMe.curlv != null) {
+              await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING").bind(st.eventKey, u.id, classId, String(_dsMe.mj), String(_dsMe.strat || 'balance')).run()
+              out.carried_over = true
+            } else if (_dsMe && _dsMe.mj) {
+              out.carry_over_error = 'monster_gone'
+            }
+          }
+        } catch (_e) {}
         const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
         out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { user_id: r.uid, name: r.nm, monster: m, strategy: r.strat } })
       } catch (_e) {}
@@ -1683,7 +1722,21 @@ app.post('/api/defense/entry', async (c) => {
   if (!classId) return jsonError(c, 403, 'no_class')
   const mj = JSON.stringify(body.monster).slice(0, 4000)
   const strat = String(body.strategy || 'balance').slice(0, 20)
+  // __DEF_STANDING_V1_ENTRY__ 所持しているモンスターかをサーバ側で確認する（クライアントの申告だけを信じない）
+  const _dsMid = Number((body.monster as any) && (body.monster as any).id)
+  if (!Number.isFinite(_dsMid) || _dsMid <= 0) return jsonError(c, 400, 'invalid_monster')
+  let _dsOwned = false
+  try {
+    const _dsP = await c.env.DB.prepare("SELECT json_extract(state_json, '$.monsters.\"' || ? || '\"') AS m FROM progress WHERE user_id=? LIMIT 1").bind(String(_dsMid), u.id).first<any>()
+    _dsOwned = !!(_dsP && _dsP.m != null)
+  } catch (_e) { _dsOwned = false }
+  if (!_dsOwned) return jsonError(c, 403, 'monster_not_owned')
   await c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO UPDATE SET class_id=excluded.class_id, monster_json=excluded.monster_json, strategy=excluded.strategy, created_at=datetime('now')").bind(st.eventKey, u.id, classId, mj, strat).run()
+  // __DEF_STANDING_V1_ENTRY__ 一度登録したらずっと参加できるように、持ち越し用の編成を保存する
+  try {
+    const _dsLv = Math.max(1, Math.floor(Number(((body.monster as any) && (body.monster as any).level) || 1)))
+    await c.env.DB.prepare("INSERT INTO defense_standing (user_id, monster_id, strategy, snapshot_json, snapshot_level, updated_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(user_id) DO UPDATE SET monster_id=excluded.monster_id, strategy=excluded.strategy, snapshot_json=excluded.snapshot_json, snapshot_level=excluded.snapshot_level, updated_at=datetime('now')").bind(u.id, _dsMid, strat, mj, _dsLv).run()
+  } catch (_e) {}
   return c.json({ ok: true })
 })
 
@@ -7415,6 +7468,12 @@ app.get('/', async (c) => {
       t = t.replace(/(        window\.generateLongDivisionProblem = generateLongDivisionProblem;\n)/, "$1        window.generateAreaTriangleProblem = generateAreaTriangleProblem;\n        window.generateMushikuizanProblem = generateMushikuizanProblem;\n        window.generateNumberLineProblem = generateNumberLineProblem;\n")
       t = t.replace(/(\n          'area-triangle':')[^']*(',)/, "$1三角形と平行四辺形の面積$2")
       t = t.replace(/(\{ mode: 'area-triangle', name: ')[^']*(')/, "$1三角形と平行四辺形の面積$2")
+      // __DEF_STANDING_V1_SENTINEL__ __DEF_STANDING_V1_UI__ 持ち越し参加のお知らせ／レベルが上がっていたときの自動更新
+      t = t.replace(`          var head='<div style="font-size:12px;color:#64748b;margin-bottom:6px;">決戦：'+_defEsc(decTxt)+'</div>'+enemyHtml;`, `          var head='<div style="font-size:12px;color:#64748b;margin-bottom:6px;">決戦：'+_defEsc(decTxt)+'</div>'+enemyHtml;
+          if (d.carried_over) { head+='<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px;margin-bottom:8px;color:#1d4ed8;font-weight:900;">🔁 前回と同じで参加中</div>'; }
+          if (d.carry_over_error==='monster_gone') { head+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px;margin-bottom:8px;color:#c2410c;font-weight:900;">前に出したモンスターがいなくなったよ。もう一度えらんでね。</div>'; }`)
+      t = t.replace(`          var d=await _defFetch(); _defStatus=d;`, `          var d=await _defFetch(); _defStatus=d;
+          try { if (d && d.ok && d.active && d.carry_over_stale && !d.decided && d.my_entry && d.my_entry.monster && d.event_key) { var _dsSnap=_defSnapshot(d.my_entry.monster.id); if (_dsSnap) { await fetch('/api/defense/entry',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_key:d.event_key,monster:_dsSnap,strategy:(d.my_entry.strategy||'balance')})}); d=await _defFetch(); _defStatus=d; } } } catch(e) {}`)
       _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
