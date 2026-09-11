@@ -498,25 +498,93 @@
 
   window.__HANSHIN_ADV2_ADD = ADD;
 
-  var _adv2Last = null;
-  function _adv2Merge() {
-    var t = null;
-    try { t = window.HANSHIN_ADVICE_TREE; } catch (e) {}
-    if (!t) return false;
-    if (t === _adv2Last) return true;
-    _adv2Last = t;
-    var n = 0;
+  /* __HANSHIN_ADV2_WIRE_V2__
+     配線v2: ポーリングを全廃し、window.HANSHIN_ADVICE_TREE への代入そのものを捕捉して同期マージする。
+
+     旧実装の不具合: HANSHIN_ADVICE_TREE は initGame() 内の const なので、initGame() が
+     呼ばれるたびに別オブジェクトが作られる。旧実装は200msごとの待ち受けを回し、最初の
+     マージ成功時に待ち受けを止めていたため、2回目以降の initGame()（復習チャレンジ、
+     QR読み取り、バトル終了後の onclick など）で作られた木には中1〜高1の93件が入らず、
+     「すまん！この修行のアドバイスはまだ準備中や！」が出ていた。
+
+     代入をフックすれば、initGame() が何回走っても代入の瞬間にマージが完了する。 */
+
+  var _adv2Tree = null;
+  var _adv2PrevMiss = null;
+
+  function _adv2UnitIds() {
+    var ids = [];
+    try {
+      var C = window.CURRICULUM;
+      for (var s in C) {
+        var grades = C[s] && C[s].grades;
+        if (!grades) continue;
+        for (var g in grades) {
+          var us = (grades[g] && grades[g].units) || [];
+          for (var i = 0; i < us.length; i++) { if (us[i] && us[i].id) ids.push(us[i].id); }
+        }
+      }
+    } catch (e) {}
+    return ids;
+  }
+
+  function _adv2ReportGaps(t) {
+    try {
+      var ids = _adv2UnitIds(), miss = [], i;
+      for (i = 0; i < ids.length; i++) { if (!t[ids[i]]) miss.push(ids[i]); }
+      window.__HANSHIN_ADV2_MISSING = miss;
+      var key = miss.join(',');
+      if (miss.length && key !== _adv2PrevMiss) {
+        console.warn('[阪神マン] アドバイス未登録の単元ID (' + miss.length + '件): ' + key);
+      }
+      _adv2PrevMiss = key;
+    } catch (e) {}
+  }
+
+  function _adv2Merge(t) {
+    if (!t || typeof t !== 'object') return false;
+    var n = 0, total = 0;
     for (var k in ADD) {
-      try { if (!t[k]) { t[k] = ADD[k]; n++; } } catch (e) {}
+      if (!Object.prototype.hasOwnProperty.call(ADD, k)) continue;
+      try { if (!t[k]) { t[k] = ADD[k]; n++; } if (t[k]) total++; } catch (e) {}
     }
-    try { window.__HANSHIN_ADV2_COUNT = n; } catch (e) {}
+    try {
+      window.__HANSHIN_ADV2_COUNT = n;
+      window.__HANSHIN_ADV2_TOTAL = total;
+      window.__HANSHIN_ADV2_MERGES = (window.__HANSHIN_ADV2_MERGES || 0) + 1;
+      window.__HANSHIN_ADV2_READY = true;
+    } catch (e) {}
+    _adv2ReportGaps(t);
     return true;
   }
 
-  if (!_adv2Merge()) {
-    var _adv2Tries = 0;
-    var _adv2Iv = setInterval(function () {
-      if (_adv2Merge() || ++_adv2Tries > 300) clearInterval(_adv2Iv);
-    }, 200);
-  }
+  // 参照側から同期的に呼べる保険。呼んだ時点でマージ済みを保証する。
+  window.__HANSHIN_ADV2_ENSURE = function () {
+    var t = null;
+    try { t = window.HANSHIN_ADVICE_TREE; } catch (e) {}
+    if (!t) return false;
+    _adv2Merge(t);
+    return true;
+  };
+
+  (function _adv2Install() {
+    var existing = null;
+    try { existing = window.HANSHIN_ADVICE_TREE; } catch (e) {}
+    var ok = false;
+    try {
+      Object.defineProperty(window, 'HANSHIN_ADVICE_TREE', {
+        configurable: true,
+        enumerable: true,
+        get: function () { return _adv2Tree; },
+        set: function (v) { _adv2Tree = v; _adv2Merge(v); }
+      });
+      ok = true;
+    } catch (e) {
+      try { console.warn('[阪神マン] 配線v2の設置に失敗。即時マージにフォールバックします。', e); } catch (e2) {}
+    }
+    if (existing) {
+      if (ok) { window.HANSHIN_ADVICE_TREE = existing; }
+      else { _adv2Tree = existing; _adv2Merge(existing); }
+    }
+  })();
 })();
