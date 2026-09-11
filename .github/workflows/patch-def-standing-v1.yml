@@ -1,0 +1,64 @@
+name: 防衛戦の編成を持ち越す（DEF_STANDING_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: パッチを適用（一致しなければ中止＝src/index.tsx に触らない）
+        run: python3 scripts/patch_def_standing_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_standing_v1.py
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+          s = open("src/index.tsx", encoding="utf-8").read()
+          i = s.index("let t = await a.text()")
+          j = s.index("return c.html(", i)
+          n = s[i:j].count(".replace(")
+          print("replace chain:", n)
+          ok = True
+          if n != 71:
+              print("NG: チェーンが71件ではありません"); ok = False
+          need = [
+              "defense_standing",
+              "defense_carry_lock",
+              "monster_not_owned",
+              "carried_over",
+              "carry_over_error",
+              "carry_over_stale",
+              "前回と同じで参加中",
+              "もう一度えらんでね",
+          ]
+          for k in need:
+              cnt = s.count(k)
+              print("   ", k, cnt)
+              if cnt < 1:
+                  print("NG: 見つからない:", k); ok = False
+          if s.count("ensureDefenseTables(") != 1:
+              print("NG: ensureDefenseTables の呼び出しが増えています"); ok = False
+          if not ok:
+              sys.exit(1)
+          print("OK")
+          PYEOF
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx
+          git commit -m "防衛戦: 編成の持ち越し（DEF_STANDING_V1）チェーン 69 -> 71" || echo "no changes"
+          git checkout -- .
+          git pull --rebase origin main
+          git push
