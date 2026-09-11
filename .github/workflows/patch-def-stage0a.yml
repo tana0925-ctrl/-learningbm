@@ -1,0 +1,44 @@
+name: Patch defense stage0-a (defense2.js)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # fail-closed: --check never writes. If an anchor is missing or a
+      # post-condition fails, the job stops here and the file is untouched.
+      - name: Dry run (anchor + post-condition check, writes nothing)
+        run: python3 scripts/patch_def_stage0a_defense2.py --check
+
+      - name: Apply patch
+        run: python3 scripts/patch_def_stage0a_defense2.py
+
+      - name: JS syntax check
+        run: node --check public/defense2.js
+
+      # sentinels are comments, verification checks real code, so this catches
+      # a skipped-but-not-actually-applied patch
+      - name: Re-verify patched file
+        run: python3 scripts/patch_def_stage0a_defense2.py --check
+
+      - name: Commit and push
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/defense2.js
+          if git diff --staged --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "fix(defense): stage0-a - reset _gcHome, show finish reason, replay endpoint fallback"
+          git checkout -- . || true
+          git clean -fd -- node_modules dist || true
+          git pull --rebase origin main
+          git push
