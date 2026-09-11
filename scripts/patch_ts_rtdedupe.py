@@ -235,7 +235,7 @@ def main():
     print("サイズ: %d -> %d (+%d)" % (before_len, len(out), delta))
 
     # ---- 構文チェック（node があれば） -------------------------------------
-    tmp = TARGET + ".rtdedupe.tmp"
+    tmp = TARGET + ".rtdedupe.tmp.js"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(out)
     ok = True
