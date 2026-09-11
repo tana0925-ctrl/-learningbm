@@ -1,0 +1,127 @@
+name: 防衛戦ステージ制 第1便（DEF_STAGE_V1・status に stage を出すだけ）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンを実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = '__DEFSTAGE_SENTINEL_V1__' in s
+          print('chain before =', n, 'applied =', applied)
+          if not applied and n != 72:
+              print('NG: 流す前のチェーンが 72 件でない'); sys.exit(1)
+          if applied and n != 73:
+              print('NG: 適用済みなのにチェーンが 73 件でない'); sys.exit(1)
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_stage_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_stage_v1.py
+
+      - name: public/index.html に触っていないこと
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- public/defense2.js src/def_engine.ts src/def_resolve.ts || (echo 'NG: 防衛戦の他ファイルが変わっている'; exit 1)
+          echo 'public/index.html と防衛戦の他ファイルは無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 適用後の中身を確認（番兵とは別の条件で見る）
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          chk('チェーン', n, 73)
+          chk('stage の既定値', s.count('my_reward: null, stage: 1 }'), 1)
+          chk('ステージの読み取り', s.count('SELECT stage FROM defense_stage WHERE class_id = ? LIMIT 1'), 1)
+          chk('out.stage の代入', s.count('out.stage = Math.floor(sgN)'), 1)
+          chk('見出しの置換', s.count("ステージ'+(d.stage||1)+' ／ てき '+d.enemy_squad.length+'たい"), 1)
+          if 'INSERT INTO defense_stage' in s or 'UPDATE defense_stage' in s:
+              print('NG: status 側に書き込みが入っている'); ok[0] = False
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('log の v===2 条件', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('log_seed_mismatch', s.count('log_seed_mismatch'), 1)
+          chk('log_replay_missing', s.count('log_replay_missing'), 1)
+          chk('log_base_hp_mismatch', s.count('log_base_hp_mismatch'), 1)
+          chk('baseHpA の有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('ensureDefenseTables() の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('敵は8体のまま', s.count('DEFENSE_ENEMIES'), 4)
+          chk('def_engine の autoBattleRT', e.count('function autoBattleRT('), 1)
+          chk('def_resolve の番人', v.count('export function defEntryOk(m) {'), 1)
+          chk('def_resolve の 900000 上限', v.count('900000'), 1)
+          chk('defense2.js の早期抜け', d.count('__DEF2_SKIP_LOCAL_V1__'), 1)
+          chk('defense2.js の makeResolve', d.count('function makeResolve(orig){'), 1)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src/index.tsx だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_STAGE_V1: status に stage を出す＋敵一覧の見出しをステージ表示に（チェーン 72->73・敵と報酬は変えない）'
+          git pull --rebase origin main
+          git push origin HEAD:main
