@@ -8261,6 +8261,16 @@ app.get('/', async (c) => {
   } else {
     console.error('[__BEAMDMG_V1__] skipped: no change')
   }
+    // __ZWAR_CASTLE_STAND_V1__ : ゾンビ襲来の「城の攻防」を山場にする（A=城に触れたらボス / B=ボス県だけ城HP20倍 / C=増援を早く止める）
+    const _zcsA1 = "  const bossMode = (i < 5) ? 'time' : ((i % 3 === 0) ? 'time' : (i % 3 === 1) ? 'wave' : 'castleHit');"
+    const _zcsA2 = "  const bossMode = boss ? 'castleHit' : ((i < 5) ? 'time' : ((i % 3 === 0) ? 'time' : (i % 3 === 1) ? 'wave' : 'castleHit'));"
+    if (t.indexOf(_zcsA1) !== -1) { t = t.replace(_zcsA1, _zcsA2) } else { console.error('[__ZWAR_CASTLE_STAND_V1__] anchor A not found') }
+    const _zcsB1 = "  const enemyCastleHpMax = Math.round(600 + i*28 + diff*140);"
+    const _zcsB2 = "  // __ZWAR_CASTLE_STAND_V1__ : ボスがいる県だけ 敵の城を厚くする（ボスなし37県はそのまま）\n  const __zcsHasBoss = (function(){\n    try{\n      var _n = (typeof WAR_PREFS !== 'undefined' && WAR_PREFS && WAR_PREFS[i]) ? WAR_PREFS[i] : null;\n      return !!(_n && typeof WAR_PREF_BOSS !== 'undefined' && WAR_PREF_BOSS && WAR_PREF_BOSS[_n]);\n    }catch(e){ try{ console.error('[__ZWAR_CASTLE_STAND_V1__] boss lookup error', e); }catch(_e){} return false; }\n  })();\n  const enemyCastleHpMax = Math.round((600 + i*28 + diff*140) * (__zcsHasBoss ? 20 : 1));"
+    if (t.indexOf(_zcsB1) !== -1) { t = t.replace(_zcsB1, _zcsB2) } else { console.error('[__ZWAR_CASTLE_STAND_V1__] anchor B not found') }
+    const _zcsC1 = "  const spawnStopWave = 20 + i;"
+    const _zcsC2 = "  const spawnStopWave = Math.max(1, Math.round((20 + i) * 0.2));"
+    if (t.indexOf(_zcsC1) !== -1) { t = t.replace(_zcsC1, _zcsC2) } else { console.error('[__ZWAR_CASTLE_STAND_V1__] anchor C not found') }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
