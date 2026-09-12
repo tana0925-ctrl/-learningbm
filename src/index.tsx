@@ -8219,6 +8219,33 @@ app.get('/', async (c) => {
     const _zwC1 = "window.startZombieWarFromPreview = function() {"
     const _zwC2 = "window.startZombieWarFromPreview = function() {\n  // __ZWAR_UNLOCK_V1__ : ゾンビしゅうらいは じゅんばんに すすむ\n  try{\n    var _zc = (player && player.warProgress && player.warProgress.zombieCleared) || {};\n    var _zn = (typeof WAR_PREFS !== 'undefined' && WAR_PREFS && WAR_PREFS.length) ? WAR_PREFS.length : 47;\n    var _zi = 0;\n    while(_zi < _zn && _zc[String(_zi)]) _zi++;\n    var _zcur = (player && player.warProgress && player.warProgress.current) || 0;\n    if(_zcur > _zi){\n      var _zname = (typeof WAR_PREFS !== 'undefined' && WAR_PREFS && WAR_PREFS[_zi]) ? WAR_PREFS[_zi] : '';\n      alert('ゾンビしゅうらいは じゅんばんに すすむよ！' + String.fromCharCode(10) + 'つぎは ' + (_zi + 1) + 'ばんめの「' + _zname + '」から！');\n      return;\n    }\n  }catch(e){ try{ console.error('[__ZWAR_UNLOCK_V1__] guard error', e); }catch(_e){} }"
     if (t.indexOf(_zwC1) !== -1) { t = t.replace(_zwC1, _zwC2) } else { console.error('[__ZWAR_UNLOCK_V1__] anchor C not found') }
+    // __ZWEAK_V1__ : ゾンビ襲来では 出撃きんしを やめて 0.2ばいの よわりモードにする
+    const _zwk0a = "'opacity-60 grayscale cursor-not-allowed'"
+    const _zwk0b = "'opacity-80'"
+    const _zwk1a = "'こわい' : 'タップで出陣'"
+    const _zwk1b = "'ゾンビでは よわりモード' : 'タップで出陣'"
+    const _zwk2a = "if(warState && warState.zombieMode && (id===152"
+    const _zwk2b = "if(false && warState.zombieMode && (id===152"
+    const _zwk3a = "const scale = 1 + Math.min(0.8, (lv-1)*0.03);"
+    const _zwk3b = "const scale = (1 + Math.min(0.8, (lv-1)*0.03)) * (function(){ try{ var zw = (typeof warState !== 'undefined' && warState) ? warState : (typeof window !== 'undefined' ? window.warState : null); if (zw && zw.zombieMode && (id===152 || id===153 || id===999)) return 0.2; }catch(e){} return 1; })();"
+    const _zwk4a = "if(hint) hint.textContent = 'タップで出陣';"
+    const _zwk4b = "if(hint) hint.textContent = ((typeof warState !== 'undefined' && warState && warState.zombieMode && typeof id !== 'undefined' && (id===152 || id===153 || id===999)) ? 'ゾンビでは よわりモード' : 'タップで出陣');"
+    const _zwkPairs = [[_zwk0a, _zwk0b], [_zwk1a, _zwk1b], [_zwk2a, _zwk2b], [_zwk3a, _zwk3b], [_zwk4a, _zwk4b]]
+    let _zwkOk = true
+    for (let _zi = 0; _zi < _zwkPairs.length; _zi++) {
+      const _za = _zwkPairs[_zi][0]
+      const _zf = t.indexOf(_za)
+      if (_zf === -1 || _zf !== t.lastIndexOf(_za)) { _zwkOk = false; console.error('[__ZWEAK_V1__] anchor NG', _zi) }
+    }
+    if (_zwkOk) {
+      t = t.replace(_zwk0a, _zwk0b)
+      t = t.replace(_zwk1a, _zwk1b)
+      t = t.replace(_zwk2a, _zwk2b)
+      t = t.replace(_zwk3a, _zwk3b)
+      t = t.replace(_zwk4a, _zwk4b)
+    } else {
+      console.error('[__ZWEAK_V1__] skipped: no change')
+    }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
