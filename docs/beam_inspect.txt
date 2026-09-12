@@ -1,113 +1,77 @@
-live status = 200
-local len = 5671000 live len = 5713034 diff = 42034
-=== applyWarUpgradesToState を よぶ ところの もちぬし（local）
-11047 <- 11040: window.useCastleLevelUpTicket = function(){
-11095 <- 11088: window.useBeamChargeLevelUpTicket = function(){
-11109 <- 11102: window.useBeamDamageLevelUpTicket = function(){
-11123 <- 11116: window.useBeamStunLevelUpTicket = function(){
-38206 <- 38189: window.warUpgradePowerCap = function(){
-38300 <- 38277: function warApplyStage(){
-42114 <- 42092: function resetWar(){
-=== おなじ（live）
-11034 <- 11027: window.useCastleLevelUpTicket = function(){
-11082 <- 11075: window.useBeamChargeLevelUpTicket = function(){
-11096 <- 11089: window.useBeamDamageLevelUpTicket = function(){
-11110 <- 11103: window.useBeamStunLevelUpTicket = function(){
-38213 <- 38196: window.warUpgradePowerCap = function(){
-38307 <- 38284: function warApplyStage(){
-42120 <- 42098: function resetWar(){
-=== local たたかい リセット 42060-42100
-42060: try{ _warHideJudge(); }catch(e){}
-42061: _warSetAnswerLock(false);
-42062: if(warState.active) showWarProblem();
-42063: }, 650);
-42064: }
-42065: 
-42066: window.chooseWarOption = function(idx){
-42067: if(!warState.active || !warState.q || !_warIsMCQ(warState.q)) return;
-42068: const cidx = _warResolveCorrectIdx(warState.q);
-42069: let ok = false;
-42070: 
-42071: if(cidx!=null) ok = (idx === cidx);
-42072: else {
-42073: // string-answer fallback
-42074: const input = (warState.q.options && warState.q.options[idx]!=null) ? String(warState.q.options[idx]) : '';
-42075: ok = (String(warState.q.ans) === input);
-42076: }
-42077: _warOnAnswered(ok);
-42078: };
-42079: 
-42080: window.warSubmitAnswer = function(){
-42081: if(!warState.active || !warState.q) return;
-42082: 
-42083: // If MCQ, ignore the numeric submit
-42084: if(_warIsMCQ(warState.q)) return;
-42085: 
-42086: const inp = document.getElementById('warAnswerInput');
-42087: const vStr = inp ? String(inp.value||'').trim() : '';
-42088: const v = Number(vStr);
-42089: const ok = (Number.isFinite(v) && v === Number(warState.q.ans));
-42090: _warOnAnswered(ok);
-42091: };
-42092: function resetWar(){
-42093: warState.powerMax = warGetPowerMax();
-42094: warState.baseRate = warGetPowerRate();
-42095: warState.power = 0;
-42096: warState.beamCharge = 0;
-42097: warState.boostUntil = 0;
-42098: warState.combo = 0;
-42099: warState.globalSpawnCd = 0;
-42100: warState.slotCd = [0,0,0];
-=== local ステージ えらぶ 38285-38310
-38285: 
-38286: warState.maxEnemyUnits = cfg.maxEnemyUnits || 12;
-38287: warState.maxPlayerUnits = warGetMaxUnits();
-38288: warResetStageRuntime(cfg);
-38289: 
-38290: warState.enemyCastleHpMax = cfg.enemyCastleHpMax;
-38291: warState.playerCastleHpMax = cfg.playerCastleHpMax;
-38292: warState.enemyCastleHp = warState.enemyCastleHpMax;
-38293: warState.playerCastleHp = warState.playerCastleHpMax;
-38294: 
-38295: // power max (upgrade)
-38296: warState.powerMax = warGetPowerMax();
-38297: warState.power = clamp(warState.power, 0, warState.powerMax);
-38298: 
-38299: // apply castle/beam level upgrades
-38300: try{ applyWarUpgradesToState(); }catch(e){}
-38301: 
-38302: const t = document.getElementById('warStageText');
-38303: if(t) t.textContent = warState.stageName;
-38304: const mark = document.getElementById('warStageClearMark');
-38305: if(mark){
-38306: const cleared = (player && player.warProgress) ? (player.warProgress.clearedMax||0) : 0;
-38307: mark.textContent = (idx < cleared) ? '✅' : '';
-38308: }
-38309: }catch(e){}
-38310: }
---- local / CASTLE_HP_PER_LEVEL hits=2
-   10874: const CASTLE_HP_PER_LEVEL = 5; // Lv1=+0, Lv100=+495
-   10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
---- local / warGetMaxUnits() hits=9
-   10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
-   11010: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : ((typeof WAR_MAX_UNITS_BASE==='number') ? WAR_MAX_UNITS_BASE : 7) + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0)));
-   11062: const cur = (typeof warGetMaxUnits === 'function') ? warGetMaxUnits() : (base + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0))));
-   11077: warState.maxPlayerUnits = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
-   11083: const nowVal = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
-   38265: function warGetMaxUnits(){
-   38287: warState.maxPlayerUnits = warGetMaxUnits();
-   39452: ps.maxPlayerUnits = warGetMaxUnits();
-   42116: warState.maxPlayerUnits = warGetMaxUnits();
---- local / WAR_MAX_UNITS_MAX hits=5
-   10858: const WAR_MAX_UNITS_MAX = 20;
-   11011: const dlEl = document.getElementById('upgradePanelDeployLimit'); if(dlEl) dlEl.textContent = Math.min((typeof WAR_MAX_UNITS_MAX==='number'?WAR_MAX_UNITS_MAX:20), Number(dl)||0);
-   11018: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
-   11059: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
-   38268: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
-=== live の じっさいの しき（対比較：bdl だけ かえる）
-live BASE = 0.12 / PER = 0.0004 / dmg line = True
-てきHP120 : Lv1=14 / Lv26=15 / Lv74=17 / Lv94=18 / Lv100=19
-てきHP200 : Lv1=24 / Lv26=26 / Lv74=29 / Lv94=31 / Lv100=31
-てきHP400 : Lv1=48 / Lv26=52 / Lv74=59 / Lv94=62 / Lv100=63
-てきHP900 : Lv1=108 / Lv26=117 / Lv74=134 / Lv94=141 / Lv100=143
-てきHP2000 : Lv1=240 / Lv26=260 / Lv74=298 / Lv94=314 / Lv100=319
+=== ユニットの こうげき まわり
+--- atkCd hits=2
+   46924: enemyBase: { x:W-90, y:70, r:8, speed:1.72, dirX:-1, dirY:0, sprite: bossSprite, hp: enemyBaseHP, maxHp: enemyBaseHP, atkCd:0, shootCd:0, moveCd:0, team:2, isParent:true },
+   47810: b.atkCd = Math.max(0, (b.atkCd||0)-dt);
+--- atkInterval hits=22
+   38815: const atkInterval = clamp(1000 - spd*4, 380, 1000);
+   38817: hpMax:hp, hp, atk, def, move, atkInterval, cost,
+   38852: const atkInterval = clamp(1000 - spd*4, 380, 1000);
+   38853: return { kind:'monster', id, name: mon.name||'モンスター', sprite: mon.sprite||'❓', buff:(mon.buff||'lucky'), elementType:(mon.elementType||'normal'), hpMax:hp, hp, atk, def, move, atkInterval, cost,
+   38860: {key:'pig',   name:'コブタ',   sprite:'🐗', hp:120, atk:18, def:10, move:18, atkInterval:900,  buff:'attack', elementType:'ground'},
+   38861: {key:'bat',   name:'コウモリ', sprite:'🦇', hp:80,  atk:14, def:8,  move:26, atkInterval:760,  buff:'speed',  elementType:'dark'},
+   38862: {key:'snake', name:'ヘビ',     sprite:'🐍', hp:110, atk:16, def:9,  move:22, atkInterval:840,  buff:'guard',  elementType:'poison'},
+   38863: {key:'ghost', name:'オバケ',   sprite:'👻', hp:140, atk:20, def:10, move:16, atkInterval:920,  buff:'attack', elementType:'ghost'},
+   38864: {key:'robot', name:'ロボ',     sprite:'🤖', hp:180, atk:26, def:14, move:14, atkInterval:980,  buff:'guard',  elementType:'steel'}];
+   38940: // 既存の大戦用パラメータ（move/atkIntervalがpx/ミリ秒）
+   38959: const atkInterval = Math.max(620, Math.min(1200, 980 - baseSpd*180)); // 980..620
+   38971: atkInterval,
+   39220: atkInterval: clamp(built.atkInterval * (1.02 - Math.min(0.35, (cfg.idx||0)*0.005)), 380, 1400),
+   39240: atkInterval: clamp(b.atkInterval * (1.02 - Math.min(0.35, (cfg.idx||0)*0.005)), 380, 1400)
+--- atkSpeed hits=0
+--- u.atk hits=9
+   14638: u.atk = 1;
+   18136: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
+   18939: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
+   19228: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
+   39982: u.atk = num(u.atk, 10);
+   39985: u.atkInterval = num(u.atkInterval, 900);
+   41393: const atkInt = num(u.atkInterval, 900) * warAtkIntMul(u, now);
+   41440: const a = Math.round(num(u.atk,10) * warAtkMul(u, now));
+   41450: const a = Math.round(num(u.atk,10) * warAtkMul(u, now));
+--- attackCd hits=0
+=== ステージの てき
+--- enemyCastleHpMax: hits=1
+   38101: enemyCastleHp:600, enemyCastleHpMax:600,
+--- playerCastleHpMax: hits=1
+   38100: playerCastleHp:600, playerCastleHpMax:600,
+--- hpMul hits=2
+   34046: const hpMult = loopStatMult;
+   34050: stats.hp = Math.floor(stats.hp * hpMult);
+--- atkMul hits=2
+   34047: const atkMult = loopStatMult;
+   34051: stats.atk = Math.floor(stats.atk * atkMult);
+=== てきの もとデータ（hp と atk が ならぶ ところ）
+   5430: const counts = { hp:0, atk:0, def:0, spd:0 };
+   5475: const PARTY_TRAIT_BONUS_PER_LINK = { hp: 200, atk: 30, def: 30, spd: 15 };
+   5512: ids.forEach(id=>{ map[id] = { link:0, hp:0, atk:0, def:0, spd:0 }; });
+   5540: const COMBAT_POWER_WEIGHTS = { hp: 0.35, atk: 18, def: 15, spd: 10 };
+   5587: base:  { hp: 1, maxHp: 1, atk: 1, def: 1, spd: 1 },
+   5588: bonus: { hp: 0, maxHp: 0, atk: 0, def: 0, spd: 0 },
+   5589: total: { hp: 1, maxHp: 1, atk: 1, def: 1, spd: 1 },
+   5590: counts: (applied && applied.counts) ? applied.counts : { hp:0, atk:0, def:0, spd:0 }
+   6378: MONSTERS.push({ id: idCounter++, name: fam[0], sprite: fam[3], hp: 30 + i, atk: 5 + (i / 2.5) | 0, def: baseDef, spd: baseSpd, buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage
+   6379: MONSTERS.push({ id: idCounter++, name: fam[1], sprite: fam[4], hp: 55 + Math.floor(i * 1.6), atk: 12 + (i / 1.8) | 0, def: Math.floor(baseDef * 1.8), spd: Math.floor(baseSpd * 1.8), buff: buff, elemen
+   6380: MONSTERS.push({ id: idCounter++, name: fam[2], sprite: fam[5], hp: 100 + Math.floor(i * 2.5), atk: 22 + (i / 1.2) | 0, def: Math.floor(baseDef * 3), spd: Math.floor(baseSpd * 3), buff: buff, elementTy
+   6382: MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】1
+   hp/atk ならぶ 行 = 306
+   hp min/中央/max = 0 250 9999
+=== 対比較：段も 編成も 同じ、beamDamageLevel だけ かえる
+  いま 0.0004 : Lv1=0.12 / Lv100=0.1596 / Lv100は Lv1の 1.33 ばい
+  あん1 0.00075 スタンと そろえる : Lv1=0.12 / Lv100=0.19425 / Lv100は Lv1の 1.619 ばい
+  あん2 0.0012 チャージと そろえる : Lv1=0.12 / Lv100=0.2388 / Lv100は Lv1の 1.99 ばい
+=== ほかの きょうか（1レベルあたり 何% のびるか）
+  ビーム1 チャージ : 2 + 0.02/Lv  -> Lv100 3.98  (1.99ばい, 1レベル +1.000%)
+  ビーム2 いりょく : 0.12 + 0.0004/Lv -> Lv100 0.1596 (1.33ばい, 1レベル +0.333%)
+  ビーム3 スタン   : 800 + 5/Lv -> Lv100 1295ms (1.62ばい, 1レベル +0.625%)
+  しろレベル       : +5HP/Lv -> Lv100 +495 (もとHP600なら 1.83ばい, 1レベル +0.833%)
+  しゅつげき上限   : 7 + 1/かい -> 最大20 (2.86ばい, 13かい)
+  パワー上限       : 200 + 50/かい -> 700 (3.5ばい, 10かい)
+  パワー回復       : 2 + 0.3/かい -> 5 (2.5ばい, 10かい)
+=== 1はつの ビームで てきの 最大HPの 何%を けずるか
+  いま   : Lv1=12.0% / Lv26=13.0% / Lv74=14.92% / Lv94=15.72% / Lv100=15.96%
+  あん1  : Lv1=12.0% / Lv26=13.87% / Lv74=17.47% / Lv94=18.98% / Lv100=19.42%
+  あん2  : Lv1=12.0% / Lv26=15.0% / Lv74=20.76% / Lv94=23.16% / Lv100=23.88%
+=== ビームだけで てきを たおすのに 何ぱつ いるか
+  いま   : Lv1=9はつ / Lv74=7はつ / Lv100=7はつ
+  あん1  : Lv1=9はつ / Lv74=6はつ / Lv100=6はつ
+  あん2  : Lv1=9はつ / Lv74=5はつ / Lv100=5はつ
