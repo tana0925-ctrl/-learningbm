@@ -1,0 +1,231 @@
+name: レベル1に「近くの てきを こうげき」を 出す（DEF2LV1NEAR_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に チェーンと あて先の 一意性を 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('ima no chain: %d ken' % n)
+          if n != 85:
+              print('NG: chain ga 85 ken dewa nai'); ok[0] = False
+          for a in [
+              "  var D2T_A1 = ['attackBase', 'returnBase', 'laneL', 'laneC', 'laneR', 'wait'];",
+              "  var D2T_A2 = D2T_A1.concat(['attackNearest', 'aimWeak',",
+              "  function tbActLabel(a){\n    var i, ja = d2tActJaFromCat(a);",
+              "  function d2tCatalogHook(full) {",
+              "      var acts = d2tKeep(full.acts, okA, D2T_DROP_A, used.a);",
+              "a: 'goPoint' }], els: [{ t: 'a', a: 'attackBase' }] }] }\n  ];",
+          ]:
+              if d.count(a) != 1:
+                  print('NG: atesaki ga itsui de nai: %s' % a[:46]); ok[0] = False
+          if 'D2T_JAFIX' in d:
+              print('NG: sudeni tekiyou zumi ni mieru'); ok[0] = False
+          if d.count('DEF2TPL_LEARN_V1_MARK') != 1:
+              print('NG: saki ni otehon no gakushuu cycle ga iru'); ok[0] = False
+          if d.count('function d2tActJaFromCat(a){') != 1:
+              print('NG: saki ni namae wo hiku buhin ga iru'); ok[0] = False
+          if s.count('/defense2.js' + '?v' + '=18') != 1:
+              print('NG: yomikomi bangou v18 ga 1 ken dewa nai'); ok[0] = False
+          if s.count('/defense2.js' + '?v' + '=19') != 0:
+              print('NG: yomikomi bangou v19 ga sudeni aru'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('PRECHECK OK')
+          PYEOF
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def2_lv1_nearest_v1.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html ga kawatteiru'; exit 1)
+          git diff --quiet -- src/def_engine.ts || (echo 'NG: engine ga kawatteiru'; exit 1)
+          git diff --quiet -- src/def_stage.ts src/def_resolve.ts || (echo 'NG: bouei no hoka file ga kawatteiru'; exit 1)
+          CHANGED="$(git diff --name-only | sort | xargs echo)"
+          if [ "$CHANGED" != "public/defense2.js src/index.tsx" ]; then
+            echo "NG: sawatta file ga okashii: $CHANGED"; exit 1
+          fi
+          git diff --numstat -- public/defense2.js src/index.tsx
+
+      - name: 文法が通るか（通らなければ止める）
+        run: node --check public/defense2.js
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s ga %s ken (kitai %s)' % (label, got, want)); ok[0] = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('chain', s[i:j].count('.replace('), 85)
+
+          chk('konkai no banpei', d.count('DEF2LV1NEAR_V1_MARK'), 1)
+          chk('D2T_JAFIX', d.count('D2T_JAFIX'), 6)
+          chk('d2tJaFix def', d.count('function d2tJaFix(list) {'), 1)
+          chk('d2tJaFix call', d.count('d2tJaFix('), 2)
+          chk('D2T_A1', d.count("var D2T_A1 = ['attackBase', 'returnBase', 'laneL', 'laneC', 'laneR', 'wait', 'attackNearest'];"), 1)
+          chk('D2T_DROP_A', d.count("var D2T_DROP_A = ['attackFort', 'advanceFront', 'retreatBack', 'aimWeakest', 'defendFort', 'scatter'];"), 1)
+          chk('attackNearest', d.count('attackNearest'), 4)
+          chk('aimWeak', d.count('aimWeak'), 5)
+          chk('D2T_TPL', d.count('D2T_TPL'), 8)
+          chk('otehon new 1', d.count("{ name: '⚔ 近くの てきを たたく', lv: 1,"), 1)
+          chk('otehon new 2', d.count("{ name: '⚡ よわい てきを ねらう', lv: 2,"), 1)
+          for _nm in ('⚔ まっすぐ せめる', 'きちが あぶなくなったら もどる', 'HPが へったら まもる',
+                      'まん中の みちを ゆく', 'ひだり5かい', 'きょてんを とりに いく'):
+              chk('otehon moto ' + _nm, d.count(_nm), 1)
+          chk('tbActLabel', d.count('function tbActLabel(a){'), 1)
+          chk('d2tCatalogHook', d.count('function d2tCatalogHook(full) {'), 1)
+          chk('v19', s.count('/defense2.js' + '?v' + '=19'), 1)
+          chk('v18 wa mou nai', s.count('/defense2.js' + '?v' + '=18'), 0)
+          chk('build ni haitteiru', w.count('/defense2.js' + '?v' + '=19'), 1)
+
+          chk('__DEF_LV50_V1__', s.count('__DEF_LV50_V1__'), 2)
+          chk('__DEF_LV50_V2__', s.count('__DEF_LV50_V2__'), 2)
+          chk('DEF2_LV50_SAME_V1', s.count('DEF2_LV50_SAME_V1'), 1)
+          chk('DEF2_LV50_ENTRYFIX_V1', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
+          chk('window.defNorm=function(b)', s.count('window.defNorm=function(b)'), 1)
+          chk('__DEF_MVP_V1__', s.count('__DEF_MVP_V1__'), 6)
+          chk('defMvpMakeLedger', s.count('defMvpMakeLedger'), 2)
+          chk('_defMvpCoinsApplied', s.count('_defMvpCoinsApplied'), 8)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('log_seed_mismatch', s.count('log_seed_mismatch'), 1)
+          chk('log_replay_missing', s.count('log_replay_missing'), 1)
+          chk('log_result_mismatch', s.count('log_result_mismatch'), 1)
+          chk('log_base_hp_mismatch', s.count('log_base_hp_mismatch'), 1)
+          chk('Number(_dvLog.v) === 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('Number.isFinite(Number(_dvRep.baseHpA))', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry: true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables()', s.count('ensureDefenseTables()'), 0)
+          chk('DEFENSE_BASE_HP = 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('DEFENSE_WIN_COINS = 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('900000', s.count('900000'), 1)
+          chk('/api/teacher/defense/dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('__H6MERGE_SRC_V1__', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('__H6BANK_LIVE_V1__', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('__H6U11_BOOST_V1__', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('def_join_nudge.js', s.count('def_join_nudge.js'), 4)
+          chk('defense2.js no michi', s.count("app.get('/defense2.js'"), 1)
+          chk('defstage_monsters.js no michi', s.count("app.get('/defstage_monsters.js'"), 1)
+
+          chk('d2: DEF2TRY_V1_MARK', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('d2: DEF2TRY_RULETALLY_V1', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('d2: DEF2TALLY_TREE_V2_MARK', d.count('DEF2TALLY_TREE_V2_MARK'), 1)
+          chk('d2: DEF2TPL_LEARN_V1_MARK', d.count('DEF2TPL_LEARN_V1_MARK'), 1)
+          chk('d2: DEF2TRY_NOWCSS_V1', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('d2: DEF2SEND_GUARD_V1_MARK', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('d2: DEF2TREE_V1_MARK', d.count('DEF2TREE_V1_MARK'), 2)
+          chk('d2: この下は うごきません', d.count('この下は うごきません'), 1)
+          chk('d2: >▲</button>', d.count('>▲</button>'), 1)
+          chk('d2: >▼</button>', d.count('>▼</button>'), 1)
+          chk('d2: d2tInstallHook(); tryMountEditor(); tryMountTryBattle();', d.count('d2tInstallHook(); tryMountEditor(); tryMountTryBattle();'), 1)
+          chk('d2: defProgram', d.count('defProgram'), 5)
+          chk('d2: /api/defense/entry', d.count('/api/defense/entry'), 1)
+          chk('d2: /api/defense/resolve', d.count('/api/defense/resolve'), 1)
+          chk('d2: 自分が拠点の上にいる', d.count('自分が拠点の上にいる'), 0)
+
+          chk('html: DEF2TRY_STANDSTILL_MARK', h.count('DEF2TRY_STANDSTILL_MARK'), 1)
+          chk('html: DEF2TRY_STANDSTILL_GOAL_MARK', h.count('DEF2TRY_STANDSTILL_GOAL_MARK'), 1)
+          chk('html: DEF2TRY_NOWLABEL_V1', h.count('DEF2TRY_NOWLABEL_V1'), 1)
+          chk('html: Number(opts.baseHp||380)', h.count('Number(opts.baseHp||380)'), 1)
+          chk('html: autoBattleRT', h.count('autoBattleRT'), 5)
+
+          for nm, cd, ch in (('attackFort', 2, 4), ('advanceFront', 3, 5),
+                             ('retreatBack', 3, 9), ('aimWeakest', 2, 7),
+                             ('defendFort', 2, 9), ('scatter', 3, 5)):
+              chk('hazushita ugoki ' + nm + ' (defense2)', d.count(nm), cd)
+              chk('hazushita ugoki ' + nm + ' (index.html)', h.count(nm), ch)
+          chk('hazushita joken 1', d.count('てきが近づいてきた') + h.count('てきが近づいてきた'), 0)
+
+          chk('stage: DEF_STAGE_V3_CURVE', g.count('DEF_STAGE_V3_CURVE'), 1)
+          chk('stage: Math.pow(k / (DEF_STAGE_MAX - 1), 2.2)', g.count('Math.pow(k / (DEF_STAGE_MAX - 1), 2.2)'), 1)
+          chk('stage: o.hp = Math.round(Number(e.hp || 0) * (1 + 25 * u))', g.count('o.hp = Math.round(Number(e.hp || 0) * (1 + 25 * u))'), 1)
+          chk('stage: o.atk = Math.round(Number(e.atk || 0) * (1 + 19 * u))', g.count('o.atk = Math.round(Number(e.atk || 0) * (1 + 19 * u))'), 1)
+          chk('stage: o.def = Math.round(Number(e.def || 0) * (1 + 6 * u))', g.count('o.def = Math.round(Number(e.def || 0) * (1 + 6 * u))'), 1)
+          chk('stage: o.skillPow = Math.round(Number(e.skillPow || 10) * (1 + 18 * u))', g.count('o.skillPow = Math.round(Number(e.skillPow || 10) * (1 + 18 * u))'), 1)
+          chk('stage: if (k > 0) o.spd = Math.round(10 + 230 * u)', g.count('if (k > 0) o.spd = Math.round(10 + 230 * u)'), 1)
+
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INS' + 'ERT', 'UPD' + 'ATE', 'DEL' + 'ETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run ni kakikomi %s ga haitteiru' % _w); ok[0] = False
+          if 'stage ' + '- 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: sageru keiro ga haitteiru'); ok[0] = False
+
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/defense2.js src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'kawari nashi (sudeni tekiyou zumi)'; exit 0
+          fi
+          git commit -m 'DEF2LV1NEAR_V1 level1 ni chikaku no teki wo kougeki wo dasu'
+          git push origin HEAD:main
