@@ -303,7 +303,7 @@ export async function defServerResolve(env, st, classId, enemies) {
     const _kfWrote = _kfTag.map(function (x) { return x.total })
     const programsA = _kfTag.map(function (x) { return x.prog })
     const specsB = enemies.map(function (en) {
-      return { raw: { name: en.name, sprite: en.sprite, hp: en.hp, atk: en.atk, def: en.def, buff: en.buff, skillPow: en.skillPow, elementType: en.elementType, skills: en.skills }, strategy: 'attack' }
+      return { raw: { name: en.name, sprite: en.sprite, hp: en.hp, atk: en.atk, def: en.def, spd: en.spd, buff: en.buff, skillPow: en.skillPow, elementType: en.elementType, skills: en.skills }, strategy: 'attack' }
     })
     const seed = defSeedFromKey(st.eventKey)
     const rep = defAutoBattleRT(specsA, specsB, {

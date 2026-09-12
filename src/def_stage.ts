@@ -4,7 +4,7 @@
 // @ts-nocheck
 /* eslint-disable */
 
-export const DEF_STAGE_MAX = 10
+export const DEF_STAGE_MAX = 30
 
 // 1 〜 DEF_STAGE_MAX に丸める。壊れた値は 1 とみなす。
 export function defStageClamp(stage) {
@@ -24,13 +24,16 @@ export function defStageClamp(stage) {
 export function defStageEnemies(base, stage, n) {
   if (!Array.isArray(base)) return []
   const k = defStageClamp(stage) - 1
-  // DEF_STAGE_V4 __DEFSTAGE_N_V1__ 段の強さに 出陣人数 n をかけ合わせる。
-  //   段の u は 1段 1.12 倍きざみ。n は 8 人を 1.0 とする (n/8)^0.6。
-  //   n が読めないときは 8（これまでと同じ強さ）。体数は 8 のまま。
-  const _dsUt = [0, 0.24, 0.27, 0.30, 0.33, 0.37, 0.42, 0.47, 0.53, 0.60]
-  const _dsN = Math.floor(Number(n))
-  const _dsNn = (Number.isFinite(_dsN) && _dsN >= 1) ? Math.min(200, _dsN) : 8
-  const u = _dsUt[k] * Math.pow(_dsNn / 8, 0.6)
+  // DEF_STAGE_V5 __DEFSTAGE_30_V1__ __DEFSTAGE_N_V1__ 段の強さは 段だけで きまる。
+  //   クラス全員が 出るので 人数は ほぼ 一定。人数で わりつけると 友だちを さそうほど
+  //   てきが 強くなり「みんなで やれば 勝てる」と 逆に なる。n は 受け取るが つかわない。
+  //   u は 1段 1.12 倍きざみ。表を やめて 式に したので 段を いくつ ふやしても つづく。
+  //   ステージ1 は u = 0（素のまま）。2 で 0.24、10 で 約0.59、30 で 約5.73。
+  //   てきの はやさ も 段で 少しずつ 上げる（1 は 10 のまま、2 で 40、8 いこう 70）。
+  //   はやさが 10 のままだと よこの道の てきが 基地に とどかず、
+  //   みんなを 1つの道に あつめるだけが いつも 最善に なってしまう。
+  const _dsSpd = (k <= 0) ? 10 : Math.min(70, 35 + 5 * k)
+  const u = (k <= 0) ? 0 : 0.24 * Math.pow(1.12, k - 1)
   return base.map(function (e) {
     const o = {}
     for (const p in e) o[p] = e[p]
@@ -38,7 +41,7 @@ export function defStageEnemies(base, stage, n) {
     o.atk = Math.round(Number(e.atk || 0) * (1 + 19 * u))
     o.def = Math.round(Number(e.def || 0) * (1 + 6 * u))
     o.skillPow = Math.round(Number(e.skillPow || 10) * (1 + 18 * u))
-    if (k > 0) o.spd = Math.round(10 + 230 * u)
+    o.spd = _dsSpd
     return o
   })
 }
