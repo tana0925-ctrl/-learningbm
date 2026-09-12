@@ -1,0 +1,159 @@
+name: ZWAR_UNLOCK_V1 ゾンビ襲来の解禁をボタン側へ移す
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを掃除
+        run: git checkout -- .
+
+      - name: 最新を取り込む
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - name: 本番の配信HTMLでアンカーを数える（GETのみ）
+        run: |
+          curl -sS --max-time 90 -o /tmp/prod.html https://learning-bm.pages.dev/ || echo 'FETCH FAILED'
+          ls -l /tmp/prod.html || true
+          python3 - << 'PYEOF'
+          import importlib.util, os, sys
+          p = '/tmp/prod.html'
+          if not os.path.exists(p):
+              print('WARN: 本番HTMLを取得できなかった（参考値なので続行）')
+              sys.exit(0)
+          h = open(p, encoding='utf-8', errors='replace').read()
+          sp = importlib.util.spec_from_file_location('zw', 'scripts/patch_zwar_unlock_v1.py')
+          m = importlib.util.module_from_spec(sp)
+          sp.loader.exec_module(m)
+          bad = False
+          for nm, t in [('A', m.A_OLD), ('B', m.B_OLD), ('C', m.C_ANCHOR)]:
+              n = h.count(t)
+              print('PROD', nm, n)
+              if n > 1:
+                  print('NG: 本番で', nm, 'が', n, '件（一意でない）')
+                  bad = True
+          if bad:
+              sys.exit(1)
+          print('PROD ANCHOR CHECK DONE')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_zwar_unlock_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        run: python3 scripts/patch_zwar_unlock_v1.py
+
+      - name: 検証（番兵とは別の条件で確かめる）
+        run: |
+          python3 - << 'PYEOF'
+          import importlib.util, subprocess, sys
+          sp = importlib.util.spec_from_file_location('zw', 'scripts/patch_zwar_unlock_v1.py')
+          m = importlib.util.module_from_spec(sp)
+          sp.loader.exec_module(m)
+
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+
+          ok = True
+
+          if n != m.CHAIN_AFTER:
+              print('NG: チェーンが', n, '件（想定', m.CHAIN_AFTER, '件）')
+              ok = False
+
+          for nm, want in [('_zwA1', 3), ('_zwB1', 3), ('_zwC1', 3), ('_zwA2', 2), ('_zwB2', 2), ('_zwC2', 2)]:
+              if s.count(nm) != want:
+                  print('NG:', nm, 'が', s.count(nm), '件（想定', want, '件）')
+                  ok = False
+
+          # public/index.html は手で触っていないこと
+          for nm, t in [('A', m.A_OLD), ('B', m.B_OLD), ('C', m.C_ANCHOR)]:
+              if h.count(t) != 1:
+                  print('NG: public/index.html の', nm, 'が', h.count(t), '件')
+                  ok = False
+          if m.SENTINEL in h:
+              print('NG: public/index.html に番兵が混入')
+              ok = False
+          if subprocess.call(['git', 'diff', '--quiet', '--', 'public/index.html']) != 0:
+              print('NG: public/index.html が変更されている')
+              ok = False
+
+          # 変更は追加した1ブロックだけか
+          old = subprocess.check_output(['git', 'show', 'HEAD:src/index.tsx']).decode('utf-8')
+          blk = m.build_block()
+          if s.replace(blk, '', 1) != old:
+              print('NG: 追加した1ブロック以外が変わっている')
+              ok = False
+          else:
+              print('OK: src の変更は追加した1ブロックだけ')
+
+          # 壊してはいけない目印
+          for k in m.KEEP:
+              c1 = s.count(k)
+              c0 = old.count(k)
+              if k not in s and k not in h:
+                  print('NG: 目印が消えた', k)
+                  ok = False
+              if c1 != c0:
+                  print('NG: 目印の数が変わった', k, c0, '->', c1)
+                  ok = False
+          print('KEEP目印: すべて健在')
+
+          # 記録用の実測値
+          print('ensureDefenseTables() src:', s.count('ensureDefenseTables()'), 'old:', old.count('ensureDefenseTables()'))
+          print('stage - 1 :', s.count('stage - 1'), 'old:', old.count('stage - 1'))
+          print('stage-1 :', s.count('stage-1'), 'old:', old.count('stage-1'))
+
+          # 通常モードの解禁がそのままであること
+          lock = 'const isLocked = isZombie ? (pref.index >= zUnlocked) : (pref.index >= progress.unlocked);'
+          if h.count(lock) != 1:
+              print('NG: 一覧のロック判定が見つからない')
+              ok = False
+          if h.count('if(i >= maxUnlocked) return;') != 1:
+              print('NG: selectWarStage の選択判定が見つからない')
+              ok = False
+
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ビルドが通ることを確認
+        run: |
+          npm ci
+          npm run build
+          git checkout -- dist 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- git status ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- src/index.tsx; then
+            echo '変更なし（既に適用済み）'; exit 0
+          fi
+          git add src/index.tsx
+          git commit -m 'ZWAR_UNLOCK_V1: ゾンビ襲来の解禁判定をステージ選択からボタン側へ移す / chain 89->92'
+          git pull --rebase origin main
+          git push origin HEAD:main
