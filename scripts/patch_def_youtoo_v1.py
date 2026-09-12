@@ -31,7 +31,7 @@ MSG = ('<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10
 NEW_UI = ('if(!(d.my_entry && d.my_entry.monster)){ head+=' + chr(39) + MSG + chr(39) + '; } ' + OLD_UI)
 
 CHAIN_ANCHOR = NL + '    _rootHtmlCache = t' + NL
-CHAIN_ADD = (NL + '      // ' + SENTINEL + ' まだ 出していない子に「きみも たたかっているよ」と つたえる（せめない言い方で）'
+CHAIN_ADD = (NL + '      // ' + SENTINEL + ' まだ 出していない子に やさしく つたえる（せめない言い方で）'
              + NL + '      t = t.replace(' + BT + OLD_UI + BT + ', ' + BT + NEW_UI + BT + ')')
 
 
