@@ -114,8 +114,11 @@ jobs:
               if s.count(nm) != want:
                   print('NG:', nm, s.count(nm), 'want', want); ok = False
 
-          if s.count("] anchor A not found") != 1 or s.count("] anchor B not found") != 1 or s.count("] anchor C not found") != 1:
-              print('NG: console.error の skip 経路が3本そろっていない'); ok = False
+          for _t in ('[__ZWAR_CASTLE_STAND_V1__] anchor A not found',
+                     '[__ZWAR_CASTLE_STAND_V1__] anchor B not found',
+                     '[__ZWAR_CASTLE_STAND_V1__] anchor C not found'):
+              if s.count(_t) != 1:
+                  print('NG: console.error の skip 経路がそろっていない', _t, s.count(_t)); ok = False
 
           for nm, t in [('A', m.A_OLD), ('B', m.B_OLD), ('C', m.C_OLD)]:
               if h.count(t) != 1:
