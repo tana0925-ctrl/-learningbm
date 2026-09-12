@@ -1,0 +1,247 @@
+name: 防衛戦 ③a（DEFSTAGE_30_V1・人数わりつけを やめて 30段に する）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に つなぎの数と アンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          NL = chr(10)
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流す前）= %d' % n)
+          if n != 86:
+              print('NG: つなぎの数が 86 ではない'); sys.exit(1)
+          pairs = [
+            (g, 'export const DEF_STAGE_MAX = 10', '段の上限'),
+            (g, '  const _dsUt = [0, 0.24, 0.27, 0.30, 0.33, 0.37, 0.42, 0.47, 0.53, 0.60]', '段の表'),
+            (g, '    if (k > 0) o.spd = Math.round(10 + 230 * u)', 'てきの はやさ'),
+            (g, 'export function defStageEnemies(base, stage, n) {', '3引数の形'),
+            (v, 'def: en.def, buff: en.buff', 'サーバの てきの わたし方'),
+            (d, 'def:en.def,buff:en.buff', 'ブラウザの てきの わたし方'),
+            (s, 'const DEFSTAGE_BONUS_MAX_STAGE = 10', 'ごほうびの 頭打ち'),
+            (s, '/defense2.js?v=20', 'defense2 の ばんごう'),
+          ]
+          for text, anchor, label in pairs:
+              k = text.count(anchor)
+              print('%s = %d' % (label, k))
+              if k != 1:
+                  print('NG: %s が 1 件でない' % label); sys.exit(1)
+          if g.count('__DEFSTAGE_30_V1__') or s.count('__DEFSTAGE_30_V1__'):
+              print('NG: 番兵が すでにある'); sys.exit(1)
+          if g.count('_dsSpd'):
+              print('NG: _dsSpd が すでにある'); sys.exit(1)
+          print('OK: つなぎ 86 / アンカーは すべて 1 件')
+          PYEOF
+
+      - name: 当てる（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_defstage_30_v1.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_engine.ts || (echo 'NG: src/def_engine.ts が変わっている'; exit 1)
+          echo '本番HTML と エンジンは 無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 段の強さを 実際に 計算して 確かめる（番兵とは別の条件）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const NL = String.fromCharCode(10);
+          const g = fs.readFileSync('src/def_stage.ts', 'utf8');
+          const S = new Function(g.replace(/^export /gm, '') + NL + 'return { defStageEnemies, defStageClamp, DEF_STAGE_MAX };')();
+          const eng = fs.readFileSync('src/def_engine.ts', 'utf8');
+          const E = new Function(eng.replace(/^export /gm, '') + NL + 'return { defAutoBattleRT, defTestRoster };')();
+          const idx = fs.readFileSync('src/index.tsx', 'utf8');
+          const a = idx.indexOf('DEFENSE_ENEMIES = [');
+          const b = idx.indexOf(NL + ']', a);
+          if (a < 0 || b < 0) { console.log('NG: もとの てきが 見つからない'); process.exit(1); }
+          const mkBase = function () { return new Function('return ' + idx.slice(a + 18, b + 2))(); };
+          const BASE = mkBase();
+          let ok = true;
+          if (S.DEF_STAGE_MAX !== 30) { console.log('NG: 段の上限が 30 でない'); ok = false; }
+          if (BASE.length !== 8) { console.log('NG: もとの てきが 8 体でない'); ok = false; }
+          const key = function (n) { const o = []; for (let st = 1; st <= 32; st++) o.push(S.defStageEnemies(BASE, st, n)); return JSON.stringify(o); };
+          const k8 = key(8);
+          [1, 22, 30, 200, 0, -5, null].forEach(function (n) { if (key(n) !== k8) { console.log('NG: 人数 ' + n + ' で 強さが かわった'); ok = false; } });
+          for (let st = 1; st <= 32; st++) {
+            const e = S.defStageEnemies(BASE, st, 22);
+            if (e.length !== 8) { console.log('NG: 体数が 8 でない ' + st); ok = false; }
+            for (let q = 0; q < e.length; q++) {
+              const x = e[q];
+              ['hp', 'atk', 'def', 'skillPow', 'spd'].forEach(function (p) {
+                if (!Number.isFinite(x[p]) || !Number.isInteger(x[p]) || x[p] < 0 || x[p] > Number.MAX_SAFE_INTEGER) { console.log('NG: 数が こわれた ' + st + ' ' + p + ' ' + x[p]); ok = false; }
+              });
+            }
+          }
+          if (JSON.stringify(BASE) !== JSON.stringify(mkBase())) { console.log('NG: もとの配列を 書きかえた'); ok = false; }
+          const s1 = S.defStageEnemies(BASE, 1, 22);
+          for (let i = 0; i < 8; i++) {
+            if (s1[i].hp !== BASE[i].hp || s1[i].atk !== BASE[i].atk || s1[i].def !== BASE[i].def) { console.log('NG: ステージ1 が 素でない'); ok = false; }
+            if (s1[i].spd !== 10) { console.log('NG: ステージ1 の はやさが 10 でない'); ok = false; }
+          }
+          let prev = -1;
+          const tbl = [];
+          for (let st = 1; st <= 30; st++) {
+            const e0 = S.defStageEnemies(BASE, st, 22);
+            const sp = e0[0].spd;
+            if (sp < prev || sp > 70) { console.log('NG: はやさの ならびが おかしい ' + st + ' ' + sp); ok = false; }
+            prev = sp;
+            tbl.push(st + ':hp' + e0[7].hp + '/spd' + sp);
+          }
+          console.log('段ごとの まおう ' + tbl.join(' '));
+          if (JSON.stringify(S.defStageEnemies(BASE, 99, 22)) !== JSON.stringify(S.defStageEnemies(BASE, 30, 22))) { console.log('NG: 30 で 頭打ちに なっていない'); ok = false; }
+          const mk = function (arr, withSpd) { return arr.map(function (e) { const raw = { name: e.name, sprite: e.sprite, hp: e.hp, atk: e.atk, def: e.def, buff: e.buff, skillPow: e.skillPow, elementType: e.elementType, skills: e.skills }; if (withSpd) raw.spd = e.spd; return { raw: raw, strategy: 'attack' }; }); };
+          const fight = function (r, B, sd) { return E.defAutoBattleRT(r.A, B, { bases: true, lanes: true, laneCount: 3, seed: sd, program: true, programsA: r.programsA, programB: r.programB, forts: false, tactics: true, contact: true, foeLaneMix: true }); };
+          for (let k = 0; k < 4; k++) {
+            const sd = (900 + k * 7919) >>> 0;
+            const r = E.defTestRoster(sd, 22, 8);
+            const before = fight(r, mk(BASE, false), sd);
+            const after = fight(r, mk(S.defStageEnemies(BASE, 1, 22), true), sd);
+            if (JSON.stringify(before) !== JSON.stringify(after)) { console.log('NG: ステージ1 の 戦いが かわった seed ' + sd); ok = false; }
+          }
+          let hi = 0;
+          for (let k = 0; k < 3; k++) {
+            const sd = (1700 + k * 7919) >>> 0;
+            const r = E.defTestRoster(sd, 22, 8);
+            const B30 = mk(S.defStageEnemies(BASE, 30, 22), true);
+            const rep = fight(r, B30, sd);
+            const rep2 = fight(E.defTestRoster(sd, 22, 8), mk(S.defStageEnemies(BASE, 30, 22), true), sd);
+            if (JSON.stringify(rep) !== JSON.stringify(rep2)) { console.log('NG: 同じ seed で 結果が ちがう'); ok = false; }
+            if (!(rep.winner === 'A' || rep.winner === 'B') || !Number.isFinite(rep.baseHpA)) { console.log('NG: ステージ30 の 戦いが 成り立たない'); ok = false; }
+            const lg = JSON.stringify({ v: 2, replay: rep });
+            if (lg.length > hi) hi = lg.length;
+          }
+          console.log('ステージ30 の きろく さいだい ' + hi);
+          if (!ok) process.exit(1);
+          console.log('STAGE30 OK');
+          JSEOF
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          chk('DEF_LV50_V1', s.count('DEF_LV50_V1'), 2)
+          chk('DEF_LV50_V2', s.count('DEF_LV50_V2'), 2)
+          chk('DEF2_LV50_SAME_V1(つなぎ)', s.count('DEF2_LV50_SAME_V1'), 1)
+          chk('DEF2_LV50_SAME_V1(ブラウザ)', d.count('DEF2_LV50_SAME_V1'), 3)
+          chk('DEF2_LV50_ENTRYFIX_V1', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
+          chk('defNorm', s.count('window.defNorm'), 2)
+          chk('MVP の番兵', s.count('__DEF_MVP_V1__'), 6)
+          chk('MVP の台帳', s.count('defMvpMakeLedger'), 2)
+          chk('MVP のコイン印', s.count('_defMvpCoinsApplied'), 8)
+          chk('段の番兵', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('spd/skills の番兵', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('照合の番兵', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合の やりなおし', s.count('retry: true'), 2)
+          chk('照合の v', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('持ち越し', s.count('defense_standing'), 4)
+          chk('持ち越しの錠', s.count('defense_carry_lock'), 1)
+          chk('自動すすめ', s.count('defAutoAdvanceV1'), 3)
+          chk('番人', s.count('defEntryOk'), 3)
+          chk('段の敵', s.count('defStageEnemies'), 4)
+          chk('段の台帳', s.count('defStageMakeLedger'), 3)
+          chk('段のごほうび', s.count('applyDefStageGrants'), 2)
+          chk('段のコイン印', s.count('_defStageCoinsApplied'), 8)
+          chk('えらび直し', s.count('needs_reselect'), 3)
+          chk('レーンまぜ（つなぎ）', s.count('foeLaneMix'), 2)
+          chk('レーンまぜ（サーバ）', v.count('foeLaneMix'), 1)
+          chk('レーンまぜ（ブラウザ）', d.count('foeLaneMix'), 2)
+          chk('表づくりの よびだし', s.count('ensureDefenseTables()'), 0)
+          chk('勝利コイン 20', s.count('const DEFENSE_WIN_COINS = 20'), 1)
+          chk('基地HP の なまえ', s.count('DEFENSE_BASE_HP'), 2)
+          chk('基地HP 380', s.count('380'), 2)
+          chk('さそいの js', s.count('def_join_nudge.js'), 4)
+          chk('段のモンスター js', s.count('defstage_monsters.js'), 4)
+          chk('S6WORLD', s.count('__S6WORLD_50__'), 1)
+          chk('H6MERGE', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('H6BANK', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('H6U11', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('サーバの MVP', v.count('__DEF_MVP_V1__'), 4)
+          chk('サーバの 番人', v.count('defEntryOk'), 2)
+          chk('①の番兵', s.count('__DEF_LOG_FIT_V1__'), 1)
+          chk('①の かんすう（つなぎ）', s.count('defLogFit'), 2)
+          chk('①の かんすう（サーバ）', v.count('defLogFit'), 2)
+          chk('D2T_A1', d.count('D2T_A1'), 3)
+          chk('D2T_JAFIX', d.count('D2T_JAFIX'), 6)
+          chk('D2T_DROP_A', d.count('D2T_DROP_A'), 2)
+          chk('D2T_DROP_C', d.count('D2T_DROP_C'), 2)
+          chk('DEF2TRY_V1_MARK', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('DEF2TRY_RULETALLY_V1', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('DEF2TALLY_TREE_V2', d.count('DEF2TALLY_TREE_V2'), 1)
+          chk('DEF2TRY_NOWCSS_V1', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('DEF2SEND_GUARD_V1_MARK', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('DEF2TPL_LEARN_V1', d.count('DEF2TPL_LEARN_V1'), 3)
+          chk('aimWeak', d.count('aimWeak'), 5)
+          chk('aimWeakest', d.count('aimWeakest'), 2)
+          chk('attackNearest', d.count('attackNearest'), 4)
+          chk('体数を増やしていない', g.count('base.map('), 1)
+          chk('3引数の形', g.count('export function defStageEnemies(base, stage, n) {'), 1)
+          chk('段の番兵N', g.count('__DEFSTAGE_N_V1__'), 1)
+          down = 'stage' + ' - ' + '1'
+          chk('下げる みちすじ（つなぎ）', s.count(down), 0)
+          chk('下げる みちすじ（サーバ）', v.count(down), 0)
+          chk('下げる みちすじ（段）', g.count(down), 0)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/def_stage.ts src/def_resolve.ts src/index.tsx public/defense2.js
+          if git diff --cached --quiet; then
+            echo 'かわっていないので push しません'
+          else
+            git commit -m 'DEFSTAGE_30_V1: 人数わりつけを やめて 30段に する（てきの はやさも 段で ゆっくり 上げる）'
+            git push origin HEAD:main
+          fi
