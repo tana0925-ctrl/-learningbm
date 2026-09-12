@@ -1,0 +1,217 @@
+name: ためしバトルの ひょうを ツリーに あわせる（DEF2TALLY_TREE_V2）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に チェーンと あて先の 一意性を 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('いまの チェーン: %d 件' % n)
+          if n != 82:
+              print('NG: チェーンが 82 件では ない'); ok[0] = False
+          if s.count('/defense2.js' + '?v' + '=11') != 1:
+              print('NG: よみこみ番号 v11 が 1件では ない'); ok[0] = False
+          for a in [
+              "  function d2tTallyRules(prog) {",
+              "      (function rec(arr, path) {",
+              "      })(prog, '');",
+              "    var cnt={}, none=0, total=0, mx=1, zero=0, n, pct, on, out;",
+              "    for(i=0;i<rules.length;i++){ n=cnt[rules[i]._id]||0; if(n>mx) mx=n; }",
+              "      n=cnt[rules[i]._id]||0; on=(n>0); pct=Math.round(n*100/mx); if(!on) zero++;",
+          ]:
+              if d.count(a) != 1:
+                  print('NG: あて先が 一意で ない: %s' % a[:40]); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('PRECHECK OK')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def2_tally_tree_v2.py
+
+      - name: 文法が通るか（通らなければ止める）
+        run: node --check public/defense2.js
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts src/def_engine.ts src/def_resolve.ts || (echo 'NG: 防衛戦の他ファイルが変わっている'; exit 1)
+          CHANGED="$(git diff --name-only | sort | xargs echo)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/defense2.js src/index.tsx" ]; then
+            echo "NG: さわったファイルが おかしい: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+          git diff --numstat -- src/index.tsx
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン（足しも引きも しない）', s[i:j].count('.replace('), 82)
+
+          chk('こんかいの 番兵', d.count('DEF2TALLY_TREE_V2_MARK'), 1)
+          chk('中みを あつめる 部品', d.count('function d2tLeafIds(arr)'), 1)
+          chk('1ぎょうの 回数', d.count('function tbRowCount(row, cnt)'), 1)
+          chk('深さを もちまわる', d.count("(function rec(arr, path, dep) {"), 1)
+          chk('ブロックの ぎょう', d.count("kind: 'b'"), 2)
+          chk('段差', d.count("margin-left:'+(_dp*16)+'px;"), 1)
+          chk('よみこみ v12', s.count('/defense2.js' + '?v' + '=12'), 1)
+          chk('ふるい v11 は もう無い', s.count('/defense2.js' + '?v' + '=11'), 0)
+
+          chk('ツリー本体の番兵', d.count('DEF2TREE_V1_MARK'), 2)
+          chk('さらけだし口', s.count('DEF2TREE_V1_EXPOSE'), 1)
+          chk('かきなおし口', s.count('DEF2TREE_V1_PREPHOOK'), 1)
+          chk('ひょうの口', s.count('DEF2TREE_V1_CATHOOK'), 1)
+          chk('ぶひん箱の口', s.count('DEF2TREE_V1_BLKHOOK'), 1)
+          chk('_pbCatalogRaw', s.count('_pbCatalogRaw'), 3)
+          chk('とりつけ', d.count('d2tInstallHook(); tryMountEditor(); tryMountTryBattle();'), 1)
+          chk('ひょうを ひらく', d.count('function d2tTallyRules(prog)'), 1)
+          chk('ジムが 見えていたら 止まる', d.count("gym = document.getElementById('gymChallengeBody');"), 1)
+
+          chk('ためしバトル', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('ひょう', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('あたまの上の みため', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('送信の 保険', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('プログラムUX', d.count('DEF_PROG_UX_V1'), 1)
+          chk('エントリーは 1か所だけ', d.count('/api/defense/entry'), 1)
+          chk('けっせんは 1か所だけ', d.count('/api/defense/resolve'), 1)
+          chk('けっか表に さわらない', d.count('defense_' + 'results'), 0)
+          chk('ボタンの上に入れる', d.count('btn.parentNode.insertBefore(box, btn)'), 1)
+          chk('おしらせ', d.count('この下は うごきません'), 1)
+          chk('行入れかえ 上ボタン', d.count('>▲</button>'), 1)
+          chk('行入れかえ 下ボタン', d.count('>▼</button>'), 1)
+          chk('0かいの おしらせ', d.count('1かいも うごかなかった'), 2)
+          chk('ばんごうづけ', d.count('tbNumberRules'), 2)
+          chk('_id を おとすのは 送信のときだけ', d.count('function d2StripIds(n)'), 1)
+          chk('ノード上限', d.count('D2_SEND_MAX_NODES'), 5)
+
+          chk('index.html は 手つかず', h.count('_pbCatalogRaw'), 0)
+          chk('index.html の ひょうの入口', h.count('function _pbCatalog(){ return {'), 1)
+          chk('index.html の かきなおしの入口', h.count('function _gcRenderPrep(){ _gcStopMover();'), 1)
+          chk('index.html の さらけだし口', h.count('window._pbApplyTpl=_pbApplyTpl;'), 1)
+          chk('コマに のこる ばんごう', h.count("n:(f._pbCurNode!=null?f._pbCurNode:-1)"), 1)
+          chk('うごかない的', h.count('DEF2TRY_STANDSTILL_MARK'), 1)
+          chk('うごかない的の ゴール', h.count('DEF2TRY_STANDSTILL_GOAL_MARK'), 1)
+          chk('あたまの上の 名まえ', h.count('DEF2TRY_NOWLABEL_V1'), 1)
+          chk('うごかない の 名まえ', h.count("standStill:'うごかない'"), 1)
+          chk('うごきの ひょう', h.count('function _cGoal(f){'), 1)
+          chk('ツリー実行エンジン', h.count('function _pbIsTree(prog){'), 1)
+          chk('ツリー実行の 入口', h.count('function _pbRun(f,prog,ctx){'), 1)
+          chk('基地HP 380 の既定', h.count('Number(opts.baseHp||380)'), 1)
+          chk('エンジン本体', h.count('autoBattleRT'), 5)
+
+          chk('配る道', s.count("app.get('/defense2.js'"), 1)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合1 seed', s.count('log_seed_mismatch'), 1)
+          chk('照合2 replay', s.count('log_replay_missing'), 1)
+          chk('照合3 result', s.count('log_result_mismatch'), 1)
+          chk('照合4 base_hp', s.count('log_base_hp_mismatch'), 1)
+          chk('log の v が 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA 有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('__H6MERGE_SRC_V1__', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('__H6BANK_LIVE_V1__', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('__H6U11_BOOST_V1__', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('def_join_nudge.js', s.count('def_join_nudge.js'), 4)
+          chk('げんていキャラの道', s.count("app.get('/defstage_monsters.js'"), 1)
+          chk('倍率の曲線', g.count('DEF_STAGE_V3_CURVE'), 1)
+          chk('def_stage の関数', g.count('export function defStageEnemies(base, stage) {'), 1)
+
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INS' + 'ERT', 'UPD' + 'ATE', 'DEL' + 'ETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に かきこみ %s が 入っている' % _w); ok[0] = False
+          if 'stage ' + '- 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: さげる経路が 入っている'); ok[0] = False
+
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          if 'defense2.js' not in w:
+              print('NG: ビルドに 入っていない'); ok[0] = False
+          if '/defense2.js' + '?v' + '=12' not in w:
+              print('NG: ビルドの よみこみ番号が v12 で ない'); ok[0] = False
+
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/defense2.js src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF2TALLY_TREE_V2 ためしバトルの 何かいうごいた ひょうを 入れ子の ブロックまで 段差つきで 見せる'
+          git push origin HEAD:main
