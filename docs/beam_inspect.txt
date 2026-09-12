@@ -1,3 +1,120 @@
+live status = 200
+local len = 5671000 / live len = 5713034 / diff = 42034
+=== LIVE の ビーム まわり
+--- live / BEAM_RATIO_BASE hits=2
+   10868: const BEAM_RATIO_BASE = 0.12;
+   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+--- live / BEAM_RATIO_PER_LEVEL hits=2
+   10869: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
+   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+--- live / beamDamageRatio hits=3
+   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+   38103: beamCharge:0, beamRate:2, beamDamageRatio:0.12, beamStunMs:800,
+   39756: const ratio = Number(warState.beamDamageRatio||0.12);
+--- live / getBeamDamageLevel hits=4
+   10938: function getBeamDamageLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamDamageLevel) ? player.beamDamageLevel : 1; }
+   10944: const a = getBeamChargeLevel(), b = getBeamDamageLevel(), c = getBeamStunLevel();
+   10955: const bdl = getBeamDamageLevel();
+   10984: const bdl = getBeamDamageLevel();
+--- live / Math.floor(maxHp * ratio) hits=1
+   39777: const dmg = Math.max(1, Math.floor(maxHp * ratio));
+--- live / applyWarUpgradesToState hits=8
+   10950: function applyWarUpgradesToState(){
+   11034: try{ applyWarUpgradesToState(); }catch(e){}
+   11082: try{ applyWarUpgradesToState(); }catch(e){}
+   11096: try{ applyWarUpgradesToState(); }catch(e){}
+   11110: try{ applyWarUpgradesToState(); }catch(e){}
+   38213: try{ applyWarUpgradesToState(); }catch(e){}
+   38307: try{ applyWarUpgradesToState(); }catch(e){}
+   42120: try{ applyWarUpgradesToState(); }catch(e){}
+=== たたかい ひらく ところ（ローカル）
+=== html / // apply upgrades (beam stats) hits=1
+  42099: warState.globalSpawnCd = 0;
+  42100: warState.slotCd = [0,0,0];
+  42101: warState.units = [];
+  42102: warState.deployedIds = {};
+  42103: warState.nextUnitId = 1;
+  42104: warState.playerCastleHpMax = 600;
+  42105: warState.enemyCastleHpMax = 600;
+  42106: warState.playerCastleHp = warState.playerCastleHpMax;
+  42107: warState.enemyCastleHp = warState.enemyCastleHpMax;
+  42108: warState.lastEnemySpawn = 0;
+  42109: warState.enemySpawnInterval = 2600;
+  42110: warState.elapsed = 0;
+  42111: warState.q = null;
+  42112: 
+>>42113: // apply upgrades (beam stats)
+  42114: try{ applyWarUpgradesToState(); }catch(e){}
+  42115: 
+  42116: warState.maxPlayerUnits = warGetMaxUnits();
+  42117: warState.maxEnemyUnits = warState.maxEnemyUnits || 12;
+  42118: warState.wave = 1;
+  42119: warState.waveInterval = warState.waveInterval || 15;
+  42120: warState.nextWaveAt = warState.waveInterval;
+  42121: 
+  42122: const layer = document.getElementById('warUnitsLayer');
+  42123: if(layer) layer.innerHTML = '';
+  42124: const ov = document.getElementById('warResultOverlay');
+  42125: if(ov){ ov.classList.add('hidden'); ov.classList.remove('flex'); }
+  42126: }
+  42127: window.enterWarMode = function(){
+    -----
+=== html / beamCharge += hits=0
+=== html / beamCharge = hits=5
+  17329: return;
+  17330: }
+  17331: player.beamChargeTickets = (player.beamChargeTickets || 0) + 1;
+>>17332: player.upgradeTicketsSoldToday.beamCharge = sold + 1;
+  17333: } else if (item.id === 'beam_damage_ticket') {
+  17334: if (!player.upgradeTicketsSoldToday || typeof player.upgradeTicketsSoldToday !== 'object') player.upgradeTicketsSoldToday = 0;
+  17335: const sold = Number(player.upgradeTicketsSoldToday.beamDamage || 0);
+    -----
+  39745: if(!warState.active) return;
+  39746: if(Number(warState.beamCharge||0) < 100) return;
+  39747: 
+>>39748: warState.beamCharge = 0;
+  39749: const now = Date.now();
+  39750: const ratio = Number(warState.beamDamageRatio||0.12);
+  39751: const stunMs = Number(warState.beamStunMs||800);
+    -----
+  41306: ps.power = clamp(ps.power, 0, ps.powerMax);
+  41307: 
+  41308: // nyanko beam charge
+>>41309: ps.beamCharge = clamp((ps.beamCharge||0) + (ps.beamRate||2)*dt, 0, 100);
+  41310: 
+  41311: // waves & enemy spawn（ステージごとに固定：出てくるキャラ＆タイミング）
+  41312: const cfg = ps.stageConfig;
+    -----
+  42041: warState.power = clamp(warState.power + 12 + warState.combo*2, 0, warState.powerMax);
+  42042: 
+  42043: // nyanko beam gain (not too strong)
+>>42044: warState.beamCharge = clamp((warState.beamCharge||0) + (within ? 16 : 12), 0, 100);
+  42045: }else{
+  42046: warState.combo = 0;
+  42047: warState.globalSpawnCd = 0;
+    -----
+  42093: warState.powerMax = warGetPowerMax();
+  42094: warState.baseRate = warGetPowerRate();
+  42095: warState.power = 0;
+>>42096: warState.beamCharge = 0;
+  42097: warState.boostUntil = 0;
+  42098: warState.combo = 0;
+  42099: warState.globalSpawnCd = 0;
+    -----
+=== html / enemyHpMul hits=0
+=== html / function warSpawnEnemy hits=0
+=== ratio table (local consts)
+lv 1 ratio 0.12 dmg@hp200 24 dmg@hp1000 120
+lv 2 ratio 0.1204 dmg@hp200 24 dmg@hp1000 120
+lv 5 ratio 0.1216 dmg@hp200 24 dmg@hp1000 121
+lv 10 ratio 0.1236 dmg@hp200 24 dmg@hp1000 123
+lv 20 ratio 0.1276 dmg@hp200 25 dmg@hp1000 127
+lv 26 ratio 0.13 dmg@hp200 26 dmg@hp1000 130
+lv 43 ratio 0.1368 dmg@hp200 27 dmg@hp1000 136
+lv 50 ratio 0.1396 dmg@hp200 27 dmg@hp1000 139
+lv 74 ratio 0.1492 dmg@hp200 29 dmg@hp1000 149
+lv 94 ratio 0.1572 dmg@hp200 31 dmg@hp1000 157
+lv 100 ratio 0.1596 dmg@hp200 31 dmg@hp1000 159
 === html / BEAM_RATIO_BASE hits=2
   10879: 
   10880: // Beam ②威力（割合ダメ）
