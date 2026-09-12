@@ -50,7 +50,8 @@ export function defEntryOk(m) {
 const DEF_MVP_CATS = [
   { key: 'seme',   label: 'はたらいた かず' },
   { key: 'nebari', label: 'のこった じかん' },
-  { key: 'mamori', label: 'たえた わりあい' }
+  { key: 'mamori', label: 'たえた わりあい' },
+  { key: 'kufu',   label: 'くふう' }
 ]
 // 1位40／2位30／3位20。同点は全員入賞。金額はここだけで決める。
 const DEF_MVP_COINS = [0, 40, 30, 20]
@@ -70,7 +71,56 @@ function defMvpRank(vals) {
   })
 }
 
-function defMvpAwards(rep, ents) {
+// __DEF_KUFU_V1__ くふう ＝ その戦いで ほんとうに うごいた めいれいの しゅるい数。
+//   モンスターの つよさでは なく、書いた めいれいが その場面で はたらいたかを 見る。
+//   ブロックを つみ上げるだけでは ふえない（うごかなければ かぞえない）。
+//   とどかない ルールは 0かいなので 点に ならない。
+//   同じ しゅるい数のときは、書いた めいれいが 少ない子（むだの ない子）を 上にする。
+//   value は しゅるい数 * 100 + 書いた かず（下2けた）。0 は きろく なし。
+// 出陣のときに _id が 落とされるので、サーバ側で 前から順に ふりなおす。
+// もとの めいれいは 1文字も かえない（控えを作って、その控えで 戦わせる）。
+function defKufuTag(prog) {
+  let seq = 0
+  const walk = function (arr) {
+    if (!Array.isArray(arr)) return []
+    const out = []
+    for (const nd of arr) {
+      if (!nd || typeof nd !== 'object') { out.push(nd); continue }
+      const o = {}
+      for (const p in nd) o[p] = nd[p]
+      if (Array.isArray(nd.body)) o.body = walk(nd.body)
+      if (Array.isArray(nd.els)) o.els = walk(nd.els)
+      if ((!nd.t || nd.t === 'a') && nd.a != null) { o._id = seq; seq++ }
+      out.push(o)
+    }
+    return out
+  }
+  const p = walk(prog)
+  return { prog: p, total: seq }
+}
+
+function defKufuVals(evs, n, wrote) {
+  const seen = [], k = [], val = [], rank = []
+  for (let i = 0; i < n; i++) seen.push({})
+  for (const e of (evs || [])) {
+    if (!e || !Array.isArray(e.posA)) continue
+    for (let i = 0; i < n && i < e.posA.length; i++) {
+      const p = e.posA[i]
+      const id = Math.floor(Number(p && p.n))
+      if (Number.isFinite(id) && id >= 0) seen[i][id] = 1
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const kk = Object.keys(seen[i]).length
+    const w = Math.max(0, Math.min(99, Math.floor(Number(wrote && wrote[i]) || 0)))
+    k.push(kk)
+    val.push(kk > 0 ? (kk * 100 + w) : 0)
+    rank.push(kk > 0 ? (kk * 1000 + (99 - w)) : 0)
+  }
+  return { k: k, val: val, rank: rank }
+}
+
+function defMvpAwards(rep, ents, kwrote) {
   try {
     const A = (rep && rep.teams && rep.teams.A) ? rep.teams.A : []
     const n = ents.length
@@ -102,11 +152,22 @@ function defMvpAwards(rep, ents) {
       vals.mamori.push(defMvpRound(taken[i] / mhp))
       vals.nebari.push(defMvpRound((fell[i] === null ? last : fell[i]) / last))
     }
+    // __DEF_KUFU_V1__ うごいた めいれいの しゅるい数。events の posA から かぞえる。
+    const _kf = defKufuVals(evs, n, kwrote)
+    vals.kufu = _kf.val
     const few = (n < DEF_MVP_MIN_ENTRIES)
     const cats = [], ledger = []
     for (const cat of DEF_MVP_CATS) {
       const v = vals[cat.key]
-      const places = few ? null : defMvpRank(v)
+      // __DEF_KUFU_V1__ くふうは 見せる数と 順位づけの数が ちがう。
+      //   しゅるい数が みんな同じ日は 部門ごと 出さない（うその表彰は しない）。
+      let places = few ? null : defMvpRank(v)
+      if (cat.key === 'kufu') {
+        let _kn = 0
+        const _ku = []
+        for (const _x of _kf.k) { if (_x > 0) _kn++; if (_ku.indexOf(_x) < 0) _ku.push(_x) }
+        places = (few || _kn < DEF_MVP_MIN_ENTRIES || _ku.length < 2) ? null : defMvpRank(_kf.rank)
+      }
       const top = []
       for (let i = 0; i < n; i++) {
         const place = places ? places[i] : 0
@@ -154,9 +215,12 @@ export async function defServerResolve(env, st, classId, enemies) {
         }
       }
     })
-    const programsA = ents.map(function (e) {
-      return (Array.isArray(e.m.prog) && e.m.prog.length) ? e.m.prog : DEF_DEFAULT_PROG
+    // __DEF_KUFU_V1__ 番号をふった控えで戦わせる（勝敗・tick・基地HP は かわらない）。
+    const _kfTag = ents.map(function (e) {
+      return defKufuTag((Array.isArray(e.m.prog) && e.m.prog.length) ? e.m.prog : DEF_DEFAULT_PROG)
     })
+    const _kfWrote = _kfTag.map(function (x) { return x.total })
+    const programsA = _kfTag.map(function (x) { return x.prog })
     const specsB = enemies.map(function (en) {
       return { raw: { name: en.name, sprite: en.sprite, hp: en.hp, atk: en.atk, def: en.def, buff: en.buff, skillPow: en.skillPow, elementType: en.elementType, skills: en.skills }, strategy: 'attack' }
     })
@@ -172,7 +236,7 @@ export async function defServerResolve(env, st, classId, enemies) {
     const baseHpEnd = Math.max(0, Math.floor(Number(rep.baseHpA)))
     // __DEF_MVP_V1__ 部門べつの きろく。events から そのまま かぞえる。
     let _mv: any = null
-    try { _mv = defMvpAwards(rep, ents) } catch (_e) { _mv = null }
+    try { _mv = defMvpAwards(rep, ents, _kfWrote) } catch (_e) { _mv = null }
     const _mvA0 = (rep.teams && rep.teams.A) ? rep.teams.A : []
     // __DEF_MVP_V1__ もとの計算は f.dmgDealt / f.alive を見ていたが、どちらも teams には入っていない。
     //                events からかぞえた ほんとうの数字を入れてから えらぶ。

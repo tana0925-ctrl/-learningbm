@@ -791,8 +791,16 @@
   var DEF2_MVP_LABEL = { seme:'はたらいた かず', nebari:'のこった じかん', mamori:'たえた わりあい' };
   var DEF2_MVP_ICON  = { seme:'⚔️', nebari:'⏳', mamori:'🛡️' };
   var DEF2_MVP_TINT  = ['#e2e8f0','#fde68a','#e5e7eb','#f5d0a9'];
+  /* __DEF_KUFU_V1__ くふう：その日 ほんとうに うごいた めいれいの しゅるい数 */
+  DEF2_MVP_LABEL.kufu = 'くふう';
+  DEF2_MVP_ICON.kufu = '💡';
   function def2MvpValText(key, v){
     var n = Number(v) || 0;
+    if (key === 'kufu'){
+      var _kk = Math.floor(n / 100), _kw = Math.round(n % 100);
+      if (_kk <= 0) return 'きろく なし';
+      return _kk + 'しゅるい うごいた' + ((_kw > _kk) ? '（かいた ' + _kw + '）' : '');
+    }
     if (key === 'seme') return (Math.round(n*10)/10) + ' かいぶん';
     if (key === 'nebari') return (n >= 1) ? 'さいごまで' : (Math.round(n*100) + '%');
     return Math.round(n*100) + '%';
@@ -822,7 +830,7 @@
       var mine = '';
       var rec = st && st.my_def_record;
       if (rec && rec.length){
-        var order = ['seme','nebari','mamori'];
+        var order = ['seme','nebari','mamori','kufu'];
         var lines = order.map(function(k){
           var r = null;
           for (var i=0;i<rec.length;i++){ if (rec[i] && rec[i].category === k) r = rec[i]; }
