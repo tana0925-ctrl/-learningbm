@@ -1,729 +1,113 @@
 live status = 200
-local len = 5671000 / live len = 5713034 / diff = 42034
-=== LIVE の ビーム まわり
---- live / BEAM_RATIO_BASE hits=2
-   10868: const BEAM_RATIO_BASE = 0.12;
-   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
---- live / BEAM_RATIO_PER_LEVEL hits=2
-   10869: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
-   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
---- live / beamDamageRatio hits=3
-   10961: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-   38103: beamCharge:0, beamRate:2, beamDamageRatio:0.12, beamStunMs:800,
-   39756: const ratio = Number(warState.beamDamageRatio||0.12);
---- live / getBeamDamageLevel hits=4
-   10938: function getBeamDamageLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamDamageLevel) ? player.beamDamageLevel : 1; }
-   10944: const a = getBeamChargeLevel(), b = getBeamDamageLevel(), c = getBeamStunLevel();
-   10955: const bdl = getBeamDamageLevel();
-   10984: const bdl = getBeamDamageLevel();
---- live / Math.floor(maxHp * ratio) hits=1
-   39777: const dmg = Math.max(1, Math.floor(maxHp * ratio));
---- live / applyWarUpgradesToState hits=8
-   10950: function applyWarUpgradesToState(){
-   11034: try{ applyWarUpgradesToState(); }catch(e){}
-   11082: try{ applyWarUpgradesToState(); }catch(e){}
-   11096: try{ applyWarUpgradesToState(); }catch(e){}
-   11110: try{ applyWarUpgradesToState(); }catch(e){}
-   38213: try{ applyWarUpgradesToState(); }catch(e){}
-   38307: try{ applyWarUpgradesToState(); }catch(e){}
-   42120: try{ applyWarUpgradesToState(); }catch(e){}
-=== たたかい ひらく ところ（ローカル）
-=== html / // apply upgrades (beam stats) hits=1
-  42099: warState.globalSpawnCd = 0;
-  42100: warState.slotCd = [0,0,0];
-  42101: warState.units = [];
-  42102: warState.deployedIds = {};
-  42103: warState.nextUnitId = 1;
-  42104: warState.playerCastleHpMax = 600;
-  42105: warState.enemyCastleHpMax = 600;
-  42106: warState.playerCastleHp = warState.playerCastleHpMax;
-  42107: warState.enemyCastleHp = warState.enemyCastleHpMax;
-  42108: warState.lastEnemySpawn = 0;
-  42109: warState.enemySpawnInterval = 2600;
-  42110: warState.elapsed = 0;
-  42111: warState.q = null;
-  42112: 
->>42113: // apply upgrades (beam stats)
-  42114: try{ applyWarUpgradesToState(); }catch(e){}
-  42115: 
-  42116: warState.maxPlayerUnits = warGetMaxUnits();
-  42117: warState.maxEnemyUnits = warState.maxEnemyUnits || 12;
-  42118: warState.wave = 1;
-  42119: warState.waveInterval = warState.waveInterval || 15;
-  42120: warState.nextWaveAt = warState.waveInterval;
-  42121: 
-  42122: const layer = document.getElementById('warUnitsLayer');
-  42123: if(layer) layer.innerHTML = '';
-  42124: const ov = document.getElementById('warResultOverlay');
-  42125: if(ov){ ov.classList.add('hidden'); ov.classList.remove('flex'); }
-  42126: }
-  42127: window.enterWarMode = function(){
-    -----
-=== html / beamCharge += hits=0
-=== html / beamCharge = hits=5
-  17329: return;
-  17330: }
-  17331: player.beamChargeTickets = (player.beamChargeTickets || 0) + 1;
->>17332: player.upgradeTicketsSoldToday.beamCharge = sold + 1;
-  17333: } else if (item.id === 'beam_damage_ticket') {
-  17334: if (!player.upgradeTicketsSoldToday || typeof player.upgradeTicketsSoldToday !== 'object') player.upgradeTicketsSoldToday = 0;
-  17335: const sold = Number(player.upgradeTicketsSoldToday.beamDamage || 0);
-    -----
-  39745: if(!warState.active) return;
-  39746: if(Number(warState.beamCharge||0) < 100) return;
-  39747: 
->>39748: warState.beamCharge = 0;
-  39749: const now = Date.now();
-  39750: const ratio = Number(warState.beamDamageRatio||0.12);
-  39751: const stunMs = Number(warState.beamStunMs||800);
-    -----
-  41306: ps.power = clamp(ps.power, 0, ps.powerMax);
-  41307: 
-  41308: // nyanko beam charge
->>41309: ps.beamCharge = clamp((ps.beamCharge||0) + (ps.beamRate||2)*dt, 0, 100);
-  41310: 
-  41311: // waves & enemy spawn（ステージごとに固定：出てくるキャラ＆タイミング）
-  41312: const cfg = ps.stageConfig;
-    -----
-  42041: warState.power = clamp(warState.power + 12 + warState.combo*2, 0, warState.powerMax);
-  42042: 
-  42043: // nyanko beam gain (not too strong)
->>42044: warState.beamCharge = clamp((warState.beamCharge||0) + (within ? 16 : 12), 0, 100);
-  42045: }else{
-  42046: warState.combo = 0;
-  42047: warState.globalSpawnCd = 0;
-    -----
-  42093: warState.powerMax = warGetPowerMax();
-  42094: warState.baseRate = warGetPowerRate();
-  42095: warState.power = 0;
->>42096: warState.beamCharge = 0;
-  42097: warState.boostUntil = 0;
-  42098: warState.combo = 0;
-  42099: warState.globalSpawnCd = 0;
-    -----
-=== html / enemyHpMul hits=0
-=== html / function warSpawnEnemy hits=0
-=== ratio table (local consts)
-lv 1 ratio 0.12 dmg@hp200 24 dmg@hp1000 120
-lv 2 ratio 0.1204 dmg@hp200 24 dmg@hp1000 120
-lv 5 ratio 0.1216 dmg@hp200 24 dmg@hp1000 121
-lv 10 ratio 0.1236 dmg@hp200 24 dmg@hp1000 123
-lv 20 ratio 0.1276 dmg@hp200 25 dmg@hp1000 127
-lv 26 ratio 0.13 dmg@hp200 26 dmg@hp1000 130
-lv 43 ratio 0.1368 dmg@hp200 27 dmg@hp1000 136
-lv 50 ratio 0.1396 dmg@hp200 27 dmg@hp1000 139
-lv 74 ratio 0.1492 dmg@hp200 29 dmg@hp1000 149
-lv 94 ratio 0.1572 dmg@hp200 31 dmg@hp1000 157
-lv 100 ratio 0.1596 dmg@hp200 31 dmg@hp1000 159
-=== html / BEAM_RATIO_BASE hits=2
-  10879: 
-  10880: // Beam ②威力（割合ダメ）
->>10881: const BEAM_RATIO_BASE = 0.12;
-  10882: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
-  10883: 
-    -----
-  10972: 
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
->>10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-    -----
-=== html / BEAM_RATIO_PER_LEVEL hits=2
-  10880: // Beam ②威力（割合ダメ）
-  10881: const BEAM_RATIO_BASE = 0.12;
->>10882: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
-  10883: 
-  10884: // Beam ③時間停止（スタン）
-    -----
-  10972: 
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
->>10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-    -----
-=== html / BEAM_RATE_BASE hits=2
-  10875: 
-  10876: // Beam ①チャージ（たまりやすさ）
->>10877: const BEAM_RATE_BASE = 2;
-  10878: const BEAM_RATE_PER_LEVEL = 0.02; // Lv100で約+1.98
-  10879: 
-    -----
-  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
-  10972: 
->>10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
-  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-    -----
-=== html / BEAM_RATE_PER_LEVEL hits=2
-  10876: // Beam ①チャージ（たまりやすさ）
-  10877: const BEAM_RATE_BASE = 2;
->>10878: const BEAM_RATE_PER_LEVEL = 0.02; // Lv100で約+1.98
-  10879: 
-  10880: // Beam ②威力（割合ダメ）
-    -----
-  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
-  10972: 
->>10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
-  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-    -----
-=== html / BEAM_STUN_BASE hits=2
-  10883: 
-  10884: // Beam ③時間停止（スタン）
->>10885: const BEAM_STUN_BASE = 800;
-  10886: const BEAM_STUN_PER_LEVEL = 5; // Lv100で+495ms
-  10887: 
-    -----
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
-  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
->>10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-  10977: // Castle HP bonus applies on top of stageConfig base
-    -----
-=== html / BEAM_STUN_PER_LEVEL hits=2
-  10884: // Beam ③時間停止（スタン）
-  10885: const BEAM_STUN_BASE = 800;
->>10886: const BEAM_STUN_PER_LEVEL = 5; // Lv100で+495ms
-  10887: 
-  10888: function ensureCastleBeamUpgradeData(){
-    -----
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
-  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
->>10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-  10977: // Castle HP bonus applies on top of stageConfig base
-    -----
-=== html / UPGRADE_MAX_LEVEL hits=9
-  10853: ①チャージ ②威力 ③時間停止
-  10854: ========================================= */
->>10855: const UPGRADE_MAX_LEVEL = 100;
-  10856: // --- 攻略モード：出撃上限アップ（強化チケット） ---
-  10857: const WAR_MAX_UNITS_BASE = 7;
-    -----
-  11041: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  11042: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
->>11043: if((player.castleLevel||1) >= UPGRADE_MAX_LEVEL){ alert('城レベルはすでに最大（100）です'); return; }
-  11044: player.upgradeTickets -= 1;
-  11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
-    -----
-  11043: if((player.castleLevel||1) >= UPGRADE_MAX_LEVEL){ alert('城レベルはすでに最大（100）です'); return; }
-  11044: player.upgradeTickets -= 1;
->>11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
-  11046: saveData();
-  11047: try{ applyWarUpgradesToState(); }catch(e){}
-    -----
-  11089: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  11090: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
->>11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
-  11092: player.upgradeTickets -= 1;
-  11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
-    -----
-  11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
-  11092: player.upgradeTickets -= 1;
->>11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
-  11094: saveData();
-  11095: try{ applyWarUpgradesToState(); }catch(e){}
-    -----
-  11103: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  11104: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
->>11105: if((player.beamDamageLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム②（威力）はすでに最大（100）です'); return; }
-  11106: player.upgradeTickets -= 1;
-  11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
-    -----
-=== html / applyWarUpgradesToState hits=8
-  10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
-  10962: 
->>10963: function applyWarUpgradesToState(){
-  10964: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  10965: if(!window.warState) return;
-  10966: 
-    -----
-  11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
-  11046: saveData();
->>11047: try{ applyWarUpgradesToState(); }catch(e){}
-  11048: try{ if(typeof renderCastle==='function') renderCastle(); }catch(e){}
-  11049: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-  11050: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-    -----
-  11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
-  11094: saveData();
->>11095: try{ applyWarUpgradesToState(); }catch(e){}
-  11096: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-  11097: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-  11098: try{ updateUpgradePanel(); }catch(e){}
-    -----
-  11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
-  11108: saveData();
->>11109: try{ applyWarUpgradesToState(); }catch(e){}
-  11110: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-  11111: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-  11112: try{ updateUpgradePanel(); }catch(e){}
-    -----
-  11121: player.beamStunLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamStunLevel||1) + 1);
-  11122: saveData();
->>11123: try{ applyWarUpgradesToState(); }catch(e){}
-  11124: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-  11125: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-  11126: try{ updateUpgradePanel(); }catch(e){}
-    -----
-  38204: 
-  38205: // apply castle/beam level upgrades
->>38206: try{ applyWarUpgradesToState(); }catch(e){}
-  38207: 
-  38208: const fb = document.getElementById('warFeedback');
-  38209: if(fb) fb.textContent = `⚡上限UP！ ${beforeMax}→${warState.powerMax}（-${Math.round(cost)}）`;
-    -----
-  38298: 
-  38299: // apply castle/beam level upgrades
->>38300: try{ applyWarUpgradesToState(); }catch(e){}
-  38301: 
-  38302: const t = document.getElementById('warStageText');
-  38303: if(t) t.textContent = warState.stageName;
-    -----
-  42112: 
-  42113: // apply upgrades (beam stats)
->>42114: try{ applyWarUpgradesToState(); }catch(e){}
-  42115: 
-  42116: warState.maxPlayerUnits = warGetMaxUnits();
-  42117: warState.maxEnemyUnits = warState.maxEnemyUnits || 12;
-    -----
-=== html / function applyWarUpgradesToState hits=1
-  10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
-  10962: 
->>10963: function applyWarUpgradesToState(){
-  10964: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  10965: if(!window.warState) return;
-  10966: 
-  10967: const bcl = getBeamChargeLevel();
-  10968: const bdl = getBeamDamageLevel();
-  10969: const bsl = getBeamStunLevel();
-  10970: 
-  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
-  10972: 
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
-  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-  10977: // Castle HP bonus applies on top of stageConfig base
-  10978: try{
-  10979: const base = warState.stageConfig ? Number(warState.stageConfig.playerCastleHpMax) : NaN;
-  10980: if(Number.isFinite(base)){
-  10981: const bonus = castleBonusHp();
-  10982: const maxHp = Math.max(1, Math.floor(base + bonus));
-  10983: // Keep current ratio
-  10984: const cur = Number(warState.playerCastleHp||maxHp);
-  10985: const curMax = Number(warState.playerCastleHpMax||base||maxHp);
-  10986: const ratio = curMax>0 ? (cur/curMax) : 1;
-  10987: warState.playerCastleHpMax = maxHp;
-  10988: warState.playerCastleHp = Math.max(0, Math.min(maxHp, Math.floor(maxHp*ratio)));
-  10989: }
-  10990: }catch(e){}
-  10991: }
-  10992: 
-  10993: function updateUpgradePanel(){
-  10994: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  10995: const cl = getCastleLevel();
-  10996: const bcl = getBeamChargeLevel();
-  10997: const bdl = getBeamDamageLevel();
-    -----
-=== html / const ratio = Number(warState.beamDamageRatio hits=1
-  39748: warState.beamCharge = 0;
-  39749: const now = Date.now();
->>39750: const ratio = Number(warState.beamDamageRatio||0.12);
-  39751: const stunMs = Number(warState.beamStunMs||800);
-  39752: let hit = 0;
-  39753: 
-  39754: const field = document.getElementById('warField');
-  39755: if(field){
-  39756: const flash = document.createElement('div');
-  39757: flash.style.position='absolute';
-  39758: flash.style.inset='0';
-  39759: flash.style.background='rgba(255,255,255,0.35)';
-  39760: flash.style.pointerEvents='none';
-  39761: flash.style.zIndex='40';
-  39762: field.appendChild(flash);
-  39763: 
-  39764: warShowBeamFx();
-  39765: setTimeout(()=>{ try{ flash.remove(); }catch(e){} }, 160);
-  39766: }
-  39767: 
-  39768: warState.units.forEach(u=>{
-  39769: if(u && u.team==='enemy' && Number(u.hp||0) > 0){
-  39770: const maxHp = Number(u.hpMax!=null ? u.hpMax : u.hp);
-  39771: const dmg = Math.max(1, Math.floor(maxHp * ratio));
-  39772: u.hp = Math.max(0, Number(u.hp||0) - dmg);
-  39773: u.stunUntil = Math.max(Number(u.stunUntil||0), now + stunMs);
-  39774: hit += 1;
-  39775: }
-  39776: });
-  39777: 
-  39778: const fb = document.getElementById('warFeedback');
-  39779: if(fb){
-  39780: fb.textContent = hit ? `💥 にゃんこビーム！ 敵${hit}体にヒット！` : '💥 にゃんこビーム！（でも敵がいない）';
-  39781: fb.className = 'font-bold text-sky-200';
-  39782: }
-  39783: renderBeam();
-  39784: }catch(e){ console.error('WAR_BEAM_ERROR', e); }
-  39785: };
-  39786: function calcRechargeSec(st){
-  39787: const cost = Number(st && st.cost != null ? st.cost : 60);
-  39788: const hp = Number(st && st.hpMax != null ? st.hpMax : 200);
-  39789: const atk = Number(st && st.atk != null ? st.atk : 20);
-  39790: // にゃんこ風：重い(高コスト/高耐久/高火力)ほど再出撃が遅い
-  39791: const sec = 1.8 + (cost/45) + (hp/500) + (atk/140);
-  39792: return clamp(sec, 2.5, 12);
-  39793: }
-  39794: 
-  39795: function partyToButtons(){
-  39796: const box = document.getElementById('warSpawnButtons');
-    -----
-=== html / beamDamageRatio:0.12 hits=1
-  38084: 
-  38085: // 日本地図（アウトライン）画像（オフライン対応）
-  38086: const JAPAN_PREF_MAP_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABfMAAAXzCAQAAADakGtRAAGoTUlEQVR42uzdeWBcV333/3eIcUgIkRIggUBisTTQBiKxPQQeqEyfUgqk2BRa6CrTUpbCU6cFSlsKcvnRQlnqUCh5gFIBhULDolDWpIBcwh6IICxhCXH2ENvJeNU2c7/f3x9XsmVbkkfSSBrNvM/rL8CauXPPOZzPnDn3HBJJkiRJqwN353TO5UHch+Pm/HfeKkmSJ
-  38087: 
-  38088: window.warState = window.warState || {
-  38089: zombieMode:false,
-  38090: zombieReviveDelayMin:8000,
-  38091: zombieReviveDelayMax:12000,
-  38092: active:false, timer:null, lastTick:0,
-  38093: power:0, powerMax:200, baseRate:2,
-  38094: boostUntil:0, combo:0,
-  38095: 
->>38096: beamCharge:0, beamRate:2, beamDamageRatio:0.12, beamStunMs:800,
-  38097: globalSpawnCd:0,
-  38098: slotCd:[0,0,0], slotCdMax:[3,3,3], partyIds:[null,null,null],
-  38099: units:[], nextUnitId:1,
-  38100: playerCastleHp:600, playerCastleHpMax:600,
-    -----
-=== chain
-chain = 97
-=== html / beamDamageRatio hits=3
-  10968: const bdl = getBeamDamageLevel();
-  10969: const bsl = getBeamStunLevel();
-  10970: 
-  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
-  10972: 
-  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
->>10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
-  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
-  10976: 
-  10977: // Castle HP bonus applies on top of stageConfig base
-  10978: try{
-  10979: const base = warState.stageConfig ? Number(warState.stageConfig.playerCastleHpMax) : NaN;
-  10980: if(Number.isFinite(base)){
-  10981: const bonus = castleBonusHp();
-  10982: const maxHp = Math.max(1, Math.floor(base + bonus));
-    -----
-  38090: zombieReviveDelayMin:8000,
-  38091: zombieReviveDelayMax:12000,
-  38092: active:false, timer:null, lastTick:0,
-  38093: power:0, powerMax:200, baseRate:2,
-  38094: boostUntil:0, combo:0,
-  38095: 
->>38096: beamCharge:0, beamRate:2, beamDamageRatio:0.12, beamStunMs:800,
-  38097: globalSpawnCd:0,
-  38098: slotCd:[0,0,0], slotCdMax:[3,3,3], partyIds:[null,null,null],
-  38099: units:[], nextUnitId:1,
-  38100: playerCastleHp:600, playerCastleHpMax:600,
-  38101: enemyCastleHp:600, enemyCastleHpMax:600,
-  38102: lastEnemySpawn:0, enemySpawnInterval:2600,
-  38103: elapsed:0, q:null,
-  38104: stageConfig:null, spawnPtr:0, spawnLoop:0, stageSelected:false,
-    -----
-  39744: try{
-  39745: if(!warState.active) return;
-  39746: if(Number(warState.beamCharge||0) < 100) return;
-  39747: 
-  39748: warState.beamCharge = 0;
-  39749: const now = Date.now();
->>39750: const ratio = Number(warState.beamDamageRatio||0.12);
-  39751: const stunMs = Number(warState.beamStunMs||800);
-  39752: let hit = 0;
-  39753: 
-  39754: const field = document.getElementById('warField');
-  39755: if(field){
-  39756: const flash = document.createElement('div');
-  39757: flash.style.position='absolute';
-  39758: flash.style.inset='0';
-    -----
-=== html / beamDamageLevel hits=6
-  10896: 
-  10897: if (player.beamChargeLevel === undefined) player.beamChargeLevel = legacyBeamLevel;
->>10898: if (player.beamDamageLevel === undefined) player.beamDamageLevel = legacyBeamLevel;
-  10899: if (player.beamStunLevel === undefined) player.beamStunLevel = legacyBeamLevel;
-  10900: 
-  10901: // tickets (unified)
-    -----
-  10938: player.castleLevel = Math.max(1, Math.min(100, Math.floor(Number(player.castleLevel)||1)));
-  10939: player.beamChargeLevel = Math.max(1, Math.min(100, Math.floor(Number(player.beamChargeLevel)||1)));
->>10940: player.beamDamageLevel = Math.max(1, Math.min(100, Math.floor(Number(player.beamDamageLevel)||1)));
-  10941: player.beamStunLevel   = Math.max(1, Math.min(100, Math.floor(Number(player.beamStunLevel)||1)));
-  10942: 
-  10943: player.castleTickets = Math.max(0, Math.floor(Number(player.castleTickets)||0));
-    -----
-  10949: function getCastleLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.castleLevel) ? player.castleLevel : 1; }
-  10950: function getBeamChargeLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamChargeLevel) ? player.beamChargeLevel : 1; }
->>10951: function getBeamDamageLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamDamageLevel) ? player.beamDamageLevel : 1; }
-  10952: function getBeamStunLevel(){   try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamStunLevel) ? player.beamStunLevel : 1; }
-  10953: 
-  10954: // legacy helper (keep for compatibility)
-    -----
-  11103: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  11104: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
->>11105: if((player.beamDamageLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム②（威力）はすでに最大（100）です'); return; }
-  11106: player.upgradeTickets -= 1;
-  11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
-  11108: saveData();
-    -----
-  11105: if((player.beamDamageLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム②（威力）はすでに最大（100）です'); return; }
-  11106: player.upgradeTickets -= 1;
->>11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
-  11108: saveData();
-  11109: try{ applyWarUpgradesToState(); }catch(e){}
-  11110: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-    -----
-  11111: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-  11112: try{ updateUpgradePanel(); }catch(e){}
->>11113: alert(`💥🗡️ ビーム②（威力）Lvが ${player.beamDamageLevel} になった！`);
-  11114: };
-  11115: 
-  11116: window.useBeamStunLevelUpTicket = function(){
-    -----
-=== html / beamChargeLevel hits=6
-  10895: const legacyBeamLevel = (player.beamLevel !== undefined) ? Math.max(1, Math.min(100, Math.floor(Number(player.beamLevel)||1))) : 1;
-  10896: 
->>10897: if (player.beamChargeLevel === undefined) player.beamChargeLevel = legacyBeamLevel;
-  10898: if (player.beamDamageLevel === undefined) player.beamDamageLevel = legacyBeamLevel;
-  10899: if (player.beamStunLevel === undefined) player.beamStunLevel = legacyBeamLevel;
-  10900: 
-    -----
-  10937: // clamp
-  10938: player.castleLevel = Math.max(1, Math.min(100, Math.floor(Number(player.castleLevel)||1)));
->>10939: player.beamChargeLevel = Math.max(1, Math.min(100, Math.floor(Number(player.beamChargeLevel)||1)));
-  10940: player.beamDamageLevel = Math.max(1, Math.min(100, Math.floor(Number(player.beamDamageLevel)||1)));
-  10941: player.beamStunLevel   = Math.max(1, Math.min(100, Math.floor(Number(player.beamStunLevel)||1)));
-  10942: 
-    -----
-  10948: 
-  10949: function getCastleLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.castleLevel) ? player.castleLevel : 1; }
->>10950: function getBeamChargeLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamChargeLevel) ? player.beamChargeLevel : 1; }
-  10951: function getBeamDamageLevel(){ try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamDamageLevel) ? player.beamDamageLevel : 1; }
-  10952: function getBeamStunLevel(){   try{ ensureCastleBeamUpgradeData(); }catch(e){} return (player && player.beamStunLevel) ? player.beamStunLevel : 1; }
-  10953: 
-    -----
-  11089: try{ ensureCastleBeamUpgradeData(); }catch(e){}
-  11090: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
->>11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
-  11092: player.upgradeTickets -= 1;
-  11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
-  11094: saveData();
-    -----
-  11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
-  11092: player.upgradeTickets -= 1;
->>11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
-  11094: saveData();
-  11095: try{ applyWarUpgradesToState(); }catch(e){}
-  11096: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
-    -----
-  11097: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
-  11098: try{ updateUpgradePanel(); }catch(e){}
->>11099: alert(`💥⚡ ビーム①（チャージ）Lvが ${player.beamChargeLevel} になった！`);
-  11100: };
-  11101: 
-  11102: window.useBeamDamageLevelUpTicket = function(){
-    -----
-=== html / warDeployLimitUp hits=10
-  10864: function warDeployLimitNextCost(){
-  10865: try{
->>10866: const up = Math.max(0, Math.floor(Number((window.player && player.warDeployLimitUp) || 0)));
-  10867: const base = (typeof WAR_DEPLOY_TICKET_COST_BASE === "number") ? WAR_DEPLOY_TICKET_COST_BASE : 10;
-  10868: const step = (typeof WAR_DEPLOY_TICKET_COST_STEP === "number") ? WAR_DEPLOY_TICKET_COST_STEP : 2;
-  10869: const cap  = (typeof WAR_DEPLOY_TICKET_COST_CAP  === "number") ? WAR_DEPLOY_TICKET_COST_CAP  : 9999;
-    -----
-  11008: const d = document.getElementById('upgradePanelBeamStunLevel');   if(d) d.textContent = bsl;
-  11009: 
->>11010: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : ((typeof WAR_MAX_UNITS_BASE==='number') ? WAR_MAX_UNITS_BASE : 7) + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0)));
-  11011: const dlEl = document.getElementById('upgradePanelDeployLimit'); if(dlEl) dlEl.textContent = Math.min((typeof WAR_MAX_UNITS_MAX==='number'?WAR_MAX_UNITS_MAX:20), Number(dl)||0);
-  11012: 
-  11013: // 出撃上限+1の必要チケット（だんだん増える）
-    -----
-  11017: const base = (typeof WAR_MAX_UNITS_BASE === 'number') ? WAR_MAX_UNITS_BASE : 7;
-  11018: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
->>11019: const curDl = Number(dl)|| (base + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0))));
-  11020: const need = (curDl >= max) ? null : ((typeof warDeployLimitNextCost==='function') ? warDeployLimitNextCost() : 20);
-  11021: if(needEl){ needEl.textContent = (need===null) ? 'MAX' : String(need); }
-  11022: if(btnEl){
-    -----
-  11060: const cost = (typeof warDeployLimitNextCost === 'function') ? warDeployLimitNextCost() : 20;
-  11061: 
->>11062: const cur = (typeof warGetMaxUnits === 'function') ? warGetMaxUnits() : (base + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0))));
-  11063: if(cur >= max){ alert(`出撃上限はすでに最大（${max}）です`); return; }
-  11064: if((player.upgradeTickets||0) < cost){ alert(`強化チケットが足りません（次の強化は${cost}枚必要）`); return; }
-  11065: 
-    -----
-  11065: 
-  11066: player.upgradeTickets -= cost;
->>11067: player.warDeployLimitUp = Math.max(0, Math.floor(Number(player.warDeployLimitUp||0))) + 1;
-  11068: // clamp
-  11069: const upMax = Math.max(0, max - base);
-  11070: if(player.warDeployLimitUp > upMax) player.warDeployLimitUp = upMax;
-    -----
-  11068: // clamp
-  11069: const upMax = Math.max(0, max - base);
->>11070: if(player.warDeployLimitUp > upMax) player.warDeployLimitUp = upMax;
-  11071: 
-  11072: saveData();
-  11073: try{ updatePlayerDisplay && updatePlayerDisplay(); }catch(e){}
-    -----
-  11075: try{
-  11076: if(window.warState){
->>11077: warState.maxPlayerUnits = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
-  11078: updateSpawnButtonState && updateSpawnButtonState();
-  11079: renderPower && renderPower();
-  11080: }
-    -----
-  11081: }catch(e){}
-  11082: 
->>11083: const nowVal = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
-  11084: alert(`🚀 出撃上限が ${nowVal} になった！`);
-  11085: }catch(e){ console.error(e); }
-  11086: };
-    -----
-  38268: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
-  38269: if(!player) return base;
->>38270: const up = Math.max(0, Math.floor(Number(player.warDeployLimitUp||0)));
-  38271: player.warDeployLimitUp = up;
-  38272: return clamp(base + up, base, max);
-  38273: }catch(e){
-    -----
-  38269: if(!player) return base;
-  38270: const up = Math.max(0, Math.floor(Number(player.warDeployLimitUp||0)));
->>38271: player.warDeployLimitUp = up;
-  38272: return clamp(base + up, base, max);
-  38273: }catch(e){
-  38274: return 7;
-    -----
-=== html / warPowerSpeedUp hits=7
-  38150: 
-  38151: function warGetPowerRate(){
->>38152: const up = (player && player.warPowerSpeedUp!=null) ? Number(player.warPowerSpeedUp||0) : 0;
-  38153: // base 2.0, +0.3 per upgrade (max 10 -> 5.0)
-  38154: return clamp(2 + 0.3*up, 2, 5);
-  38155: }
-    -----
-  38155: }
-  38156: 
->>38157: function warPowerSpeedUpgradeCost(up){
-  38158: // 学習パワーを消費して「たまる速さ」を上げる（にゃんこの「お金生産スピードUP」風）
-  38159: // 0回目:60 → 以後 +50ずつ（最大10回）
-  38160: const n = Math.max(0, Number(up||0));
-    -----
-  38165: try{
-  38166: if(!player || !warState) return;
->>38167: const up = Number(player.warPowerSpeedUp||0);
-  38168: const maxUp = 10;
-  38169: if(up >= maxUp) return;
-  38170: const cost = warPowerSpeedUpgradeCost(up);
-    -----
-  38168: const maxUp = 10;
-  38169: if(up >= maxUp) return;
->>38170: const cost = warPowerSpeedUpgradeCost(up);
-  38171: if(warState.power < cost) return;
-  38172: 
-  38173: const before = warGetPowerRate();
-    -----
-  38173: const before = warGetPowerRate();
-  38174: warState.power = Math.max(0, warState.power - cost);
->>38175: player.warPowerSpeedUp = up + 1;
-  38176: 
-  38177: const afterRate = warGetPowerRate();
-  38178: warState.baseRate = afterRate;
-    -----
-  39553: const spBtn = document.getElementById('warPowerSpeedBtn');
-  39554: if(spBtn){
->>39555: const up = (player && player.warPowerSpeedUp) ? Number(player.warPowerSpeedUp||0) : 0;
-  39556: const maxUp = 10;
-  39557: const canMore = up < maxUp;
-  39558: const cost = warPowerSpeedUpgradeCost(up);
-    -----
-  39556: const maxUp = 10;
-  39557: const canMore = up < maxUp;
->>39558: const cost = warPowerSpeedUpgradeCost(up);
-  39559: const ok = canMore && ps.power >= cost;
-  39560: 
-  39561: spBtn.style.opacity = ok ? 1 : 0.55;
-    -----
-=== html / warPowerCapUp hits=9
-  17264: // 大戦：学習パワー上限アップは最大(700)まで（200+50×10）
-  17265: if (item.id === 'war_powercap_ticket') {
->>17266: const up = player.warPowerCapUp || 0;
-  17267: if (up >= 10) {
-  17268: alert('もうこれ以上は増やせません（最大700）');
-  17269: return;
-    -----
-  17379: return;
-  17380: } else if (item.id === 'war_powercap_ticket') {
->>17381: player.warPowerCapUp = (player.warPowerCapUp || 0) + 1;
-  17382: } else if (item.id === 'obtain_memo') {
-  17383: player.obtainMemos = (player.obtainMemos || 0) + 1;
-  17384: }
-    -----
-  38138: 
-  38139: function warGetPowerMax(){
->>38140: const up = (player && player.warPowerCapUp) ? Number(player.warPowerCapUp||0) : 0;
-  38141: return clamp(200 + 50*up, 200, 700);
-  38142: }
-  38143: 
-    -----
-  38142: }
-  38143: 
->>38144: function warPowerCapUpgradeCost(up){
-  38145: // 学習パワーを消費して上限を上げる（にゃんこの「お金上限UP」風）
-  38146: // 0回目:80 → 以後 +60ずつ（最大10回で上限700）
-  38147: const n = Math.max(0, Number(up||0));
-    -----
-  38190: try{
-  38191: if(!player || !warState) return;
->>38192: const up = Number(player.warPowerCapUp||0);
-  38193: const maxUp = 10; // 200 + 50*10 = 700
-  38194: if(up >= maxUp) return;
-  38195: const cost = warPowerCapUpgradeCost(up);
-    -----
-  38193: const maxUp = 10; // 200 + 50*10 = 700
-  38194: if(up >= maxUp) return;
->>38195: const cost = warPowerCapUpgradeCost(up);
-  38196: if(warState.power < cost) return;
-  38197: 
-  38198: const beforeMax = warGetPowerMax();
-    -----
-  38198: const beforeMax = warGetPowerMax();
-  38199: warState.power = Math.max(0, warState.power - cost);
->>38200: player.warPowerCapUp = up + 1;
-  38201: 
-  38202: warState.powerMax = warGetPowerMax();
-  38203: warState.power = clamp(warState.power, 0, warState.powerMax);
-    -----
-  39513: const capBtn = document.getElementById('warPowerCapBtn');
-  39514: if(capBtn){
->>39515: const up = (player && player.warPowerCapUp) ? Number(player.warPowerCapUp||0) : 0;
-  39516: const maxUp = 10;
-  39517: const canMore = up < maxUp;
-  39518: const cost = warPowerCapUpgradeCost(up);
-    -----
-  39516: const maxUp = 10;
-  39517: const canMore = up < maxUp;
->>39518: const cost = warPowerCapUpgradeCost(up);
-  39519: const ok = canMore && ps.power >= cost;
-  39520: 
-  39521: capBtn.style.opacity = ok ? 1 : 0.55;
-    -----
-=== counts
-beamDamageRatio 3
-beamDamageLevel 10
-0.12 49
-beamChargeLevel 10
-beamStunLevel 10
-=== chain
-chain = 97
-html len = 5671000
+local len = 5671000 live len = 5713034 diff = 42034
+=== applyWarUpgradesToState を よぶ ところの もちぬし（local）
+11047 <- 11040: window.useCastleLevelUpTicket = function(){
+11095 <- 11088: window.useBeamChargeLevelUpTicket = function(){
+11109 <- 11102: window.useBeamDamageLevelUpTicket = function(){
+11123 <- 11116: window.useBeamStunLevelUpTicket = function(){
+38206 <- 38189: window.warUpgradePowerCap = function(){
+38300 <- 38277: function warApplyStage(){
+42114 <- 42092: function resetWar(){
+=== おなじ（live）
+11034 <- 11027: window.useCastleLevelUpTicket = function(){
+11082 <- 11075: window.useBeamChargeLevelUpTicket = function(){
+11096 <- 11089: window.useBeamDamageLevelUpTicket = function(){
+11110 <- 11103: window.useBeamStunLevelUpTicket = function(){
+38213 <- 38196: window.warUpgradePowerCap = function(){
+38307 <- 38284: function warApplyStage(){
+42120 <- 42098: function resetWar(){
+=== local たたかい リセット 42060-42100
+42060: try{ _warHideJudge(); }catch(e){}
+42061: _warSetAnswerLock(false);
+42062: if(warState.active) showWarProblem();
+42063: }, 650);
+42064: }
+42065: 
+42066: window.chooseWarOption = function(idx){
+42067: if(!warState.active || !warState.q || !_warIsMCQ(warState.q)) return;
+42068: const cidx = _warResolveCorrectIdx(warState.q);
+42069: let ok = false;
+42070: 
+42071: if(cidx!=null) ok = (idx === cidx);
+42072: else {
+42073: // string-answer fallback
+42074: const input = (warState.q.options && warState.q.options[idx]!=null) ? String(warState.q.options[idx]) : '';
+42075: ok = (String(warState.q.ans) === input);
+42076: }
+42077: _warOnAnswered(ok);
+42078: };
+42079: 
+42080: window.warSubmitAnswer = function(){
+42081: if(!warState.active || !warState.q) return;
+42082: 
+42083: // If MCQ, ignore the numeric submit
+42084: if(_warIsMCQ(warState.q)) return;
+42085: 
+42086: const inp = document.getElementById('warAnswerInput');
+42087: const vStr = inp ? String(inp.value||'').trim() : '';
+42088: const v = Number(vStr);
+42089: const ok = (Number.isFinite(v) && v === Number(warState.q.ans));
+42090: _warOnAnswered(ok);
+42091: };
+42092: function resetWar(){
+42093: warState.powerMax = warGetPowerMax();
+42094: warState.baseRate = warGetPowerRate();
+42095: warState.power = 0;
+42096: warState.beamCharge = 0;
+42097: warState.boostUntil = 0;
+42098: warState.combo = 0;
+42099: warState.globalSpawnCd = 0;
+42100: warState.slotCd = [0,0,0];
+=== local ステージ えらぶ 38285-38310
+38285: 
+38286: warState.maxEnemyUnits = cfg.maxEnemyUnits || 12;
+38287: warState.maxPlayerUnits = warGetMaxUnits();
+38288: warResetStageRuntime(cfg);
+38289: 
+38290: warState.enemyCastleHpMax = cfg.enemyCastleHpMax;
+38291: warState.playerCastleHpMax = cfg.playerCastleHpMax;
+38292: warState.enemyCastleHp = warState.enemyCastleHpMax;
+38293: warState.playerCastleHp = warState.playerCastleHpMax;
+38294: 
+38295: // power max (upgrade)
+38296: warState.powerMax = warGetPowerMax();
+38297: warState.power = clamp(warState.power, 0, warState.powerMax);
+38298: 
+38299: // apply castle/beam level upgrades
+38300: try{ applyWarUpgradesToState(); }catch(e){}
+38301: 
+38302: const t = document.getElementById('warStageText');
+38303: if(t) t.textContent = warState.stageName;
+38304: const mark = document.getElementById('warStageClearMark');
+38305: if(mark){
+38306: const cleared = (player && player.warProgress) ? (player.warProgress.clearedMax||0) : 0;
+38307: mark.textContent = (idx < cleared) ? '✅' : '';
+38308: }
+38309: }catch(e){}
+38310: }
+--- local / CASTLE_HP_PER_LEVEL hits=2
+   10874: const CASTLE_HP_PER_LEVEL = 5; // Lv1=+0, Lv100=+495
+   10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
+--- local / warGetMaxUnits() hits=9
+   10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
+   11010: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : ((typeof WAR_MAX_UNITS_BASE==='number') ? WAR_MAX_UNITS_BASE : 7) + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0)));
+   11062: const cur = (typeof warGetMaxUnits === 'function') ? warGetMaxUnits() : (base + Math.max(0, Math.floor(Number(player.warDeployLimitUp||0))));
+   11077: warState.maxPlayerUnits = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
+   11083: const nowVal = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (base + (player.warDeployLimitUp||0));
+   38265: function warGetMaxUnits(){
+   38287: warState.maxPlayerUnits = warGetMaxUnits();
+   39452: ps.maxPlayerUnits = warGetMaxUnits();
+   42116: warState.maxPlayerUnits = warGetMaxUnits();
+--- local / WAR_MAX_UNITS_MAX hits=5
+   10858: const WAR_MAX_UNITS_MAX = 20;
+   11011: const dlEl = document.getElementById('upgradePanelDeployLimit'); if(dlEl) dlEl.textContent = Math.min((typeof WAR_MAX_UNITS_MAX==='number'?WAR_MAX_UNITS_MAX:20), Number(dl)||0);
+   11018: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
+   11059: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
+   38268: const max  = (typeof WAR_MAX_UNITS_MAX === 'number') ? WAR_MAX_UNITS_MAX : 20;
+=== live の じっさいの しき（対比較：bdl だけ かえる）
+live BASE = 0.12 / PER = 0.0004 / dmg line = True
+てきHP120 : Lv1=14 / Lv26=15 / Lv74=17 / Lv94=18 / Lv100=19
+てきHP200 : Lv1=24 / Lv26=26 / Lv74=29 / Lv94=31 / Lv100=31
+てきHP400 : Lv1=48 / Lv26=52 / Lv74=59 / Lv94=62 / Lv100=63
+てきHP900 : Lv1=108 / Lv26=117 / Lv74=134 / Lv94=141 / Lv100=143
+てきHP2000 : Lv1=240 / Lv26=260 / Lv74=298 / Lv94=314 / Lv100=319
