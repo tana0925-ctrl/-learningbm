@@ -138,9 +138,16 @@
   var D2T_DROP_C = ['enemyNear', 'onPoint'];
 
   var D2T_C1 = ['always', 'selfHpBelow', 'allyBaseBelow', 'allyDown'];
-  var D2T_A1 = ['attackBase', 'returnBase', 'laneL', 'laneC', 'laneR', 'wait'];
+  /* DEF2LV1NEAR_V1_MARK
+     レベル1に「近くの てきを こうげき」を 出す。
+     レベル1で えらべる うごきは 6つ しか なくて、そのうち
+     きちんと 勝てるのは 既定の attackBase だけ だった。
+     だから プログラムを 書きかえても かちまけが ほとんど かわらない。
+     名まえは ためしバトルで つかってきた ことばに そろえる（D2T_JAFIX）。 */
+  var D2T_A1 = ['attackBase', 'returnBase', 'laneL', 'laneC', 'laneR', 'wait', 'attackNearest'];
+  var D2T_JAFIX = { attackNearest: '近くの てきを こうげき' };
   var D2T_C2 = D2T_C1.concat(['battleStart', 'lateGame', 'selfHpAbove', 'enemyBaseBelow', 'enemyCountAtLeast', 'strongEnemy', 'allyCountBelow', 'openPointNear', 'pointTaken', 'timeElapsed']);
-  var D2T_A2 = D2T_A1.concat(['attackNearest', 'aimWeak', 'aimStrong', 'charge', 'goPoint', 'defendPoint', 'fleeLane', 'gather']);
+  var D2T_A2 = D2T_A1.concat(['aimWeak', 'aimStrong', 'charge', 'goPoint', 'defendPoint', 'fleeLane', 'gather']);
   var D2T_B1 = ['a', 'if', 'fv'];
   var D2T_B2 = ['a', 'if', 'fv', 'rep', 'un'];
   var D2T_B3 = ['a', 'if', 'fv', 'rep', 'un', 'sq'];
@@ -160,7 +167,9 @@
     { name: '💧 HPが へったら まもる', lv: 1, prog: [{ t: 'if', c: 'selfHpBelow', cn: 35, body: [{ t: 'a', a: 'returnBase' }], els: [{ t: 'a', a: 'attackBase' }] }] },
     { name: '🛣 まん中の みちを ゆく', lv: 1, prog: [{ t: 'a', a: 'laneC' }] },
     { name: '🔁 ひだり5かい → みぎ5かい', lv: 2, prog: [{ t: 'rep', n: 5, body: [{ t: 'a', a: 'laneL' }] }, { t: 'rep', n: 5, body: [{ t: 'a', a: 'laneR' }] }] },
-    { name: '🚩 きょてんを とりに いく', lv: 2, prog: [{ t: 'if', c: 'openPointNear', body: [{ t: 'a', a: 'goPoint' }], els: [{ t: 'a', a: 'attackBase' }] }] }
+    { name: '🚩 きょてんを とりに いく', lv: 2, prog: [{ t: 'if', c: 'openPointNear', body: [{ t: 'a', a: 'goPoint' }], els: [{ t: 'a', a: 'attackBase' }] }] },
+    { name: '⚔ 近くの てきを たたく', lv: 1, prog: [{ t: 'a', a: 'attackNearest' }] },
+    { name: '⚡ よわい てきを ねらう', lv: 2, prog: [{ t: 'a', a: 'aimWeak' }] }
   ];
 
   var _d2tOff = false;        /* まさかの ときに ひょう形式へ もどす しるし */
@@ -330,6 +339,23 @@
     return out;
   }
 
+  /* DEF2LV1NEAR_V1 名まえを そろえる。もとの ならびは こわさずに 写しを かえす。 */
+  function d2tJaFix(list) {
+    var i, o, n, p, out = [];
+    for (i = 0; i < (list || []).length; i++) {
+      o = list[i];
+      if (o && o.k && D2T_JAFIX[o.k]) {
+        n = {};
+        for (p in o) n[p] = o[p];
+        n.l = D2T_JAFIX[o.k];
+        out.push(n);
+      } else {
+        out.push(o);
+      }
+    }
+    return out;
+  }
+
   function d2tCatalogHook(full) {
     try {
       if (!full || !full.conds || !full.acts) return null;
@@ -338,7 +364,7 @@
       var okA = (lv >= 3) ? null : (lv === 2 ? D2T_A2 : D2T_A1);
       var used = d2tUsed(window._pbCur ? (window._pbCur() || []) : []);
       var conds = d2tKeep(full.conds, okC, D2T_DROP_C, used.c);
-      var acts = d2tKeep(full.acts, okA, D2T_DROP_A, used.a);
+      var acts = d2tJaFix(d2tKeep(full.acts, okA, D2T_DROP_A, used.a));
       if (!conds.length || !acts.length) return null;
       return { conds: conds, acts: acts };
     } catch (e) { return null; }
@@ -1292,6 +1318,7 @@ function def2HypeHtml(log, st){
   }
 
   function tbActLabel(a){
+    if (D2T_JAFIX[a]) return D2T_JAFIX[a];
     var i, ja = d2tActJaFromCat(a);
     if (ja) return ja;
     for(i=0;i<ACT.length;i++){ if(ACT[i].v===a) return ACT[i].label; }
