@@ -1724,11 +1724,16 @@ const DEFENSE_ENEMIES = [
 //   さわるのは 名前・すがた と HP だけ。atk / def / spd / skillPow は 段の式（def_stage.ts）の まま。
 //   12 / 15 / 18 は その段の HP の 1.3倍。21 は 1.0（最後の1段は そこに 立てること じたいが 達成）。
 //   DEFENSE_ENEMIES は 1文字も 書きかえない。かならず コピーを 返す。
+// ⚡ __DEFBOSS_SPD_V1__ ボスの はやさ は 段の spd の 1.15倍。
+//    spd は「何回 うごけるか」そのもの（cdMax = 20*120/spd）なので、
+//    atk を 3倍に しても 勝率は 1ptも うごかないのに、spd は すぐ 効く。
+//    1.15 は「書き方で 勝敗が きまる 段」を つくるための 値。1.4 いじょうは 段21 が 0% に なる。
+//    HP の 1.3倍は すえおき。atk / def / skillPow は さわらない。
 const DEFBOSS_FACE: any = {
-  '12': { name: 'モンヤブリ', sprite: '\u{1FA93}', hpMul: 1.3 },
-  '15': { name: 'カゲハヤテ', sprite: '\u{1F32A}\u{FE0F}', hpMul: 1.3 },
-  '18': { name: 'イワヨロイ', sprite: '\u{1F5FF}', hpMul: 1.3 },
-  '21': { name: 'ヨルオウガ', sprite: '\u{1F311}', hpMul: 1 }
+  '12': { name: 'モンヤブリ', sprite: '\u{1FA93}', hpMul: 1.3, spdMul: 1.15 },
+  '15': { name: 'カゲハヤテ', sprite: '\u{1F32A}\u{FE0F}', hpMul: 1.3, spdMul: 1.15 },
+  '18': { name: 'イワヨロイ', sprite: '\u{1F5FF}', hpMul: 1.3, spdMul: 1.15 },
+  '21': { name: 'ヨルオウガ', sprite: '\u{1F311}', hpMul: 1, spdMul: 1.15 }
 }
 function defBossApply(squad: any, stage: any): any {
   try {
@@ -1747,6 +1752,13 @@ function defBossApply(squad: any, stage: any): any {
     const mul = Number(b.hpMul) || 1
     const hp = Math.round(Number(last.hp || 0) * mul)
     o.hp = (Number.isFinite(hp) && hp > 0) ? hp : Math.floor(Number(last.hp || 0))
+    // ⚡ __DEFBOSS_SPD_V1__ spdMul が ある ボスだけ はやさ を かける。
+    //    こわれた 値の ときは 何も かけない（段の spd の まま）。ここで 例外は 出さない。
+    const smul = Number(b.spdMul)
+    if (Number.isFinite(smul) && smul > 0) {
+      const spd = Math.round(Number(last.spd || 0) * smul)
+      if (Number.isFinite(spd) && spd > 0) o.spd = spd
+    }
     o.boss = true
     out[out.length - 1] = o
     return out
