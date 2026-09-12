@@ -1062,7 +1062,7 @@ function def2HypeHtml(log, st){
     var programsA = entries.map(function(e){ return (e.monster.prog && e.monster.prog.length)? e.monster.prog : DEFAULT_PROG; });
     var enemies = (st.enemy_squad||[]).map(function(en){ return {raw:{name:en.name,sprite:en.sprite,hp:en.hp,atk:en.atk,def:en.def,buff:en.buff,skillPow:en.skillPow,elementType:en.elementType,skills:en.skills}, strategy:'attack'}; });
     var seed = seedFromKey(st.event_key);
-    var rep = withFrozenStats(entries, function(){ return window.autoBattleRT(defenders, enemies, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:programsA,programB:ENEMY_PROG,forts:false,tactics:true,contact:true}); });
+    var rep = withFrozenStats(entries, function(){ return window.autoBattleRT(defenders, enemies, {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:programsA,programB:ENEMY_PROG,forts:false,tactics:true,contact:true,foeLaneMix:true}); });
     return {rep:rep, entries:entries, seed:seed};
   }
 
@@ -1575,7 +1575,7 @@ function def2HypeHtml(log, st){
       var pb=(TB.move==='stop') ? TB_STAND : ENEMY_PROG;
       var seed=(Math.floor(Math.random()*4294967296)>>>0);
       try{
-        rep=window.autoBattleRT(A, tbFoes(), {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:pa,programsB:[pb],forts:false,tactics:true,contact:true});
+        rep=window.autoBattleRT(A, tbFoes(), {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:pa,programsB:[pb],forts:false,tactics:true,contact:true,foeLaneMix:true});
       }catch(e){ rep=null; }
       TB.busy=false;
       if(!rep){ tbSorry('うまく うごきませんでした。もういちど ためしてね。'); return; }

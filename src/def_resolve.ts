@@ -228,7 +228,7 @@ export async function defServerResolve(env, st, classId, enemies) {
     const rep = defAutoBattleRT(specsA, specsB, {
       bases: true, lanes: true, laneCount: 3, seed: seed, program: true,
       programsA: programsA, programB: DEF_DEFAULT_PROG,
-      forts: false, tactics: true, contact: true
+      forts: false, tactics: true, contact: true, foeLaneMix: true
     })
     if (!rep || (rep.winner !== 'A' && rep.winner !== 'B')) return null
     if (rep.baseHpA == null || !Number.isFinite(Number(rep.baseHpA))) return null
