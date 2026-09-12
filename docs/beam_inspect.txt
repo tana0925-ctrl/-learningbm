@@ -1,3 +1,286 @@
+=== html / BEAM_RATIO_BASE hits=2
+  10879: 
+  10880: // Beam ②威力（割合ダメ）
+>>10881: const BEAM_RATIO_BASE = 0.12;
+  10882: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
+  10883: 
+    -----
+  10972: 
+  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+>>10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+  10976: 
+    -----
+=== html / BEAM_RATIO_PER_LEVEL hits=2
+  10880: // Beam ②威力（割合ダメ）
+  10881: const BEAM_RATIO_BASE = 0.12;
+>>10882: const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396
+  10883: 
+  10884: // Beam ③時間停止（スタン）
+    -----
+  10972: 
+  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+>>10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+  10976: 
+    -----
+=== html / BEAM_RATE_BASE hits=2
+  10875: 
+  10876: // Beam ①チャージ（たまりやすさ）
+>>10877: const BEAM_RATE_BASE = 2;
+  10878: const BEAM_RATE_PER_LEVEL = 0.02; // Lv100で約+1.98
+  10879: 
+    -----
+  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
+  10972: 
+>>10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+    -----
+=== html / BEAM_RATE_PER_LEVEL hits=2
+  10876: // Beam ①チャージ（たまりやすさ）
+  10877: const BEAM_RATE_BASE = 2;
+>>10878: const BEAM_RATE_PER_LEVEL = 0.02; // Lv100で約+1.98
+  10879: 
+  10880: // Beam ②威力（割合ダメ）
+    -----
+  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
+  10972: 
+>>10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+    -----
+=== html / BEAM_STUN_BASE hits=2
+  10883: 
+  10884: // Beam ③時間停止（スタン）
+>>10885: const BEAM_STUN_BASE = 800;
+  10886: const BEAM_STUN_PER_LEVEL = 5; // Lv100で+495ms
+  10887: 
+    -----
+  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+>>10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+  10976: 
+  10977: // Castle HP bonus applies on top of stageConfig base
+    -----
+=== html / BEAM_STUN_PER_LEVEL hits=2
+  10884: // Beam ③時間停止（スタン）
+  10885: const BEAM_STUN_BASE = 800;
+>>10886: const BEAM_STUN_PER_LEVEL = 5; // Lv100で+495ms
+  10887: 
+  10888: function ensureCastleBeamUpgradeData(){
+    -----
+  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+>>10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+  10976: 
+  10977: // Castle HP bonus applies on top of stageConfig base
+    -----
+=== html / UPGRADE_MAX_LEVEL hits=9
+  10853: ①チャージ ②威力 ③時間停止
+  10854: ========================================= */
+>>10855: const UPGRADE_MAX_LEVEL = 100;
+  10856: // --- 攻略モード：出撃上限アップ（強化チケット） ---
+  10857: const WAR_MAX_UNITS_BASE = 7;
+    -----
+  11041: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  11042: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
+>>11043: if((player.castleLevel||1) >= UPGRADE_MAX_LEVEL){ alert('城レベルはすでに最大（100）です'); return; }
+  11044: player.upgradeTickets -= 1;
+  11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
+    -----
+  11043: if((player.castleLevel||1) >= UPGRADE_MAX_LEVEL){ alert('城レベルはすでに最大（100）です'); return; }
+  11044: player.upgradeTickets -= 1;
+>>11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
+  11046: saveData();
+  11047: try{ applyWarUpgradesToState(); }catch(e){}
+    -----
+  11089: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  11090: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
+>>11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
+  11092: player.upgradeTickets -= 1;
+  11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
+    -----
+  11091: if((player.beamChargeLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム①（チャージ）はすでに最大（100）です'); return; }
+  11092: player.upgradeTickets -= 1;
+>>11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
+  11094: saveData();
+  11095: try{ applyWarUpgradesToState(); }catch(e){}
+    -----
+  11103: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  11104: if((player.upgradeTickets||0) <= 0){ alert('強化チケットがありません'); return; }
+>>11105: if((player.beamDamageLevel||1) >= UPGRADE_MAX_LEVEL){ alert('ビーム②（威力）はすでに最大（100）です'); return; }
+  11106: player.upgradeTickets -= 1;
+  11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
+    -----
+=== html / applyWarUpgradesToState hits=8
+  10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
+  10962: 
+>>10963: function applyWarUpgradesToState(){
+  10964: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  10965: if(!window.warState) return;
+  10966: 
+    -----
+  11045: player.castleLevel = Math.min(UPGRADE_MAX_LEVEL, (player.castleLevel||1) + 1);
+  11046: saveData();
+>>11047: try{ applyWarUpgradesToState(); }catch(e){}
+  11048: try{ if(typeof renderCastle==='function') renderCastle(); }catch(e){}
+  11049: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
+  11050: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
+    -----
+  11093: player.beamChargeLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamChargeLevel||1) + 1);
+  11094: saveData();
+>>11095: try{ applyWarUpgradesToState(); }catch(e){}
+  11096: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
+  11097: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
+  11098: try{ updateUpgradePanel(); }catch(e){}
+    -----
+  11107: player.beamDamageLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamDamageLevel||1) + 1);
+  11108: saveData();
+>>11109: try{ applyWarUpgradesToState(); }catch(e){}
+  11110: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
+  11111: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
+  11112: try{ updateUpgradePanel(); }catch(e){}
+    -----
+  11121: player.beamStunLevel = Math.min(UPGRADE_MAX_LEVEL, (player.beamStunLevel||1) + 1);
+  11122: saveData();
+>>11123: try{ applyWarUpgradesToState(); }catch(e){}
+  11124: try{ if(typeof renderBeam==='function') renderBeam(); }catch(e){}
+  11125: try{ if(typeof updatePlayerDisplay==='function') updatePlayerDisplay(); }catch(e){}
+  11126: try{ updateUpgradePanel(); }catch(e){}
+    -----
+  38204: 
+  38205: // apply castle/beam level upgrades
+>>38206: try{ applyWarUpgradesToState(); }catch(e){}
+  38207: 
+  38208: const fb = document.getElementById('warFeedback');
+  38209: if(fb) fb.textContent = `⚡上限UP！ ${beforeMax}→${warState.powerMax}（-${Math.round(cost)}）`;
+    -----
+  38298: 
+  38299: // apply castle/beam level upgrades
+>>38300: try{ applyWarUpgradesToState(); }catch(e){}
+  38301: 
+  38302: const t = document.getElementById('warStageText');
+  38303: if(t) t.textContent = warState.stageName;
+    -----
+  42112: 
+  42113: // apply upgrades (beam stats)
+>>42114: try{ applyWarUpgradesToState(); }catch(e){}
+  42115: 
+  42116: warState.maxPlayerUnits = warGetMaxUnits();
+  42117: warState.maxEnemyUnits = warState.maxEnemyUnits || 12;
+    -----
+=== html / function applyWarUpgradesToState hits=1
+  10961: function castleBonusHp(){ const lv = getCastleLevel(); return (Math.max(1, lv)-1) * CASTLE_HP_PER_LEVEL; }
+  10962: 
+>>10963: function applyWarUpgradesToState(){
+  10964: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  10965: if(!window.warState) return;
+  10966: 
+  10967: const bcl = getBeamChargeLevel();
+  10968: const bdl = getBeamDamageLevel();
+  10969: const bsl = getBeamStunLevel();
+  10970: 
+  10971: const dl = (typeof warGetMaxUnits==='function') ? warGetMaxUnits() : (typeof WAR_MAX_UNITS_BASE==='number' ? WAR_MAX_UNITS_BASE : 7);
+  10972: 
+  10973: warState.beamRate = BEAM_RATE_BASE + (bcl-1)*BEAM_RATE_PER_LEVEL;
+  10974: warState.beamDamageRatio = BEAM_RATIO_BASE + (bdl-1)*BEAM_RATIO_PER_LEVEL;
+  10975: warState.beamStunMs = BEAM_STUN_BASE + (bsl-1)*BEAM_STUN_PER_LEVEL;
+  10976: 
+  10977: // Castle HP bonus applies on top of stageConfig base
+  10978: try{
+  10979: const base = warState.stageConfig ? Number(warState.stageConfig.playerCastleHpMax) : NaN;
+  10980: if(Number.isFinite(base)){
+  10981: const bonus = castleBonusHp();
+  10982: const maxHp = Math.max(1, Math.floor(base + bonus));
+  10983: // Keep current ratio
+  10984: const cur = Number(warState.playerCastleHp||maxHp);
+  10985: const curMax = Number(warState.playerCastleHpMax||base||maxHp);
+  10986: const ratio = curMax>0 ? (cur/curMax) : 1;
+  10987: warState.playerCastleHpMax = maxHp;
+  10988: warState.playerCastleHp = Math.max(0, Math.min(maxHp, Math.floor(maxHp*ratio)));
+  10989: }
+  10990: }catch(e){}
+  10991: }
+  10992: 
+  10993: function updateUpgradePanel(){
+  10994: try{ ensureCastleBeamUpgradeData(); }catch(e){}
+  10995: const cl = getCastleLevel();
+  10996: const bcl = getBeamChargeLevel();
+  10997: const bdl = getBeamDamageLevel();
+    -----
+=== html / const ratio = Number(warState.beamDamageRatio hits=1
+  39748: warState.beamCharge = 0;
+  39749: const now = Date.now();
+>>39750: const ratio = Number(warState.beamDamageRatio||0.12);
+  39751: const stunMs = Number(warState.beamStunMs||800);
+  39752: let hit = 0;
+  39753: 
+  39754: const field = document.getElementById('warField');
+  39755: if(field){
+  39756: const flash = document.createElement('div');
+  39757: flash.style.position='absolute';
+  39758: flash.style.inset='0';
+  39759: flash.style.background='rgba(255,255,255,0.35)';
+  39760: flash.style.pointerEvents='none';
+  39761: flash.style.zIndex='40';
+  39762: field.appendChild(flash);
+  39763: 
+  39764: warShowBeamFx();
+  39765: setTimeout(()=>{ try{ flash.remove(); }catch(e){} }, 160);
+  39766: }
+  39767: 
+  39768: warState.units.forEach(u=>{
+  39769: if(u && u.team==='enemy' && Number(u.hp||0) > 0){
+  39770: const maxHp = Number(u.hpMax!=null ? u.hpMax : u.hp);
+  39771: const dmg = Math.max(1, Math.floor(maxHp * ratio));
+  39772: u.hp = Math.max(0, Number(u.hp||0) - dmg);
+  39773: u.stunUntil = Math.max(Number(u.stunUntil||0), now + stunMs);
+  39774: hit += 1;
+  39775: }
+  39776: });
+  39777: 
+  39778: const fb = document.getElementById('warFeedback');
+  39779: if(fb){
+  39780: fb.textContent = hit ? `💥 にゃんこビーム！ 敵${hit}体にヒット！` : '💥 にゃんこビーム！（でも敵がいない）';
+  39781: fb.className = 'font-bold text-sky-200';
+  39782: }
+  39783: renderBeam();
+  39784: }catch(e){ console.error('WAR_BEAM_ERROR', e); }
+  39785: };
+  39786: function calcRechargeSec(st){
+  39787: const cost = Number(st && st.cost != null ? st.cost : 60);
+  39788: const hp = Number(st && st.hpMax != null ? st.hpMax : 200);
+  39789: const atk = Number(st && st.atk != null ? st.atk : 20);
+  39790: // にゃんこ風：重い(高コスト/高耐久/高火力)ほど再出撃が遅い
+  39791: const sec = 1.8 + (cost/45) + (hp/500) + (atk/140);
+  39792: return clamp(sec, 2.5, 12);
+  39793: }
+  39794: 
+  39795: function partyToButtons(){
+  39796: const box = document.getElementById('warSpawnButtons');
+    -----
+=== html / beamDamageRatio:0.12 hits=1
+  38084: 
+  38085: // 日本地図（アウトライン）画像（オフライン対応）
+  38086: const JAPAN_PREF_MAP_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABfMAAAXzCAQAAADakGtRAAGoTUlEQVR42uzdeWBcV333/3eIcUgIkRIggUBisTTQBiKxPQQeqEyfUgqk2BRa6CrTUpbCU6cFSlsKcvnRQlnqUCh5gFIBhULDolDWpIBcwh6IICxhCXH2ENvJeNU2c7/f3x9XsmVbkkfSSBrNvM/rL8CauXPPOZzPnDn3HBJJkiRJqwN353TO5UHch+Pm/HfeKkmSJ
+  38087: 
+  38088: window.warState = window.warState || {
+  38089: zombieMode:false,
+  38090: zombieReviveDelayMin:8000,
+  38091: zombieReviveDelayMax:12000,
+  38092: active:false, timer:null, lastTick:0,
+  38093: power:0, powerMax:200, baseRate:2,
+  38094: boostUntil:0, combo:0,
+  38095: 
+>>38096: beamCharge:0, beamRate:2, beamDamageRatio:0.12, beamStunMs:800,
+  38097: globalSpawnCd:0,
+  38098: slotCd:[0,0,0], slotCdMax:[3,3,3], partyIds:[null,null,null],
+  38099: units:[], nextUnitId:1,
+  38100: playerCastleHp:600, playerCastleHpMax:600,
+    -----
+=== chain
+chain = 97
 === html / beamDamageRatio hits=3
   10968: const bdl = getBeamDamageLevel();
   10969: const bsl = getBeamStunLevel();
