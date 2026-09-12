@@ -8287,6 +8287,17 @@ app.get('/', async (c) => {
     const _zbs1 = "  const atkInterval = clamp(1100 - (mon.spd||30)*6, 420, 1100);\n  const m3 = (mon && Array.isArray(mon.moves) && mon.moves[2]) ? mon.moves[2] : null;"
     const _zbs2 = "  const atkInterval = clamp(1100 - (mon.spd||30)*6, 420, 1100);\n  // __ZWAR_BOSS_SKILL3_V1__ : 県ボスは moves を持たず skills を持っている。moves が無いときだけ skills を見る。\n  const m3 = (function(){\n    try{\n      var _mv = (mon && Array.isArray(mon.moves) && mon.moves.length) ? mon.moves : null;\n      var _sk = (!_mv && mon && Array.isArray(mon.skills) && mon.skills.length) ? mon.skills : null;\n      var _l = _mv || _sk;\n      return (_l && _l[2]) ? _l[2] : null;\n    }catch(e){ try{ console.error('[__ZWAR_BOSS_SKILL3_V1__] skills fallback error', e); }catch(_e){} return null; }\n  })();"
     if (t.indexOf(_zbs1) !== -1) { t = t.replace(_zbs1, _zbs2) } else { console.error('[__ZWAR_BOSS_SKILL3_V1__] anchor not found') }
+    // 🎯 __ZWAR_REACH_FIX_V1__ : せまい画面だと 攻略モード／ゾンビ襲来の 戦闘が はじまらない不具合。
+    //   止まる距離 ＝ (じぶんの半分 ＋ あいての半分) ÷ 画面のはば × 100 ＋ 0.2 ［％］で、画面のはばで変わる。
+    //   なのに ねらえる距離だけ 6［％］の固定だったので、793px より せまいと
+    //   止まる距離のほうが 遠くなって、味方も敵も いつまでも かみ合わなかった（iPad たては 768px）。
+    //   ボスは 絵が大きい（60px）ので 914px より せまいと ボスだけ 戦えなかった。
+    //   ねらえる距離を 止まる距離と まったく同じ式で出して、そこから 0.2 だけ 遠くする。
+    //   914px 以上では Math.max(6, ...) が 6 を返すので、広い画面は これまでと 1つも変わらない。
+    //   敵が 自分では ねらいを決めない 別の不具合には さわらない（players のループのまま）。
+    const _zwr1 = "      if(cand && best < 6){ pu.target=cand; cand.target=pu; }"
+    const _zwr2 = "      /* __ZWAR_REACH_FIX_V1__ ねらえる距離を 止まる距離と 同じものさし（画面のはばに対する％）で 出す。 */\n      if(cand){\n        var _zwBW = 600;\n        try{ _zwBW = Math.max(1, Number(warState && warState._battleW) || 600); }catch(e){ _zwBW = 600; }\n        var _zwHalfPct = function(un){ return ((((un && un.isBoss) ? 60 : 46) / 2) / _zwBW) * 100; };\n        var _zwStop = _zwHalfPct(pu) + _zwHalfPct(cand) + 0.2;\n        var _zwReach = Math.max(6, _zwStop + 0.2);\n        if(best < _zwReach){ pu.target=cand; cand.target=pu; }\n      }"
+    if (t.indexOf(_zwr1) !== -1) { t = t.replace(_zwr1, _zwr2) } else { console.error('[__ZWAR_REACH_FIX_V1__] anchor not found') }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
