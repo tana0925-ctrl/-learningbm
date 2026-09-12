@@ -18,6 +18,7 @@ DEF2_CLASSCAP_V1
   一致しなければ 何も 書かずに 止まる（fail-closed）。
 """
 import io
+import re
 import sys
 
 TSX = 'src/index.tsx'
@@ -285,6 +286,19 @@ TSX_LIST_HEAD_NEW = NL.join([
 ])
 
 
+def bump_ver(s):
+    # 子どもの がわを ちゃんと 入れなおしてもらう ための 番号。
+    # 1件でなければ 止める（fail-closed）。
+    hits = re.findall('/defense2[.]js[?]v=([0-9]+)', s)
+    if len(hits) != 1:
+        print('NG: よみこみ番号が %d 件（1件でないので 止める）' % len(hits))
+        sys.exit(1)
+    now = int(hits[0])
+    nxt = now + 1
+    print('よみこみ番号: %d -> %d' % (now, nxt))
+    return s.replace('/defense2.js?v=' + str(now), '/defense2.js?v=' + str(nxt), 1)
+
+
 def patch_tsx(s):
     # 道を 3本 足す（シールけんの となりに ならべる）
     s = sub(s, TSX_STK_END, TSX_STK_END + TSX_ROUTES, '道を 入れる 場所')
@@ -293,7 +307,7 @@ def patch_tsx(s):
     # えらぶ ところの いまの 値を さきに よむ
     s = sub(s, TSX_LIST_HEAD, TSX_LIST_HEAD_NEW, 'クラス一覧の あたま')
     # 子どもの がわを 入れなおしてもらう
-    s = sub(s, '/defense2.js?v=15', '/defense2.js?v=16', 'よみこみ番号')
+    s = bump_ver(s)
     return s
 
 
