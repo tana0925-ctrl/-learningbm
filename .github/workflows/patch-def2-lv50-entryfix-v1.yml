@@ -1,0 +1,221 @@
+name: 出陣画面の ひとことを 出るように なおす（DEF2_LV50_ENTRYFIX_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に チェーンと あて先の 一意性を 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('いまの チェーン: %d 件' % n)
+          if n != 85:
+              print('NG: チェーンが 85 件では ない'); ok[0] = False
+          if s.count('>👾 敵軍団（') != 2:
+              print('NG: なおす あて先が 2件では ない'); ok[0] = False
+          _o5 = ('var enemyHtml=' + chr(39) + '<div style=' + chr(34) + 'font-weight:900;margin:6px 0;' + chr(34) + '>👾 ')
+          if h.count(_o5) != 1:
+              print('NG: 出陣画面の あて先が 一意で ない'); ok[0] = False
+          if s.count('DEF2_LV50_SAME_V1') != 1:
+              print('NG: さきに DEF2_LV50_SAME_V1 を 流してから'); ok[0] = False
+          if s.count('/defense2.js' + '?v' + '=18') != 1:
+              print('NG: よみこみ番号 v18 が 1件では ない'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('PRECHECK OK')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_lv50_v4.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts src/def_engine.ts src/def_resolve.ts || (echo 'NG: 防衛戦の他ファイルが変わっている'; exit 1)
+          CHANGED="$(git diff --name-only | sort | xargs echo)"
+          git diff --quiet -- public/defense2.js || (echo 'NG: public/defense2.js が変わっている'; exit 1)
+          if [ "$CHANGED" != "src/index.tsx" ]; then
+            echo "NG: さわったファイルが おかしい: $CHANGED"; exit 1
+          fi
+          git diff --numstat -- src/index.tsx
+
+      - name: 文法が通るか（通らなければ止める）
+        run: node --check public/defense2.js
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン', s[i:j].count('.replace('), 85)
+
+          chk('こんかいの 番兵', s.count('__DEF_LV50_V1__'), 2)
+          chk('ものさし本体', s.count('window.defNorm=function(b)'), 1)
+          chk('レベルは 50', s.count('var lvl=50; var s=window.defNorm(base);'), 1)
+          chk('しるし', s.count('level:lvl,dn:1,'), 1)
+          chk('atk/def/spd の 上限 300', s.count('s.atk=Math.min(s.atk,300);s.def=Math.min(s.def,300);s.spd=Math.min(s.spd,300);'), 1)
+          chk('合計の 上限 5000', s.count('if(tot>5000){var k=5000/tot;'), 1)
+          chk('さらけだし口', s.count('window._defSnapshot=function(id){return _defSnapshot(id);};'), 1)
+          chk('ビルドに 入っている', w.count('window.defNorm=function(b)'), 1)
+          chk('あて先の 文字列', s.count('var lvl=Math.max(1,Number(inst.level||1)); var s=getStats(base,lvl);'), 1)
+
+          chk('V2 の 番兵', s.count('__DEF_LV50_V2__'), 2)
+          chk('V3 の 番兵 (index.tsx)', s.count('DEF2_LV50_SAME_V1'), 1)
+          chk('V3 の 番兵 (defense2)', d.count('DEF2_LV50_SAME_V1'), 3)
+          chk('ためしバトルの ひかえ', d.count('if(_sn){ return {id:id, level:50,'), 1)
+          chk('ためしバトルの なかま', d.count('strategy:pick.strategy, raw:pick.raw}'), 1)
+          chk('下見の spd', d.count('spd: Number((m && m.spd) || neutral.spd || 10) };'), 1)
+          chk('ふるい spd の よびかたは もう無い', d.count('spd: Number(neutral.spd || 10) };'), 0)
+          chk('出陣画面の ひとこと', s.count('みんな おなじ レベル50 で たたかうよ。かちまけは プログラムの くふうで きまるんだ。'), 1)
+          chk('けっか画面の ひとこと', d.count('ぼうえいせんでは みんな おなじ レベル50 で たたかうよ。'), 1)
+          chk('ビルドの よみこみ番号 v18', w.count('/defense2.js' + '?v' + '=18'), 1)
+          chk('ENTRYFIX の 番兵', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
+          chk('みじかい あて先', s.count('>👾 ' + chr(96)), 2)
+          chk('ふるい あて先は もう無い', s.count('>👾 敵軍団（'), 0)
+          chk('ビルドに ひとことが 入っている', w.count('みんな おなじ レベル50 で たたかうよ。かちまけは プログラムの くふうで きまるんだ。'), 1)
+
+          chk('__DEF_MVP_V1__', s.count('__DEF_MVP_V1__'), 6)
+          chk('defMvpMakeLedger', s.count('defMvpMakeLedger'), 2)
+          chk('_defMvpCoinsApplied', s.count('_defMvpCoinsApplied'), 8)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合1 seed', s.count('log_seed_mismatch'), 1)
+          chk('照合2 replay', s.count('log_replay_missing'), 1)
+          chk('照合3 result', s.count('log_result_mismatch'), 1)
+          chk('照合4 base_hp', s.count('log_base_hp_mismatch'), 1)
+          chk('log の v が 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA 有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('__H6MERGE_SRC_V1__', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('__H6BANK_LIVE_V1__', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('__H6U11_BOOST_V1__', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('def_join_nudge.js', s.count('def_join_nudge.js'), 4)
+          chk('defense2.js の道', s.count("app.get('/defense2.js'"), 1)
+          chk('げんていキャラの道', s.count("app.get('/defstage_monsters.js'"), 1)
+          chk('よみこみ番号 v18', s.count('/defense2.js' + '?v' + '=18'), 1)
+          chk('ふるい v17 は もう無い', s.count('/defense2.js' + '?v' + '=17'), 0)
+
+          chk('ためしバトル', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('ひょう', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('ツリーの ひょう', d.count('DEF2TALLY_TREE_V2_MARK'), 1)
+          chk('お手本の 学習', d.count('DEF2TPL_LEARN_V1_MARK'), 1)
+          chk('あたまの上の みため', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('送信の 保険', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('ツリー本体の番兵', d.count('DEF2TREE_V1_MARK'), 2)
+          chk('おしらせ', d.count('この下は うごきません'), 1)
+          chk('行入れかえ 上', d.count('>▲</button>'), 1)
+          chk('行入れかえ 下', d.count('>▼</button>'), 1)
+          chk('ツリー編集の 接続', d.count('d2tInstallHook(); tryMountEditor(); tryMountTryBattle();'), 1)
+          chk('めいれいの もちぬし', d.count('defProgram'), 5)
+          chk('エントリーは 1か所', d.count('/api/defense/entry'), 1)
+          chk('けっせんは 1か所', d.count('/api/defense/resolve'), 1)
+
+          chk('うごかない的', h.count('DEF2TRY_STANDSTILL_MARK'), 1)
+          chk('うごかない的の ゴール', h.count('DEF2TRY_STANDSTILL_GOAL_MARK'), 1)
+          chk('あたまの上の 名まえ', h.count('DEF2TRY_NOWLABEL_V1'), 1)
+          chk('基地HP 380 の既定', h.count('Number(opts.baseHp||380)'), 1)
+          chk('エンジン本体', h.count('autoBattleRT'), 5)
+
+          for nm, cd, ch in (('attackFort', 2, 4), ('advanceFront', 3, 5), ('retreatBack', 3, 9), ('aimWeakest', 2, 7), ('defendFort', 2, 9), ('scatter', 3, 5)):
+              chk('外した うごき ' + nm + ' (defense2)', d.count(nm), cd)
+              chk('外した うごき ' + nm + ' (index.html)', h.count(nm), ch)
+          chk('外した じょうけん 1', d.count('てきが近づいてきた') + h.count('てきが近づいてきた'), 0)
+          chk('外した じょうけん 2', d.count('自分が拠点の上にいる'), 0)
+
+          chk('倍率の曲線 u', g.count('Math.pow(k / (DEF_STAGE_MAX - 1), 2.2)'), 1)
+          chk('倍率の曲線 hp', g.count('o.hp = Math.round(Number(e.hp || 0) * (1 + 25 * u))'), 1)
+          chk('倍率の曲線 atk', g.count('o.atk = Math.round(Number(e.atk || 0) * (1 + 19 * u))'), 1)
+          chk('倍率の曲線 def', g.count('o.def = Math.round(Number(e.def || 0) * (1 + 6 * u))'), 1)
+          chk('倍率の曲線 skillPow', g.count('o.skillPow = Math.round(Number(e.skillPow || 10) * (1 + 18 * u))'), 1)
+          chk('倍率の曲線 spd', g.count('if (k > 0) o.spd = Math.round(10 + 230 * u)'), 1)
+
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INS' + 'ERT', 'UPD' + 'ATE', 'DEL' + 'ETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に かきこみ %s が 入っている' % _w); ok[0] = False
+          if 'stage ' + '- 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: さげる経路が 入っている'); ok[0] = False
+
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'kawari nashi (sudeni tekiyou zumi)'; exit 0
+          fi
+          git commit -m 'DEF2_LV50_ENTRYFIX_V1 shutsujin gamen no hitokoto wo deru you ni naosu'
+          git push origin HEAD:main
