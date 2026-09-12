@@ -1,0 +1,67 @@
+name: DEFBOSS_SPD_V2 ぼうえいせんの 勝率しらべ（読むだけ・書きこみなし）
+
+on:
+  workflow_dispatch:
+    inputs:
+      n:
+        description: '1マスあたりの 試行回数（既定 100）'
+        required: false
+        default: '100'
+      part:
+        description: 'all / main（spdの対比だけ）/ probe（お手本としきい値だけ）'
+        required: false
+        default: 'all'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 触る気が ないことを はっきりさせる（読むだけ）
+        run: |
+          echo 'このワークフローは commit も push も しない。permissions は contents: read。'
+          git rev-parse HEAD
+
+      - name: いま main に 何が 入っているか 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain =', n)
+          print('__DEFBOSS_SPD_V1__ =', s.count('__DEFBOSS_SPD_V1__'))
+          print("spdMul: 1.15 =", s.count('spdMul: 1.15'))
+          print("DEFENSE_BASE_HP = 380 =", s.count('DEFENSE_BASE_HP = 380'))
+          e = io.open('src/def_stage.ts', encoding='utf-8').read()
+          print('敵の spd 上限 70 =', e.count('Math.min(70, 35 + 5 * k)'))
+          PYEOF
+
+      - name: TypeScript を まとめて 1つの mjs にする（読むだけ・npm install は しない）
+        run: |
+          npx --yes esbuild scripts/inspect_defboss_spd_v2.mjs \
+            --bundle --format=esm --platform=node --target=node20 \
+            --outfile=/tmp/defsim.mjs
+          ls -l /tmp/defsim.mjs
+
+      - name: 勝率を かぞえる
+        env:
+          N: ${{ github.event.inputs.n }}
+          PART: ${{ github.event.inputs.part }}
+        run: node /tmp/defsim.mjs
+
+      - name: 何も 変わっていないことを 確かめる
+        run: |
+          git status --porcelain
+          if [ -n "$(git status --porcelain)" ]; then
+            echo 'NG: 作業ツリーが よごれている（このワークフローは 読むだけのはず）'; exit 1
+          fi
+          echo 'OK: 1文字も 変わっていない'
