@@ -916,6 +916,8 @@ function def2HypeHtml(log, st){
       /* DEF2_STAGE0A_HERO_20260911 */
       var _rsn = def2ReasonText(win, rep && rep.reason, baseEnd, baseMax);
       if(_rsn){ hero += '<div style="margin-top:8px;display:inline-block;background:rgba(255,255,255,.20);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:800;">'+esc(_rsn)+'</div>'; }
+      /* DEF2_LV50_SAME_V1 どうして かちまけが きまったのかを、さきに つたえる */
+      hero += '<div style="margin-top:8px;font-size:11px;opacity:.85;line-height:1.5;">ぼうえいせんでは みんな おなじ レベル50 で たたかうよ。<br>かちまけは プログラムの くふうで きまるんだ。</div>';
       if(baseMax){
         var bpct = Math.max(0,Math.min(100,Math.round((baseEnd||0)/baseMax*100)));
         hero += '<div style="margin:10px auto 2px;max-width:340px;background:rgba(255,255,255,.25);border-radius:999px;height:14px;overflow:hidden;"><div style="width:'+bpct+'%;height:100%;background:'+(win?'#4ade80':'#fca5a5')+';"></div></div>'
@@ -1016,7 +1018,8 @@ function def2HypeHtml(log, st){
           return { hp: hp, maxHp: hp,
                    atk: Number(m.atk || neutral.atk || 1),
                    def: Number(m.def || neutral.def || 1),
-                   spd: Number(neutral.spd || 10) };
+                   /* DEF2_LV50_SAME_V1 spd も ひかえから 読む（サーバの けいさんと そろえる） */
+                   spd: Number((m && m.spd) || neutral.spd || 10) };
         }
         return neutral;
       };
@@ -1329,6 +1332,13 @@ function def2HypeHtml(log, st){
     }
     if(!(id>0)) return null;
     try{ p=progPlayer(); inst=p && p.monsters && (p.monsters[id] || p.monsters[String(id)]); if(inst && inst.level) lvl=Math.max(1,Number(inst.level)); }catch(e){}
+    /* DEF2_LV50_SAME_V1
+       ためしバトルも 本ばんと おなじ ものさしで うごかす。
+       レベル50・星と つかれは なし・atk/def/spd は 300 まで・合計 5000 まで。
+       練習と 本ばんが ちがうと、じぶんの プログラムの よしあしが 見えない。 */
+    var _sn = null;
+    try{ if(typeof window._defSnapshot === 'function') _sn = window._defSnapshot(id); }catch(e){ _sn = null; }
+    if(_sn){ return {id:id, level:50, strategy:strat, raw:{name:_sn.name, sprite:_sn.sprite, hp:_sn.hp, atk:_sn.atk, def:_sn.def, spd:_sn.spd, buff:_sn.buff, skillPow:_sn.skillPow, elementType:_sn.elementType, skills:_sn.skills}}; }
     return {id:id, level:lvl, strategy:strat};
   }
 
@@ -1534,7 +1544,7 @@ function def2HypeHtml(log, st){
       var prog=progFromRules(); if(!prog || !prog.length) prog=DEFAULT_PROG;
       prog=tbNumberRules(prog);
       var A=[], pa=[], i, rep=null;
-      for(i=0;i<TB.allies;i++){ A.push({id:pick.id, level:pick.level, strategy:pick.strategy}); pa.push(prog); }
+      for(i=0;i<TB.allies;i++){ A.push({id:pick.id, level:pick.level, strategy:pick.strategy, raw:pick.raw}); pa.push(prog); }
       var pb=(TB.move==='stop') ? TB_STAND : ENEMY_PROG;
       var seed=(Math.floor(Math.random()*4294967296)>>>0);
       try{
