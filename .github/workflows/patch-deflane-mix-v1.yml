@@ -1,0 +1,277 @@
+name: 防衛戦 ②（DEFLANE_MIX_V1・てきのレーンを seed からきめる）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に つなぎの数と アンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          p = io.open('public/index.html', encoding='utf-8').read()
+          NL = chr(10)
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流す前）= %d' % n)
+          if n != 85:
+              print('NG: つなぎの数が 85 ではない'); sys.exit(1)
+          OLD_B = 'for(var _cj=0;_cj<B.length;_cj++){ B[_cj].adv=0; B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cj%CLN)); } }'
+          pairs = [
+            (e, OLD_B, 'エンジンの レーンわり'),
+            (p, OLD_B, '本番HTMLの レーンわり'),
+            (s, NL + '    _rootHtmlCache = t' + NL, 'つなぎの おわり'),
+            (s, '/defense2.js?v=19', 'defense2.js のばんごう'),
+            (v, '      forts: false, tactics: true, contact: true', 'サーバの opts'),
+            (d, 'forts:false,tactics:true,contact:true}); });', 'ブラウザ本番の opts'),
+            (d, 'programsA:pa,programsB:[pb],forts:false,tactics:true,contact:true});', 'ためしバトルの opts'),
+          ]
+          bad = False
+          for text, anchor, label in pairs:
+              c = text.count(anchor)
+              print('%s = %d 件' % (label, c))
+              if c != 1:
+                  bad = True
+          if bad:
+              print('NG: 一意でないアンカーがある'); sys.exit(1)
+          print('アンカーはすべて一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_deflane_mix_v1.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts || (echo 'NG: src/def_stage.ts が変わっている'; exit 1)
+          echo 'public/index.html と src/def_stage.ts は無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: エンジンを実際に走らせて 決定論とレーンを確かめる（番兵とは別の条件）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const NL = String.fromCharCode(10);
+          const raw = fs.readFileSync('src/def_engine.ts', 'utf8');
+          const build = (src) => new Function(src.replace(/^export /gm, '') + NL + 'return { defAutoBattleRT, defTestRoster };')();
+          const TAIL  = 'B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cLB?_cLB[_cj]:(_cj%CLN))); } }';
+          const TAIL2 = 'B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cLB?_cLB[_cj]:(_cj%CLN))); } try{ globalThis.__LANES=B.map(function(f){ return f.curLn; }); }catch(_e){} }';
+          let ok = true;
+          if (raw.indexOf(TAIL) < 0) { console.log('NG: しっぽが見つからない'); process.exit(1); }
+          const M = build(raw);
+          const I = build(raw.replace(TAIL, TAIL2));
+          const run = (mod, seed, mix) => {
+            const r = M.defTestRoster(seed, 6, 8);
+            return mod.defAutoBattleRT(r.A, r.B, { bases: true, lanes: true, laneCount: 3, seed: seed, program: true, programsA: r.programsA, programB: r.programB, forts: false, tactics: true, contact: true, foeLaneMix: mix });
+          };
+          for (let k = 0; k < 6; k++) {
+            const sd = (1000 + k * 7919) >>> 0;
+            run(I, sd, false);
+            if (globalThis.__LANES.join('') !== '01201201') { console.log('NG: まぜない時の ならびが ちがう ' + globalThis.__LANES.join('')); ok = false; }
+          }
+          const seen = {};
+          let nseen = 0;
+          for (let k = 0; k < 12; k++) {
+            const sd = (1000 + k * 7919) >>> 0;
+            run(I, sd, true);
+            const key = globalThis.__LANES.join('');
+            if (!seen[key]) { seen[key] = 1; nseen++; }
+          }
+          if (nseen < 6) { console.log('NG: ならびが ばらけていない（' + nseen + ' 通り）'); ok = false; }
+          for (let k = 0; k < 8; k++) {
+            const sd = (4242 + k * 104729) >>> 0;
+            const a = JSON.stringify(run(M, sd, true));
+            const b = JSON.stringify(run(M, sd, true));
+            const c = JSON.stringify(run(build(raw), sd, true));
+            if (a !== b || a !== c) { console.log('NG: 決定論が こわれている seed=' + sd); ok = false; }
+          }
+          let groups = 0, bad = 0, spread = 0;
+          for (let k = 0; k < 40; k++) {
+            const sd = (1234567 + k * 7919) >>> 0;
+            const rep = run(I, sd, true);
+            const L = globalThis.__LANES, B = rep.teams.B;
+            const ord = B.map((f, i) => i).sort((x, y) => ((B[y].maxHp + 3 * B[y].atk) - (B[x].maxHp + 3 * B[x].atk)) || (x - y));
+            for (let g = 0; g * 3 < B.length; g++) {
+              const grp = ord.slice(g * 3, g * 3 + 3).map(i => L[i]);
+              groups++;
+              const uniq = {};
+              grp.forEach(x => { uniq[x] = 1; });
+              if (Object.keys(uniq).length !== grp.length) bad++;
+            }
+            const cnt = [0, 0, 0];
+            L.forEach(x => { cnt[x]++; });
+            const sp = Math.max.apply(null, cnt) - Math.min.apply(null, cnt);
+            if (sp > spread) spread = sp;
+          }
+          console.log('くばりの組 ' + groups + ' / かたより ' + bad + ' / 体数のひらき ' + spread);
+          if (bad !== 0) { console.log('NG: つよい てきが 同じ道に かたまった'); ok = false; }
+          if (spread > 1) { console.log('NG: 道ごとの体数が ひらきすぎ'); ok = false; }
+          let diff = 0;
+          for (let k = 0; k < 8; k++) {
+            const sd = (777 + k * 65537) >>> 0;
+            if (JSON.stringify(run(M, sd, true)) !== JSON.stringify(run(M, sd, false))) diff++;
+          }
+          if (diff === 0) { console.log('NG: まぜても 何も かわっていない'); ok = false; }
+          if (!ok) process.exit(1);
+          console.log('LANE MIX OK');
+          JSEOF
+
+      - name: ブラウザ側（つなぎ）とサーバ側が 同じ形になるか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          p = io.open('public/index.html', encoding='utf-8').read()
+          Q = chr(34)
+          OLD_B = 'for(var _cj=0;_cj<B.length;_cj++){ B[_cj].adv=0; B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cj%CLN)); } }'
+          head = 't = t.replace(' + Q + OLD_B + Q + ', ' + Q
+          i = s.index(head)
+          j = s.index(Q + ')', i + len(head))
+          NEW_B = s[i + len(head):j]
+          if e.count(NEW_B) != 1:
+              print('NG: つなぎの中身と サーバのエンジンが 一致しない'); sys.exit(1)
+          if p.count(OLD_B) != 1:
+              print('NG: 本番HTMLの あてはめ先が 1 件でない'); sys.exit(1)
+          if p.replace(OLD_B, NEW_B).count(NEW_B) != 1:
+              print('NG: あてはめた あとが 1 件でない'); sys.exit(1)
+          print('ブラウザとサーバは 同じ形（%d 文字）' % len(NEW_B))
+          PYEOF
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('つなぎ', s[i:j].count('.replace('), 86)
+          for name, want in [
+            ('/defense2.js?v=20', 1), ('/defense2.js?v=19', 0),
+            ('__DEFLANE_MIX_V1__', 2), ('__DEFSTAGE_N_V1__', 1), ('defEntryCount', 3),
+            ('DEF_LV50_V1', 2), ('DEF_LV50_V2', 2), ('DEF2_LV50_SAME_V1', 1),
+            ('DEF2_LV50_ENTRYFIX_V1', 1), ('window.defNorm', 2),
+            ('__DEF_MVP_V1__', 6), ('defMvpMakeLedger', 2), ('_defMvpCoinsApplied', 8),
+            ('__DEFSTAGE_SENTINEL_V1__', 1), ('__DEF_SNAP_SPDSKILLS_V1__', 1),
+            ('__DEF_RESOLVE_VERIFY_V1__', 1), ('__S6WORLD_50__', 1),
+            ('__H6MERGE_SRC_V1__', 1), ('__H6BANK_LIVE_V1__', 1), ('__H6U11_BOOST_V1__', 1),
+            ('def_join_nudge.js', 4), ('defstage_monsters.js', 4),
+            ('log_seed_mismatch', 1), ('log_replay_missing', 1),
+            ('log_result_mismatch', 1), ('log_base_hp_mismatch', 1),
+            ('Number(_dvLog.v) === 2', 1), ('Number.isFinite(Number(_dvRep.baseHpA))', 1),
+            ('retry: true', 2), ('defense_standing', 4), ('defense_carry_lock', 1),
+            ('defAutoAdvanceV1', 3), ('defEntryOk', 3), ('defStageEnemies', 4),
+            ('defStageMakeLedger', 3), ('applyDefStageGrants', 2),
+            ('_defStageCoinsApplied', 8), ('needs_reselect', 3),
+            ('ensureDefenseTables()', 0), ('DEFENSE_BASE_HP = 380', 1),
+            ('DEFENSE_WIN_COINS = 20', 1), ('900000', 1),
+            ('/api/teacher/defense/dry-run', 1), ('DEFENSE_ENEMIES', 5),
+            ('hp: 520, atk: 60, def: 24', 1),
+          ]:
+              chk(name, s.count(name), want)
+          _i = s.index('const DEFENSE_ENEMIES = [')
+          _j = s.index(chr(10) + ']', _i)
+          chk('てきの体数', s[_i:_j].count('{ name:'), 8)
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INSERT', 'UPDATE', 'DELETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: から実行に 書きこみ %s が入っている' % _w); ok[0] = False
+          if 'stage - 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: 下げる道が入っている'); ok[0] = False
+          chk('def_engine の autoBattleRT', e.count('function autoBattleRT('), 1)
+          chk('def_engine の foeLaneMix', e.count('foeLaneMix'), 1)
+          chk('def_resolve の番人', v.count('export function defEntryOk(m) {'), 1)
+          chk('def_resolve の 900000 上限', v.count('900000'), 1)
+          chk('def_resolve の foeLaneMix', v.count('foeLaneMix'), 1)
+          for _w in ('INSERT', 'UPDATE', 'DELETE', '.run()', '.batch('):
+              if _w in v:
+                  print('NG: サーバ判定に 書きこみ %s が入っている' % _w); ok[0] = False
+          chk('defense2.js の foeLaneMix', d.count('foeLaneMix'), 2)
+          chk('defense2.js の早期抜け', d.count('__DEF2_SKIP_LOCAL_V1__'), 1)
+          chk('defense2.js の makeResolve', d.count('function makeResolve(o'), 1)
+          chk('DEF2TRY_V1_MARK', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('DEF2TRY_RULETALLY_V1', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('DEF2TALLY_TREE_V2', d.count('DEF2TALLY_TREE_V2'), 1)
+          chk('DEF2TRY_NOWCSS_V1', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('DEF2SEND_GUARD_V1_MARK', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('DEF2TPL_LEARN_V1', d.count('DEF2TPL_LEARN_V1'), 3)
+          chk('D2T_A1', d.count('D2T_A1'), 3)
+          chk('D2T_JAFIX', d.count('D2T_JAFIX'), 6)
+          chk('DEF2_LV50_SAME_V1 (d2)', d.count('DEF2_LV50_SAME_V1'), 3)
+          chk('defProgram', d.count('defProgram'), 5)
+          chk('この下は うごきません', d.count('この下は うごきません'), 1)
+          chk('attackFort', d.count('attackFort'), 2)
+          chk('advanceFront', d.count('advanceFront'), 3)
+          chk('retreatBack', d.count('retreatBack'), 3)
+          chk('aimWeakest', d.count('aimWeakest'), 2)
+          chk('defendFort', d.count('defendFort'), 2)
+          chk('scatter', d.count('scatter'), 3)
+          chk('enemyNear', d.count('enemyNear'), 2)
+          chk('onPoint', d.count('onPoint'), 2)
+          chk('aimWeak', d.count('aimWeak'), 5)
+          chk('attackNearest', d.count('attackNearest'), 4)
+          chk('def_stage の関数', g.count('export function defStageEnemies(base, stage, n) {'), 1)
+          chk('def_stage の番兵', g.count('__DEFSTAGE_N_V1__'), 1)
+          chk('体数を増やしていない', g.count('base.map('), 1)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/def_engine.ts src/index.tsx src/def_resolve.ts public/defense2.js
+          if git diff --cached --quiet; then
+            echo 'かわっていないので push しません'
+          else
+            git commit -m 'DEFLANE_MIX_V1: てきのレーンを seed からきめる（防衛戦だけ・決定論は維持）'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
