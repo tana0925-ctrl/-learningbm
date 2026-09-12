@@ -1,0 +1,311 @@
+name: 攻略モード ZWAR_REACH_FIX_V1（せまい画面で戦闘がはじまらない不具合）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: さぎょうツリーを きれいにする
+        run: git checkout -- .
+
+      - name: origin/main に おいつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に チェーンと アンカーの 一意性を 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = '__ZWAR_REACH_FIX_V1__' in s
+          print('chain before =', n, 'applied =', applied)
+          if applied:
+              if n != 103:
+                  print('NG: 適用済みなのに チェーンが 103 件でない'); sys.exit(1)
+          else:
+              if n != 102:
+                  print('NG: 流す前の チェーンが 102 件でない（並行作業で増えた可能性）'); sys.exit(1)
+              for label, t, txt in [
+                  ('root', s, "app.get('/', async (c) => {"),
+                  ('logout', s, "app.get('/logout'"),
+                  ('さしこみ口', s, "console.error('[__ZWAR_BOSS_SKILL3_V1__] anchor not found')"),
+                  ('キャッシュ行', s, '    _rootHtmlCache = t'),
+                  ('nearestEngagement(html)', h, 'function nearestEngagement(){'),
+                  ('ねらえる距離 6(html)', h, '      if(cand && best < 6){ pu.target=cand; cand.target=pu; }'),
+                  ('halfPct(html)', h, '      const wpx = unit && unit.isBoss ? 60 : 46;'),
+              ]:
+                  c = t.count(txt)
+                  if c != 1:
+                      print('NG: アンカー %s が %d 件（期待 1）' % (label, c)); sys.exit(1)
+              if h.count('const gap = myHalf + halfPct(nearest) + 0.2;') != 2:
+                  print('NG: 止まる距離の 2か所が 見つからない'); sys.exit(1)
+              print('アンカーは すべて 一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ 中止＝ファイルに 触らない）
+        run: python3 scripts/patch_zwar_reach_v1.py
+
+      - name: 冪等の確認（2回流しても 増えない・番兵で 抜ける）
+        run: python3 scripts/patch_zwar_reach_v1.py
+
+      - name: 触ってはいけないファイルが 無傷であること
+        run: |
+          git diff --name-only
+          if git diff --name-only | grep -vE '^src/index\.tsx$' | grep -q .; then
+            echo 'NG: src/index.tsx 以外が 変わっている'; exit 1
+          fi
+          if git diff --name-only | grep -q '^public/index\.html$'; then
+            echo 'NG: public/index.html に 触っている'; exit 1
+          fi
+
+      - name: 流したあとの検証
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('replace chain:', n)
+          chk('チェーン', n, 103)
+          chk('番兵', s.count('__ZWAR_REACH_FIX_V1__'), 3)
+          chk('_zwr1', s.count('_zwr1'), 3)
+          chk('_zwr2', s.count('_zwr2'), 2)
+          chk('indexOf ガード', s.count('if (t.indexOf(_zwr1) !== -1)'), 1)
+          chk('anchor not found の logging', s.count("console.error('[__ZWAR_REACH_FIX_V1__] anchor not found')"), 1)
+          chk('止まる距離と同じ式', s.count('var _zwStop = _zwHalfPct(pu) + _zwHalfPct(cand) + 0.2;'), 1)
+          chk('ねらえる距離', s.count('var _zwReach = Math.max(6, _zwStop + 0.2);'), 1)
+          chk('ボス60/通常46', s.count('(un && un.isBoss) ? 60 : 46'), 1)
+          # さしこんだ行は throw しない（throw すると チェーン全件が 黙って捨てられる）
+          _bi = s.index('const _zwr1 = ')
+          _bj = s.index('    _rootHtmlCache = t', _bi)
+          _blk = s[_bi:_bj]
+          for _w in ('throw', 'Error('):
+              if _w in _blk:
+                  print('NG: さしこんだ行に %s が入っている' % _w); ok[0] = False
+          if 'console.error' not in _blk:
+              print('NG: console.error が 無い'); ok[0] = False
+          # 敵のねらい決めの 別の不具合には さわっていない
+          for _w in ('for(', 'players', 'enemies'):
+              if _w in _blk:
+                  print('NG: さしこんだ行が %s に さわっている' % _w); ok[0] = False
+          # 壊してはいけないもの
+          chk('__DEFSTAGE_BONUS_V1__', s.count('__DEFSTAGE_BONUS_V1__'), 7)
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEFSTAGE_CHARS_V1__', s.count('__DEFSTAGE_CHARS_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('__ZWAR_BOSS_SKILL3_V1__', s.count('__ZWAR_BOSS_SKILL3_V1__'), 4)
+          chk('__ZWAR_CASTLE_STAND_V1__', s.count('__ZWAR_CASTLE_STAND_V1__'), 6)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('defStageEnemies の呼び出し', s.count('defStageEnemies('), 3)
+          chk('ステージ前進の UPDATE', s.count('UPDATE defense_stage SET stage = stage + 1'), 2)
+          if not ok[0]:
+              sys.exit(1)
+          print('検証 OK')
+          PYEOF
+
+      - name: 修正前と修正後を 実測する（ヘッドレス・6通りの画面幅）
+        run: |
+          cat > /tmp/zwar_measure.js << 'JSEOF'
+          const fs = require('fs');
+          const html0 = fs.readFileSync('public/index.html', 'utf8');
+          const src = fs.readFileSync('src/index.tsx', 'utf8');
+
+          // src/index.tsx の .replace チェーンから、実際に配信で使う 2つの文字列を そのまま取り出す
+          function pick(name){
+            const key = 'const ' + name + ' = "';
+            const i = src.indexOf(key);
+            if(i < 0) throw new Error('not found: ' + name);
+            if(src.indexOf(key, i + 1) !== -1) throw new Error('not unique: ' + name);
+            const start = i + key.length - 1;
+            let j = start + 1;
+            while(j < src.length){
+              if(src[j] === '\\'){ j += 2; continue; }
+              if(src[j] === '"') break;
+              j++;
+            }
+            return JSON.parse(src.slice(start, j + 1));
+          }
+          const a1 = pick('_zwr1');
+          const a2 = pick('_zwr2');
+          if(html0.split(a1).length - 1 !== 1) throw new Error('anchor not unique in index.html');
+          const html1 = html0.split(a1).join(a2);
+          if(html1.indexOf('__ZWAR_REACH_FIX_V1__') < 0) throw new Error('sentinel missing after replace');
+
+          function extractNE(h){
+            const key = 'function nearestEngagement(){';
+            const i = h.indexOf(key);
+            if(i < 0) throw new Error('nearestEngagement not found');
+            if(h.indexOf(key, i + 1) !== -1) throw new Error('nearestEngagement not unique');
+            const e = h.indexOf('\n  }\n', i);
+            if(e < 0) throw new Error('nearestEngagement end not found');
+            return h.slice(i, e + 4);
+          }
+          const ne0 = extractNE(html0);
+          const ne1 = extractNE(html1);
+          fs.writeFileSync('/tmp/ne_before.js', ne0);
+          fs.writeFileSync('/tmp/ne_after.js', ne1);
+
+          // 止まる距離の 2つの部品は index.html から そのまま写す。
+          // 写しまちがいが あれば ここで 止まる。
+          const HALF = "    const halfPct = (unit)=>{\n      const wpx = unit && unit.isBoss ? 60 : 46;\n      return ((wpx/2) / Math.max(1, battleW)) * 100;\n    };";
+          const STOP = "        const myHalf = halfPct(u);\n        if(u.team==='player'){\n          let nearest = null;\n          let bestX = -Infinity;\n          for(const e of ps.units){\n            if(!e || e.hp<=0 || e.team!=='enemy') continue;\n            if(e.x < u.x && e.x > bestX){ bestX = e.x; nearest = e; }\n          }\n          if(nearest){\n            const gap = myHalf + halfPct(nearest) + 0.2;\n            const minX = nearest.x + gap;\n            if(u.x < minX) u.x = minX;\n          }\n        }else{\n          let nearest = null;\n          let bestX = Infinity;\n          for(const p of ps.units){\n            if(!p || p.hp<=0 || p.team!=='player') continue;\n            if(p.x > u.x && p.x < bestX){ bestX = p.x; nearest = p; }\n          }\n          if(nearest){\n            const gap = myHalf + halfPct(nearest) + 0.2;\n            const maxX = nearest.x - gap;\n            if(u.x > maxX) u.x = maxX;\n          }\n        }";
+          if(html0.split(HALF).length - 1 !== 1) throw new Error('halfPct copy does not match index.html');
+          if(html0.split(STOP).length - 1 !== 1) throw new Error('stop-clamp copy does not match index.html');
+
+          const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+          const num = (v, fb) => { v = Number(v); return Number.isFinite(v) ? v : fb; };
+
+          // ヘッドレス版：60秒 / 味方6体 / 敵12体＋ボス1体 / 両軍まったく同じ能力
+          function sim(battleW, neText){
+            const ps = { units: [], elapsed: 0, _engageCd: 0, _battleW: battleW, zombieMode: true };
+            let uid = 1;
+            const mk = (team, isBoss) => ({ uid: uid++, team: team, isBoss: !!isBoss,
+              hpMax: 400, hp: 400, atk: 30, def: 10, move: 15, atkInterval: 900,
+              lastAtk: 0, target: null, x: team === 'player' ? 92 : 8, atkCount: 0, castleCount: 0 });
+            for(let i = 0; i < 6; i++) ps.units.push(mk('player', false));
+            for(let i = 0; i < 12; i++) ps.units.push(mk('enemy', false));
+            const boss = mk('enemy', true); ps.units.push(boss);
+
+            const nearestEngagement = new Function('warState', neText + '\nreturn nearestEngagement;')(ps);
+            const halfPct = (unit) => ((((unit && unit.isBoss) ? 60 : 46) / 2) / Math.max(1, battleW)) * 100;
+
+            function dealDamage(att, def){
+              let dmg = Math.round(num(att.atk, 10) - num(def.def, 0) * 0.15);
+              if(!Number.isFinite(dmg)) dmg = 1;
+              dmg = Math.max(1, dmg);
+              def.hp = num(def.hp, num(def.hpMax, 100)) - dmg;
+              att.atkCount++;
+            }
+
+            const dt = 1 / 60;
+            let now = 0;
+            for(let step = 0; step < Math.round(60 / dt); step++){
+              ps.elapsed += dt; now += dt * 1000;
+              ps._engageCd = Math.max(0, (ps._engageCd || 0) - dt);
+              if(ps._engageCd <= 0){ nearestEngagement(); ps._engageCd = (ps.zombieMode ? 0.28 : 0.18); }
+              for(const u of ps.units){
+                if(u.hp <= 0) continue;
+                const hasTarget = u.target && u.target.hp > 0;
+                const atkInt = num(u.atkInterval, 900);
+                if(hasTarget){
+                  if((now - u.lastAtk) >= atkInt){ u.lastAtk = now; dealDamage(u, u.target); }
+                }else{
+                  const dir = (u.team === 'player') ? -1 : 1;
+                  const mv = num(u.move, 15);
+                  u.x += (dir * mv * dt) / 10;
+                  u.x = clamp(u.x, (u.team === 'player' ? 12 : 8), (u.team === 'player' ? 92 : 88));
+                  const myHalf = halfPct(u);
+                  if(u.team === 'player'){
+                    let nearest = null, bestX = -Infinity;
+                    for(const e of ps.units){
+                      if(!e || e.hp <= 0 || e.team !== 'enemy') continue;
+                      if(e.x < u.x && e.x > bestX){ bestX = e.x; nearest = e; }
+                    }
+                    if(nearest){ const gap = myHalf + halfPct(nearest) + 0.2; const minX = nearest.x + gap; if(u.x < minX) u.x = minX; }
+                  }else{
+                    let nearest = null, bestX = Infinity;
+                    for(const p of ps.units){
+                      if(!p || p.hp <= 0 || p.team !== 'player') continue;
+                      if(p.x > u.x && p.x < bestX){ bestX = p.x; nearest = p; }
+                    }
+                    if(nearest){ const gap = myHalf + halfPct(nearest) + 0.2; const maxX = nearest.x - gap; if(u.x > maxX) u.x = maxX; }
+                  }
+                }
+                if(u.team === 'player' && u.x <= 12 && !hasTarget){ if((now - u.lastAtk) >= atkInt){ u.lastAtk = now; u.castleCount++; } }
+                if(u.team === 'enemy' && u.x >= 88 && !hasTarget){ if((now - u.lastAtk) >= atkInt){ u.lastAtk = now; u.castleCount++; } }
+              }
+            }
+            const pl = ps.units.filter(u => u.team === 'player');
+            const en = ps.units.filter(u => u.team === 'enemy' && !u.isBoss);
+            return {
+              ally: pl.reduce((a, u) => a + u.atkCount, 0),
+              enemy: en.reduce((a, u) => a + u.atkCount, 0),
+              boss: boss.atkCount,
+              silent: en.filter(u => u.atkCount === 0).length
+            };
+          }
+
+          const W = [600, 768, 800, 900, 1000, 1200];
+          const lines = [];
+          lines.push('ZWAR_REACH_FIX_V1  60秒 / 味方6体 / 敵12体＋ボス1体 / 両軍おなじ能力');
+          lines.push('画面幅 | 味方(前->後) | 敵(前->後) | ボス(前->後) | 攻撃0の敵(前->後)');
+          let bad = false;
+          const res = {};
+          for(const w of W){
+            const b = sim(w, ne0);
+            const a = sim(w, ne1);
+            res[w] = { before: b, after: a };
+            lines.push(w + 'px | ' + b.ally + ' -> ' + a.ally + ' | ' + b.enemy + ' -> ' + a.enemy
+              + ' | ' + b.boss + ' -> ' + a.boss + ' | ' + b.silent + ' -> ' + a.silent);
+          }
+          for(const w of [1000, 1200]){
+            if(JSON.stringify(res[w].before) !== JSON.stringify(res[w].after)){
+              lines.push('NG: ' + w + 'px の 挙動が 変わってしまった'); bad = true;
+            }
+          }
+          for(const w of [600, 768]){
+            if(!(res[w].before.ally === 0 && res[w].after.ally > 0 && res[w].after.enemy > 0)){
+              lines.push('NG: ' + w + 'px が 直っていない'); bad = true;
+            }
+          }
+          if(!(res[900].before.boss === 0 && res[900].after.boss > 0)){
+            lines.push('NG: 900px の ボスが 直っていない'); bad = true;
+          }
+          const out = lines.join('\n') + '\n';
+          fs.mkdirSync('docs', { recursive: true });
+          fs.writeFileSync('docs/zwar_reach_v1.txt', out);
+          console.log(out);
+          if(bad){ process.exit(1); }
+          console.log('実測 OK: せまい画面は 直り、1000px と 1200px は 1つも 変わっていない');
+          JSEOF
+          node /tmp/zwar_measure.js
+
+      - name: さしこむ JavaScript が 文として 読めること
+        run: |
+          node --check /tmp/ne_before.js
+          node --check /tmp/ne_after.js
+          echo 'syntax OK'
+
+      - name: ビルドが通ること（dist は 元に戻す）
+        run: |
+          npm install
+          npm run build
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- build 後の差分 ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git add src/index.tsx docs/zwar_reach_v1.txt
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'ZWAR_REACH_FIX_V1: ねらえる距離を止まる距離と同じ単位に（せまい画面で戦闘がはじまらない不具合）chain 102->103'
+          git pull --rebase origin main
+          git push origin HEAD:main
