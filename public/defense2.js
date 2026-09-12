@@ -786,6 +786,65 @@
     }catch(e){ return ''; }
   }
 
+  /* ═════ __DEF_MVP_V1__ 部門べつ ベスト3 と 自分のきろく ═════ */
+  /* 成り立たなかった部門は 欄ごと 出さない。えらばれなかった子には 自分のぶんだけ見せる。 */
+  var DEF2_MVP_LABEL = { seme:'はたらいた かず', nebari:'のこった じかん', mamori:'たえた わりあい' };
+  var DEF2_MVP_ICON  = { seme:'⚔️', nebari:'⏳', mamori:'🛡️' };
+  var DEF2_MVP_TINT  = ['#e2e8f0','#fde68a','#e5e7eb','#f5d0a9'];
+  function def2MvpValText(key, v){
+    var n = Number(v) || 0;
+    if (key === 'seme') return (Math.round(n*10)/10) + ' かいぶん';
+    if (key === 'nebari') return (n >= 1) ? 'さいごまで' : (Math.round(n*100) + '%');
+    return Math.round(n*100) + '%';
+  }
+  function def2AwardsHtml(log, st){
+    try{
+      var aw = log && log.awards;
+      var cats = (aw && aw.cats && aw.cats.length) ? aw.cats : [];
+      var boxes = '';
+      for (var ci = 0; ci < cats.length; ci++){
+        var c = cats[ci];
+        if (!c || !c.ok || !c.top || !c.top.length) continue;
+        var rows = c.top.map(function(x){
+          var tint = DEF2_MVP_TINT[(x.place>=1&&x.place<=3)?x.place:0];
+          return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;">'
+            + '<span style="flex:0 0 18px;height:18px;line-height:18px;text-align:center;border-radius:999px;background:'+tint+';color:#475569;font-size:10px;font-weight:700;">'+x.place+'</span>'
+            + '<span style="flex:0 0 auto;font-size:15px;">'+esc(x.sprite||'')+'</span>'
+            + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700;color:#0f172a;">'+esc(x.name||'')+'</span>'
+            + '<span style="flex:0 0 auto;font-size:10px;color:#64748b;">'+esc(def2MvpValText(c.key, x.value))+'</span>'
+            + '<span style="flex:0 0 auto;font-size:10px;font-weight:900;color:#b45309;">+'+(x.coins||0)+'</span>'
+            + '</div>';
+        }).join('');
+        boxes += '<div style="flex:1 1 180px;min-width:160px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;padding:8px 10px;">'
+          + '<div style="font-size:11px;font-weight:900;color:#334155;margin-bottom:2px;">'+(DEF2_MVP_ICON[c.key]||'')+' きょうの '+esc(c.label||DEF2_MVP_LABEL[c.key]||'')+' ベスト3</div>'
+          + rows + '</div>';
+      }
+      var mine = '';
+      var rec = st && st.my_def_record;
+      if (rec && rec.length){
+        var order = ['seme','nebari','mamori'];
+        var lines = order.map(function(k){
+          var r = null;
+          for (var i=0;i<rec.length;i++){ if (rec[i] && rec[i].category === k) r = rec[i]; }
+          if (!r) return '';
+          var got = (Number(r.place)>=1 && Number(r.place)<=3 && Number(r.ok)===1)
+            ? '<span style="font-size:10px;font-weight:900;color:#b45309;">'+r.place+'位 ＋'+(r.coins||0)+'まい</span>' : '';
+          return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">'
+            + '<span style="flex:0 0 auto;font-size:13px;">'+(DEF2_MVP_ICON[k]||'')+'</span>'
+            + '<span style="flex:1;font-size:12px;color:#334155;">'+esc(DEF2_MVP_LABEL[k]||k)+'</span>'
+            + '<span style="flex:0 0 auto;font-size:12px;font-weight:700;color:#0f172a;">'+esc(def2MvpValText(k, r.value))+'</span>'
+            + got + '</div>';
+        }).join('');
+        if (lines) mine = '<div style="border-radius:12px;border:1px dashed #cbd5e1;background:#f8fafc;padding:8px 10px;margin-top:8px;">'
+          + '<div style="font-size:11px;font-weight:900;color:#475569;margin-bottom:2px;">🫵 あなたの きろく</div>' + lines + '</div>';
+      }
+      if (!boxes && !mine) return '';
+      return '<div style="margin:10px 0;">'
+        + (boxes ? '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+boxes+'</div>' : '')
+        + mine + '</div>';
+    }catch(e){ console.error('def2 awards', e); return ''; }
+  }
+
 function def2HypeHtml(log, st){
     try{
       var rep = (log && log.replay) || {};
@@ -859,7 +918,7 @@ function def2HypeHtml(log, st){
         + '<div style="font-weight:900;font-size:13px;color:#334155;margin-bottom:6px;">📊 クラス貢献ゲージ</div>'
         + '<div style="background:#e2e8f0;border-radius:999px;height:18px;overflow:hidden;position:relative;"><div style="width:'+c.pct+'%;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a);"></div><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#0f172a;">クラス合計ダメージ '+c.total+' （'+c.pct+'%）</div></div>'
         + '<div style="margin-top:8px;">'+bars+'</div></div>';
-      return hero + spot + gauge;
+      return hero + spot + def2AwardsHtml(log, st) + gauge;
     }catch(e){ console.error('def2 hype',e); return ''; }
   }
 

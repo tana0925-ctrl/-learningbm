@@ -703,6 +703,19 @@ app.get('/api/student/progress', async (c) => {
       }
     } catch (_e) {}
   }
+  // __DEF_MVP_V1__ 部門べつ ベスト3のコイン。台帳の未適用ぶんだけを配る。
+  if (_stateJson) {
+    try {
+      const _mvg = await applyDefMvpGrants(c.env, u.id)
+      if (_mvg && _mvg.coins > 0) {
+        // DB 側はもう json_set で書き換わっている。ここは返す JSON をそれに合わせるだけ。
+        const _mvSt = JSON.parse(_stateJson)
+        _mvSt.coins = (Number(_mvSt.coins) || 0) + _mvg.coins
+        _mvSt._defMvpCoinsApplied = (Number(_mvSt._defMvpCoinsApplied) || 0) + _mvg.coins
+        _stateJson = JSON.stringify(_mvSt)
+      }
+    } catch (_e) {}
+  }
   return c.json({ ok: true, progress: row ? { stateJson: _stateJson, updatedAt: row.updatedAt } : null })
 })
 
@@ -803,6 +816,19 @@ app.put('/api/student/progress', async (c) => {
       } else if (_cliDs > _srvDs) {
         // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
         _inc._defStageCoinsApplied = _srvDs
+        saveJson = JSON.stringify(_inc)
+      }
+      // 👾 部門べつ ベスト3のコイン：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
+      //    金額は台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。
+      const _srvMv = Number(_srv._defMvpCoinsApplied) || 0
+      const _cliMv = Number(_inc._defMvpCoinsApplied) || 0
+      if (_srvMv > _cliMv) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvMv - _cliMv)
+        _inc._defMvpCoinsApplied = _srvMv
+        saveJson = JSON.stringify(_inc)
+      } else if (_cliMv > _srvMv) {
+        // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
+        _inc._defMvpCoinsApplied = _srvMv
         saveJson = JSON.stringify(_inc)
       }
       // 👾 ステージ初クリアの限定キャラ：サーバが配った子からは、全置換保存でも消えないようにする。
@@ -1728,6 +1754,76 @@ function defStageBonusMonsterSeed(monsterId: number): any {
   return { level: level, exp: 0, nextExp: Math.floor(100 + Math.pow(level, 2.2) * 10) }
 }
 
+// __DEF_MVP_V1__ 部門べつ ベスト3（せめ／ねばり／まもり）。
+// 配る枚数は ここの定数だけで決める。台帳の coins 列も クライアントの申告も 使わない。
+const DEF_MVP_COINS_SRV = [0, 40, 30, 20]
+
+// __DEF_MVP_V1__ 台帳を作るだけ。ここでは progress を1文字も触らない。
+// PRIMARY KEY(event_key, class_id, user_id, category) + INSERT OR IGNORE なので、
+// 二重に呼ばれても行は増えない。
+async function defMvpMakeLedger(env: any, eventKey: string, classId: string, ledger: any): Promise<number> {
+  try {
+    if (!eventKey || !classId || !Array.isArray(ledger) || !ledger.length) return 0
+    const rows = ledger.filter(function (r: any) {
+      return r && r.uid && typeof r.category === 'string' && r.category.length > 0 && r.category.length < 16
+    }).slice(0, 600)
+    if (!rows.length) return 0
+    const ins = env.DB.prepare('INSERT OR IGNORE INTO defense_mvp_rewards (event_key, class_id, user_id, category, place, coins, value, ok, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+    await env.DB.batch(rows.map(function (r: any) {
+      const place = Math.max(0, Math.min(3, Math.floor(Number(r.place) || 0)))
+      const coins = (place >= 1 && place <= 3) ? DEF_MVP_COINS_SRV[place] : 0
+      const value = Number(r.value)
+      const okv = (Number(r.ok) === 1) ? 1 : 0
+      return ins.bind(String(eventKey), String(classId), String(r.uid), String(r.category), place, coins, Number.isFinite(value) ? value : 0, okv)
+    }))
+    return rows.length
+  } catch (_e) { return 0 }
+}
+
+// __DEF_MVP_V1__ 台帳の未適用ぶんを、この子の progress に配る。
+// ステージ初クリアのボーナスを配る関数と まったく同じ作法：
+//   1) applied_at を先に立てて枠を予約する（同時アクセスでも changes===1 になるのは1回だけ）
+//   2) 予約できたときだけ json_set で該当箇所だけ書き換える（state_json の全置換はしない）
+//   3) 途中で例外が出たら applied_at=NULL に戻して解放する（次回また配られる）
+async function applyDefMvpGrants(env: any, userId: string): Promise<any> {
+  const _mvApplied: any = { coins: 0 }
+  let list: any[] = []
+  try {
+    const rows = await env.DB.prepare('SELECT event_key, class_id, category, place FROM defense_mvp_rewards WHERE user_id = ? AND applied_at IS NULL AND ok = 1 AND place >= 1 AND place <= 3 ORDER BY created_at ASC LIMIT 30').bind(userId).all<any>()
+    list = ((rows && rows.results) || [])
+  } catch (_e) { return _mvApplied }
+  if (!list.length) return _mvApplied
+  // progress の行がまだ無い子は、台帳を未適用のまま残す（枠だけ消えて配られないのを防ぐ）。
+  try {
+    const p = await env.DB.prepare('SELECT 1 AS x FROM progress WHERE user_id = ? LIMIT 1').bind(userId).first<any>()
+    if (!p) return _mvApplied
+  } catch (_e) { return _mvApplied }
+  for (const g of list) {
+    const eventKey = String(g.event_key || '')
+    const classId = String(g.class_id || '')
+    const category = String(g.category || '')
+    const place = Math.floor(Number(g.place))
+    if (!eventKey || !classId || !category) continue
+    if (!Number.isInteger(place) || place < 1 || place > 3) continue
+    const coins = DEF_MVP_COINS_SRV[place]
+    if (!(coins > 0)) continue
+    let claimed = false
+    try {
+      const claim = await env.DB.prepare("UPDATE defense_mvp_rewards SET applied_at = datetime('now') WHERE event_key = ? AND class_id = ? AND user_id = ? AND category = ? AND applied_at IS NULL").bind(eventKey, classId, userId, category).run()
+      if (!claim.meta || claim.meta.changes !== 1) continue
+      claimed = true
+      const _c = await env.DB.prepare("UPDATE progress SET state_json = json_set(state_json, '$.coins', COALESCE(CAST(json_extract(state_json, '$.coins') AS INTEGER), 0) + ?, '$._defMvpCoinsApplied', COALESCE(CAST(json_extract(state_json, '$._defMvpCoinsApplied') AS INTEGER), 0) + ?), updated_at = datetime('now') WHERE user_id = ? AND json_valid(state_json)").bind(coins, coins, userId).run()
+      if (!_c.meta || Number(_c.meta.changes || 0) !== 1) throw new Error('defmvp_coins_not_applied')
+      _mvApplied.coins += coins
+    } catch (_e) {
+      if (claimed) {
+        try { await env.DB.prepare('UPDATE defense_mvp_rewards SET applied_at = NULL WHERE event_key = ? AND class_id = ? AND user_id = ? AND category = ?').bind(eventKey, classId, userId, category).run() } catch (_e2) {}
+      }
+    }
+  }
+  return _mvApplied
+}
+
 // __DEFSTAGE_BONUS_V1__ 初クリアの1回だけ呼ばれる。クラス全員ぶんの台帳行を作るだけで、progress は触らない。
 // PRIMARY KEY(class_id, stage, user_id) + INSERT OR IGNORE なので、二重に呼ばれても行は増えない。
 async function defStageMakeLedger(env: any, classId: string, clearedStage: number): Promise<number> {
@@ -1974,6 +2070,18 @@ app.get('/api/defense/status', async (c) => {
       }
     }
   } catch (_e) {}
+  // __DEF_MVP_V1__ 自分の きろくだけを返す（よその子のぶんは返さない）。読むだけ。
+  try {
+    if (classId) {
+      const _mvr = await c.env.DB.prepare('SELECT category, place, coins, value, ok FROM defense_mvp_rewards WHERE event_key = ? AND class_id = ? AND user_id = ? LIMIT 8').bind(st.eventKey, classId, u.id).all<any>()
+      const _mvRows = ((_mvr && _mvr.results) || [])
+      if (_mvRows.length) {
+        out.my_def_record = _mvRows.map(function (r: any) {
+          return { category: String(r.category || ''), place: Number(r.place || 0), coins: Number(r.coins || 0), value: Number(r.value || 0), ok: Number(r.ok || 0) }
+        })
+      }
+    }
+  } catch (_e) {}
   return c.json(out)
 })
 
@@ -2136,6 +2244,8 @@ app.post('/api/defense/resolve', async (c) => {
   if (_srv) {
     const _srvLock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, _srv.result, _srv.logJson, _srv.baseHpEnd).run()
     if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })
+    // __DEF_MVP_V1__ 勝っても負けても、その日の部門べつ ベスト3の台帳を作る。
+    try { await defMvpMakeLedger(c.env, st.eventKey, classId, (_srv as any).mvpLedger) } catch (_e) {}
     if (_srv.result === 'win') {
       // DEF_STAGE_V2 勝ったときだけ 1つ進める。読んだ値を条件に入れる（楽観ロック）。負けても下げない。
       try {
@@ -7800,7 +7910,7 @@ app.get('/', async (c) => {
       if (!a) return c.text('index.html not found', 404)
       let t = await a.text()
       t = t.replace("👾 敵軍団（'+d.enemy_squad.length+'体）", "👾 ステージ'+(d.stage||1)+' ／ てき '+d.enemy_squad.length+'たい").replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);").replace("function genMoonSun6(){return _pickBank(_SB.ms6);}", "function genMoonSun6(){return _pickBank(_SB.ms6);}function genElectric6(){return _pickBank([{q:'手回し発電機のハンドルを速く回すと、豆電球の明るさはどうなる？',correct:'明るくなる',wrongs:['暗くなる','変わらない','消える']},{q:'コンデンサーのはたらきは？',correct:'電気をためる',wrongs:['電気を消す','音を出す','光を強くする']},{q:'同じ電気の量で長く光り続けるのはどっち？',correct:'LED',wrongs:['豆電球','どちらも同じ','どちらも光らない']},{q:'電気を「光」に変えて使う道具は？',correct:'電灯（LED・豆電球）',wrongs:['電子オルゴール','モーター','電熱線']},{q:'光電池（太陽光パネル）に強い光を当てるとどうなる？',correct:'電気が作られる',wrongs:['電気をためる','音が出る','回路が切れる']},{q:'電気を「熱」に変えて使っているものは？',correct:'電熱線（トースターなど）',wrongs:['豆電球','モーター','スピーカー']}]);}try{window.genElectric6=genElectric6;}catch(e){}function genEnvironment6(){return _pickBank([{q:'生き物どうしの「食べる・食べられる」のつながりを何という？',correct:'食物連鎖',wrongs:['光合成','蒸散','燃焼']},{q:'食物連鎖の出発点になるのは？',correct:'植物',wrongs:['草食動物','肉食動物','分解者']},{q:'植物が出し、動物が呼吸で取り入れる気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']},{q:'動物や植物が呼吸で出す気体は？',correct:'二酸化炭素',wrongs:['酸素','水素','ヘリウム']},{q:'水が蒸発→雲→雨とすがたを変えて自然をめぐることを何という？',correct:'水の循環',wrongs:['食物連鎖','光合成','発電']},{q:'人が環境を守るためにできることは？',correct:'ごみを減らす・リサイクル',wrongs:['木を全部切る','よごれた水を流す','生き物を捕りつくす']}]);}try{window.genEnvironment6=genEnvironment6;}catch(e){}function genPlant6(){return _pickBank([{q:'植物が日光を受けて養分（でんぷん）を作るはたらきを何という？',correct:'光合成',wrongs:['呼吸','蒸散','消化']},{q:'光合成に必要なものは？',correct:'日光・水・二酸化炭素',wrongs:['月の光・油','電気・砂','塩・氷']},{q:'光合成で作られる養分は？',correct:'でんぷん',wrongs:['水','二酸化炭素','酸素']},{q:'でんぷんがあるか調べる薬品は？',correct:'ヨウ素液',wrongs:['石灰水','リトマス紙','食塩水']},{q:'植物の葉から水が水蒸気となって出ていくことを何という？',correct:'蒸散',wrongs:['光合成','発芽','受粉']},{q:'光合成で植物が出す気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']}]);}try{window.genPlant6=genPlant6;}catch(e){}").replace("return '野生バトル（モンスタボールで捕まえる）';", "return (function(){try{var _a=[];for(var _k in WILD_AREA_POOLS){var _p=WILD_AREA_POOLS[_k];for(var _d in _p){if(Array.isArray(_p[_d])&&_p[_d].indexOf(id)>=0){if(_a.indexOf(_k)<0)_a.push(_k);break;}}}if(_a.length){var _S={math:'算数',jp:'国語',soc:'社会',science:'理科',sci:'理科'};var _ls=[];for(var _j=0;_j<_a.length;_j++){var _m=null;for(var _i=0;_i<PVE_AREAS.length;_i++){if(PVE_AREAS[_i].id===_a[_j]){_m=PVE_AREAS[_i];break;}}if(_m)_ls.push((_S[_m.subject]||'')+(_m.grade?'（'+_m.grade+'年）':'')+'「'+(_m.name||_a[_j])+'」');}if(_ls.length){return _ls.slice(0,2).join('／')+(_ls.length>2?('など計'+_ls.length+'か所'):'')+'の野生バトル（モンスタボールで捕まえる）';}}}catch(e){}return '野生バトル（モンスタボールで捕まえる）';})();").replace("if (m.isBoss) continue;", "if (m.isBoss) continue; if (m.uncapturable) continue;").replace("else if(f.adv>=1-CR&&enemyBaseHp>0){ structKind='base'; }", "else if(f.adv>=1-CR&&enemyBaseHp>0&&(function(){var _ff=(f.side==='A')?B:A,_fl=(f.curLn!=null?f.curLn:f.lane);for(var _k=0;_k<_ff.length;_k++){var _e=_ff[_k];if(!_e.alive||_e.hp<=0)continue;if(Math.abs(_fl-(_e.curLn!=null?_e.curLn:_e.lane))<=1.05&&(1-_e.adv)>=0.85){return false;}}return true;})()){ structKind='base'; }").replace('function _gcFight(){', '/*__PB_HASH_FIX__*/function _hash(s){s=String(s==null?"":s);var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}function _gcFight(){').replace("分子は？',ans:n}", "分子は？',ans:n/_gcd(n,d)}").replace("分母は？',ans:d}", "分母は？',ans:d/_gcd(n,d)}").replace("var base=getMonster(Number(spec.id)); if(!base) return null;", "var base=getMonster(Number(spec.id)); if(spec&&spec.raw){var R=spec.raw;base={name:R.name||'てき',sprite:R.sprite||'',buff:R.buff||'attack',elementType:(R.elementType!=null?R.elementType:'normal'),skills:(Array.isArray(R.skills)&&R.skills.length)?R.skills:[{name:'こうげき',pow:Number(R.skillPow||12),acc:0.95,element:'normal'}]};} if(!base) return null;").replace("var lvl=Math.max(1,Number(spec.level||1)); var s=getStats(base,lvl);", "var lvl=Math.max(1,Number(spec.level||1)); var s=(spec&&spec.raw)?{atk:Number(spec.raw.atk||10),def:Number(spec.raw.def||5),spd:Number(spec.raw.spd||10),hp:Number(spec.raw.hp||100),maxHp:Number(spec.raw.hp||100)}:getStats(base,lvl);").replace("window._defShowReplay=_defShowReplay;", "window._defShowReplay=_defShowReplay;window._defRenderBattle=function(rep){try{_gcReplay=rep;_gcPlayIdx=0;if(!_gcSpeed)_gcSpeed=1;_gcRenderBattle();}catch(e){}};")
-      t = t.replace("resultDiv.innerHTML = html;", "if(!window.__gachaResultOrig){ try{ window.__gachaResultOrig = resultDiv.innerHTML; }catch(e){} } resultDiv.innerHTML = html;").replace("const resDiv = document.getElementById('gachaResult');", "const resDiv = document.getElementById('gachaResult'); try{ if(!document.getElementById('gachaResultSprite') && window.__gachaResultOrig){ resDiv.innerHTML = window.__gachaResultOrig; } }catch(e){}").replace("const ans = (trainingQ && trainingQ.ans !== undefined) ? String(trainingQ.ans) : '';", "let ans = ''; if (trainingQ && trainingQ.ans !== undefined) { if (trainingQ.options && typeof trainingQ.ans === 'number' && trainingQ.options[trainingQ.ans] != null) { ans = String(trainingQ.options[trainingQ.ans]); } else { ans = String(trainingQ.ans); } }").replace("return FALLBACK[k] || k;", "try{ if(typeof CURRICULUM !== 'undefined' && CURRICULUM){ for(const _sk of Object.keys(CURRICULUM)){ const _sj = CURRICULUM[_sk]; if(!_sj || !_sj.grades) continue; for(const _gk of Object.keys(_sj.grades)){ const _us = _sj.grades[_gk] && _sj.grades[_gk].units; if(!_us) continue; for(const _uu of _us){ if(_uu && _uu.id === k && _uu.name) return _uu.name; } } } } }catch(e){} return FALLBACK[k] || k;"); t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=14"></script><script src="/g8core.js?v=2"></script><script src="/g8math.js?v=1"></script><script src="/g8eng.js?v=1"></script><script src="/g8sci.js?v=1"></script><script src="/g8soc.js?v=1"></script><script src="/g8jp.js?v=1"></script><script src="/g8wild.js?v=1"></script><script src="/g9core.js?v=2"></script><script src="/g9math.js?v=1"></script><script src="/g9eng.js?v=1"></script><script src="/g9sci.js?v=1"></script><script src="/g9soc.js?v=1"></script><script src="/g9jp.js?v=1"></script><script src="/g9wild.js?v=1"></script><script src="/g10core.js?v=2"></script><script src="/g10math.js?v=1"></script><script src="/g10sci.js?v=1"></script><script src="/g10soc.js?v=1"></script><script src="/g10wild.js?v=2"></script><script src="/hanshin_advice2.js?v=1"></script></body>')
+      t = t.replace("resultDiv.innerHTML = html;", "if(!window.__gachaResultOrig){ try{ window.__gachaResultOrig = resultDiv.innerHTML; }catch(e){} } resultDiv.innerHTML = html;").replace("const resDiv = document.getElementById('gachaResult');", "const resDiv = document.getElementById('gachaResult'); try{ if(!document.getElementById('gachaResultSprite') && window.__gachaResultOrig){ resDiv.innerHTML = window.__gachaResultOrig; } }catch(e){}").replace("const ans = (trainingQ && trainingQ.ans !== undefined) ? String(trainingQ.ans) : '';", "let ans = ''; if (trainingQ && trainingQ.ans !== undefined) { if (trainingQ.options && typeof trainingQ.ans === 'number' && trainingQ.options[trainingQ.ans] != null) { ans = String(trainingQ.options[trainingQ.ans]); } else { ans = String(trainingQ.ans); } }").replace("return FALLBACK[k] || k;", "try{ if(typeof CURRICULUM !== 'undefined' && CURRICULUM){ for(const _sk of Object.keys(CURRICULUM)){ const _sj = CURRICULUM[_sk]; if(!_sj || !_sj.grades) continue; for(const _gk of Object.keys(_sj.grades)){ const _us = _sj.grades[_gk] && _sj.grades[_gk].units; if(!_us) continue; for(const _uu of _us){ if(_uu && _uu.id === k && _uu.name) return _uu.name; } } } } }catch(e){} return FALLBACK[k] || k;"); t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=15"></script><script src="/g8core.js?v=2"></script><script src="/g8math.js?v=1"></script><script src="/g8eng.js?v=1"></script><script src="/g8sci.js?v=1"></script><script src="/g8soc.js?v=1"></script><script src="/g8jp.js?v=1"></script><script src="/g8wild.js?v=1"></script><script src="/g9core.js?v=2"></script><script src="/g9math.js?v=1"></script><script src="/g9eng.js?v=1"></script><script src="/g9sci.js?v=1"></script><script src="/g9soc.js?v=1"></script><script src="/g9jp.js?v=1"></script><script src="/g9wild.js?v=1"></script><script src="/g10core.js?v=2"></script><script src="/g10math.js?v=1"></script><script src="/g10sci.js?v=1"></script><script src="/g10soc.js?v=1"></script><script src="/g10wild.js?v=2"></script><script src="/hanshin_advice2.js?v=1"></script></body>')
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
