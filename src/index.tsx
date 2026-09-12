@@ -1719,6 +1719,39 @@ const DEFENSE_ENEMIES = [
   { name: 'おおきなオーク', sprite: '\u{1F479}', hp: 260, atk: 46, def: 18, buff: 'attack', skillPow: 10 },
   { name: 'まおう',       sprite: '\u{1F608}', hp: 520, atk: 60, def: 24, buff: 'guard', skillPow: 12 },
 ]
+// 👹 __DEFBOSS_V1__ 防衛戦のボス。12 / 15 / 18 / 21 の段だけ、8体目の まおう を ボスに 入れかえる。
+//   体数は 8体のまま 増やさない（エンジンは 毎tick 全員×全員を 見るので 体数は CPU に 二乗で 効く）。
+//   さわるのは 名前・すがた と HP だけ。atk / def / spd / skillPow は 段の式（def_stage.ts）の まま。
+//   12 / 15 / 18 は その段の HP の 1.3倍。21 は 1.0（最後の1段は そこに 立てること じたいが 達成）。
+//   DEFENSE_ENEMIES は 1文字も 書きかえない。かならず コピーを 返す。
+const DEFBOSS_FACE: any = {
+  '12': { name: 'モンヤブリ', sprite: '\u{1FA93}', hpMul: 1.3 },
+  '15': { name: 'カゲハヤテ', sprite: '\u{1F32A}\u{FE0F}', hpMul: 1.3 },
+  '18': { name: 'イワヨロイ', sprite: '\u{1F5FF}', hpMul: 1.3 },
+  '21': { name: 'ヨルオウガ', sprite: '\u{1F311}', hpMul: 1 }
+}
+function defBossApply(squad: any, stage: any): any {
+  try {
+    if (!Array.isArray(squad) || !squad.length) return squad
+    const n = Math.floor(Number(stage))
+    if (!Number.isFinite(n)) return squad
+    const b = DEFBOSS_FACE[String(n)]
+    if (!b) return squad
+    const out = squad.slice()
+    const last = out[out.length - 1]
+    if (!last) return squad
+    const o: any = {}
+    for (const p in last) o[p] = last[p]
+    o.name = String(b.name)
+    o.sprite = String(b.sprite)
+    const mul = Number(b.hpMul) || 1
+    const hp = Math.round(Number(last.hp || 0) * mul)
+    o.hp = (Number.isFinite(hp) && hp > 0) ? hp : Math.floor(Number(last.hp || 0))
+    o.boss = true
+    out[out.length - 1] = o
+    return out
+  } catch (_e) { return squad }
+}
 const DEFENSE_WIN_COINS = 20
 // __DEF_ALLJOIN_V1__ 自分で 出した子の うわのせ。勝利コイン 20 とは べつの 数。
 const DEFENSE_ENTRY_BONUS_COINS = 10
@@ -1738,7 +1771,13 @@ const DEFSTAGE_BONUS_MONSTERS: any = {
   '3': { id: 1601, level: 20 },
   '5': { id: 1602, level: 30 },
   '7': { id: 1604, level: 40 },
-  '10': { id: 1605, level: 50 }
+  '10': { id: 1605, level: 50 },
+  // 👹 __DEFBOSS_V1__ ボスを たおした 段の ごほうび。配る しくみは 上の 4体と まったく同じ。
+  //    初クリアの1回だけ・そのクラスに在籍している全員・台帳ごしに 1体ずつ。
+  '12': { id: 1611, level: 55 },
+  '15': { id: 1612, level: 60 },
+  '18': { id: 1613, level: 65 },
+  '21': { id: 1614, level: 70 }
 }
 
 function defStageBonusStage(stage: any): number {
@@ -2011,7 +2050,7 @@ app.get('/api/defense/status', async (c) => {
     if (Number.isFinite(sgN) && sgN >= 1) out.stage = Math.floor(sgN)
   } catch (e) { /* テーブルが読めなくても stage=1 のまま返す */ }
   // DEF_STAGE_V2 __DEFSTAGE_V2_SENTINEL__ ステージに応じて敵を強くする。体数は8体のまま増やさない。
-  out.enemy_squad = defStageEnemies(DEFENSE_ENEMIES, out.stage, await defEntryCount(c.env, st.eventKey, classId))
+  out.enemy_squad = defBossApply(defStageEnemies(DEFENSE_ENEMIES, out.stage, await defEntryCount(c.env, st.eventKey, classId)), out.stage)
   out.decided = decided
   try {
     const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
@@ -2244,7 +2283,7 @@ app.get('/api/teacher/defense/dry-run', async (c) => {
       if (Number.isFinite(_drSgN) && _drSgN >= 1) _drStage = Math.floor(_drSgN)
     }
   } catch (_e) {}
-  const _drEnemies = defStageEnemies(DEFENSE_ENEMIES, _drStage, _drList.length)
+  const _drEnemies = defBossApply(defStageEnemies(DEFENSE_ENEMIES, _drStage, _drList.length), _drStage)
   _drOut.stage = _drStage
   _drOut.enemy_squad = _drEnemies
   const _drRes = await defServerResolve(c.env, _drSt, _drCid, _drEnemies)
@@ -2277,7 +2316,7 @@ app.post('/api/defense/resolve', async (c) => {
     const _dsN = Number(_dsRow && _dsRow.stage)
     if (Number.isFinite(_dsN) && _dsN >= 1) _dsStage = Math.floor(_dsN)
   } catch (_e) {}
-  const _srv = await defServerResolve(c.env, st, classId, defStageEnemies(DEFENSE_ENEMIES, _dsStage, await defEntryCount(c.env, st.eventKey, classId)))
+  const _srv = await defServerResolve(c.env, st, classId, defBossApply(defStageEnemies(DEFENSE_ENEMIES, _dsStage, await defEntryCount(c.env, st.eventKey, classId)), _dsStage))
   if (_srv) {
     const _srvLock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, _srv.result, _srv.logJson, _srv.baseHpEnd).run()
     if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })
@@ -8001,6 +8040,8 @@ app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fet
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+// 👹 __DEFBOSS_V1__ ボスのキャラ定義ファイルを配る道。上の1本と まったく同じ形。
+app.get('/defboss_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defboss_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // HS_NEXT_RECALL_V1_WIRED まえの「つぎにすること」を配る道。def_join_nudge.js とまったく同じ形。
 app.get('/hs_next_recall.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hs_next_recall.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
@@ -8058,6 +8099,8 @@ app.get('/', async (c) => {
       // 👾 __DEFSTAGE_CHARS_V1__ 防衛戦ステージ初クリアの げんていキャラ（4体）の名前とすがた。
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')
+      // 👹 __DEFBOSS_V1__ 防衛戦のボス4体の 名前・すがた・つよさ。中身は public/defboss_monsters.js。
+      t = t.replace('</body>', '<script src="/defboss_monsters.js?v=1"></script></body>')
       // 🏰 DEF_JOIN_NUDGE_V1_WIRED まだ とうろくしていない子にだけ出るお知らせカード。中身は public/def_join_nudge.js。
       t = t.replace('</body>', '<script src="/def_join_nudge.js?v=2"></script></body>')
       // 🧩 DEF2TREE_V1_WIRED 防衛戦の プログラムを くりかえし・ぶんき が つかえる ブロックにする。
