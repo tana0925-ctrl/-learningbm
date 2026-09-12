@@ -475,31 +475,63 @@
     return '';
   }
 
+  /* DEF2TALLY_TREE_V2_MARK
+     ブロックの 中に ある「うごき」の ばんごうを ぜんぶ あつめる。
+     くりかえす・もし〜なら の ブロック じたいは、たたかいの コマに
+     ばんごうが のこらない。だから 中の うごきの 回数を たして
+     「この ブロックは 何かい うごいたか」に する。 */
+  function d2tLeafIds(arr) {
+    var out = [];
+    (function rec(a) {
+      var j, n;
+      for (j = 0; j < (a || []).length; j++) {
+        n = a[j];
+        if (!n || typeof n !== 'object') continue;
+        if (n.t === 'a' || (!n.t && n.a)) { if (n._id != null) out.push(n._id); continue; }
+        if (n.body) rec(n.body);
+        if (n.els) rec(n.els);
+      }
+    })(arr);
+    return out;
+  }
+
+  /* ひょうの 1ぎょう分の 回数。ブロックの ぎょうは 中みの 合計。 */
+  function tbRowCount(row, cnt) {
+    var s = 0, j;
+    if (row && row.kind === 'b') {
+      for (j = 0; j < (row.ids || []).length; j++) { s += (cnt[row.ids[j]] || 0); }
+      return s;
+    }
+    return cnt[row._id] || 0;
+  }
+
   function d2tTallyRules(prog) {
     var i, r, out = [];
     if (window._pbIsTree && window._pbIsTree(prog)) {
-      (function rec(arr, path) {
+      (function rec(arr, path, dep) {
         var j, n, lb, eb;
         for (j = 0; j < (arr || []).length; j++) {
           n = arr[j];
           if (!n || typeof n !== 'object') continue;
           if (n.t === 'a' || (!n.t && n.a)) {
-            out.push({ _id: n._id, line: (path ? path + ' → ' : '') + tbActLabel(n.a) });
+            out.push({ _id: n._id, depth: (dep || 0), kind: 'a', line: tbActLabel(n.a) });
             continue;
           }
           lb = d2tBlockJa(n);
-          if (n.body) rec(n.body, path ? (path + ' / ' + lb) : lb);
+          out.push({ _id: null, depth: (dep || 0), kind: 'b', line: lb, ids: d2tLeafIds(n.body) });
+          if (n.body) rec(n.body, path ? (path + ' / ' + lb) : lb, (dep || 0) + 1);
           if (n.els) {
             eb = (n.t === 'if') ? ('もし ' + d2tCondJa(n) + ' で ないとき') : (lb + ' で ないとき');
-            rec(n.els, path ? (path + ' / ' + eb) : eb);
+            out.push({ _id: null, depth: (dep || 0), kind: 'b', line: eb, ids: d2tLeafIds(n.els) });
+            rec(n.els, path ? (path + ' / ' + eb) : eb, (dep || 0) + 1);
           }
         }
-      })(prog, '');
+      })(prog, '', 0);
       return out;
     }
     for (i = 0; i < (prog || []).length; i++) {
       r = prog[i] || {};
-      out.push({ _id: r._id, c: r.c, a: r.a, cn: r.cn, line: tbRuleLine(r) });
+      out.push({ _id: r._id, c: r.c, a: r.a, cn: r.cn, depth: 0, kind: 'a', line: tbRuleLine(r) });
     }
     return out;
   }
@@ -1114,7 +1146,7 @@ function def2HypeHtml(log, st){
 
   function tbTallyHtml(rep, prog){
     var evs=(rep&&rep.events)||[], rules=d2tTallyRules(prog), i, k, pa, p; /* DEF2TREE_V1 */
-    var cnt={}, none=0, total=0, mx=1, zero=0, n, pct, on, out;
+    var cnt={}, none=0, total=0, mx=1, zero=0, n, pct, on, out, _num=0, _bk, _dp;
     for(i=0;i<evs.length;i++){
       pa=evs[i].posA; if(!pa) continue;
       for(k=0;k<pa.length;k++){
@@ -1124,18 +1156,20 @@ function def2HypeHtml(log, st){
       }
     }
     if(!total||!rules.length) return '';
-    for(i=0;i<rules.length;i++){ n=cnt[rules[i]._id]||0; if(n>mx) mx=n; }
+    for(i=0;i<rules.length;i++){ if(rules[i].kind==='b') continue; n=cnt[rules[i]._id]||0; if(n>mx) mx=n; }
     out='<div style="font-weight:900;font-size:13px;color:#334155;margin:10px 0 2px;">🧭 じぶんの めいれいは 何かい うごいた？</div>'
-      +'<div style="font-size:11px;color:#64748b;margin-bottom:5px;">'+((window._pbIsTree&&window._pbIsTree(prog))?'ブロックを 上から じゅんに 実行して、いちばん下まで いったら また 上に もどるよ。':'上から じゅんに 見て、さいしょに あてはまった 1つだけ うごくよ。')+'</div>';
+      +'<div style="font-size:11px;color:#64748b;margin-bottom:5px;">'+((window._pbIsTree&&window._pbIsTree(prog))?'ブロックを 上から じゅんに 実行して、いちばん下まで いったら また 上に もどるよ。右に ずれている ぎょうは、その 上の ブロックの 中みだよ。':'上から じゅんに 見て、さいしょに あてはまった 1つだけ うごくよ。')+'</div>';
     for(i=0;i<rules.length;i++){
-      n=cnt[rules[i]._id]||0; on=(n>0); pct=Math.round(n*100/mx); if(!on) zero++;
-      out+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;'
-        +(on?'':'background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:4px 6px;')+'">'
-        +'<div style="flex:0 0 20px;height:20px;line-height:20px;text-align:center;border-radius:999px;font-weight:900;color:#fff;background:'+(on?'#0d9488':'#f97316')+';">'+(i+1)+'</div>'
-        +'<div style="flex:1;color:'+(on?'#334155':'#9a3412')+';font-weight:'+(on?'400':'900')+';">'+esc(rules[i].line!=null?rules[i].line:tbRuleLine(rules[i]))
-        +(on?'':'<br><span style="font-size:11px;font-weight:400;">1かいも うごかなかった</span>')+'</div>'
-        +'<div style="flex:0 0 56px;background:#e2e8f0;border-radius:999px;height:9px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+(on?'#0d9488':'#fdba74')+';"></div></div>'
-        +'<div style="flex:0 0 58px;text-align:right;font-weight:900;color:'+(on?'#0f766e':'#9a3412')+';">'+n+'かい</div>'
+      _bk=(rules[i].kind==='b'); _dp=(rules[i].depth||0); if(!_bk) _num++;
+      n=tbRowCount(rules[i],cnt); on=(n>0); pct=Math.min(100,Math.round(n*100/mx)); if(!_bk&&!on) zero++;
+      out+='<div style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;margin-left:'+(_dp*16)+'px;'
+        +((on||_bk)?'':'background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:4px 6px;')
+        +(_bk?'background:#f1f5f9;border-radius:8px;padding:3px 6px;':'')+'">'
+        +'<div style="flex:0 0 20px;height:20px;line-height:20px;text-align:center;border-radius:999px;font-weight:900;color:#fff;background:'+(_bk?'#94a3b8':(on?'#0d9488':'#f97316'))+';">'+(_bk?'▸':_num)+'</div>'
+        +'<div style="flex:1;color:'+(_bk?'#475569':(on?'#334155':'#9a3412'))+';font-weight:'+((_bk||!on)?'900':'400')+';">'+esc(rules[i].line!=null?rules[i].line:tbRuleLine(rules[i]))
+        +((on||_bk)?'':'<br><span style="font-size:11px;font-weight:400;">1かいも うごかなかった</span>')+'</div>'
+        +'<div style="flex:0 0 56px;background:#e2e8f0;border-radius:999px;height:9px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+(_bk?'#cbd5e1':(on?'#0d9488':'#fdba74'))+';"></div></div>'
+        +'<div style="flex:0 0 58px;text-align:right;font-weight:900;color:'+(_bk?'#475569':(on?'#0f766e':'#9a3412'))+';">'+n+'かい</div>'
         +'</div>';
     }
     if(none>0){
