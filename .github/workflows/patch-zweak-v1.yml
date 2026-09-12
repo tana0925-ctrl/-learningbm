@@ -1,0 +1,156 @@
+name: ゾンビ襲来 よわりモード（ZWEAK_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: さぎょうツリーを きれいにする
+        run: git checkout -- .
+
+      - name: origin/main に おいつく
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す直前に チェーンを 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8', newline='').read()
+          if s.count("app.get('/', async (c) => {") != 1:
+              print('NG: 家の入口が 一意で ない'); sys.exit(1)
+          if s.count("app.get('/logout'") != 1:
+              print('NG: 出口が 一意で ない'); sys.exit(1)
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          io.open('/tmp/chain_before.txt', 'w').write(str(n))
+          PYEOF
+
+      - name: パッチを 当てる（合わなければ 1文字も 書かずに 中止）
+        run: python3 scripts/patch_zweak_v1.py
+
+      - name: さわってはいけない ファイルが 無傷か
+        run: |
+          git diff --quiet -- public || (echo 'NG: public が 変わっている'; exit 1)
+          git diff --quiet -- migrations || (echo 'NG: migrations が 変わっている'; exit 1)
+          git status --porcelain
+          echo '--- src/index.tsx の さしぶんは ついかだけか ---'
+          git diff --numstat -- src/index.tsx
+          test "$(git diff --numstat -- src/index.tsx | cut -f2)" = "0" || (echo 'NG: src/index.tsx で 行が 消えている'; exit 1)
+
+      - name: ビルドが 通ることを 確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 中身と 番兵を たしかめる
+        run: |
+          python3 scripts/patch_zweak_v1.py --verify
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8', newline='').read()
+          d = io.open('public/defense2.js', encoding='utf-8', newline='').read()
+          before = int(io.open('/tmp/chain_before.txt').read().strip())
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          now = s[i:j].count('.replace(')
+          ok = True
+          if before != 92:
+              print('NG: 直前の チェーンが', before, '（92 のはず）'); ok = False
+          if now != 97:
+              print('NG: いまの チェーンが', now, '（97 のはず）'); ok = False
+          else:
+              print('チェーン', before, '->', now)
+          for name in ('__ZWAR_UNLOCK_V1__', 'startZombieWarFromPreview', '__DEFSTAGE_SENTINEL_V1__',
+                       '__DEF_MVP_V1__', 'DEF_LV50_V1', 'foeLaneMix', '__S6WORLD_50__',
+                       '__H6MERGE_SRC_V1__', '__H6BANK_LIVE_V1__', '__H6U11_BOOST_V1__',
+                       '__DEFBOSS_V1', 'HS_NEXT_RECALL_V1', 'defstage_monsters.js', 'def_join_nudge.js'):
+              if name not in s:
+                  print('NG: 番兵', name, 'が 消えている'); ok = False
+          for name in ('DEF2TRY_', 'DEF2SEND_GUARD_V1_MARK', 'DEF2TPL_LEARN_V1', 'DEF2TALLY_TREE_V2'):
+              if name not in d:
+                  print('NG: 番兵', name, 'が 消えている'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('SENTINELS OK')
+          PYEOF
+
+      - name: 配信される HTML を ためしに 組み立てて たしかめる
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const NL = String.fromCharCode(10);
+          const s = fs.readFileSync('src/index.tsx', 'utf8');
+          let h = fs.readFileSync('public/index.html', 'utf8');
+          const base = h.length;
+          const pairs = [];
+          for (let k = 0; k < 5; k++) {
+            const ra = new RegExp('const _zwk' + k + 'a = (".*")');
+            const rb = new RegExp('const _zwk' + k + 'b = (".*")');
+            const ma = s.match(ra), mb = s.match(rb);
+            if (!ma || !mb) { console.log('NG: _zwk' + k + ' が 見つからない'); process.exit(1); }
+            pairs.push([JSON.parse(ma[1]), JSON.parse(mb[1])]);
+          }
+          let bad = false;
+          for (let k = 0; k < 5; k++) {
+            const a = pairs[k][0];
+            const f = h.indexOf(a);
+            if (f === -1 || f !== h.lastIndexOf(a)) { console.log('NG: あて先', k, 'が 一意でない'); bad = true; }
+          }
+          if (bad) process.exit(1);
+          for (let k = 0; k < 5; k++) { h = h.replace(pairs[k][0], pairs[k][1]); }
+          function chk(label, cond) { if (!cond) { console.log('NG:', label); bad = true; } else { console.log('ok:', label); } }
+          chk('出撃ブロックが 死に分岐に なった', h.indexOf('if(false && warState.zombieMode') !== -1);
+          chk('グレーアウトが 消えた', h.indexOf('opacity-60 grayscale cursor-not-allowed') === -1);
+          chk('こわい（ボタン文字）が 消えた', h.indexOf("'こわい' : 'タップで出陣'") === -1);
+          chk('よわりモードの 文字が 入った', h.split('ゾンビでは よわりモード').length - 1 === 2);
+          chk('scale に かけ算が 入った', h.indexOf('if (zw && zw.zombieMode') !== -1);
+          chk('HTML が 長くなった', h.length > base);
+          const mm = h.match(/const scale = [^;]+;/);
+          console.log('scale 行 =', mm ? mm[0].slice(0, 260) : 'なし');
+          const f = new Function('id', 'warState', 'window', 'const lv = 30; ' + (mm ? mm[0] : 'const scale=0;') + ' return scale;');
+          const normal999 = f(999, { zombieMode: false }, {});
+          const zombie999 = f(999, { zombieMode: true }, {});
+          const zombie1 = f(1, { zombieMode: true }, {});
+          const normal1 = f(1, { zombieMode: false }, {});
+          console.log('scale lv30: 通常999 =', normal999, '/ ゾンビ999 =', zombie999, '/ 通常1 =', normal1, '/ ゾンビ1 =', zombie1);
+          chk('通常モードの 999 は そのまま', Math.abs(normal999 - 1.8) < 1e-9);
+          chk('通常モードの ふつうキャラも そのまま', Math.abs(normal1 - 1.8) < 1e-9);
+          chk('ゾンビの ふつうキャラは そのまま', Math.abs(zombie1 - 1.8) < 1e-9);
+          chk('ゾンビの 999 は 0.2ばい', Math.abs(zombie999 - 0.36) < 1e-9);
+          if (bad) process.exit(1);
+          console.log('DRY RUN OK');
+          JSEOF
+
+      - name: ビルドの 副産物を 元に戻す（src/index.tsx だけ コミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'かわりなし（すでに 当てずみ）'; exit 0
+          fi
+          git commit -m 'ZWEAK_V1: ゾンビ襲来の 出撃きんしを やめて 0.2ばいの よわりモードにする'
+          git pull --rebase origin main
+          git push origin HEAD:main
