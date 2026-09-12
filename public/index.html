@@ -17016,6 +17016,7 @@ function updateTrainingMenu() {
             player.coins = (player.coins || 0) - cost;
             const result = rollGacha(type);
             applyGachaResultData(result);
+            try { recordGacha(type, result); } catch(e) {} /* GACHA_RARE_DEX_METRICS_V1 */
             saveData();
             try { logEvent('gacha'); } catch(e) {}
             updatePlayerDisplay();
@@ -17050,6 +17051,7 @@ function updateTrainingMenu() {
                 const result = rollGacha(type);
                 results.push(result);
                 applyGachaResultData(result);
+                try { recordGacha(type, result); } catch(e) {} /* GACHA_RARE_DEX_METRICS_V1 */
             }
             
             saveData();
@@ -17389,7 +17391,7 @@ return;
 
         function getRandomMonster(stage, level) {
             let candidates;
-            if (stage === 4) candidates = MONSTERS.filter(m => m.id >= 201 && m.id <= 215);
+            if (stage === 4) candidates = MONSTERS.filter(m => m.id >= 201 && m.id <= 218); /* GACHA_RARE_DEX_METRICS_V1 216-218 も 抽選に 入れる。確率の しきい値は rollGacha のまま。 */
             else candidates = MONSTERS.filter(m => m.stage === stage && (m.id <= 150));
             const m = candidates[Math.floor(Math.random() * candidates.length)];
             return { type: 'monster', data: m, level: level };
@@ -30035,7 +30037,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
           }catch(e){}
           var ob=(m.obtain||m.source||'');
           if(ob==='egg'||ob==='eggBattle'||m.eggReward) return 'タマゴバトルのごほうび';
-          if(id>=400 && id<=415) return 'ジムリーダー（ジムバトル）';
+          if(id>=400 && id<=419) return 'ジムリーダー（ジムバトル）'; /* GACHA_RARE_DEX_METRICS_V1 416-419 も GYM_LEADER_IDS の ジムリーダー。 */
           if((id>=981 && id<=991)||(id>=1201 && id<=1216)||(id>=1301 && id<=1303)) return 'イベント・攻略モード';
           try{ if(typeof MONSTERS!=='undefined'){ var prev=MONSTERS.find(function(x){return Number(x.nextId)===id;}); if(prev) return '進化（'+prev.name+'がLv'+(prev.evoLevel||'?')+'で進化）'; } }catch(e){}
           try{ if(m.desc && String(m.desc).indexOf('【入手】')>=0){ var __t=String(m.desc).split('【入手】')[1]||''; __t=__t.split('。')[0]; if(__t && __t.trim()) return __t.trim(); } }catch(e){}
