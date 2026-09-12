@@ -1,0 +1,258 @@
+name: 防衛戦 プログラム（DEF2_CLASSCAP_V1・先生がクラスごとに「ここまで」をきめる）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンとアンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          NL = chr(10)
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          applied = ('DEF2CAP_GUARD_V1' in s) and ('DEF2CAP_GUARD_V1' in d)
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('チェーンの実測:', n)
+          if n != 82:
+              print('NG: チェーンが %d 件（期待 82）' % n); sys.exit(1)
+          if applied:
+              print('すでに適用ずみ。アンカーの点検はとばす')
+          else:
+              A_STK_END = NL.join(['  return c.json({ ok: true, stickerEnabled: enabled })', '})', ''])
+              A_LIST = NL.join(["        wrap.innerHTML='';", '        if(!data.classes.length){'])
+              A_CLAMP = NL.join(['    if (n > D2T_MAXLV) n = D2T_MAXLV;', '    return n;', '  }'])
+              A_BLOCKS = NL.join(['      var list = (lv >= 3) ? D2T_B3 : (lv === 2 ? D2T_B2 : D2T_B1);', '      return list.indexOf(kind) >= 0;'])
+              A_PAINT = NL.join(['      lv = d2tLevel();', '      window._pbInjectCss();'])
+              A_RESET = '''    out += '<button onclick="_def2TreeReset()"'''
+              for label, text, t, want in (
+                  ('root', "app.get('/', async (c) => {", s, 1),
+                  ('logout', "app.get('/logout'", s, 1),
+                  ('シールけんの おわり', A_STK_END, s, 1),
+                  ('先生の画面の 場所', '          btnGroup.appendChild(stkBtn);' + NL, s, 1),
+                  ('クラス一覧の あたま', A_LIST, s, 1),
+                  ('よみこみ番号', '/defense2.js' + '?v' + '=', s, 1),
+                  ('道は まだ無い', "app.get('/api/defense/prog-cap'", s, 0),
+                  ('列の名は まだ無い', 'def_prog_maxlv', s, 0),
+                  ('d2tLevel の ふた', A_CLAMP, d, 1),
+                  ('上限ブロックの 場所', '  function d2tActive() { return !_d2tOff && d2tReady(); }', d, 1),
+                  ('used の はこ', '    var used = { c: {}, a: {} };', d, 1),
+                  ('used に 入れる ところ', '        if (n.c) used.c[n.c] = 1;', d, 1),
+                  ('ブロックの ふるいわけ', A_BLOCKS, d, 1),
+                  ('🔓 を 出す じょうけん', '    if (lv < D2T_MAXLV) {', d, 1),
+                  ('しらせの 場所', A_RESET, d, 1),
+                  ('🔓 の ふた', '    if (lv >= D2T_MAXLV) return;', d, 1),
+                  ('上限を よむ きっかけ', A_PAINT, d, 1),
+                  ('番兵は まだ無い', 'DEF2CAP_GUARD_V1', d, 0),
+              ):
+                  c = t.count(text)
+                  if c != want:
+                      print('NG: アンカー %s が %d 件（期待 %d）' % (label, c, want)); sys.exit(1)
+              print('アンカーはすべて一意')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def2_classcap_v1.py
+
+      - name: 子どものがわの 文法を見る
+        run: |
+          node --check public/defense2.js
+          echo 'public/defense2.js の 文法は OK'
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          CHANGED="$(git diff --name-only | sort | xargs)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/defense2.js src/index.tsx" ]; then
+            echo "NG: さわったファイルが src/index.tsx と public/defense2.js だけでない: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン（増減なし）', s[i:j].count('.replace('), 82)
+
+          chk('子どもが よむ 道', s.count("app.get('/api/defense/prog-cap'"), 1)
+          chk('先生が よむ 道', s.count("app.get('/api/teacher/defprog-maxlv'"), 1)
+          chk('先生が きめる 道', s.count("app.put('/api/teacher/class/:classId/defprog-maxlv'"), 1)
+          chk('列の名', s.count('def_prog_maxlv'), 6)
+          chk('先生の画面の えらぶ ところ', s.count('btnGroup.appendChild(dpcSel);'), 1)
+          chk('先生の画面の さきよみ', s.count("api('/api/teacher/defprog-maxlv')"), 1)
+          chk('よみこみ番号は 1つだけ', s.count('/defense2.js' + '?v' + '='), 1)
+          chk('上限を もつ ところ', d.count('function d2tCapLv() {'), 1)
+          chk('上限が あるか', d.count('function d2tCapOn() {'), 1)
+          chk('上限を よむ ところ', d.count('function d2tCapLoad() {'), 1)
+          chk('上限を よぶ 道', d.count("jget('/api/defense/prog-cap')"), 1)
+          chk('よむ きっかけ', d.count('d2tCapLoad();'), 1)
+          chk('つかっている しゅるいを おぼえる', d.count('if (n.t) used.t[n.t] = 1;'), 1)
+          chk('つかっている ブロックは のこす', d.count('.t[kind];'), 1)
+          chk('やわらかい しらせ', d.count('🔒 つぎの ぶひんは まだ つかえないよ。'), 1)
+          chk('D2T_MAXLV の のこり', d.count('D2T_MAXLV'), 5)
+          chk('ふたは クラスの 上限', d.count('if (n > d2tCapLv()) n = d2tCapLv();'), 1)
+          chk('🔓 は クラスの 上限で 止まる', d.count('if (lv < d2tCapLv()) {'), 1)
+          chk('🔓 の ふた', d.count('if (lv >= d2tCapLv()) return;'), 1)
+          chk('リクエストパスで DDL を しない', s.count('ALTER TABLE classes ADD COLUMN def_prog_maxlv'), 0)
+
+          chk('0 は せいげんなし（子ども）', d.count('if (!(n >= 1)) return D2T_MAXLV;'), 1)
+          chk('0 に まるめる（サーバ）', s.count('(n >= 1 && n <= 3) ? n : 0'), 2)
+          chk('0 に まるめる（きめる とき）', s.count('if (!(lv >= 1 && lv <= 3)) lv = 0'), 1)
+          chk('クラス無しは 0', s.count('if (!classId) return 0'), 1)
+
+          chk('レベル1 じょうけん', d.count("var D2T_C1 = ['always', 'selfHpBelow', 'allyBaseBelow', 'allyDown'];"), 1)
+          chk('レベル1 うごき', d.count("var D2T_A1 = ['attackBase', 'returnBase', 'laneL', 'laneC', 'laneR', 'wait'];"), 1)
+          chk('レベル1 ブロック', d.count("var D2T_B1 = ['a', 'if', 'fv'];"), 1)
+          chk('レベル2 ブロック', d.count("var D2T_B2 = ['a', 'if', 'fv', 'rep', 'un'];"), 1)
+          chk('レベル3 ブロック', d.count("var D2T_B3 = ['a', 'if', 'fv', 'rep', 'un', 'sq'];"), 1)
+          chk('つかっている ぶひんを のこす しくみ', d.count('if (used[o.k]) { out.push(o); continue; }'), 1)
+
+          chk('外した うごき6つ', d.count("var D2T_DROP_A = ['attackFort', 'advanceFront', 'retreatBack', 'aimWeakest', 'defendFort', 'scatter'];"), 1)
+          chk('外した じょうけん2つ', d.count("var D2T_DROP_C = ['enemyNear', 'onPoint'];"), 1)
+          chk('外す しくみ', d.count('if (drop.indexOf(o.k) >= 0) continue;'), 1)
+          for _k, _w in (('attackFort', 2), ('advanceFront', 3), ('retreatBack', 3), ('aimWeakest', 2), ('defendFort', 2), ('scatter', 3), ('enemyNear', 2), ('onPoint', 2)):
+              chk('外した %s の のこり' % _k, d.count(_k), _w)
+
+          chk('DEF2TRY_V1_MARK', d.count('DEF2TRY_V1_MARK'), 1)
+          chk('DEF2TRY_STANDSTILL_MARK', h.count('DEF2TRY_STANDSTILL_MARK'), 1)
+          chk('DEF2TRY_STANDSTILL_GOAL_MARK', h.count('DEF2TRY_STANDSTILL_GOAL_MARK'), 1)
+          chk('DEF2TRY_RULETALLY_V1', d.count('DEF2TRY_RULETALLY_V1'), 1)
+          chk('DEF2TALLY_TREE_V2', d.count('DEF2TALLY_TREE_V2'), 1)
+          chk('DEF2TRY_NOWCSS_V1', d.count('DEF2TRY_NOWCSS_V1'), 1)
+          chk('DEF2TRY_NOWLABEL_V1', h.count('DEF2TRY_NOWLABEL_V1'), 1)
+          chk('DEF2SEND_GUARD_V1_MARK', d.count('DEF2SEND_GUARD_V1_MARK'), 1)
+          chk('DEF2TPL_LEARN_V1', d.count('DEF2TPL_LEARN_V1'), 3)
+          chk('__DEF_MVP_V1__（画面）', d.count('__DEF_MVP_V1__'), 1)
+          chk('__DEF_MVP_V1__（サーバ）', s.count('__DEF_MVP_V1__'), 6)
+          chk('ツリー編集の 入口', d.count('_pbTreeAdd'), 1)
+          chk('ツリー編集の 絵', d.count('_pbRenderNode'), 3)
+          chk('じょうけん・うごきの さしかえ', d.count('_pbCatalogHook'), 6)
+          chk('ブロックの さしかえ', d.count('_pbBlocksHook'), 3)
+          chk('いまの プログラム', d.count('_pbCur'), 6)
+          chk('ほぞん先 defProgram', d.count('p.defProgram'), 5)
+          chk('おしらせ', d.count('この下は うごきません'), 1)
+          chk('行入れかえ 上ボタン', d.count('>▲</button>'), 1)
+          chk('行入れかえ 下ボタン', d.count('>▼</button>'), 1)
+          chk('エントリーは 1か所だけ', d.count('/api/defense/entry'), 1)
+          chk('けっせんは 1か所だけ', d.count('/api/defense/resolve'), 1)
+          chk('けっか表に さわらない', d.count('defense_results'), 0)
+          chk('ボタンの上に入れる', d.count('btn.parentNode.insertBefore(box, btn)'), 1)
+          chk('本番のたねは ためしに つかわない', d.count('seedFromKey'), 2)
+          chk('配る道', s.count("app.get('/defense2.js'"), 1)
+          chk('エンジン本体', h.count('autoBattleRT'), 5)
+          chk('基地HP 380 の既定', h.count('Number(opts.baseHp||380)'), 1)
+
+          chk('__DEFSTAGE_SENTINEL_V1__', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('__DEF_SNAP_SPDSKILLS_V1__', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('__DEF_RESOLVE_VERIFY_V1__', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合1 seed', s.count('log_seed_mismatch'), 1)
+          chk('照合2 replay', s.count('log_replay_missing'), 1)
+          chk('照合3 result', s.count('log_result_mismatch'), 1)
+          chk('照合4 base_hp', s.count('log_base_hp_mismatch'), 1)
+          chk('log の v が 2', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('baseHpA 有限数条件', s.count('Number.isFinite(Number(_dvRep.baseHpA))'), 1)
+          chk('retry true', s.count('retry: true'), 2)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defense_carry_lock', s.count('defense_carry_lock'), 1)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defEntryOk', s.count('defEntryOk'), 3)
+          chk('defStageEnemies', s.count('defStageEnemies'), 4)
+          chk('defStageMakeLedger', s.count('defStageMakeLedger'), 3)
+          chk('applyDefStageGrants', s.count('applyDefStageGrants'), 2)
+          chk('defMvpMakeLedger', s.count('defMvpMakeLedger'), 2)
+          chk('_defStageCoinsApplied', s.count('_defStageCoinsApplied'), 8)
+          chk('_defMvpCoinsApplied', s.count('_defMvpCoinsApplied'), 8)
+          chk('needs_reselect', s.count('needs_reselect'), 3)
+          chk('ensureDefenseTables の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('勝利コイン 20', s.count('DEFENSE_WIN_COINS = 20'), 1)
+          chk('log の 900000 上限', s.count('900000'), 1)
+          chk('dry-run', s.count('/api/teacher/defense/dry-run'), 1)
+          chk('敵の定数', s.count('const DEFENSE_ENEMIES = ['), 1)
+          chk('DEFENSE_ENEMIES の参照', s.count('DEFENSE_ENEMIES'), 5)
+          chk('__S6WORLD_50__', s.count('__S6WORLD_50__'), 1)
+          chk('__H6MERGE_SRC_V1__', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('__H6BANK_LIVE_V1__', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('__H6U11_BOOST_V1__', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('def_join_nudge.js', s.count('def_join_nudge.js'), 4)
+          chk('げんていキャラの道', s.count("app.get('/defstage_monsters.js'"), 1)
+          chk('げんていキャラ', s.count('defstage_monsters.js'), 4)
+
+          _a = s.index("app.get('/api/teacher/defense/dry-run'")
+          _b = s.index("app.post('/api/defense/resolve'", _a)
+          _blk = s[_a:_b]
+          for _w in ('INS' + 'ERT', 'UPD' + 'ATE', 'DEL' + 'ETE', '.run()', '.batch('):
+              if _w in _blk:
+                  print('NG: dry-run に かきこみ %s が 入っている' % _w); ok[0] = False
+          if 'stage ' + '- 1' in s or 'stage-1' in s or 'stage = stage -' in s:
+              print('NG: さげる経路が 入っている'); ok[0] = False
+
+          chk('倍率の曲線', g.count('DEF_STAGE_V3_CURVE'), 1)
+          chk('def_stage の関数', g.count('export function defStageEnemies(base, stage) {'), 1)
+
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          for _w in ('defense2.js', 'prog-cap', 'defprog-maxlv', 'def_prog_maxlv'):
+              if _w not in w:
+                  print('NG: ビルドに %s が 入っていない' % _w); ok[0] = False
+
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx public/defense2.js
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF2_CLASSCAP_V1: 先生がクラスごとにプログラムのレベル上限をきめられるようにする'
+          git pull --rebase origin main
+          git push origin HEAD:main
