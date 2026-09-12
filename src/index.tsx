@@ -8059,7 +8059,7 @@ app.get('/', async (c) => {
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')
       // 🏰 DEF_JOIN_NUDGE_V1_WIRED まだ とうろくしていない子にだけ出るお知らせカード。中身は public/def_join_nudge.js。
-      t = t.replace('</body>', '<script src="/def_join_nudge.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/def_join_nudge.js?v=2"></script></body>')
       // 🧩 DEF2TREE_V1_WIRED 防衛戦の プログラムを くりかえし・ぶんき が つかえる ブロックにする。
       //    ジムチャレンジの 絵をかく しくみを 防衛戦から かりるための さしこみ口を 足すだけ。
       //    だれも さしこみ口を つかっていなければ、ジム側の うごきは これまでと まったく かわらない。

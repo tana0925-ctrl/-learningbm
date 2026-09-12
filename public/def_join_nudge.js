@@ -54,8 +54,9 @@
       '</div>' +
       '<div style="margin-top:6px;font-size:13px;line-height:1.7;color:#9f1239">' +
         'クラスのきちを みんなで まもる たたかいが、まいにち ひらかれているよ。' +
-        'きみのモンスターが 1ぴき ふえるだけで、クラスの まもる力が つよくなるんだ。' +
-        'いちど とうろくすれば、つぎの日からは じどうで さんかできるよ。' +
+        'クラスの みんなは もう さんかしていて、きみの いちばん上の モンスターも 出ているよ。' +
+        'とうろくすると、じぶんで えらんだ モンスターと プログラムで たたかえる。もらえるコインも ふえて、ひょうしょうにも 入れるよ。' +
+        /* __DEF_NUDGE_TEXT_V1__ クラス全員が 出るように なったので、文を 事実に あわせた */
       '</div>' +
       '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
         '<button id="' + ID + 'Go" style="background:#e11d48;color:#fff;font-weight:900;border:none;border-radius:12px;padding:9px 16px;font-size:14px;cursor:pointer">とうろくしにいく</button>' +
