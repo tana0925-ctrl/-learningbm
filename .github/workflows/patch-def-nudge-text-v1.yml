@@ -1,0 +1,156 @@
+name: 防衛戦 ③d（おさそいカードの 文を 事実に あわせる）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に つなぎの数と アンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          jn = io.open('public/def_join_nudge.js', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流す前）= %d' % n)
+          if n < 88:
+              print('NG: つなぎの数が 88 より少ない（何かが 消えている）'); sys.exit(1)
+          io.open('/tmp/chain_before.txt', 'w', encoding='utf-8').write(str(n))
+          Q1 = chr(39)
+          pairs = [
+            (jn, '        ' + Q1 + 'きみのモンスターが 1ぴき ふえるだけで、クラスの まもる力が つよくなるんだ。' + Q1 + ' +', 'おさそいの 2行目'),
+            (jn, '        ' + Q1 + 'いちど とうろくすれば、つぎの日からは じどうで さんかできるよ。' + Q1 + ' +', 'おさそいの 3行目'),
+            (s, '/def_join_nudge.js?v=1', 'よみこみの ばんごう'),
+          ]
+          for text, anchor, label in pairs:
+              k = text.count(anchor)
+              print('%s = %d' % (label, k))
+              if k != 1:
+                  print('NG: %s が 1 件でない' % label); sys.exit(1)
+          if jn.count('__DEF_NUDGE_TEXT_V1__'):
+              print('NG: 番兵が すでにある'); sys.exit(1)
+          print('OK: アンカーは すべて 1 件')
+          PYEOF
+
+      - name: 当てる（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_nudge_text_v1.py
+
+      - name: 検証：文が 事実に なり、カードが こわれていないか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          jn = io.open('public/def_join_nudge.js', encoding='utf-8').read()
+          before = int(io.open('/tmp/chain_before.txt', encoding='utf-8').read().strip())
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数 %d → %d' % (before, n))
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          if n != before:
+              print('NG: つなぎの数が かわった'); ok[0] = False
+          chk('うその1文が 消えた', jn.count('じどうで さんかできる'), 0)
+          chk('うその1文が 消えた2', jn.count('1ぴき ふえるだけで'), 0)
+          chk('新しい1文', jn.count('もらえるコインも ふえて'), 1)
+          chk('新しい1文2', jn.count('もう さんかしていて'), 1)
+          chk('見出し', jn.count('ぼうえいせんに とうろくしよう'), 1)
+          chk('はじめの1文', jn.count('まいにち ひらかれているよ'), 1)
+          chk('番兵', jn.count('__DEF_NUDGE_TEXT_V1__'), 1)
+          chk('カードの 番兵', jn.count('__DEF_JOIN_NUDGE_V1__'), 1)
+          chk('ばんごう 2', s.count('/def_join_nudge.js?v=2'), 1)
+          chk('ばんごう 1', s.count('/def_join_nudge.js?v=1'), 0)
+          if jn.count(chr(39)) % 2 != 0:
+              print('NG: クォートの数が 合わない'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: カードの JS が 文として 成り立つか
+        run: node --check public/def_join_nudge.js && echo 'JS OK'
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- public/defense2.js || (echo 'NG: public/defense2.js が変わっている'; exit 1)
+          git diff --quiet -- src/def_engine.ts || (echo 'NG: src/def_engine.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts || (echo 'NG: src/def_stage.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_resolve.ts || (echo 'NG: src/def_resolve.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_dex.ts || (echo 'NG: src/def_dex.ts が変わっている'; exit 1)
+          echo '本番HTML・ブラウザ側・エンジン・段の表・サーバ計算・図鑑の表は 無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          chk('①の番兵', s.count('__DEF_LOG_FIT_V1__'), 1)
+          chk('③aの番兵', s.count('__DEFSTAGE_30_V1__'), 1)
+          chk('③bの番兵', s.count('__DEF_ALLJOIN_V1__'), 4)
+          chk('③cの番兵', s.count('__DEF_YOUTOO_V1__'), 1)
+          chk('サーバの ③b', v.count('__DEF_ALLJOIN_V1__'), 3)
+          chk('勝利コイン 20', s.count('const DEFENSE_WIN_COINS = 20'), 1)
+          chk('うわのせ 10', s.count('const DEFENSE_ENTRY_BONUS_COINS = 10'), 1)
+          chk('基地HP 380', s.count('380'), 2)
+          chk('ばんごう21', s.count('/defense2.js?v=21'), 1)
+          chk('表づくりの よびだし', s.count('ensureDefenseTables()'), 0)
+          chk('表のとりこみ', s.count("import { defDexEntry } from './def_dex'"), 1)
+          down = 'stage' + ' - ' + '1'
+          chk('下げる みちすじ', s.count(down), 0)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/def_join_nudge.js src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'かわっていないので push しません'
+          else
+            git commit -m 'DEF_NUDGE_TEXT_V1: おさそいカードの 文を 事実に あわせる（全員出撃に なったため）'
+            git push origin HEAD:main
+          fi
