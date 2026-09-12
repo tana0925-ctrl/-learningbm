@@ -1140,8 +1140,43 @@ function def2HypeHtml(log, st){
     advanceFront:'前に 出る', retreatBack:'下がる', defendPoint:'ポイントを まもる'
   };
 
+  /* DEF2ACTJA_CAT_V1_MARK
+     うごきの 名まえも、じょうけんと おなじで index.html の
+     _pbCatalog() から もらう。ここを 見ていなかったので
+     laneL・laneR・aimWeak・aimStrong と きもちの うごきが
+     英語の キーの まま 画面に 出ていた。
+     しぼりこみの さしこみ口は 名まえを ひく あいだだけ 外して
+     すぐ もとに もどす。レベルで しぼられた ならびだと
+     名まえが ひけない ことが あるから。
+     カタログに ない ものは これまでの ならびに もどす。 */
+  function d2tCatAll(){
+    var cat = null, hk = null, on = false;
+    if (typeof window._pbCatalog !== 'function') return null;
+    try {
+      hk = window._pbCatalogHook;
+      on = true;
+      window._pbCatalogHook = null;
+      cat = window._pbCatalog();
+    } catch (e) { cat = null; }
+    if (on) { try { window._pbCatalogHook = hk; } catch (e2) {} }
+    return cat;
+  }
+
+  function d2tActJaFromCat(a){
+    var i, o, cat = d2tCatAll();
+    if (cat && cat.acts) {
+      for (i = 0; i < cat.acts.length; i++) {
+        o = cat.acts[i];
+        if (o && o.k === a && o.l) return o.l;
+      }
+    }
+    return null;
+  }
+
   function tbActLabel(a){
-    for(var i=0;i<ACT.length;i++){ if(ACT[i].v===a) return ACT[i].label; }
+    var i, ja = d2tActJaFromCat(a);
+    if (ja) return ja;
+    for(i=0;i<ACT.length;i++){ if(ACT[i].v===a) return ACT[i].label; }
     return TB_ACTJA[a] || String(a);
   }
 
