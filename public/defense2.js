@@ -188,6 +188,44 @@
       && typeof window._pbTreeAdd === 'function');
   }
 
+  /* DEF2_CLASSCAP_V1 / DEF2CAP_GUARD_V1 ここから ---------------------
+     先生が クラスごとに「ここまで」を きめられるようにする ところ。
+
+     ・きめていない クラスは 0 が かえる。そのときは これまでと まったく 同じで、
+       子どもが じぶんで 🔓 を おして ひろげられる。
+     ・上限を さげても、すでに おいてある ぶひんは のこる。
+       じょうけん・うごきは d2tKeep が used を 見て のこし、
+       ブロックは d2tBlocksHook が used.t を 見て のこす。
+       だから ほぞんずみの プログラムは 1つも かわらない。
+     ・よみとりに しっぱいしたら 0（せいげんなし）。子どもの 手を 止めない。 */
+  var _d2cLv = 0;
+  var _d2cAsked = false;
+
+  function d2tCapLv() {
+    var n = Number(_d2cLv || 0);
+    if (!(n >= 1)) return D2T_MAXLV;
+    if (n > D2T_MAXLV) return D2T_MAXLV;
+    return n;
+  }
+
+  function d2tCapOn() { return d2tCapLv() < D2T_MAXLV; }
+
+  function d2tCapLoad() {
+    if (_d2cAsked) return;
+    _d2cAsked = true;
+    try {
+      jget('/api/defense/prog-cap').then(function (r) {
+        var n = (r && r.ok) ? Number(r.max_level || 0) : 0;
+        if (!(n >= 1)) n = 0;
+        if (n === _d2cLv) return;
+        _d2cLv = n;
+        try { d2tRepaint(); } catch (e) { }
+      });
+    } catch (e) { }
+  }
+
+  /* DEF2_CLASSCAP_V1 ここまで --------------------------------------- */
+
   function d2tActive() { return !_d2tOff && d2tReady(); }
 
   function d2tLevel() {
@@ -195,7 +233,7 @@
     try { p = progPlayer(); } catch (e) { }
     try { if (p) n = Number(p.defProgLevel || 1); } catch (e) { }
     if (!(n >= 1)) n = 1;
-    if (n > D2T_MAXLV) n = D2T_MAXLV;
+    if (n > d2tCapLv()) n = d2tCapLv();
     return n;
   }
 
@@ -263,7 +301,7 @@
   /* いま おいてある ブロックで つかわれている きーは、レベルが 下でも けさない。
      きゅうに ブロックが きえたら 子どもが こまるから。 */
   function d2tUsed(prog) {
-    var used = { c: {}, a: {} };
+    var used = { c: {}, a: {}, t: {} };
     (function rec(arr) {
       var i, n;
       for (i = 0; i < (arr || []).length; i++) {
@@ -271,6 +309,7 @@
         if (!n || typeof n !== 'object') continue;
         if (n.a) used.a[n.a] = 1;
         if (n.c) used.c[n.c] = 1;
+        if (n.t) used.t[n.t] = 1;
         if (n.body) rec(n.body);
         if (n.els) rec(n.els);
       }
@@ -309,7 +348,9 @@
     try {
       var lv = d2tLevel();
       var list = (lv >= 3) ? D2T_B3 : (lv === 2 ? D2T_B2 : D2T_B1);
-      return list.indexOf(kind) >= 0;
+      if (list.indexOf(kind) >= 0) return true;
+      /* DEF2_CLASSCAP_V1 いま つかっている ブロックは 上限を さげても けさない */
+      return !!d2tUsed(window._pbCur ? (window._pbCur() || []) : []).t[kind];
     } catch (e) { return true; }
   }
 
@@ -338,9 +379,15 @@
 
   function d2tFoot(lv) {
     var out = '';
-    if (lv < D2T_MAXLV) {
+    if (lv < d2tCapLv()) {
       out += '<button onclick="_def2TreeLevelUp()" style="width:100%;margin-top:8px;border:0;background:#4f46e5;color:#fff;border-radius:10px;padding:8px;font-weight:900;cursor:pointer;box-shadow:0 3px 0 #3730a3;font-size:12px;">🔓 もっと つかう</button>'
         + '<div style="font-size:10px;color:#94a3b8;margin-top:3px;text-align:center;line-height:1.5;">' + esc(D2T_LVNEXT[lv] || '') + '</div>';
+    }
+    if (lv >= d2tCapLv() && d2tCapOn()) {
+      out += '<div style="margin-top:8px;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:10px;padding:8px;font-size:11px;color:#475569;font-weight:800;line-height:1.6;text-align:center;">'
+        + '🔒 つぎの ぶひんは まだ つかえないよ。<br>'
+        + 'いまの ぶひんで くふうしてみよう。あける日は 先生が きめるよ。'
+        + '</div>';
     }
     out += '<button onclick="_def2TreeReset()" style="width:100%;margin-top:6px;border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:10px;padding:6px;font-weight:900;cursor:pointer;font-size:12px;">🗑 さいしょから 作りなおす</button>'
       + '<div style="font-size:10px;color:#94a3b8;margin-top:4px;text-align:center;">じどうで ほぞんされるよ</div>';
@@ -356,6 +403,7 @@
     try {
       prog = d2tProg();
       if (!prog || !prog.length) { d2tReplace(prog, [{ t: 'a', a: 'attackBase' }]); }
+      d2tCapLoad();
       lv = d2tLevel();
       window._pbInjectCss();
       window._pbCatalogHook = d2tCatalogHook;
@@ -424,7 +472,7 @@
 
   window._def2TreeLevelUp = function () {
     var p, lv = d2tLevel();
-    if (lv >= D2T_MAXLV) return;
+    if (lv >= d2tCapLv()) return;
     try { p = progPlayer(); if (p) p.defProgLevel = lv + 1; } catch (e) { }
     _d2tTplOpen = false;
     try { if (typeof window.saveData === 'function') window.saveData(); } catch (e) { }

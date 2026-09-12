@@ -2802,6 +2802,70 @@ app.put('/api/teacher/class/:classId/sticker-toggle', async (c) => {
   return c.json({ ok: true, stickerEnabled: enabled })
 })
 
+// 🧩 2026-09: DEF2_CLASSCAP_V1 / DEF2CAP_GUARD_V1
+//   防衛戦の プログラムづくりを、クラス単位で「ここまで」に できるようにする。
+//   単元計画に あわせたいので、担任が 自分のクラスだけ レベル上限を きめられる。
+//   ・制御はこの classes.def_prog_maxlv だけ。admin_settings 側は作らない
+//     （ランキングのように2箇所で持つと「両方そろわないと効かない」罠になる）
+//   ・0 は「せいげんなし」。既定が 0 なので、きめていないクラスは これまでと同じ
+//   ・上限を さげても、子どもが すでに 置いた命令は のこす（画面側の used が のこす）
+//   ・列が まだ無い／読めないときは 0 を かえす。子どもの手を止めない
+//   ・ここでは 表も列も 作らない（リクエストパスで DDL は ぜったいに 走らせない）
+async function defProgMaxLvOfClass(env: any, classId: string): Promise<number> {
+  if (!classId) return 0
+  try {
+    const row: any = await env.DB.prepare('SELECT def_prog_maxlv AS mx FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()
+    const n = Number(row?.mx || 0)
+    return (n >= 1 && n <= 3) ? n : 0
+  } catch (e) {
+    console.error('defProgMaxLvOfClass failed:', e)
+    return 0
+  }
+}
+
+// 子どもの画面が よむ。よむだけ
+app.get('/api/defense/prog-cap', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = await defenseClassId(c.env, u.id)
+  const mx = await defProgMaxLvOfClass(c.env, classId)
+  return c.json({ ok: true, class_id: classId, max_level: mx })
+})
+
+// 先生の画面が よむ。自分のクラスぶんだけ まとめて かえす
+app.get('/api/teacher/defprog-maxlv', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const levels: any = {}
+  try {
+    const res = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT id, def_prog_maxlv AS mx FROM classes WHERE teacher_id IS NOT NULL LIMIT 500').all<any>()
+      : await c.env.DB.prepare('SELECT id, def_prog_maxlv AS mx FROM classes WHERE teacher_id = ? LIMIT 500').bind(u.id).all<any>()
+    for (const r of (res.results || [])) {
+      const n = Number((r as any).mx || 0)
+      levels[String((r as any).id)] = (n >= 1 && n <= 3) ? n : 0
+    }
+  } catch (e) {
+    console.error('defprog-maxlv list failed:', e)
+  }
+  return c.json({ ok: true, levels })
+})
+
+// 先生が きめる。0 で せいげんなしに もどせる。
+// 非管理者は AND teacher_id = ? なので、他の先生のクラスは かえられない
+app.put('/api/teacher/class/:classId/defprog-maxlv', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  let lv = Number(body?.maxLevel || 0)
+  if (!(lv >= 1 && lv <= 3)) lv = 0
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare('UPDATE classes SET def_prog_maxlv = ? WHERE id = ?').bind(lv, classId).run()
+    : await c.env.DB.prepare('UPDATE classes SET def_prog_maxlv = ? WHERE id = ? AND teacher_id = ?').bind(lv, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, defProgMaxLv: lv })
+})
+
 // クラス詳細（メンバー＋ランキング）
 app.get('/api/teacher/class/:classId/ranking', async (c) => {
   const u = requireTeacher(c)
@@ -7910,7 +7974,7 @@ app.get('/', async (c) => {
       if (!a) return c.text('index.html not found', 404)
       let t = await a.text()
       t = t.replace("👾 敵軍団（'+d.enemy_squad.length+'体）", "👾 ステージ'+(d.stage||1)+' ／ てき '+d.enemy_squad.length+'たい").replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);").replace("function genMoonSun6(){return _pickBank(_SB.ms6);}", "function genMoonSun6(){return _pickBank(_SB.ms6);}function genElectric6(){return _pickBank([{q:'手回し発電機のハンドルを速く回すと、豆電球の明るさはどうなる？',correct:'明るくなる',wrongs:['暗くなる','変わらない','消える']},{q:'コンデンサーのはたらきは？',correct:'電気をためる',wrongs:['電気を消す','音を出す','光を強くする']},{q:'同じ電気の量で長く光り続けるのはどっち？',correct:'LED',wrongs:['豆電球','どちらも同じ','どちらも光らない']},{q:'電気を「光」に変えて使う道具は？',correct:'電灯（LED・豆電球）',wrongs:['電子オルゴール','モーター','電熱線']},{q:'光電池（太陽光パネル）に強い光を当てるとどうなる？',correct:'電気が作られる',wrongs:['電気をためる','音が出る','回路が切れる']},{q:'電気を「熱」に変えて使っているものは？',correct:'電熱線（トースターなど）',wrongs:['豆電球','モーター','スピーカー']}]);}try{window.genElectric6=genElectric6;}catch(e){}function genEnvironment6(){return _pickBank([{q:'生き物どうしの「食べる・食べられる」のつながりを何という？',correct:'食物連鎖',wrongs:['光合成','蒸散','燃焼']},{q:'食物連鎖の出発点になるのは？',correct:'植物',wrongs:['草食動物','肉食動物','分解者']},{q:'植物が出し、動物が呼吸で取り入れる気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']},{q:'動物や植物が呼吸で出す気体は？',correct:'二酸化炭素',wrongs:['酸素','水素','ヘリウム']},{q:'水が蒸発→雲→雨とすがたを変えて自然をめぐることを何という？',correct:'水の循環',wrongs:['食物連鎖','光合成','発電']},{q:'人が環境を守るためにできることは？',correct:'ごみを減らす・リサイクル',wrongs:['木を全部切る','よごれた水を流す','生き物を捕りつくす']}]);}try{window.genEnvironment6=genEnvironment6;}catch(e){}function genPlant6(){return _pickBank([{q:'植物が日光を受けて養分（でんぷん）を作るはたらきを何という？',correct:'光合成',wrongs:['呼吸','蒸散','消化']},{q:'光合成に必要なものは？',correct:'日光・水・二酸化炭素',wrongs:['月の光・油','電気・砂','塩・氷']},{q:'光合成で作られる養分は？',correct:'でんぷん',wrongs:['水','二酸化炭素','酸素']},{q:'でんぷんがあるか調べる薬品は？',correct:'ヨウ素液',wrongs:['石灰水','リトマス紙','食塩水']},{q:'植物の葉から水が水蒸気となって出ていくことを何という？',correct:'蒸散',wrongs:['光合成','発芽','受粉']},{q:'光合成で植物が出す気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']}]);}try{window.genPlant6=genPlant6;}catch(e){}").replace("return '野生バトル（モンスタボールで捕まえる）';", "return (function(){try{var _a=[];for(var _k in WILD_AREA_POOLS){var _p=WILD_AREA_POOLS[_k];for(var _d in _p){if(Array.isArray(_p[_d])&&_p[_d].indexOf(id)>=0){if(_a.indexOf(_k)<0)_a.push(_k);break;}}}if(_a.length){var _S={math:'算数',jp:'国語',soc:'社会',science:'理科',sci:'理科'};var _ls=[];for(var _j=0;_j<_a.length;_j++){var _m=null;for(var _i=0;_i<PVE_AREAS.length;_i++){if(PVE_AREAS[_i].id===_a[_j]){_m=PVE_AREAS[_i];break;}}if(_m)_ls.push((_S[_m.subject]||'')+(_m.grade?'（'+_m.grade+'年）':'')+'「'+(_m.name||_a[_j])+'」');}if(_ls.length){return _ls.slice(0,2).join('／')+(_ls.length>2?('など計'+_ls.length+'か所'):'')+'の野生バトル（モンスタボールで捕まえる）';}}}catch(e){}return '野生バトル（モンスタボールで捕まえる）';})();").replace("if (m.isBoss) continue;", "if (m.isBoss) continue; if (m.uncapturable) continue;").replace("else if(f.adv>=1-CR&&enemyBaseHp>0){ structKind='base'; }", "else if(f.adv>=1-CR&&enemyBaseHp>0&&(function(){var _ff=(f.side==='A')?B:A,_fl=(f.curLn!=null?f.curLn:f.lane);for(var _k=0;_k<_ff.length;_k++){var _e=_ff[_k];if(!_e.alive||_e.hp<=0)continue;if(Math.abs(_fl-(_e.curLn!=null?_e.curLn:_e.lane))<=1.05&&(1-_e.adv)>=0.85){return false;}}return true;})()){ structKind='base'; }").replace('function _gcFight(){', '/*__PB_HASH_FIX__*/function _hash(s){s=String(s==null?"":s);var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}function _gcFight(){').replace("分子は？',ans:n}", "分子は？',ans:n/_gcd(n,d)}").replace("分母は？',ans:d}", "分母は？',ans:d/_gcd(n,d)}").replace("var base=getMonster(Number(spec.id)); if(!base) return null;", "var base=getMonster(Number(spec.id)); if(spec&&spec.raw){var R=spec.raw;base={name:R.name||'てき',sprite:R.sprite||'',buff:R.buff||'attack',elementType:(R.elementType!=null?R.elementType:'normal'),skills:(Array.isArray(R.skills)&&R.skills.length)?R.skills:[{name:'こうげき',pow:Number(R.skillPow||12),acc:0.95,element:'normal'}]};} if(!base) return null;").replace("var lvl=Math.max(1,Number(spec.level||1)); var s=getStats(base,lvl);", "var lvl=Math.max(1,Number(spec.level||1)); var s=(spec&&spec.raw)?{atk:Number(spec.raw.atk||10),def:Number(spec.raw.def||5),spd:Number(spec.raw.spd||10),hp:Number(spec.raw.hp||100),maxHp:Number(spec.raw.hp||100)}:getStats(base,lvl);").replace("window._defShowReplay=_defShowReplay;", "window._defShowReplay=_defShowReplay;window._defRenderBattle=function(rep){try{_gcReplay=rep;_gcPlayIdx=0;if(!_gcSpeed)_gcSpeed=1;_gcRenderBattle();}catch(e){}};")
-      t = t.replace("resultDiv.innerHTML = html;", "if(!window.__gachaResultOrig){ try{ window.__gachaResultOrig = resultDiv.innerHTML; }catch(e){} } resultDiv.innerHTML = html;").replace("const resDiv = document.getElementById('gachaResult');", "const resDiv = document.getElementById('gachaResult'); try{ if(!document.getElementById('gachaResultSprite') && window.__gachaResultOrig){ resDiv.innerHTML = window.__gachaResultOrig; } }catch(e){}").replace("const ans = (trainingQ && trainingQ.ans !== undefined) ? String(trainingQ.ans) : '';", "let ans = ''; if (trainingQ && trainingQ.ans !== undefined) { if (trainingQ.options && typeof trainingQ.ans === 'number' && trainingQ.options[trainingQ.ans] != null) { ans = String(trainingQ.options[trainingQ.ans]); } else { ans = String(trainingQ.ans); } }").replace("return FALLBACK[k] || k;", "try{ if(typeof CURRICULUM !== 'undefined' && CURRICULUM){ for(const _sk of Object.keys(CURRICULUM)){ const _sj = CURRICULUM[_sk]; if(!_sj || !_sj.grades) continue; for(const _gk of Object.keys(_sj.grades)){ const _us = _sj.grades[_gk] && _sj.grades[_gk].units; if(!_us) continue; for(const _uu of _us){ if(_uu && _uu.id === k && _uu.name) return _uu.name; } } } } }catch(e){} return FALLBACK[k] || k;"); t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=16"></script><script src="/g8core.js?v=2"></script><script src="/g8math.js?v=1"></script><script src="/g8eng.js?v=1"></script><script src="/g8sci.js?v=1"></script><script src="/g8soc.js?v=1"></script><script src="/g8jp.js?v=1"></script><script src="/g8wild.js?v=1"></script><script src="/g9core.js?v=2"></script><script src="/g9math.js?v=1"></script><script src="/g9eng.js?v=1"></script><script src="/g9sci.js?v=1"></script><script src="/g9soc.js?v=1"></script><script src="/g9jp.js?v=1"></script><script src="/g9wild.js?v=1"></script><script src="/g10core.js?v=2"></script><script src="/g10math.js?v=1"></script><script src="/g10sci.js?v=1"></script><script src="/g10soc.js?v=1"></script><script src="/g10wild.js?v=2"></script><script src="/hanshin_advice2.js?v=1"></script></body>')
+      t = t.replace("resultDiv.innerHTML = html;", "if(!window.__gachaResultOrig){ try{ window.__gachaResultOrig = resultDiv.innerHTML; }catch(e){} } resultDiv.innerHTML = html;").replace("const resDiv = document.getElementById('gachaResult');", "const resDiv = document.getElementById('gachaResult'); try{ if(!document.getElementById('gachaResultSprite') && window.__gachaResultOrig){ resDiv.innerHTML = window.__gachaResultOrig; } }catch(e){}").replace("const ans = (trainingQ && trainingQ.ans !== undefined) ? String(trainingQ.ans) : '';", "let ans = ''; if (trainingQ && trainingQ.ans !== undefined) { if (trainingQ.options && typeof trainingQ.ans === 'number' && trainingQ.options[trainingQ.ans] != null) { ans = String(trainingQ.options[trainingQ.ans]); } else { ans = String(trainingQ.ans); } }").replace("return FALLBACK[k] || k;", "try{ if(typeof CURRICULUM !== 'undefined' && CURRICULUM){ for(const _sk of Object.keys(CURRICULUM)){ const _sj = CURRICULUM[_sk]; if(!_sj || !_sj.grades) continue; for(const _gk of Object.keys(_sj.grades)){ const _us = _sj.grades[_gk] && _sj.grades[_gk].units; if(!_us) continue; for(const _uu of _us){ if(_uu && _uu.id === k && _uu.name) return _uu.name; } } } } }catch(e){} return FALLBACK[k] || k;"); t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=17"></script><script src="/g8core.js?v=2"></script><script src="/g8math.js?v=1"></script><script src="/g8eng.js?v=1"></script><script src="/g8sci.js?v=1"></script><script src="/g8soc.js?v=1"></script><script src="/g8jp.js?v=1"></script><script src="/g8wild.js?v=1"></script><script src="/g9core.js?v=2"></script><script src="/g9math.js?v=1"></script><script src="/g9eng.js?v=1"></script><script src="/g9sci.js?v=1"></script><script src="/g9soc.js?v=1"></script><script src="/g9jp.js?v=1"></script><script src="/g9wild.js?v=1"></script><script src="/g10core.js?v=2"></script><script src="/g10math.js?v=1"></script><script src="/g10sci.js?v=1"></script><script src="/g10soc.js?v=1"></script><script src="/g10wild.js?v=2"></script><script src="/hanshin_advice2.js?v=1"></script></body>')
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
@@ -10454,6 +10518,9 @@ app.get('/teacher', (c) => {
         try{ data = await api('/api/teacher/classes'); }
         catch(e){ wrap.innerHTML='<p class="text-sm text-red-600">読み込みエラー</p>'; return; }
         wrap.innerHTML='';
+        // DEF2_CLASSCAP_V1 クラスごとの「ここまで」を まとめて よむ。よめなくても 表示は 止めない
+        try{ const _dpcAll = await api('/api/teacher/defprog-maxlv'); window.__defProgMaxLv = (_dpcAll && _dpcAll.levels) || {}; }
+        catch(e){ window.__defProgMaxLv = {}; }
         if(!data.classes.length){ wrap.innerHTML='<p class="text-sm text-slate-400 bg-white rounded-xl shadow p-4">クラスはまだありません。上から作成してください。</p>'; return; }
 
         // クラスフィルター選択肢を更新（全セレクトで最初のクラスを自動選択）
@@ -10603,6 +10670,27 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(stkBtn);
+
+          // ══════ 🧩 DEF2_CLASSCAP_V1 防衛戦プログラムの「ここまで」（既定はせいげんなし） ══════
+          const dpcSel = document.createElement('select');
+          dpcSel.className = 'text-xs px-2 py-1 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-300';
+          dpcSel.title = '防衛戦のプログラムづくりで、このクラスの子が ひろげられる レベルの上限です。「せいげんなし」は これまでどおり 子どもが自分で ひろげられます。上限を下げても、もう置いてある命令は消えません。';
+          dpcSel.innerHTML = '<option value="0">🧩 プログラム せいげんなし</option>'
+            + '<option value="1">🧩 プログラム レベル1まで</option>'
+            + '<option value="2">🧩 プログラム レベル2まで</option>'
+            + '<option value="3">🧩 プログラム レベル3まで</option>';
+          dpcSel.value = String((window.__defProgMaxLv && window.__defProgMaxLv[cls.id]) || 0);
+          dpcSel.onchange = async ()=>{
+            const v = Number(dpcSel.value || 0);
+            try{
+              await api('/api/teacher/class/'+cls.id+'/defprog-maxlv',{
+                method:'PUT', headers:{'content-type':'application/json'},
+                body: JSON.stringify({maxLevel: v})
+              });
+              if(window.__defProgMaxLv) window.__defProgMaxLv[cls.id] = v;
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(dpcSel);
 
           // ====== 全メニュー表示トグル ======
           const menusDivider = document.createElement('div');
