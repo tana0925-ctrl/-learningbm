@@ -3,7 +3,7 @@
 //   レベル50・星と つかれは なし・上限つき。つまり モンスターの番号だけで つよさが きまる。
 //   だから「番号 → つよさ」の 表に できる。サーバは 図鑑を 持てないので この表を つかう。
 //   もとは public/index.html（図鑑）と public/defstage_monsters.js（げんていキャラ）と
-//   src/index.tsx（ものさし）。この3つから 毎回 作り直して 突き合わせる。
+//   src/index.tsx（ものさし・番号の つけかえ）。この4つから 毎回 作り直して 突き合わせる。
 import fs from 'node:fs'
 
 const NL = String.fromCharCode(10)
@@ -38,7 +38,35 @@ const W = {}
 if (typeof W.defNorm !== 'function') { console.log('NG: ものさしが 動かない'); process.exit(1) }
 
 const byId = {}
-for (const m of MON) { if (m && m.id != null && byId[m.id] == null) byId[m.id] = m }
+const shadow = []
+for (const m of MON) {
+  if (!m || m.id == null) continue
+  if (byId[m.id] == null) byId[m.id] = m
+  else shadow.push(m.id + String.fromCharCode(58) + m.name)
+}
+
+// __DEF_DEX_ALIAS_V1__ つなぎが 配信のときに 番号を つけかえている 子たち。
+//   もとの ファイルでは 先に いる 別の子に 番号を とられていて、そのままでは 見えない。
+//   本番と 同じ番号で 表に 入れ直す。つなぎに その つけかえが 本当に あるかも 見る。
+const ALIAS = [[1511, 'ソンケイ'], [1512, 'ソンケーン'], [1513, 'ソンケーア'], [1514, 'ネンリキ'], [1515, 'まるやまード']]
+let aliased = 0
+for (const pair of ALIAS) {
+  const nid = pair[0]
+  const nm = pair[1]
+  const hit = MON.filter(m => m && m.name === nm)
+  if (hit.length !== 1) { console.log('NG: ' + nm + ' が ' + hit.length + ' 体（1体でないので中止）'); process.exit(1) }
+  if (idx.indexOf(' ' + nid + ';') < 0 && idx.indexOf('id: ' + nid + ',') < 0) { console.log('NG: つなぎに ' + nid + ' への つけかえが ない'); process.exit(1) }
+  if (byId[nid] != null) { console.log('NG: ' + nid + ' は すでに ふさがっている'); process.exit(1) }
+  const cp = {}
+  for (const k in hit[0]) cp[k] = hit[0][k]
+  cp.id = nid
+  byId[nid] = cp
+  aliased++
+}
+console.log('つけかえ ' + aliased + ' 体 / かさなり ' + shadow.length + ' 件 ' + shadow.join(' '))
+if (aliased !== 5) { console.log('NG: つけかえの 数が ちがう'); process.exit(1) }
+if (shadow.length !== 7) { console.log('NG: かさなりの数が かわった（つけかえの 表を 見直すこと）'); process.exit(1) }
+
 const keys = Object.keys(byId).map(Number).sort((x, y) => x - y)
 console.log('図鑑 ' + keys.length + ' 体 / 読みとばした かたまり ' + skipped)
 if (keys.length < 400) { console.log('NG: 図鑑が 少なすぎる'); process.exit(1) }
