@@ -1,77 +1,60 @@
-=== ユニットの こうげき まわり
---- atkCd hits=2
-   46924: enemyBase: { x:W-90, y:70, r:8, speed:1.72, dirX:-1, dirY:0, sprite: bossSprite, hp: enemyBaseHP, maxHp: enemyBaseHP, atkCd:0, shootCd:0, moveCd:0, team:2, isParent:true },
-   47810: b.atkCd = Math.max(0, (b.atkCd||0)-dt);
---- atkInterval hits=22
-   38815: const atkInterval = clamp(1000 - spd*4, 380, 1000);
-   38817: hpMax:hp, hp, atk, def, move, atkInterval, cost,
-   38852: const atkInterval = clamp(1000 - spd*4, 380, 1000);
-   38853: return { kind:'monster', id, name: mon.name||'モンスター', sprite: mon.sprite||'❓', buff:(mon.buff||'lucky'), elementType:(mon.elementType||'normal'), hpMax:hp, hp, atk, def, move, atkInterval, cost,
-   38860: {key:'pig',   name:'コブタ',   sprite:'🐗', hp:120, atk:18, def:10, move:18, atkInterval:900,  buff:'attack', elementType:'ground'},
-   38861: {key:'bat',   name:'コウモリ', sprite:'🦇', hp:80,  atk:14, def:8,  move:26, atkInterval:760,  buff:'speed',  elementType:'dark'},
-   38862: {key:'snake', name:'ヘビ',     sprite:'🐍', hp:110, atk:16, def:9,  move:22, atkInterval:840,  buff:'guard',  elementType:'poison'},
-   38863: {key:'ghost', name:'オバケ',   sprite:'👻', hp:140, atk:20, def:10, move:16, atkInterval:920,  buff:'attack', elementType:'ghost'},
-   38864: {key:'robot', name:'ロボ',     sprite:'🤖', hp:180, atk:26, def:14, move:14, atkInterval:980,  buff:'guard',  elementType:'steel'}];
-   38940: // 既存の大戦用パラメータ（move/atkIntervalがpx/ミリ秒）
-   38959: const atkInterval = Math.max(620, Math.min(1200, 980 - baseSpd*180)); // 980..620
-   38971: atkInterval,
-   39220: atkInterval: clamp(built.atkInterval * (1.02 - Math.min(0.35, (cfg.idx||0)*0.005)), 380, 1400),
-   39240: atkInterval: clamp(b.atkInterval * (1.02 - Math.min(0.35, (cfg.idx||0)*0.005)), 380, 1400)
---- atkSpeed hits=0
---- u.atk hits=9
-   14638: u.atk = 1;
-   18136: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
-   18939: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
-   19228: u.hp = 1; u.maxHp = 1; u.atk = 1; u.def = 1; u.spd = 1;
-   39982: u.atk = num(u.atk, 10);
-   39985: u.atkInterval = num(u.atkInterval, 900);
-   41393: const atkInt = num(u.atkInterval, 900) * warAtkIntMul(u, now);
-   41440: const a = Math.round(num(u.atk,10) * warAtkMul(u, now));
-   41450: const a = Math.round(num(u.atk,10) * warAtkMul(u, now));
---- attackCd hits=0
-=== ステージの てき
---- enemyCastleHpMax: hits=1
-   38101: enemyCastleHp:600, enemyCastleHpMax:600,
---- playerCastleHpMax: hits=1
-   38100: playerCastleHp:600, playerCastleHpMax:600,
---- hpMul hits=2
-   34046: const hpMult = loopStatMult;
-   34050: stats.hp = Math.floor(stats.hp * hpMult);
---- atkMul hits=2
-   34047: const atkMult = loopStatMult;
-   34051: stats.atk = Math.floor(stats.atk * atkMult);
-=== てきの もとデータ（hp と atk が ならぶ ところ）
-   5430: const counts = { hp:0, atk:0, def:0, spd:0 };
-   5475: const PARTY_TRAIT_BONUS_PER_LINK = { hp: 200, atk: 30, def: 30, spd: 15 };
-   5512: ids.forEach(id=>{ map[id] = { link:0, hp:0, atk:0, def:0, spd:0 }; });
-   5540: const COMBAT_POWER_WEIGHTS = { hp: 0.35, atk: 18, def: 15, spd: 10 };
-   5587: base:  { hp: 1, maxHp: 1, atk: 1, def: 1, spd: 1 },
-   5588: bonus: { hp: 0, maxHp: 0, atk: 0, def: 0, spd: 0 },
-   5589: total: { hp: 1, maxHp: 1, atk: 1, def: 1, spd: 1 },
-   5590: counts: (applied && applied.counts) ? applied.counts : { hp:0, atk:0, def:0, spd:0 }
-   6378: MONSTERS.push({ id: idCounter++, name: fam[0], sprite: fam[3], hp: 30 + i, atk: 5 + (i / 2.5) | 0, def: baseDef, spd: baseSpd, buff: buff, elementType: elementType, evoLevel: null, nextId: null, stage
-   6379: MONSTERS.push({ id: idCounter++, name: fam[1], sprite: fam[4], hp: 55 + Math.floor(i * 1.6), atk: 12 + (i / 1.8) | 0, def: Math.floor(baseDef * 1.8), spd: Math.floor(baseSpd * 1.8), buff: buff, elemen
-   6380: MONSTERS.push({ id: idCounter++, name: fam[2], sprite: fam[5], hp: 100 + Math.floor(i * 2.5), atk: 22 + (i / 1.2) | 0, def: Math.floor(baseDef * 3), spd: Math.floor(baseSpd * 3), buff: buff, elementTy
-   6382: MONSTERS.push({ id: 151, name: 'ミユウ', sprite: '🎀', hp: 300, atk: 50, def: 50, spd: 50, buff: 'lucky', elementType: 'psychic', rarity: 6, stage: 1, desc: '幻のポケモン的な存在。全ての技を使えるわけではない。リボンが本体という説がある。 【入手】1
-   hp/atk ならぶ 行 = 306
-   hp min/中央/max = 0 250 9999
-=== 対比較：段も 編成も 同じ、beamDamageLevel だけ かえる
-  いま 0.0004 : Lv1=0.12 / Lv100=0.1596 / Lv100は Lv1の 1.33 ばい
-  あん1 0.00075 スタンと そろえる : Lv1=0.12 / Lv100=0.19425 / Lv100は Lv1の 1.619 ばい
-  あん2 0.0012 チャージと そろえる : Lv1=0.12 / Lv100=0.2388 / Lv100は Lv1の 1.99 ばい
-=== ほかの きょうか（1レベルあたり 何% のびるか）
-  ビーム1 チャージ : 2 + 0.02/Lv  -> Lv100 3.98  (1.99ばい, 1レベル +1.000%)
-  ビーム2 いりょく : 0.12 + 0.0004/Lv -> Lv100 0.1596 (1.33ばい, 1レベル +0.333%)
-  ビーム3 スタン   : 800 + 5/Lv -> Lv100 1295ms (1.62ばい, 1レベル +0.625%)
-  しろレベル       : +5HP/Lv -> Lv100 +495 (もとHP600なら 1.83ばい, 1レベル +0.833%)
-  しゅつげき上限   : 7 + 1/かい -> 最大20 (2.86ばい, 13かい)
-  パワー上限       : 200 + 50/かい -> 700 (3.5ばい, 10かい)
-  パワー回復       : 2 + 0.3/かい -> 5 (2.5ばい, 10かい)
-=== 1はつの ビームで てきの 最大HPの 何%を けずるか
-  いま   : Lv1=12.0% / Lv26=13.0% / Lv74=14.92% / Lv94=15.72% / Lv100=15.96%
-  あん1  : Lv1=12.0% / Lv26=13.87% / Lv74=17.47% / Lv94=18.98% / Lv100=19.42%
-  あん2  : Lv1=12.0% / Lv26=15.0% / Lv74=20.76% / Lv94=23.16% / Lv100=23.88%
-=== ビームだけで てきを たおすのに 何ぱつ いるか
-  いま   : Lv1=9はつ / Lv74=7はつ / Lv100=7はつ
-  あん1  : Lv1=9はつ / Lv74=6はつ / Lv100=6はつ
-  あん2  : Lv1=9はつ / Lv74=5はつ / Lv100=5はつ
+live status = 200
+=== ながさ
+  素の public/index.html = 5671000
+  配信 HTML              = 5713034
+  さ                      = +42034
+  catch に 落ちて いない か = OK
+  チェーン = 98
+=== ビーム2 の のび（配信されている もの）
+  const BEAM_RATIO_BASE = 0.12;
+  const BEAM_RATIO_PER_LEVEL = 0.0012; // Lv100で約+0.1188
+  const BEAM_RATE_PER_LEVEL = 0.02; // Lv100で約+1.98
+  const BEAM_STUN_PER_LEVEL = 5; // Lv100で+495ms
+  const CASTLE_HP_PER_LEVEL = 5; // Lv1=+0, Lv100=+495
+  しき: OK
+  0.0004 が のこって いない か: OK
+=== 対比較：おなじ てき・おなじ 段・beamDamageLevel だけ かえる（配信されている しき）
+  Lv1 : ratio=0.12 / てきHP250 1はつ=30 / てきHP900 1はつ=108 / Lv1の 1.0ばい
+  Lv3 : ratio=0.1224 / てきHP250 1はつ=30 / てきHP900 1はつ=110 / Lv1の 1.02ばい
+  Lv5 : ratio=0.1248 / てきHP250 1はつ=31 / てきHP900 1はつ=112 / Lv1の 1.04ばい
+  Lv6 : ratio=0.126 / てきHP250 1はつ=31 / てきHP900 1はつ=113 / Lv1の 1.05ばい
+  Lv7 : ratio=0.1272 / てきHP250 1はつ=31 / てきHP900 1はつ=114 / Lv1の 1.06ばい
+  Lv11 : ratio=0.132 / てきHP250 1はつ=33 / てきHP900 1はつ=118 / Lv1の 1.1ばい
+  Lv22 : ratio=0.1452 / てきHP250 1はつ=36 / てきHP900 1はつ=130 / Lv1の 1.21ばい
+  Lv23 : ratio=0.1464 / てきHP250 1はつ=36 / てきHP900 1はつ=131 / Lv1の 1.22ばい
+  Lv26 : ratio=0.15 / てきHP250 1はつ=37 / てきHP900 1はつ=135 / Lv1の 1.25ばい
+  Lv31 : ratio=0.156 / てきHP250 1はつ=39 / てきHP900 1はつ=140 / Lv1の 1.3ばい
+  Lv43 : ratio=0.1704 / てきHP250 1はつ=42 / てきHP900 1はつ=153 / Lv1の 1.42ばい
+  Lv74 : ratio=0.2076 / てきHP250 1はつ=51 / てきHP900 1はつ=186 / Lv1の 1.73ばい
+  Lv94 : ratio=0.2316 / てきHP250 1はつ=57 / てきHP900 1はつ=208 / Lv1の 1.93ばい
+  Lv100 : ratio=0.2388 / てきHP250 1はつ=59 / てきHP900 1はつ=214 / Lv1の 1.99ばい
+=== こわして いない か（配信 HTML の 中）
+  OK 2  ゾンビでは よわりモード
+  OK 1  if(false && warState.zombieMode
+  NG 0  __DEFSTAGE_SENTINEL_V1__
+  NG 0  __DEF_MVP_V1__
+  OK 1  DEF_LV50_V1
+  OK 1  foeLaneMix
+  NG 0  __DEFBOSS_V1
+  OK 1  defstage_monsters.js
+  OK 1  def_join_nudge.js
+  NG 0  HS_NEXT_RECALL_V1
+  NG 0  __S6WORLD_50__
+  NG 0  __H6MERGE_SRC_V1__
+  OK 1  __H6BANK_LIVE_V1__
+  NG 0  __H6U11_BOOST_V1__
+  OK 1  ゾンビしゅうらいは じゅんばんに すすむよ！
+  OK 1  zUnlocked = (progress.unlocked || 1)
+  OK 2  startZombieWarFromPreview
+  きんしの グレーアウトが 消えて いる: OK
+=== defense2.js の 番兵（配信とは べつファイル）
+  OK 3  DEF2TRY_
+  OK 1  DEF2SEND_GUARD_V1_MARK
+  OK 3  DEF2TPL_LEARN_V1
+  OK 1  DEF2TALLY_TREE_V2
+=== 数のやくそく
+  基地HP 380 : 30 けん（文字として）
+    var BASES=!!opts.bases; var baseMax=Number(opts.baseHp||380), baseHpA=baseMax, baseHpB=baseMax; var points=[], captures=[];
+  ensureDefenseTables() の よびだし = 0
+  ensureDefenseTables の でてくる 回数 (live/src) = 0 / 1
+    しょうりコイン らしき 行: winCoins: 120,   // 復習バトル1勝ごとのボーナスコイン
