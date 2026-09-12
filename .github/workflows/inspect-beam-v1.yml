@@ -1,0 +1,29 @@
+name: inspect-beam-v1 (read only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: shirabe
+        run: |
+          mkdir -p docs
+          python3 scripts/inspect_beam_v1.py > docs/beam_inspect.txt 2>&1
+          wc -l docs/beam_inspect.txt
+
+      - name: oku
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/beam_inspect.txt
+          git commit -m 'inspect: beam' || echo nochange
+          git pull --rebase origin main
+          git push origin HEAD:main
