@@ -187,6 +187,87 @@ function defMvpAwards(rep, ents, kwrote) {
   } catch (_e) { return null }
 }
 
+// __DEF_LOG_FIT_V1__ きろくが 大きすぎると 'null' が のこって、クラス全員が リプレイを 見られなくなる。
+// そうならないように、上限を こえたときだけ コマを まびいて 入る大きさに する。
+// 1コマは それだけで その瞬間の ぜんぶ（HP・いち・きち）を もっている（さしぶんでは ない）ので、
+// まびいても のこった コマだけで 絵が つながる。
+// かちまけ・きちHP・ひょうしょう は ここへ来る前に もう きまっている。ここでは さわらない。
+const DEF_LOG_LIMIT = 900000
+const DEF_LOG_TARGET = 860000
+
+// もとの きろくは 書きかえない。うわべだけ 写して コマを さしかえた 入れものを 返す。
+function defLogSwap(log, kept, allN) {
+  const rep = log.replay
+  const r2 = {}
+  for (const p in rep) r2[p] = rep[p]
+  r2.events = kept
+  if (allN != null) r2.thin = { v: 1, kept: kept.length, all: allN }
+  const l2 = {}
+  for (const q in log) l2[q] = log[q]
+  l2.replay = r2
+  return l2
+}
+
+// のこす コマを えらぶ。たおれた コマと さいごの コマは かならず のこす。
+// あとは はじめから おわりまで 等間かくで ひろう（前だけ のこると 絵が とちゅうで 止まるため）。
+function defLogPick(evs, keepN) {
+  const n = evs.length
+  if (keepN >= n) return evs
+  const mark = new Array(n)
+  let used = 0
+  let i = 0
+  const deads = []
+  for (i = 0; i < n; i++) if (evs[i] && evs[i].dead) deads.push(i)
+  if (deads.length <= Math.floor(keepN / 2)) {
+    for (i = 0; i < deads.length; i++) if (!mark[deads[i]]) { mark[deads[i]] = 1; used++ }
+  }
+  if (!mark[n - 1]) { mark[n - 1] = 1; used++ }
+  const rest = keepN - used
+  if (rest > 0) {
+    const step = n / rest
+    for (i = 0; i < rest; i++) {
+      let p = Math.floor(i * step)
+      if (p >= n) p = n - 1
+      let q = p
+      let guard = 0
+      while (q < n && mark[q] && guard++ < n) q++
+      if (q >= n) { q = p; while (q >= 0 && mark[q]) q-- }
+      if (q >= 0 && q < n && !mark[q]) { mark[q] = 1; used++ }
+    }
+  }
+  const out = []
+  for (i = 0; i < n; i++) if (mark[i]) out.push(evs[i])
+  return out
+}
+
+// 入る大きさの きろくを 返す。どうしても 入らないときだけ null。
+// こわれた JSON は ぜったいに 返さない（切り詰めは しない。コマごと まびく）。
+export function defLogFit(log) {
+  let json = null
+  try { json = JSON.stringify(log) } catch (_e) { return null }
+  if (!json) return null
+  if (json.length <= DEF_LOG_LIMIT) return json
+  const rep = log && log.replay
+  const evs = (rep && Array.isArray(rep.events)) ? rep.events : null
+  if (!evs || evs.length < 2) return null
+  let head = 0
+  try { head = JSON.stringify(defLogSwap(log, [], null)).length } catch (_e) { return null }
+  const budget = DEF_LOG_TARGET - head
+  if (budget < 1000) return null
+  const avg = Math.max(1, (json.length - head) / evs.length)
+  let keepN = Math.floor(budget / avg)
+  for (let pass = 0; pass < 6; pass++) {
+    if (keepN < 1) keepN = 1
+    const kept = defLogPick(evs, keepN)
+    let out = null
+    try { out = JSON.stringify(defLogSwap(log, kept, evs.length)) } catch (_e) { return null }
+    if (out && out.length <= DEF_LOG_LIMIT) return out
+    keepN = Math.floor(keepN * 0.75)
+    if (keepN < 1) break
+  }
+  return null
+}
+
 export async function defServerResolve(env, st, classId, enemies) {
   try {
     if (!st || !st.eventKey || !classId) return null
@@ -273,9 +354,9 @@ export async function defServerResolve(env, st, classId, enemies) {
       replay: rep,
       server: true
     }
-    const logJson = JSON.stringify(log)
-    // 切り詰めると壊れた JSON を保存してしまうので、大きすぎたら諦めて今まで通りに流す
-    if (!logJson || logJson.length > 900000) return null
+    const logJson = defLogFit(log)
+    // 入らないときは コマを まびいて 入る形に する。こわれた JSON は のこさない。
+    if (!logJson || logJson.length > DEF_LOG_LIMIT) return null
     return { result: result, baseHpEnd: baseHpEnd, logJson: logJson, seed: seed, entries: ents.length, mvpLedger: (_mv && _mv.ledger) ? _mv.ledger : null }
   } catch (_e) {
     return null

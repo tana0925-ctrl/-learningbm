@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
-import { defServerResolve, defEntryOk } from './def_resolve'
+import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
 
 // __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
 // 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
@@ -2280,7 +2280,8 @@ app.post('/api/defense/resolve', async (c) => {
   // __DEF_LOG_NOTRUNC_V1__ 切り詰めると壊れた JSON を保存してしまい、クラス全員がリプレイを見られなくなる。
   // サーバ経路と同じ上限。超えたときだけ諦めて 'null' を入れる（切れた文字列は保存しない）。
   const _lnFull = JSON.stringify(body.log || null)
-  const logJson = (_lnFull && _lnFull.length <= 900000) ? _lnFull : 'null'
+  // __DEF_LOG_FIT_V1__ 入らないときは コマを まびいて 入れる（'null' に しない）
+  const logJson = (_lnFull && _lnFull.length <= 900000) ? _lnFull : (defLogFit(body.log) || 'null')
   const baseHpEnd = Math.max(0, Math.floor(Number(body.base_hp_end || 0)))
   // __DEF_RESOLVE_VERIFY_V1__ 送られてきた log と付き合わせて、矛盾する申告をはじく（切り詰める前の body.log を見る）
   const _dvFnv = (x: any) => { const s = String(x == null ? '' : x); let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) } return h >>> 0 }
