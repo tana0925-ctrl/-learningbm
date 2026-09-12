@@ -1,0 +1,12 @@
+needle:·'stage·-·1'
+===·public/index.html·hits:·1
+19123·'····················else·if·(battle.difficulty·===·2)·eLvl·=·Math.min(100,·Math.max(5,·playerLevel·-·2)·+·Math.floor(Math.random()·*·4));'
+19124·'····················else·eLvl·=·Math.min(100,·Math.max(10,·playerLevel·+·1)·+·Math.floor(Math.random()·*·5));'
+19125·'················}'
+19126·'················if·(m·&&·m.stage)·eLvl·=·Math.min(100,·eLvl·+·(m.stage·-·1)·*·2);'
+19127·'············}'
+19128·'············'
+19129·'············//·通常出現（1〜150中心／激レア含む）は、enemyId·が無いときだけ決める'
+-----
+===·public/defense2.js·hits:·0
+===·src/index.tsx·hits:·0
