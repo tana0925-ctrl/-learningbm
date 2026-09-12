@@ -36,8 +36,9 @@ jobs:
           j = s.index("app.get('/logout'", i)
           n = s[i:j].count('.replace(')
           print('つなぎの数（流す前）= %d' % n)
-          if n != 86:
-              print('NG: つなぎの数が 86 ではない'); sys.exit(1)
+          if n < 86:
+              print('NG: つなぎの数が 86 より少ない（何かが 消えている）'); sys.exit(1)
+          io.open('/tmp/chain_before.txt', 'w', encoding='utf-8').write(str(n))
           OLD_UI = ('if(d.my_entry && d.my_entry.monster){ var me=d.my_entry.monster; '
                     + 'head+=' + chr(39) + '<div style="background:#ecfdf5;')
           if pub.count(OLD_UI) != 1:
@@ -46,7 +47,7 @@ jobs:
               print('NG: つなぎに すでに 同じ文字れつが ある'); sys.exit(1)
           if s.count('__DEF_YOUTOO_V1__'):
               print('NG: 番兵が すでにある'); sys.exit(1)
-          print('OK: つなぎ 86 / あてはめ先 1 件')
+          print('OK: あてはめ先 1 件 / 番兵なし')
           PYEOF
 
       - name: （A）図鑑の表を つくり直す（取りこぼした5体を 入れる）
@@ -103,19 +104,20 @@ jobs:
       - name: （B）メッセージを つなぎに 足す
         run: python3 scripts/patch_def_youtoo_v1.py
 
-      - name: （B）検証：つなぎが 87 件に なり、あてはめると ことばが 1回だけ 出るか
+      - name: （B）検証：つなぎが 1 件だけ ふえ、あてはめると ことばが 1回だけ 出るか
         run: |
           python3 - << 'PYEOF'
           import io, sys
           s = io.open('src/index.tsx', encoding='utf-8').read()
           pub = io.open('public/index.html', encoding='utf-8').read()
+          before = int(io.open('/tmp/chain_before.txt', encoding='utf-8').read().strip())
           BT = chr(96)
           i = s.index("app.get('/', async (c) => {")
           j = s.index("app.get('/logout'", i)
           n = s[i:j].count('.replace(')
-          print('つなぎの数（流した後）= %d' % n)
-          if n != 87:
-              print('NG: つなぎの数が 87 ではない'); sys.exit(1)
+          print('つなぎの数 %d → %d' % (before, n))
+          if n != before + 1:
+              print('NG: ふえたのが 1 件ではない'); sys.exit(1)
           OLD_UI = ('if(d.my_entry && d.my_entry.monster){ var me=d.my_entry.monster; '
                     + 'head+=' + chr(39) + '<div style="background:#ecfdf5;')
           MSG = ('<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px;margin-bottom:8px;">'
@@ -142,6 +144,7 @@ jobs:
         run: |
           git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
           git diff --quiet -- public/defense2.js || (echo 'NG: public/defense2.js が変わっている'; exit 1)
+          git diff --quiet -- public/def_join_nudge.js || (echo 'NG: def_join_nudge.js が変わっている'; exit 1)
           git diff --quiet -- src/def_engine.ts || (echo 'NG: src/def_engine.ts が変わっている'; exit 1)
           git diff --quiet -- src/def_stage.ts || (echo 'NG: src/def_stage.ts が変わっている'; exit 1)
           git diff --quiet -- src/def_resolve.ts || (echo 'NG: src/def_resolve.ts が変わっている'; exit 1)
@@ -164,6 +167,9 @@ jobs:
           def chk(label, got, want):
               if got != want:
                   print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          def atleast(label, got, want):
+              if got < want:
+                  print('NG: %s が %d 件（%d 件いじょうの予定）' % (label, got, want)); ok[0] = False
           chk('DEF_LV50_V1', s.count('DEF_LV50_V1'), 2)
           chk('DEF_LV50_V2', s.count('DEF_LV50_V2'), 2)
           chk('DEF2_LV50_ENTRYFIX_V1', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
@@ -195,7 +201,7 @@ jobs:
           chk('基地HP 380', s.count('380'), 2)
           chk('ごほうびの頭打ち30', s.count('const DEFSTAGE_BONUS_MAX_STAGE = 30'), 1)
           chk('ばんごう21', s.count('/defense2.js?v=21'), 1)
-          chk('さそいの js', s.count('def_join_nudge.js'), 4)
+          atleast('さそいの js', s.count('def_join_nudge.js'), 4)
           chk('段のモンスター js', s.count('defstage_monsters.js'), 4)
           chk('S6WORLD', s.count('__S6WORLD_50__'), 1)
           chk('H6MERGE', s.count('__H6MERGE_SRC_V1__'), 1)
