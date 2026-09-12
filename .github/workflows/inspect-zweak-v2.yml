@@ -1,0 +1,44 @@
+name: INSPECT ZWEAK V2 (しらべた結果を docs に書き出す)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: さぎょうツリーを きれいにする
+        run: git checkout -- .
+
+      - name: origin/main に おいつく
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - name: しらべる（docs にだけ 書き出す）
+        run: python3 scripts/inspect_zweak_v2.py
+
+      - name: src と public が 無傷か たしかめる
+        run: |
+          git diff --quiet -- src || (echo 'NG: src が 変わっている'; exit 1)
+          git diff --quiet -- public || (echo 'NG: public が 変わっている'; exit 1)
+          git status --porcelain
+
+      - name: docs だけ コミットして push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/zweak_probe_v1.txt
+          if git diff --cached --quiet; then
+            echo 'かわりなし'; exit 0
+          fi
+          git commit -m 'INSPECT_ZWEAK_V2: probe report'
+          git pull --rebase origin main
+          git push origin HEAD:main
