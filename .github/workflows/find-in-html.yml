@@ -1,0 +1,52 @@
+name: find-in-html (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      needle:
+        description: sagasu moji
+        required: true
+        default: 'stage - 1'
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: sagasu
+        env:
+          NEEDLE: ${{ inputs.needle }}
+        run: |
+          python3 - << 'PYEOF' > /tmp/find.txt
+          import os
+          q = os.environ['NEEDLE']
+          print('needle:', repr(q))
+          for path in ['public/index.html', 'public/defense2.js', 'src/index.tsx']:
+              try:
+                  lines = open(path, encoding='utf-8', errors='ignore').read().split(chr(10))
+              except OSError:
+                  continue
+              hits = [k for k, L in enumerate(lines) if q in L]
+              print('===', path, 'hits:', len(hits))
+              for k in hits[:20]:
+                  for mm in range(max(0, k - 3), min(len(lines), k + 4)):
+                      print(mm + 1, repr(lines[mm]))
+                  print('-----')
+          PYEOF
+          mkdir -p docs
+          python3 -c "d=open('/tmp/find.txt',encoding='utf-8').read();open('docs/find_result.txt','w',encoding='utf-8').write(d.replace(chr(32),chr(183)))"
+          cat /tmp/find.txt
+
+      - name: oku
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/find_result.txt
+          git commit -m 'find: result' || echo nochange
+          git pull --rebase origin main
+          git push origin HEAD:main
