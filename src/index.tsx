@@ -2017,11 +2017,14 @@ app.get('/api/defense/status', async (c) => {
           try { _dsM = JSON.parse(String(_dsRow.mj)) } catch (_e2) {}
           out.my_entry = { monster: _dsM, strategy: String(_dsRow.strat || 'balance') }
           out.carried_over = true
-          if (Number(_dsRow.curlv || 0) > Number(_dsRow.lv || 0)) out.carry_over_stale = true
+          // __DEF_LV50_V2__ ふるい ものさしの ときだけ 撮りなおす（レベルが 上がっても もう 撮りなおさない）
+          if (!(_dsM && Number(_dsM.dn) === 1)) out.carry_over_stale = true
         }
       }
     } catch (_e) {}
   }
+  // __DEF_LV50_V2__ ふるい ものさしで 出陣している子は、つぎに 画面を ひらいた ときに 自動で 撮りなおす（データは 消さない）
+  try { if (out.my_entry && out.my_entry.monster && Number(out.my_entry.monster.dn) !== 1) out.carry_over_stale = true } catch (_e) {}
   if (classId != null) {
     try {
       const rr = await c.env.DB.prepare("SELECT result, log_json, base_hp_end FROM defense_results WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).first<any>()
