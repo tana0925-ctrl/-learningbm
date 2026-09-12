@@ -168,6 +168,11 @@
   var _d2tCharSet = false;
   var _d2tAdopted = false;
   var _d2tTplOpen = false;
+  /* DEF2TPL_LEARN_V1_MARK
+     お手本は いきなり 入れない。
+     読む → よそうする → うごかす → けっかを 見る → 1か所だけ なおす。 */
+  var _d2tTplPrev = null;
+  var _d2tGuess = null;
 
   function d2tReady() {
     return !!(window.__pbHooksV1
@@ -319,12 +324,13 @@
   function d2tTplBar(lv) {
     var i, out;
     out = '<button onclick="_def2TreeTplToggle()" style="width:100%;margin:2px 0 6px;background:#10b981;color:#fff;border:0;border-radius:10px;padding:8px;font-weight:900;cursor:pointer;box-shadow:0 3px 0 #047857;font-size:12px;">📋 お手本からえらぶ</button>';
+    if (_d2tTplPrev != null && D2T_TPL[_d2tTplPrev]) return out + d2tTplPrevHtml();
     if (!_d2tTplOpen) return out;
     for (i = 0; i < D2T_TPL.length; i++) {
       if ((D2T_TPL[i].lv || 1) > lv) continue;
       out += '<div style="display:flex;align-items:center;gap:6px;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;margin-bottom:5px;flex-wrap:wrap;">'
         + '<span style="font-weight:900;font-size:12px;">' + esc(D2T_TPL[i].name) + '</span>'
-        + '<button onclick="_def2TreeTpl(' + i + ')" style="background:#6366f1;color:#fff;border:0;border-radius:7px;padding:5px 9px;font-size:11px;font-weight:900;cursor:pointer;">これにする</button>'
+        + '<button onclick="_def2TreeTpl(' + i + ')" style="background:#6366f1;color:#fff;border:0;border-radius:7px;padding:5px 9px;font-size:11px;font-weight:900;cursor:pointer;">読んでみる</button>'
         + '</div>';
     }
     return out;
@@ -425,18 +431,141 @@
     d2tRepaint();
   };
 
+  /* DEF2TPL_LEARN_V1 ここから ------------------------------------- */
+
+  /* プログラムを 日本語の 文に する。入れ子は 段差で あらわす。 */
+  function d2tProgJa(prog) {
+    var out = [];
+    (function rec(arr, dep) {
+      var j, n, lb;
+      for (j = 0; j < (arr || []).length; j++) {
+        n = arr[j];
+        if (!n || typeof n !== 'object') continue;
+        if (n.t === 'a' || (!n.t && n.a)) { out.push({ d: dep, s: '→ ' + tbActLabel(n.a), b: false }); continue; }
+        lb = d2tBlockJa(n);
+        out.push({ d: dep, s: lb, b: true });
+        if (n.body) rec(n.body, dep + 1);
+        if (n.els) {
+          out.push({ d: dep, s: (n.t === 'if') ? 'でなければ' : (lb + ' で ないとき'), b: true });
+          rec(n.els, dep + 1);
+        }
+      }
+    })(prog, 0);
+    return out;
+  }
+
+  function d2tJaHtml(prog) {
+    var ls = d2tProgJa(prog), i, s = '';
+    for (i = 0; i < ls.length; i++) {
+      s += '<div style="margin-left:' + (ls[i].d * 16) + 'px;font-size:13px;line-height:1.8;color:'
+        + (ls[i].b ? '#0f766e' : '#334155') + ';font-weight:' + (ls[i].b ? '900' : '400') + ';">'
+        + esc(ls[i].s) + '</div>';
+    }
+    return s;
+  }
+
+  function d2tGuessJa(g) {
+    if (g === 'win') return 'あいての きちを たくさん こうげきしそう';
+    if (g === 'keep') return 'じぶんの きちを まもりそう';
+    if (g === 'mix') return 'どちらも ほどほど';
+    return '';
+  }
+
+  /* つかった あと、ためしバトルの ところへ つれていく */
+  function d2tGoTry() {
+    setTimeout(function () {
+      var b = document.getElementById('def2TryBox'), g;
+      if (!b) return;
+      try { b.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { try { b.scrollIntoView(); } catch (e2) { } }
+      g = document.getElementById('def2TryGo');
+      if (!g) return;
+      g.style.boxShadow = '0 0 0 4px #fde047';
+      setTimeout(function () { try { g.style.boxShadow = ''; } catch (e) { } }, 2600);
+    }, 260);
+  }
+
+  /* お手本の カード: 読む → よそう → つかってみる */
+  function d2tTplPrevHtml() {
+    var tp = D2T_TPL[_d2tTplPrev], i, s, G, on;
+    if (!tp) return '';
+    G = [['win', d2tGuessJa('win')], ['keep', d2tGuessJa('keep')], ['mix', d2tGuessJa('mix')]];
+    s = '<div style="background:#ecfeff;border:2px solid #22d3ee;border-radius:12px;padding:10px;margin-bottom:8px;">'
+      + '<div style="font-weight:900;font-size:13px;color:#0e7490;margin-bottom:5px;">' + esc(tp.name) + '</div>'
+      + '<div style="font-size:11px;color:#155e75;margin-bottom:5px;">① この プログラムは 何を する？ 声に出して 読んでみよう。</div>'
+      + '<div style="background:#fff;border-radius:8px;padding:8px;margin-bottom:9px;">' + d2tJaHtml(tp.prog) + '</div>'
+      + '<div style="font-size:11px;color:#155e75;margin-bottom:4px;">② うごかす まえに よそう。どうなると 思う？</div>';
+    for (i = 0; i < G.length; i++) {
+      on = (_d2tGuess === G[i][0]);
+      s += '<button onclick="_def2TreeTplGuess(' + "'" + G[i][0] + "'" + ')" style="display:block;width:100%;text-align:left;margin-bottom:4px;border:1px solid '
+        + (on ? '#0891b2' : '#cbd5e1') + ';background:' + (on ? '#cffafe' : '#fff')
+        + ';border-radius:8px;padding:6px 8px;font-size:12px;font-weight:' + (on ? '900' : '400') + ';cursor:pointer;">'
+        + (on ? '◉ ' : '○ ') + esc(G[i][1]) + '</button>';
+    }
+    s += '<div style="font-size:11px;color:#64748b;margin:5px 0 9px;line-height:1.6;">あたっても はずれても 大じょうぶ。よそうしてから 見ると、けっかの 見えかたが かわるよ。</div>'
+      + '<button onclick="_def2TreeTplUse()" style="width:100%;background:#0891b2;color:#fff;border:0;border-radius:10px;padding:9px;font-weight:900;font-size:13px;cursor:pointer;box-shadow:0 3px 0 #0e7490;">③ つかってみる → 🧪 ためしバトルへ</button>'
+      + '<button onclick="_def2TreeTplBack()" style="width:100%;margin-top:5px;background:#e2e8f0;color:#334155;border:0;border-radius:10px;padding:7px;font-weight:900;font-size:12px;cursor:pointer;">ほかの お手本を 見る</button>'
+      + '</div>';
+    return s;
+  }
+
+  /* ひょうの あとに「ここを 1つだけ かえてみよう」 */
+  function d2tNextStepHtml(rules, cnt, prog) {
+    var i, r, n, zero = null, zeroB = null, top = null, tn = -1, s, tips = [];
+    for (i = 0; i < (rules || []).length; i++) {
+      r = rules[i]; n = tbRowCount(r, cnt);
+      if (r.kind === 'b') { if (n === 0 && !zeroB) zeroB = r; continue; }
+      if (n === 0 && !zero) zero = r;
+      if (n > tn) { tn = n; top = r; }
+    }
+    if (zero) tips.push('「' + zero.line + '」が 1かいも うごかなかったよ。この すぐ上の じょうけんの すうじを 1つだけ かえて、もういちど ためそう。');
+    if (zeroB && tips.length < 2) tips.push('「' + zeroB.line + '」の 中が 1かいも うごかなかったよ。この ブロックの じょうけんを 見なおそう。');
+    if (!tips.length && top) tips.push('「' + top.line + '」が いちばん おおく うごいたね。くりかえしの かずか、じょうけんの すうじを 1つだけ かえると どう かわるかな？');
+    if (!tips.length) return '';
+    s = '';
+    if (_d2tGuess) {
+      s += '<div style="background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;padding:8px;margin-top:8px;font-size:12px;color:#075985;line-height:1.7;">'
+        + '🔮 きみの よそうは「' + esc(d2tGuessJa(_d2tGuess)) + '」だったね。上の ひょうと くらべて どうだった？</div>';
+    }
+    s += '<div style="background:#fefce8;border:2px solid #fde047;border-radius:10px;padding:9px;margin-top:8px;">'
+      + '<div style="font-weight:900;font-size:13px;color:#854d0e;margin-bottom:5px;">✏ ここを 1つだけ かえてみよう</div>';
+    for (i = 0; i < tips.length && i < 2; i++) {
+      s += '<div style="font-size:12px;color:#713f12;line-height:1.7;margin-bottom:3px;">・' + esc(tips[i]) + '</div>';
+    }
+    s += '<div style="font-size:11px;color:#a16207;margin-top:5px;line-height:1.6;">2つ いっぺんに かえると、どっちが きいたか わからなく なるよ。1つだけね。</div></div>';
+    return s;
+  }
+
+  window._def2TreeTplGuess = function (g) { _d2tGuess = g; d2tRepaint(); };
+
+  window._def2TreeTplBack = function () { _d2tTplPrev = null; _d2tGuess = null; d2tRepaint(); };
+
+  window._def2TreeTplUse = function () {
+    var tp = D2T_TPL[_d2tTplPrev];
+    if (!tp) return;
+    d2tReplace(d2tProg(), JSON.parse(JSON.stringify(tp.prog)));
+    _d2tTplPrev = null;
+    _d2tTplOpen = false;
+    try { window._pbPersist(); } catch (e) { }
+    progSaveSoon();
+    d2tRepaint();
+    d2tGoTry();
+  };
+
+  /* DEF2TPL_LEARN_V1 ここまで ------------------------------------- */
+
   window._def2TreeTplToggle = function () {
     _d2tTplOpen = !_d2tTplOpen;
+    _d2tTplPrev = null;
+    _d2tGuess = null;
     d2tRepaint();
   };
 
   window._def2TreeTpl = function (i) {
     var tp = D2T_TPL[i];
     if (!tp) return;
-    d2tReplace(d2tProg(), JSON.parse(JSON.stringify(tp.prog)));
-    _d2tTplOpen = false;
-    try { window._pbPersist(); } catch (e) { }
-    progSaveSoon();
+    _d2tTplPrev = i;
+    _d2tGuess = null;
+    _d2tTplOpen = true;
     d2tRepaint();
   };
 
@@ -1184,6 +1313,7 @@ function def2HypeHtml(log, st){
         +'⚠ '+zero+'本の めいれいが 1かいも うごかなかったよ。<br>'
         +((window._pbIsTree&&window._pbIsTree(prog))?'じょうけんが あてはまらなかったのかも。じょうけんの すうじを かえたり、↑↓で ブロックの じゅんばんを かえて、もういちど ためしてみよう。':'じょうけんが あてはまらなかったのかも。上の ほうに 「いつも」が あると、そこで とまるよ。▲▼で じゅんばんを かえて、もういちど ためしてみよう。')+'</div>';
     }
+    out += d2tNextStepHtml(rules, cnt, prog);
     return out;
   }
 
