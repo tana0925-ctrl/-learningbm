@@ -1,0 +1,37 @@
+name: inspect-zombie-unlock (read-only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shirabe
+        run: |
+          python3 - << 'PYEOF'
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          print('CHAIN:', s[i:j].count('.replace('))
+          for p in ['_rootHtmlCache', 'renderWarStageList', 'selectWarStage', 'startZombieWarFromPreview', 'zombieMode', 'zombieCleared', 'WAR_PREFS', 'warProgress', 'zUnlocked', 'maxUnlocked']:
+              print('COUNT', p, 'src=', s.count(p), 'html=', h.count(p))
+          for ln, line in enumerate(s.split(chr(10)), 1):
+              if '_rootHtmlCache' in line:
+                  print('SRC', ln, repr(line))
+          hl = h.split(chr(10))
+          def dump(name, needle, before, after, maxhit):
+              print('===== ' + name + ' =====')
+              idx = [k for k, L in enumerate(hl) if needle in L]
+              print('hits:', len(idx), [k + 1 for k in idx][:20])
+              for k in idx[:maxhit]:
+                  for m in range(max(0, k - before), min(len(hl), k + after)):
+                      print(m + 1, repr(hl[m]))
+                  print('-----')
+          dump('renderWarStageList', 'function renderWarStageList', 2, 70, 2)
+          dump('selectWarStage', 'function selectWarStage', 2, 60, 2)
+          dump('startZombieWarFromPreview', 'startZombieWarFromPreview', 3, 30, 3)
+          PYEOF
