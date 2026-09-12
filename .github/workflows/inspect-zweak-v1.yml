@@ -1,0 +1,19 @@
+name: INSPECT ZWEAK V1 (よみとりだけ)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: しらべる（よみとりだけ・1文字も書かない）
+        run: python3 scripts/inspect_zweak_v1.py
+
+      - name: 何もさわっていないことを たしかめる
+        run: |
+          git diff --quiet || (echo 'NG: さぎょうツリーが 変わっている'; exit 1)
+          git status --porcelain
+          echo 'READ ONLY OK'
