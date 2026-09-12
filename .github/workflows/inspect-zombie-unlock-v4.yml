@@ -1,0 +1,50 @@
+name: inspect-zombie-unlock v4 (range)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: start line
+        required: true
+        default: '38400'
+      end:
+        description: end line
+        required: true
+        default: '38580'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: shirabe
+        env:
+          A: ${{ inputs.start }}
+          B: ${{ inputs.end }}
+        run: |
+          python3 - << 'PYEOF' > /tmp/report3.txt
+          import os
+          h = open('public/index.html', encoding='utf-8').read()
+          hl = h.split(chr(10))
+          a = int(os.environ['A'])
+          b = int(os.environ['B'])
+          for m in range(max(0, a - 1), min(len(hl), b)):
+              print(m + 1, repr(hl[m]))
+          PYEOF
+          mkdir -p docs
+          python3 -c "d=open('/tmp/report3.txt',encoding='utf-8').read();open('docs/inspect_zombie_v3.txt','w',encoding='utf-8').write(d.replace(chr(32),chr(183)))"
+          wc -c docs/inspect_zombie_v3.txt
+
+      - name: push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/inspect_zombie_v3.txt
+          git commit -m 'inspect: range report' || echo nochange
+          git pull --rebase origin main
+          git push origin HEAD:main
