@@ -100,7 +100,7 @@ jobs:
             const sd = (2000 + k * 7919) >>> 0;
             const rep = battle(sd, 30);
             const one = JSON.stringify(mkLog(rep)).length;
-            const need = Math.max(2, Math.ceil(950000 / one));
+            const need = Math.max(2, Math.ceil(1200000 / one));
             const muls = [need, need * 3, need * 9];
             for (let mi = 0; mi < muls.length; mi++) {
               const ev = [];
