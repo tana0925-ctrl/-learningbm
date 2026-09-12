@@ -424,13 +424,110 @@ function def2HypeHtml(log, st){
     f.__def2 = true; return f;
   }
 
+  /* ===== DEF2SEND_GUARD_V1_MARK : 出陣で おくる プログラムの 安全べん =====
+     出陣の おくり先は monster を 4000文字で 切ってしまう。
+     切られると JSON が とちゅうで きれて まるごと 読めなくなり、
+     その子の プログラムが だまって 消える。それを ふせぐ ところ。
+
+     ・ここで さわるのは「おくる ぶん」だけ。
+       へんしゅう画面と ためしバトルの プログラムには 1文字も さわらない
+       （_id は 画面の中の ばんごうなので、そちらでは のこしたまま）
+     ・おくる ぶんは コピーして _id を とりのぞく（JSON が 約25% 小さくなる）
+     ・ブロックが 60 を こえたら ここで うちどめ
+     ・さいごに monster が 4000文字 未満に おさまるまで うしろから へらす
+     ・へらしたときは かならず 子どもに 見える かたちで しらせる（だまって 消さない）
+     ==================================================================== */
+  var D2_SEND_MAX_NODES = 60;
+  var D2_SEND_MAX_CHARS = 4000;
+
+  function d2CountNodes(n){
+    var i, k, c;
+    if(n === null || typeof n !== 'object') return 0;
+    if(Array.isArray(n)){ c = 0; for(i = 0; i < n.length; i++){ c += d2CountNodes(n[i]); } return c; }
+    c = 1;
+    for(k in n){ if(Object.prototype.hasOwnProperty.call(n, k)){ c += d2CountNodes(n[k]); } }
+    return c;
+  }
+
+  function d2StripIds(n){
+    var i, k, out;
+    if(n === null || typeof n !== 'object') return n;
+    if(Array.isArray(n)){ out = []; for(i = 0; i < n.length; i++){ out.push(d2StripIds(n[i])); } return out; }
+    out = {};
+    for(k in n){
+      if(!Object.prototype.hasOwnProperty.call(n, k)) continue;
+      if(k === '_id') continue;
+      out[k] = d2StripIds(n[k]);
+    }
+    return out;
+  }
+
+  function d2MonsterChars(monster, prog){
+    var k, probe = {};
+    try{
+      if(monster && typeof monster === 'object'){
+        for(k in monster){ if(Object.prototype.hasOwnProperty.call(monster, k)){ probe[k] = monster[k]; } }
+      }
+      probe.prog = prog;
+      return JSON.stringify(probe).length;
+    }catch(e){ return 0; }
+  }
+
+  function d2SendNotice(kept, dropped, why){
+    var box, btn;
+    try{
+      box = document.getElementById('def2SendNotice');
+      if(!box){
+        box = document.createElement('div');
+        box.id = 'def2SendNotice';
+        box.style.cssText = 'position:fixed;left:10px;right:10px;bottom:10px;z-index:100001;max-width:560px;margin:0 auto;background:#fff7ed;border:2px solid #fdba74;border-radius:12px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:13px;color:#7c2d12;line-height:1.7;';
+        document.body.appendChild(box);
+      }
+      box.innerHTML = '<div style="font-weight:900;font-size:14px;margin-bottom:4px;">📏 プログラムが ながいので、ここまでを もっていきます</div>'
+        + '<div>' + esc(why) + '</div>'
+        + '<div style="margin-top:4px;">上から <b>' + kept + 'こ</b> を 出陣に もっていったよ。のこりの <b>' + dropped + 'こ</b> は おいてきています。</div>'
+        + '<div style="margin-top:4px;">ブロックを すこし へらすと、ぜんぶ もっていけるよ。まちがいでは ないから だいじょうぶ。</div>'
+        + '<div style="text-align:right;margin-top:8px;"><button id="def2SendNoticeX" style="border:0;background:#fdba74;color:#7c2d12;border-radius:8px;padding:6px 14px;font-weight:900;cursor:pointer;">わかった</button></div>';
+      btn = document.getElementById('def2SendNoticeX');
+      if(btn){ btn.addEventListener('click', function(){ try{ box.parentNode.removeChild(box); }catch(e){} }); }
+    }catch(e){
+      try{ window.alert('プログラムが ながいので、上から ' + kept + 'こ だけ 出陣に もっていったよ。'); }catch(e2){}
+    }
+  }
+
+  function d2SendProg(prog, monster){
+    var sent, before, dropped, why;
+    try{
+      if(!Array.isArray(prog) || !prog.length) return prog;
+      sent = d2StripIds(prog);
+      before = sent.length;
+      why = '';
+      while(sent.length > 1 && d2CountNodes(sent) > D2_SEND_MAX_NODES){ sent.pop(); }
+      if(sent.length < before){ why = 'ブロックは ぜんぶで ' + D2_SEND_MAX_NODES + 'こ までだよ。'; }
+      while(sent.length > 1 && d2MonsterChars(monster, sent) >= D2_SEND_MAX_CHARS){ sent.pop(); }
+      if(sent.length < before && !why){ why = 'おくれる ながさを こえたよ。'; }
+      if(d2CountNodes(sent) > D2_SEND_MAX_NODES || d2MonsterChars(monster, sent) >= D2_SEND_MAX_CHARS){
+        sent = d2StripIds(DEFAULT_PROG);
+        why = 'ひとつの ブロックの 中が とても 大きいので、いちばん かんたんな うごきに もどしたよ。';
+      }
+      dropped = Math.max(0, before - sent.length);
+      if(dropped > 0 || why){ d2SendNotice(sent.length, dropped, why); }
+      return sent;
+    }catch(e){
+      try{ console.error('def2 send guard', e); }catch(e2){}
+      return prog;
+    }
+  }
+
+  window.__DEF2_SEND_GUARD_V1 = { MAX_NODES: D2_SEND_MAX_NODES, MAX_CHARS: D2_SEND_MAX_CHARS, count: d2CountNodes, strip: d2StripIds, chars: d2MonsterChars, fit: d2SendProg };
+
   function makeSubmit(orig){
     var f = async function(){
       try{
         if(typeof orig!=='function') return;
         var prog = progFromRules(); var _f = window.fetch;
         window.fetch = function(u,opt){
-          try{ if(typeof u==='string' && u.indexOf('/api/defense/entry')>=0 && opt && opt.body){ var b=JSON.parse(opt.body); if(b && b.monster && typeof b.monster==='object'){ b.monster.prog=prog; opt.body=JSON.stringify(b); } } }catch(e){}
+          try{ if(typeof u==='string' && u.indexOf('/api/defense/entry')>=0 && opt && opt.body){ var b=JSON.parse(opt.body); if(b && b.monster && typeof b.monster==='object'){ b.monster.prog=d2SendProg(prog, b.monster); opt.body=JSON.stringify(b); } } }catch(e){}
           return _f.apply(this,arguments);
         };
         try{ return await orig.apply(this,arguments); } finally{ window.fetch=_f; }
