@@ -381,7 +381,7 @@
     var i, r, out = [];
     if (window._pbIsTree && window._pbIsTree(prog)) {
       (function rec(arr, path) {
-        var j, n, lb;
+        var j, n, lb, eb;
         for (j = 0; j < (arr || []).length; j++) {
           n = arr[j];
           if (!n || typeof n !== 'object') continue;
@@ -391,7 +391,10 @@
           }
           lb = d2tBlockJa(n);
           if (n.body) rec(n.body, path ? (path + ' / ' + lb) : lb);
-          if (n.els) rec(n.els, (path ? (path + ' / ') : '') + lb + ' でなければ');
+          if (n.els) {
+            eb = (n.t === 'if') ? ('もし ' + d2tCondJa(n) + ' で ないとき') : (lb + ' で ないとき');
+            rec(n.els, path ? (path + ' / ' + eb) : eb);
+          }
         }
       })(prog, '');
       return out;
