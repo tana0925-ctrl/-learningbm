@@ -8271,6 +8271,10 @@ app.get('/', async (c) => {
     const _zcsC1 = "  const spawnStopWave = 20 + i;"
     const _zcsC2 = "  const spawnStopWave = Math.max(1, Math.round((20 + i) * 0.2));"
     if (t.indexOf(_zcsC1) !== -1) { t = t.replace(_zcsC1, _zcsC2) } else { console.error('[__ZWAR_CASTLE_STAND_V1__] anchor C not found') }
+    // __ZWAR_BOSS_SKILL3_V1__ : 県ボスの3つ目のスキルを読めるようにする（ボスを出す1か所だけ）
+    const _zbs1 = "  const atkInterval = clamp(1100 - (mon.spd||30)*6, 420, 1100);\n  const m3 = (mon && Array.isArray(mon.moves) && mon.moves[2]) ? mon.moves[2] : null;"
+    const _zbs2 = "  const atkInterval = clamp(1100 - (mon.spd||30)*6, 420, 1100);\n  // __ZWAR_BOSS_SKILL3_V1__ : 県ボスは moves を持たず skills を持っている。moves が無いときだけ skills を見る。\n  const m3 = (function(){\n    try{\n      var _mv = (mon && Array.isArray(mon.moves) && mon.moves.length) ? mon.moves : null;\n      var _sk = (!_mv && mon && Array.isArray(mon.skills) && mon.skills.length) ? mon.skills : null;\n      var _l = _mv || _sk;\n      return (_l && _l[2]) ? _l[2] : null;\n    }catch(e){ try{ console.error('[__ZWAR_BOSS_SKILL3_V1__] skills fallback error', e); }catch(_e){} return null; }\n  })();"
+    if (t.indexOf(_zbs1) !== -1) { t = t.replace(_zbs1, _zbs2) } else { console.error('[__ZWAR_BOSS_SKILL3_V1__] anchor not found') }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
