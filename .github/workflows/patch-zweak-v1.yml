@@ -50,7 +50,7 @@ jobs:
           git diff --quiet -- public || (echo 'NG: public が 変わっている'; exit 1)
           git diff --quiet -- migrations || (echo 'NG: migrations が 変わっている'; exit 1)
           git status --porcelain
-          echo '--- src/index.tsx の さしぶんは ついかだけか ---'
+          echo '--- src/index.tsx の さしぶん ---'
           git diff --numstat -- src/index.tsx
           test "$(git diff --numstat -- src/index.tsx | cut -f2)" = "0" || (echo 'NG: src/index.tsx で 行が 消えている'; exit 1)
 
@@ -95,19 +95,18 @@ jobs:
         run: |
           node - << 'JSEOF'
           const fs = require('fs');
-          const NL = String.fromCharCode(10);
           const s = fs.readFileSync('src/index.tsx', 'utf8');
           let h = fs.readFileSync('public/index.html', 'utf8');
           const base = h.length;
+          let bad = false;
+          function chk(label, cond) { if (!cond) { console.log('NG:', label); bad = true; } else { console.log('ok:', label); } }
           const pairs = [];
           for (let k = 0; k < 5; k++) {
-            const ra = new RegExp('const _zwk' + k + 'a = (".*")');
-            const rb = new RegExp('const _zwk' + k + 'b = (".*")');
-            const ma = s.match(ra), mb = s.match(rb);
+            const ma = s.match(new RegExp('const _zwk' + k + 'a = (".*")'));
+            const mb = s.match(new RegExp('const _zwk' + k + 'b = (".*")'));
             if (!ma || !mb) { console.log('NG: _zwk' + k + ' が 見つからない'); process.exit(1); }
             pairs.push([JSON.parse(ma[1]), JSON.parse(mb[1])]);
           }
-          let bad = false;
           for (let k = 0; k < 5; k++) {
             const a = pairs[k][0];
             const f = h.indexOf(a);
@@ -115,25 +114,37 @@ jobs:
           }
           if (bad) process.exit(1);
           for (let k = 0; k < 5; k++) { h = h.replace(pairs[k][0], pairs[k][1]); }
-          function chk(label, cond) { if (!cond) { console.log('NG:', label); bad = true; } else { console.log('ok:', label); } }
           chk('出撃ブロックが 死に分岐に なった', h.indexOf('if(false && warState.zombieMode') !== -1);
           chk('グレーアウトが 消えた', h.indexOf('opacity-60 grayscale cursor-not-allowed') === -1);
           chk('こわい（ボタン文字）が 消えた', h.indexOf("'こわい' : 'タップで出陣'") === -1);
-          chk('よわりモードの 文字が 入った', h.split('ゾンビでは よわりモード').length - 1 === 2);
-          chk('scale に かけ算が 入った', h.indexOf('if (zw && zw.zombieMode') !== -1);
+          chk('よわりモードの 文字が 2か所', h.split('ゾンビでは よわりモード').length - 1 === 2);
           chk('HTML が 長くなった', h.length > base);
-          const mm = h.match(/const scale = [^;]+;/);
-          console.log('scale 行 =', mm ? mm[0].slice(0, 260) : 'なし');
-          const f = new Function('id', 'warState', 'window', 'const lv = 30; ' + (mm ? mm[0] : 'const scale=0;') + ' return scale;');
-          const normal999 = f(999, { zombieMode: false }, {});
-          const zombie999 = f(999, { zombieMode: true }, {});
-          const zombie1 = f(1, { zombieMode: true }, {});
-          const normal1 = f(1, { zombieMode: false }, {});
-          console.log('scale lv30: 通常999 =', normal999, '/ ゾンビ999 =', zombie999, '/ 通常1 =', normal1, '/ ゾンビ1 =', zombie1);
-          chk('通常モードの 999 は そのまま', Math.abs(normal999 - 1.8) < 1e-9);
-          chk('通常モードの ふつうキャラも そのまま', Math.abs(normal1 - 1.8) < 1e-9);
-          chk('ゾンビの ふつうキャラは そのまま', Math.abs(zombie1 - 1.8) < 1e-9);
-          chk('ゾンビの 999 は 0.2ばい', Math.abs(zombie999 - 0.36) < 1e-9);
+          const key = 'const scale = (1 + Math.min(0.8, (lv-1)*0.03))';
+          const ki = h.indexOf(key);
+          chk('scale 行が 見つかる', ki !== -1);
+          let scaleLine = '';
+          if (ki !== -1) {
+            const em = '})();';
+            const ke = h.indexOf(em, ki);
+            if (ke === -1) { console.log('NG: scale 行の おわりが ない'); bad = true; }
+            else scaleLine = h.slice(ki, ke + em.length);
+          }
+          console.log('scale 行 =', scaleLine);
+          if (bad) process.exit(1);
+          const f = new Function('id', 'warState', 'window', 'const lv = 30; ' + scaleLine + ' return scale;');
+          const n999 = f(999, { zombieMode: false }, {});
+          const z999 = f(999, { zombieMode: true }, {});
+          const n1 = f(1, { zombieMode: false }, {});
+          const z1 = f(1, { zombieMode: true }, {});
+          console.log('scale(lv30): 通常999 =', n999, '/ ゾンビ999 =', z999, '/ 通常1 =', n1, '/ ゾンビ1 =', z1);
+          chk('通常モードの 999 は そのまま', Math.abs(n999 - 1.8) < 1e-9);
+          chk('通常モードの ふつうキャラも そのまま', Math.abs(n1 - 1.8) < 1e-9);
+          chk('ゾンビの ふつうキャラは そのまま', Math.abs(z1 - 1.8) < 1e-9);
+          chk('ゾンビの 999 は 0.2ばい', Math.abs(z999 - 0.36) < 1e-9);
+          const z152 = f(152, { zombieMode: true }, {});
+          const z153 = f(153, { zombieMode: true }, {});
+          chk('ゾンビの 152 は 0.2ばい', Math.abs(z152 - 0.36) < 1e-9);
+          chk('ゾンビの 153 は 0.2ばい', Math.abs(z153 - 0.36) < 1e-9);
           if (bad) process.exit(1);
           console.log('DRY RUN OK');
           JSEOF
