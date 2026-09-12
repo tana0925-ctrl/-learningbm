@@ -1,0 +1,215 @@
+name: 防衛戦 ①（DEF_LOG_FIT_V1・きろくが 大きすぎるときは まびいて 入れる）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に つなぎの数と アンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流す前）= %d' % n)
+          if n != 86:
+              print('NG: つなぎの数が 86 ではない'); sys.exit(1)
+          pairs = [
+            (v, 'export async function defServerResolve(env, st, classId, enemies) {', 'サーバの 入り口'),
+            (v, '    const logJson = JSON.stringify(log)', 'きろくの 文字れつ化'),
+            (v, '    if (!logJson || logJson.length > 900000) return null', 'きろくの 上限しらべ'),
+            (s, "import { defServerResolve, defEntryOk } from './def_resolve'", 'とりこみ'),
+            (s, "  const logJson = (_lnFull && _lnFull.length <= 900000) ? _lnFull : 'null'", 'ブラウザ経路の 上限しらべ'),
+          ]
+          for text, anchor, label in pairs:
+              k = text.count(anchor)
+              print('%s = %d' % (label, k))
+              if k != 1:
+                  print('NG: %s が 1 件でない' % label); sys.exit(1)
+          for nm in ('defLogFit', 'defLogPick', 'defLogSwap', 'DEF_LOG_LIMIT', 'DEF_LOG_TARGET'):
+              if v.count(nm) or s.count(nm):
+                  print('NG: %s という名前が すでにある' % nm); sys.exit(1)
+          print('OK: つなぎ 86 / アンカーは すべて 1 件 / 名前の かぶりなし')
+          PYEOF
+
+      - name: 当てる（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_def_log_fit_v1.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- public/defense2.js || (echo 'NG: public/defense2.js が変わっている'; exit 1)
+          git diff --quiet -- src/def_engine.ts || (echo 'NG: src/def_engine.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts || (echo 'NG: src/def_stage.ts が変わっている'; exit 1)
+          echo '本番HTML・ブラウザ側・エンジン・段の表は 無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: まびきが かならず 入ることを 実際に 走らせて 確かめる（番兵とは別の条件）
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const NL = String.fromCharCode(10);
+          const eng = fs.readFileSync('src/def_engine.ts', 'utf8');
+          const M = new Function(eng.replace(/^export /gm, '') + NL + 'return { defAutoBattleRT, defTestRoster };')();
+          const res = fs.readFileSync('src/def_resolve.ts', 'utf8');
+          const a = res.indexOf('const DEF_LOG_LIMIT = 900000');
+          const b = res.indexOf('export async function defServerResolve');
+          if (a < 0 || b < 0 || b <= a) { console.log('NG: まびきの ブロックが 見つからない'); process.exit(1); }
+          const F = new Function(res.slice(a, b).replace(/^export /gm, '') + NL + 'return { defLogFit, defLogPick, defLogSwap };')();
+          let ok = true;
+          const mkLog = function (rep) { return { v: 2, seed: rep.seed, enemy_squad: [], entrants: [], mvp: null, awards: null, contrib: [], enemyTotalHp: 1, replay: rep, server: true }; };
+          const battle = function (sd, nA) {
+            const r = M.defTestRoster(sd, nA, 8);
+            return M.defAutoBattleRT(r.A, r.B, { bases: true, lanes: true, laneCount: 3, seed: sd, program: true, programsA: r.programsA, programB: r.programB, forts: false, tactics: true, contact: true, foeLaneMix: true });
+          };
+          const rep0 = battle(7, 4);
+          const log0 = mkLog(rep0);
+          const s0 = F.defLogFit(log0);
+          if (s0 !== JSON.stringify(log0)) { console.log('NG: 小さい きろくが そのままでない'); ok = false; }
+          if (s0 && JSON.parse(s0).replay.thin) { console.log('NG: まびいていないのに しるしが ついた'); ok = false; }
+          let big = 0, worst = 0, minKeep = 1;
+          for (let k = 0; k < 4; k++) {
+            const sd = (2000 + k * 7919) >>> 0;
+            const rep = battle(sd, 30);
+            const one = JSON.stringify(mkLog(rep)).length;
+            const need = Math.max(2, Math.ceil(950000 / one));
+            const muls = [need, need * 3, need * 9];
+            for (let mi = 0; mi < muls.length; mi++) {
+              const ev = [];
+              for (let m = 0; m < muls[mi]; m++) for (let q = 0; q < rep.events.length; q++) ev.push(rep.events[q]);
+              const rep2 = {};
+              for (const p in rep) rep2[p] = rep[p];
+              rep2.events = ev;
+              const log = mkLog(rep2);
+              const raw = JSON.stringify(log).length;
+              if (raw <= 900000) { console.log('NG: 試験の きろくが 小さすぎる ' + raw); ok = false; continue; }
+              big++;
+              const out = F.defLogFit(log);
+              if (!out) { console.log('NG: まびいても 入らなかった ' + raw); ok = false; continue; }
+              if (out.length > 900000) { console.log('NG: 上限を こえている ' + out.length); ok = false; continue; }
+              if (out.length > worst) worst = out.length;
+              let pp = null;
+              try { pp = JSON.parse(out); } catch (e) { console.log('NG: JSON が こわれた'); ok = false; continue; }
+              if (!pp.replay || !Array.isArray(pp.replay.events) || !pp.replay.events.length) { console.log('NG: コマが 空'); ok = false; continue; }
+              const last = pp.replay.events[pp.replay.events.length - 1];
+              if (last.t !== ev[ev.length - 1].t) { console.log('NG: さいごの コマが ちがう'); ok = false; }
+              if (pp.replay.winner !== rep.winner) { console.log('NG: かちまけが かわった'); ok = false; }
+              if (pp.replay.baseHpA !== rep.baseHpA) { console.log('NG: きちHP が かわった'); ok = false; }
+              if (pp.replay.ticks !== rep.ticks) { console.log('NG: tick が かわった'); ok = false; }
+              if (!pp.replay.thin || pp.replay.thin.all !== ev.length) { console.log('NG: しるしが おかしい'); ok = false; }
+              if (rep2.events.length !== ev.length) { console.log('NG: もとの コマを 書きかえた'); ok = false; }
+              const kr = pp.replay.events.length / ev.length;
+              if (kr < minKeep) minKeep = kr;
+            }
+          }
+          console.log('大きい きろく ' + big + ' 件 / まびいた あとの さいだい ' + worst + ' / のこした わりあいの さいしょう ' + (Math.round(minKeep * 1000) / 1000));
+          if (big < 12) { console.log('NG: 試験の 件数が 足りない ' + big); ok = false; }
+          if (!ok) process.exit(1);
+          console.log('FIT OK');
+          JSEOF
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          chk('DEF_LV50_V1', s.count('DEF_LV50_V1'), 2)
+          chk('DEF_LV50_V2', s.count('DEF_LV50_V2'), 2)
+          chk('DEF2_LV50_SAME_V1', s.count('DEF2_LV50_SAME_V1'), 1)
+          chk('DEF2_LV50_ENTRYFIX_V1', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
+          chk('defNorm', s.count('window.defNorm'), 2)
+          chk('MVP の番兵', s.count('__DEF_MVP_V1__'), 6)
+          chk('MVP の台帳', s.count('defMvpMakeLedger'), 2)
+          chk('MVP のコイン印', s.count('_defMvpCoinsApplied'), 8)
+          chk('段の番兵', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('spd/skills の番兵', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('照合の番兵', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合の やりなおし', s.count('retry: true'), 2)
+          chk('照合の v', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('持ち越し', s.count('defense_standing'), 4)
+          chk('持ち越しの錠', s.count('defense_carry_lock'), 1)
+          chk('自動すすめ', s.count('defAutoAdvanceV1'), 3)
+          chk('番人', s.count('defEntryOk'), 3)
+          chk('段の敵', s.count('defStageEnemies'), 4)
+          chk('段の台帳', s.count('defStageMakeLedger'), 3)
+          chk('段のごほうび', s.count('applyDefStageGrants'), 2)
+          chk('段のコイン印', s.count('_defStageCoinsApplied'), 8)
+          chk('えらび直し', s.count('needs_reselect'), 3)
+          chk('レーンまぜ（つなぎ）', s.count('foeLaneMix'), 2)
+          chk('表づくりの よびだし', s.count('ensureDefenseTables()'), 0)
+          chk('勝利コイン 20', s.count('const DEFENSE_WIN_COINS = 20'), 1)
+          chk('基地HP の なまえ', s.count('DEFENSE_BASE_HP'), 2)
+          chk('基地HP 380', s.count('380'), 2)
+          chk('さそいの js', s.count('def_join_nudge.js'), 4)
+          chk('段のモンスター js', s.count('defstage_monsters.js'), 4)
+          chk('defense2 の ばんごう', s.count('defense2.js?v=20'), 1)
+          chk('S6WORLD', s.count('__S6WORLD_50__'), 1)
+          chk('H6MERGE', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('H6BANK', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('H6U11', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('サーバの MVP', v.count('__DEF_MVP_V1__'), 4)
+          chk('サーバの 番人', v.count('defEntryOk'), 2)
+          chk('サーバの レーンまぜ', v.count('foeLaneMix'), 1)
+          chk('段の関数', g.count('export function defStageEnemies(base, stage, n) {'), 1)
+          chk('段の番兵2', g.count('__DEFSTAGE_N_V1__'), 1)
+          chk('体数を増やしていない', g.count('base.map('), 1)
+          chk('新しい かんすう', v.count('defLogFit'), 2)
+          chk('つなぎの かんすう', s.count('defLogFit'), 2)
+          down = 'stage' + ' - ' + '1'
+          chk('下げる みちすじ（サーバ）', v.count(down), 0)
+          chk('下げる みちすじ（つなぎ）', s.count(down), 0)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/def_resolve.ts src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'かわっていないので push しません'
+          else
+            git commit -m 'DEF_LOG_FIT_V1: きろくが 大きすぎるときは コマを まびいて 入れる'
+            git push origin HEAD:main
+          fi
