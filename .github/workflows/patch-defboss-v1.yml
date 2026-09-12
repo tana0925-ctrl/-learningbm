@@ -1,0 +1,39 @@
+name: patch-defboss-v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true なら 書きこまず チェーン数だけ 見る"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: look before touching anything
+        run: python3 scripts/patch_defboss_v1.py --look
+      - name: apply patch (fail-closed)
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: python3 scripts/patch_defboss_v1.py
+      - name: commit and push
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "def: 防衛戦 12/15/18/21 に ボス4体 (__DEFBOSS_V1__)"
+          git push origin HEAD:main
