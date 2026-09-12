@@ -8246,6 +8246,21 @@ app.get('/', async (c) => {
     } else {
       console.error('[__ZWEAK_V1__] skipped: no change')
     }
+  // __BEAMDMG_V1__ : ビーム2（いりょく）の のび方を ビーム1（チャージ）と そろえる
+  const _bdm0a = "const BEAM_RATIO_PER_LEVEL = 0.0004; // Lv100で約+0.0396"
+  const _bdm0b = "const BEAM_RATIO_PER_LEVEL = 0.0012; // Lv100で約+0.1188"
+  const _bdmPairs = [[_bdm0a, _bdm0b]]
+  let _bdmOk = true
+  for (let _bi = 0; _bi < _bdmPairs.length; _bi++) {
+    const _ba = _bdmPairs[_bi][0]
+    const _bf = t.indexOf(_ba)
+    if (_bf === -1 || _bf !== t.lastIndexOf(_ba)) { _bdmOk = false; console.error('[__BEAMDMG_V1__] anchor NG', _bi) }
+  }
+  if (_bdmOk) {
+    t = t.replace(_bdm0a, _bdm0b)
+  } else {
+    console.error('[__BEAMDMG_V1__] skipped: no change')
+  }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
