@@ -1698,6 +1698,16 @@ app.put('/api/admin/fest-toggle', async (c) => {
 // ==================== 🏰 クラス基地防衛戦（第1弾コア） ====================
 // DEF2_BASEHP_UNIFY_380_20260911
 const DEFENSE_BASE_HP = 380
+// DEF_STAGE_V4 __DEFSTAGE_N_V1__ 出陣している人数を かぞえるだけの助け。
+// 読むだけで、ここからは 何も書きこまない。かぞえられなければ 8 を返す。
+async function defEntryCount(env: any, eventKey: any, classId: any): Promise<number> {
+  try {
+    const r: any = await env.DB.prepare("SELECT COUNT(*) AS c FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? LIMIT 1").bind(String(eventKey), String(classId)).first()
+    const n = Number(r && r.c)
+    if (!Number.isFinite(n) || n < 1) return 8
+    return Math.min(200, Math.floor(n))
+  } catch (_e) { return 8 }
+}
 const DEFENSE_ENEMIES = [
   { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
   { name: 'スライムへい', sprite: '\u{1F7E2}', hp: 120, atk: 30, def: 8, buff: 'attack', skillPow: 10 },
@@ -1998,7 +2008,7 @@ app.get('/api/defense/status', async (c) => {
     if (Number.isFinite(sgN) && sgN >= 1) out.stage = Math.floor(sgN)
   } catch (e) { /* テーブルが読めなくても stage=1 のまま返す */ }
   // DEF_STAGE_V2 __DEFSTAGE_V2_SENTINEL__ ステージに応じて敵を強くする。体数は8体のまま増やさない。
-  out.enemy_squad = defStageEnemies(DEFENSE_ENEMIES, out.stage)
+  out.enemy_squad = defStageEnemies(DEFENSE_ENEMIES, out.stage, await defEntryCount(c.env, st.eventKey, classId))
   out.decided = decided
   try {
     const e = await c.env.DB.prepare("SELECT monster_json, strategy FROM defense_entries WHERE event_key=? AND user_id=?").bind(st.eventKey, u.id).first<any>()
@@ -2210,7 +2220,7 @@ app.get('/api/teacher/defense/dry-run', async (c) => {
       if (Number.isFinite(_drSgN) && _drSgN >= 1) _drStage = Math.floor(_drSgN)
     }
   } catch (_e) {}
-  const _drEnemies = defStageEnemies(DEFENSE_ENEMIES, _drStage)
+  const _drEnemies = defStageEnemies(DEFENSE_ENEMIES, _drStage, _drList.length)
   _drOut.stage = _drStage
   _drOut.enemy_squad = _drEnemies
   const _drRes = await defServerResolve(c.env, _drSt, _drCid, _drEnemies)
@@ -2243,7 +2253,7 @@ app.post('/api/defense/resolve', async (c) => {
     const _dsN = Number(_dsRow && _dsRow.stage)
     if (Number.isFinite(_dsN) && _dsN >= 1) _dsStage = Math.floor(_dsN)
   } catch (_e) {}
-  const _srv = await defServerResolve(c.env, st, classId, defStageEnemies(DEFENSE_ENEMIES, _dsStage))
+  const _srv = await defServerResolve(c.env, st, classId, defStageEnemies(DEFENSE_ENEMIES, _dsStage, await defEntryCount(c.env, st.eventKey, classId)))
   if (_srv) {
     const _srvLock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, _srv.result, _srv.logJson, _srv.baseHpEnd).run()
     if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })

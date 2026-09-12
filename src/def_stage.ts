@@ -21,10 +21,16 @@ export function defStageClamp(stage) {
 //   def      いちばん上で 7 倍
 //   skillPow いちばん上で 19 倍
 //   spd      10 から 240 まで（速いほど手数が増える）
-export function defStageEnemies(base, stage) {
+export function defStageEnemies(base, stage, n) {
   if (!Array.isArray(base)) return []
   const k = defStageClamp(stage) - 1
-  const u = Math.pow(k / (DEF_STAGE_MAX - 1), 2.2)
+  // DEF_STAGE_V4 __DEFSTAGE_N_V1__ 段の強さに 出陣人数 n をかけ合わせる。
+  //   段の u は 1段 1.12 倍きざみ。n は 8 人を 1.0 とする (n/8)^0.6。
+  //   n が読めないときは 8（これまでと同じ強さ）。体数は 8 のまま。
+  const _dsUt = [0, 0.24, 0.27, 0.30, 0.33, 0.37, 0.42, 0.47, 0.53, 0.60]
+  const _dsN = Math.floor(Number(n))
+  const _dsNn = (Number.isFinite(_dsN) && _dsN >= 1) ? Math.min(200, _dsN) : 8
+  const u = _dsUt[k] * Math.pow(_dsNn / 8, 0.6)
   return base.map(function (e) {
     const o = {}
     for (const p in e) o[p] = e[p]
