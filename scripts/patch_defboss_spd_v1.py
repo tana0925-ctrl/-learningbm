@@ -16,6 +16,7 @@ SENTINEL = '__DEFBOSS_SPD_V1__'
 CHAIN_BEFORE = 102
 CHAIN_AFTER = 102
 SPD_MUL = '1.15'
+BS = chr(92)  # 円マーク1文字。TS 側の sprite の エスケープを そのまま 表すため。
 
 # 他の便の しるし。1つでも 消えたら 止める。
 KEEP = [
@@ -48,10 +49,10 @@ def need(label, text, s, want):
 # --- 1) ボスの表に spdMul を足す -----------------------------------------
 A_FACE = (
     "const DEFBOSS_FACE: any = {\n"
-    "  '12': { name: 'モンヤブリ', sprite: '\u{1FA93}', hpMul: 1.3 },\n"
-    "  '15': { name: 'カゲハヤテ', sprite: '\u{1F32A}\u{FE0F}', hpMul: 1.3 },\n"
-    "  '18': { name: 'イワヨロイ', sprite: '\u{1F5FF}', hpMul: 1.3 },\n"
-    "  '21': { name: 'ヨルオウガ', sprite: '\u{1F311}', hpMul: 1 }\n"
+    "  '12': { name: 'モンヤブリ', sprite: '" + BS + "u{1FA93}', hpMul: 1.3 },\n"
+    "  '15': { name: 'カゲハヤテ', sprite: '" + BS + "u{1F32A}" + BS + "u{FE0F}', hpMul: 1.3 },\n"
+    "  '18': { name: 'イワヨロイ', sprite: '" + BS + "u{1F5FF}', hpMul: 1.3 },\n"
+    "  '21': { name: 'ヨルオウガ', sprite: '" + BS + "u{1F311}', hpMul: 1 }\n"
     "}\n"
 )
 
@@ -62,10 +63,10 @@ N_FACE = (
     "//    1.15 は「書き方で 勝敗が きまる 段」を つくるための 値。1.4 いじょうは 段21 が 0% に なる。\n"
     "//    HP の 1.3倍は すえおき。atk / def / skillPow は さわらない。\n"
     "const DEFBOSS_FACE: any = {\n"
-    "  '12': { name: 'モンヤブリ', sprite: '\u{1FA93}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
-    "  '15': { name: 'カゲハヤテ', sprite: '\u{1F32A}\u{FE0F}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
-    "  '18': { name: 'イワヨロイ', sprite: '\u{1F5FF}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
-    "  '21': { name: 'ヨルオウガ', sprite: '\u{1F311}', hpMul: 1, spdMul: " + SPD_MUL + " }\n"
+    "  '12': { name: 'モンヤブリ', sprite: '" + BS + "u{1FA93}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
+    "  '15': { name: 'カゲハヤテ', sprite: '" + BS + "u{1F32A}" + BS + "u{FE0F}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
+    "  '18': { name: 'イワヨロイ', sprite: '" + BS + "u{1F5FF}', hpMul: 1.3, spdMul: " + SPD_MUL + " },\n"
+    "  '21': { name: 'ヨルオウガ', sprite: '" + BS + "u{1F311}', hpMul: 1, spdMul: " + SPD_MUL + " }\n"
     "}\n"
 )
 
