@@ -155,7 +155,20 @@ function defMvpAwards(rep, ents, kwrote) {
     // __DEF_KUFU_V1__ うごいた めいれいの しゅるい数。events の posA から かぞえる。
     const _kf = defKufuVals(evs, n, kwrote)
     vals.kufu = _kf.val
-    const few = (n < DEF_MVP_MIN_ENTRIES)
+    // __DEF_ALLJOIN_V1__ 自動で 出た子の きろくは 0 に する（順位に 入らない）。
+    for (let i = 0; i < n; i++) {
+      if (!(ents[i] && ents[i].auto)) continue
+      vals.seme[i] = 0
+      vals.mamori[i] = 0
+      vals.nebari[i] = 0
+      vals.kufu[i] = 0
+      _kf.k[i] = 0
+      _kf.rank[i] = 0
+    }
+    // __DEF_ALLJOIN_V1__ 表彰は 自分で 出した子だけ。自動で 出た子は 数にも 入れない。
+    let _ajSelf = 0
+    for (let i = 0; i < n; i++) if (!(ents[i] && ents[i].auto)) _ajSelf++
+    const few = (_ajSelf < DEF_MVP_MIN_ENTRIES)
     const cats = [], ledger = []
     for (const cat of DEF_MVP_CATS) {
       const v = vals[cat.key]
@@ -170,6 +183,7 @@ function defMvpAwards(rep, ents, kwrote) {
       }
       const top = []
       for (let i = 0; i < n; i++) {
+        if (ents[i] && ents[i].auto) continue
         const place = places ? places[i] : 0
         const coins = (place >= 1 && place <= 3) ? DEF_MVP_COINS[place] : 0
         ledger.push({ uid: ents[i].uid, category: cat.key, place: place, coins: coins, value: v[i], ok: places ? 1 : 0 })
@@ -282,7 +296,7 @@ export async function defServerResolve(env, st, classId, enemies) {
       let m = null
       try { m = JSON.parse(String(r.mj)) } catch (_e) { return null }
       if (!defEntryOk(m)) return null
-      ents.push({ m: m, nm: String(r.nm || ''), sg: String(r.sg || ''), uid: String(r.uid || '') })
+      ents.push({ m: m, nm: String(r.nm || ''), sg: String(r.sg || ''), uid: String(r.uid || ''), auto: (Number(m.auto) === 1) })
     }
     const specsA = ents.map(function (e) {
       return {
@@ -329,7 +343,18 @@ export async function defServerResolve(env, st, classId, enemies) {
       return o
     }) } } : rep
     let mvp = null
-    try { mvp = computeMVP(_mvRep, ents.map(function (e) { return { name: e.nm } })) } catch (_e) { mvp = null }
+    // __DEF_ALLJOIN_V1__ MVP も 自分で 出した子から えらぶ。
+    try {
+      const _ajIdx = []
+      for (let i = 0; i < ents.length; i++) if (!ents[i].auto) _ajIdx.push(i)
+      if (_ajIdx.length) {
+        const _ajA0 = (_mvRep && _mvRep.teams && _mvRep.teams.A) ? _mvRep.teams.A : []
+        const _ajA = _ajIdx.map(function (i) { return _ajA0[i] }).filter(function (x) { return !!x })
+        if (_ajA.length === _ajIdx.length) {
+          mvp = computeMVP({ teams: { A: _ajA } }, _ajIdx.map(function (i) { return { name: ents[i].nm } }))
+        }
+      }
+    } catch (_e) { mvp = null }
     const teamA = (rep.teams && rep.teams.A) ? rep.teams.A : []
     const log = {
       v: 2, seed: seed, enemy_squad: enemies,
@@ -347,7 +372,7 @@ export async function defServerResolve(env, st, classId, enemies) {
           name: e.nm || f.name,
           sprite: (e.m && e.m.sprite) || f.sprite || '',
           mon: (e.m && e.m.name) || f.name,
-          dealt: Math.round(dealt || 0), alive: live
+          dealt: Math.round(dealt || 0), alive: live, auto: (Number(e.m && e.m.auto) === 1)
         }
       }),
       enemyTotalHp: enemies.reduce(function (s, en) { return s + (en.hp || 0) }, 0),

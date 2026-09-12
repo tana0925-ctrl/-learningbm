@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
+import { defDexEntry } from './def_dex'
 
 // __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
 // 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
@@ -1719,6 +1720,8 @@ const DEFENSE_ENEMIES = [
   { name: 'まおう',       sprite: '\u{1F608}', hp: 520, atk: 60, def: 24, buff: 'guard', skillPow: 12 },
 ]
 const DEFENSE_WIN_COINS = 20
+// __DEF_ALLJOIN_V1__ 自分で 出した子の うわのせ。勝利コイン 20 とは べつの 数。
+const DEFENSE_ENTRY_BONUS_COINS = 10
 
 // __DEFSTAGE_BONUS_V1__ ステージ初クリアのボーナス。
 //   コイン    : 勝利コイン 20 とは別に、初クリアした1回だけ 30 + 10 * stage
@@ -2056,6 +2059,27 @@ app.get('/api/defense/status', async (c) => {
               const _dsIns = c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING")
               await c.env.DB.batch(_dsRows.map((r: any) => _dsIns.bind(st.eventKey, String(r.uid), classId, String(r.mj), String(r.strat || 'balance'))))
             }
+            // __DEF_ALLJOIN_V1__ クラス全員が 出る。まだ 出していない子は 手持ちの先頭で 自動さんか。
+            //   ここは クラスで 最初の1人だけが 通る（すぐ上の 錠と 同じ かたまり）。1日に 1回だけ。
+            //   つよさは src/def_dex.ts の 表。ぼうえいせんの ものさしは モンスターの番号だけで
+            //   きまるので、図鑑が サーバに 無くても 同じ すがた・つよさに なる。
+            //   読みとりは クラス名簿ぶんの 1回だけ。state_json は まるごと 取らない。
+            try {
+              const _ajAll = await c.env.DB.prepare("SELECT cm.user_id AS uid, json_extract(p.state_json, '$.party[0]') AS pid FROM class_members cm LEFT JOIN progress p ON p.user_id = cm.user_id WHERE cm.class_id=? AND cm.user_id NOT IN (SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?) LIMIT 200").bind(classId, st.eventKey, classId).all<any>()
+              const _ajRows: any[] = []
+              for (const _ajR of ((_ajAll && _ajAll.results) || [])) {
+                const _ajM: any = defDexEntry(_ajR && _ajR.pid)
+                if (!_ajM || !defEntryOk(_ajM)) continue
+                _ajM.auto = 1
+                const _ajU = String((_ajR && _ajR.uid) || '')
+                if (!_ajU) continue
+                _ajRows.push({ uid: _ajU, mj: JSON.stringify(_ajM) })
+              }
+              if (_ajRows.length) {
+                const _ajIns = c.env.DB.prepare("INSERT INTO defense_entries (event_key, user_id, class_id, monster_json, strategy, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(event_key, user_id) DO NOTHING")
+                await c.env.DB.batch(_ajRows.map((r: any) => _ajIns.bind(st.eventKey, r.uid, classId, r.mj, 'balance')))
+              }
+            } catch (_e) {}
           }
           if (!out.my_entry) {
             const _dsMe = await c.env.DB.prepare("SELECT ds.strategy AS strat, ds.snapshot_json AS mj, json_extract(p.state_json, '$.monsters.\"' || ds.monster_id || '\".level') AS curlv FROM defense_standing ds LEFT JOIN progress p ON p.user_id = ds.user_id WHERE ds.user_id=? LIMIT 1").bind(u.id).first<any>()
@@ -2268,10 +2292,11 @@ app.post('/api/defense/resolve', async (c) => {
         if (_dsUp && _dsUp.meta && Number(_dsUp.meta.changes || 0) === 1) await defStageMakeLedger(c.env, classId, _dsStage)
       } catch (_e) {}
       try {
-        const _srvEs = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
-        for (const _srvR of ((_srvEs && _srvEs.results) || [])) {
-          await c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))").bind(st.eventKey, classId, String(_srvR.user_id), DEFENSE_WIN_COINS).run()
-        }
+        // __DEF_ALLJOIN_V1__ 勝ったら クラス全員に 20枚。自分で 出した子は さらに +10（あわせて 30枚）。
+        const _srvEs = await c.env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
+        const _srvRw = c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))")
+        const _srvList = ((_srvEs && _srvEs.results) || []).map((r: any) => _srvRw.bind(st.eventKey, classId, String(r.user_id), (Number(r.au) === 1 ? DEFENSE_WIN_COINS : DEFENSE_WIN_COINS + DEFENSE_ENTRY_BONUS_COINS)))
+        if (_srvList.length) await c.env.DB.batch(_srvList)
       } catch (_e) {}
     }
     return c.json({ ok: true, resolved: true, result: _srv.result, server: true })
@@ -2318,10 +2343,11 @@ app.post('/api/defense/resolve', async (c) => {
       if (_dsUp2 && _dsUp2.meta && Number(_dsUp2.meta.changes || 0) === 1) await defStageMakeLedger(c.env, classId, _dsStage)
     } catch (_e) {}
     try {
-      const es = await c.env.DB.prepare("SELECT user_id FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
-      for (const r of ((es && es.results) || [])) {
-        await c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))").bind(st.eventKey, classId, String(r.user_id), DEFENSE_WIN_COINS).run()
-      }
+      // __DEF_ALLJOIN_V1__ こちらの みちすじも 同じ（クラス全員に 20枚、自分で 出した子は 30枚）。
+      const es = await c.env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all<any>()
+      const _cbRw = c.env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))")
+      const _cbList = ((es && es.results) || []).map((r: any) => _cbRw.bind(st.eventKey, classId, String(r.user_id), (Number(r.au) === 1 ? DEFENSE_WIN_COINS : DEFENSE_WIN_COINS + DEFENSE_ENTRY_BONUS_COINS)))
+      if (_cbList.length) await c.env.DB.batch(_cbList)
     } catch (_e) {}
   }
   return c.json({ ok: true, resolved: true, result })
