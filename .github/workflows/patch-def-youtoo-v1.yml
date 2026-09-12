@@ -1,0 +1,245 @@
+name: 防衛戦 ③c（取りこぼした5体 ＋「きみも たたかっているよ」）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前に つなぎの数と アンカーの一意性を実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          pub = io.open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流す前）= %d' % n)
+          if n != 86:
+              print('NG: つなぎの数が 86 ではない'); sys.exit(1)
+          OLD_UI = ('if(d.my_entry && d.my_entry.monster){ var me=d.my_entry.monster; '
+                    + 'head+=' + chr(39) + '<div style="background:#ecfdf5;')
+          if pub.count(OLD_UI) != 1:
+              print('NG: 本番HTMLの あてはめ先が %d 件' % pub.count(OLD_UI)); sys.exit(1)
+          if s.count(OLD_UI) != 0:
+              print('NG: つなぎに すでに 同じ文字れつが ある'); sys.exit(1)
+          if s.count('__DEF_YOUTOO_V1__'):
+              print('NG: 番兵が すでにある'); sys.exit(1)
+          print('OK: つなぎ 86 / あてはめ先 1 件')
+          PYEOF
+
+      - name: （A）図鑑の表を つくり直す（取りこぼした5体を 入れる）
+        run: node scripts/gen_def_dex_v1.mjs
+
+      - name: （A）検証：取りこぼした5体が 本番と 同じ つよさで 入ったか
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const NL = String.fromCharCode(10);
+          const src = fs.readFileSync('src/def_dex.ts', 'utf8');
+          const D = new Function(src.replace(/^export /gm, '') + NL + 'return { defDexEntry, DEF_DEX_COUNT, DEF_DEX_SIG, DEF_DEX };')();
+          let ok = true;
+          if (!(D.DEF_DEX_COUNT >= 407)) { console.log('NG: 表が 少なすぎる ' + D.DEF_DEX_COUNT); ok = false; }
+          const want = [
+            [1511, 'ソンケイ', 2215, 142, 116, 116, 'guard', 'normal'],
+            [1512, 'ソンケーン', 2440, 160, 132, 130, 'guard', 'normal'],
+            [1513, 'ソンケーア', 2785, 188, 156, 142, 'guard', 'normal'],
+            [1514, 'ネンリキ', 2260, 152, 106, 120, 'attack', 'fire'],
+            [1515, 'まるやまード', 3720, 255, 208, 210, 'lucky', 'psychic'],
+            [1045, 'ミユウツー', 3140, 260, 175, 185, 'attack', 'psychic'],
+            [419, 'ラストエース', 4453, 202, 171, 171, 'lucky', 'normal'],
+            [1, 'タマゴン', 1840, 105, 85, 87, 'speed', 'flying'],
+            [1050, 'ポポ', 2410, 165, 125, 155, 'speed', 'flying']
+          ];
+          for (const w of want) {
+            const m = D.defDexEntry(w[0]);
+            if (!m) { console.log('NG: ' + w[0] + ' が 表に ない'); ok = false; continue; }
+            if (m.name !== w[1] || m.hp !== w[2] || m.atk !== w[3] || m.def !== w[4] || m.spd !== w[5] || m.buff !== w[6] || m.elementType !== w[7]) {
+              console.log('NG: ' + w[0] + ' が ちがう ' + JSON.stringify([m.name, m.hp, m.atk, m.def, m.spd, m.buff, m.elementType]));
+              ok = false;
+            }
+          }
+          let bad = 0;
+          for (const k of Object.keys(D.DEF_DEX)) {
+            const m = D.defDexEntry(Number(k));
+            const good = !!m && Number.isFinite(m.spd) && m.spd > 0 && Array.isArray(m.skills) && m.skills.length > 0 &&
+              Number.isFinite(m.hp) && m.hp > 0 && Number.isFinite(m.atk) && Number.isFinite(m.def) && m.elementType != null;
+            if (!good) bad++;
+          }
+          if (bad) { console.log('NG: 番人を 通らない 行が ' + bad + ' 件'); ok = false; }
+          console.log('表 ' + D.DEF_DEX_COUNT + ' 体 / しるし ' + D.DEF_DEX_SIG);
+          if (!ok) process.exit(1);
+          console.log('A OK');
+          JSEOF
+
+      - name: （A）検証：もう一度 つくっても 同じ表に なるか
+        run: |
+          cp src/def_dex.ts /tmp/dexA.ts
+          node scripts/gen_def_dex_v1.mjs
+          cmp -s /tmp/dexA.ts src/def_dex.ts || (echo 'NG: 作り直すたびに 中身が かわる'; exit 1)
+          echo 'A 同じ表に なる'
+
+      - name: （B）メッセージを つなぎに 足す
+        run: python3 scripts/patch_def_youtoo_v1.py
+
+      - name: （B）検証：つなぎが 87 件に なり、あてはめると ことばが 1回だけ 出るか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          pub = io.open('public/index.html', encoding='utf-8').read()
+          BT = chr(96)
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('つなぎの数（流した後）= %d' % n)
+          if n != 87:
+              print('NG: つなぎの数が 87 ではない'); sys.exit(1)
+          OLD_UI = ('if(d.my_entry && d.my_entry.monster){ var me=d.my_entry.monster; '
+                    + 'head+=' + chr(39) + '<div style="background:#ecfdf5;')
+          MSG = ('<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px;margin-bottom:8px;">'
+                 + '<div style="font-weight:900;color:#1d4ed8;">🤝 きみも たたかっているよ</div>'
+                 + '<div style="font-size:13px;color:#334155;margin-top:3px;line-height:1.6;">'
+                 + 'クラスの みんなが 出るので、きみの いちばん上の モンスターも いっしょに たたかうよ。<br>'
+                 + 'プログラムを くむと、クラスは もっと つよくなる。</div></div>')
+          NEW_UI = ('if(!(d.my_entry && d.my_entry.monster)){ head+=' + chr(39) + MSG + chr(39) + '; } ' + OLD_UI)
+          if s.count(BT + OLD_UI + BT) != 1:
+              print('NG: つなぎの 前の文字れつが 1 件でない'); sys.exit(1)
+          if s.count(BT + NEW_UI + BT) != 1:
+              print('NG: つなぎの 後の文字れつが 1 件でない'); sys.exit(1)
+          after = pub.replace(OLD_UI, NEW_UI)
+          if after.count(MSG) != 1:
+              print('NG: あてはめた あとの ことばが %d 件' % after.count(MSG)); sys.exit(1)
+          if after.count('✅ 出陣ずみ') != 1:
+              print('NG: 出陣ずみの ひょうじが こわれた'); sys.exit(1)
+          if after.count(OLD_UI) != 1:
+              print('NG: もとの ところが 1 件でない'); sys.exit(1)
+          print('B OK: ことばは 1 回だけ / 出陣ずみも のこっている')
+          PYEOF
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- public/defense2.js || (echo 'NG: public/defense2.js が変わっている'; exit 1)
+          git diff --quiet -- src/def_engine.ts || (echo 'NG: src/def_engine.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts || (echo 'NG: src/def_stage.ts が変わっている'; exit 1)
+          git diff --quiet -- src/def_resolve.ts || (echo 'NG: src/def_resolve.ts が変わっている'; exit 1)
+          echo '本番HTML・ブラウザ側・エンジン・段の表・サーバ計算は 無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 壊してはいけないものが残っているか
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          g = io.open('src/def_stage.ts', encoding='utf-8').read()
+          d = io.open('public/defense2.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %d 件（%d 件の予定）' % (label, got, want)); ok[0] = False
+          chk('DEF_LV50_V1', s.count('DEF_LV50_V1'), 2)
+          chk('DEF_LV50_V2', s.count('DEF_LV50_V2'), 2)
+          chk('DEF2_LV50_ENTRYFIX_V1', s.count('DEF2_LV50_ENTRYFIX_V1'), 1)
+          chk('defNorm', s.count('window.defNorm'), 2)
+          chk('MVP の番兵', s.count('__DEF_MVP_V1__'), 6)
+          chk('MVP の台帳', s.count('defMvpMakeLedger'), 2)
+          chk('MVP のコイン印', s.count('_defMvpCoinsApplied'), 8)
+          chk('段の番兵', s.count('__DEFSTAGE_SENTINEL_V1__'), 1)
+          chk('spd/skills の番兵', s.count('__DEF_SNAP_SPDSKILLS_V1__'), 1)
+          chk('照合の番兵', s.count('__DEF_RESOLVE_VERIFY_V1__'), 1)
+          chk('照合の やりなおし', s.count('retry: true'), 2)
+          chk('照合の v', s.count('Number(_dvLog.v) === 2'), 1)
+          chk('持ち越し', s.count('defense_standing'), 4)
+          chk('持ち越しの錠', s.count('defense_carry_lock'), 1)
+          chk('自動すすめ', s.count('defAutoAdvanceV1'), 3)
+          chk('番人', s.count('defEntryOk'), 4)
+          chk('段の敵', s.count('defStageEnemies'), 4)
+          chk('段の台帳', s.count('defStageMakeLedger'), 3)
+          chk('段のごほうび', s.count('applyDefStageGrants'), 2)
+          chk('段のコイン印', s.count('_defStageCoinsApplied'), 8)
+          chk('えらび直し', s.count('needs_reselect'), 3)
+          chk('レーンまぜ（つなぎ）', s.count('foeLaneMix'), 2)
+          chk('レーンまぜ（サーバ）', v.count('foeLaneMix'), 1)
+          chk('レーンまぜ（ブラウザ）', d.count('foeLaneMix'), 2)
+          chk('表づくりの よびだし', s.count('ensureDefenseTables()'), 0)
+          chk('勝利コイン 20', s.count('const DEFENSE_WIN_COINS = 20'), 1)
+          chk('うわのせ 10', s.count('const DEFENSE_ENTRY_BONUS_COINS = 10'), 1)
+          chk('基地HP の なまえ', s.count('DEFENSE_BASE_HP'), 2)
+          chk('基地HP 380', s.count('380'), 2)
+          chk('ごほうびの頭打ち30', s.count('const DEFSTAGE_BONUS_MAX_STAGE = 30'), 1)
+          chk('ばんごう21', s.count('/defense2.js?v=21'), 1)
+          chk('さそいの js', s.count('def_join_nudge.js'), 4)
+          chk('段のモンスター js', s.count('defstage_monsters.js'), 4)
+          chk('S6WORLD', s.count('__S6WORLD_50__'), 1)
+          chk('H6MERGE', s.count('__H6MERGE_SRC_V1__'), 1)
+          chk('H6BANK', s.count('__H6BANK_LIVE_V1__'), 1)
+          chk('H6U11', s.count('__H6U11_BOOST_V1__'), 1)
+          chk('①の番兵', s.count('__DEF_LOG_FIT_V1__'), 1)
+          chk('①の かんすう（つなぎ）', s.count('defLogFit'), 2)
+          chk('①の かんすう（サーバ）', v.count('defLogFit'), 2)
+          chk('③aの番兵', s.count('__DEFSTAGE_30_V1__'), 1)
+          chk('③aの番兵（段）', g.count('__DEFSTAGE_30_V1__'), 1)
+          chk('③bの番兵（つなぎ）', s.count('__DEF_ALLJOIN_V1__'), 4)
+          chk('③bの番兵（サーバ）', v.count('__DEF_ALLJOIN_V1__'), 3)
+          chk('③cの番兵', s.count('__DEF_YOUTOO_V1__'), 1)
+          chk('表のとりこみ', s.count("import { defDexEntry } from './def_dex'"), 1)
+          chk('D2T_A1', d.count('D2T_A1'), 3)
+          chk('D2T_JAFIX', d.count('D2T_JAFIX'), 6)
+          chk('D2T_DROP_A', d.count('D2T_DROP_A'), 2)
+          chk('D2T_DROP_C', d.count('D2T_DROP_C'), 2)
+          chk('aimWeak', d.count('aimWeak'), 5)
+          chk('aimWeakest', d.count('aimWeakest'), 2)
+          chk('attackNearest', d.count('attackNearest'), 4)
+          chk('体数を増やしていない', g.count('base.map('), 1)
+          chk('3引数の形', g.count('export function defStageEnemies(base, stage, n) {'), 1)
+          down = 'stage' + ' - ' + '1'
+          chk('下げる みちすじ（つなぎ）', s.count(down), 0)
+          chk('下げる みちすじ（サーバ）', v.count(down), 0)
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/def_dex.ts src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'かわっていないので push しません'
+          else
+            git commit -m '取りこぼした5体を 表に入れる ＋「きみも たたかっているよ」を 出す'
+            git push origin HEAD:main
+          fi
