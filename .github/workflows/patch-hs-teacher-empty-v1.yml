@@ -1,0 +1,61 @@
+name: HS_TEACHER_EMPTY_V1 家庭学習シートの「先生から」欄は空なら出さない
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'replace 総数(前): '; grep -o '[.]replace(' src/index.tsx | wc -l
+          echo -n 'hsTeacherComment 代入(public/index.html): '; grep -c 'tcEl.textContent' public/index.html || true
+          echo -n '既適用マーカー: '; grep -c '__HS_TEACHER_EMPTY_V1__' src/index.tsx || true
+
+      - name: パッチ適用（チェーン103件を実測、104件にならなければ中止）
+        run: python3 scripts/patch_hs_teacher_empty_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- public/index.html
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          echo 'def_engine.ts / def_resolve.ts / def_stage.ts / defense2.js / public/index.html: 無変更 OK'
+          echo -n '基地HP 380 の出現数(def_engine.ts): '; grep -c '380' src/def_engine.ts || true
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -c '__HS_TEACHER_EMPTY_V1__' src/index.tsx) -eq 2
+          grep -q 'console.error(.\[__HS_TEACHER_EMPTY_V1__\]' src/index.tsx
+          grep -q 'hs-sigBox' src/index.tsx
+          echo -n 'replace 総数(後): '; grep -o '[.]replace(' src/index.tsx | wc -l
+          echo '検証OK'
+
+      - name: ビルド確認（TSXが壊れていないこと）
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          git diff --staged --quiet && echo '変更なし（適用済み）' || git commit -m 'HS_TEACHER_EMPTY_V1: 家庭学習シートの「先生から」欄は返却コメントが空なら枠ごと出さない（配信チェーンを1本追加 103->104）'
+          git checkout -- .
+          git pull --rebase origin main
+          git push
+
+      - name: 次の手順
+        run: echo 'このpushではDeployは起動しません。Deploy to Cloudflare Pages を手動実行してください。'
