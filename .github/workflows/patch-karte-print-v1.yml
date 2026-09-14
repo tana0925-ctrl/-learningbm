@@ -1,0 +1,65 @@
+name: KARTE_PRINT_V1 印刷カルテ3点修正（先生から欄の統合／連続記録／単元名34件）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'replace 総数(前): '; grep -o '[.]replace(' src/index.tsx | wc -l
+          echo -n 'UNIT_JP 定義数: '; grep -c 'window.UNIT_JP = {' src/index.tsx
+          echo -n '先生から点線枠: '; grep -c '先生から</div></div>' src/index.tsx || true
+          echo -n 'm7-moji の既存: '; grep -c "'m7-moji'" src/index.tsx || true
+
+      - name: パッチ適用（チェーン103件の実測とアンカー一意性を確認。違えば1文字も書かずに中止）
+        run: python3 scripts/patch_karte_print_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- public/index.html
+          echo 'def_engine.ts / defense2.js / public/index.html: 無変更 OK'
+          echo -n '基地HP 380 の出現数(def_engine.ts): '; grep -c '380' src/def_engine.ts || true
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          F=src/index.tsx
+          G=public/teacher-ai.js
+          grep -q '中1 文字と式' $F
+          grep -q '中2 鎌倉〜安土桃山' $F
+          grep -q '今年度の最長れんぞく' $F
+          grep -q '今週はまだ白紙やな' $F
+          grep -q '関西弁' $G
+          test $(grep -c '先生から</div></div>' $F || true) -eq 0
+          echo -n 'replace 総数(後): '; grep -o '[.]replace(' src/index.tsx | wc -l
+          echo '検証OK'
+
+      - name: ビルド確認（TSXが壊れていないこと）
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx public/teacher-ai.js
+          git diff --staged --quiet && echo '変更なし（適用済み）' || git commit -m 'KARTE_PRINT_V1: 印刷カルテ 先生から欄を阪神マン欄に統合／連続記録を今年度表記に／UNIT_JP に中学以降34単元'
+          git checkout -- .
+          git pull --rebase origin main
+          git push
+
+      - name: 次の手順
+        run: echo 'このpushではDeployは起動しません。Deploy to Cloudflare Pages を手動実行してください。'
