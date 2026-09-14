@@ -10137,7 +10137,11 @@ app.get('/teacher', (c) => {
       // ===== 🏰 クラス基地防衛戦 =====
       async function loadDefenseStatus(){
         try{
-          var d = await api('/api/defense/status');
+          /* __DEF_TEACHER_START_V1__ ランプは 教師用の state を見る。
+             /api/defense/status は 先生を「クラス未所属」として 打ち切るときに
+             active を false に 上書きするので、開催中でも かならず「OFF」に 見えていた。
+             返す名前（active / decision_at）は 同じなので、この下は 1行も かえていない。 */
+          var d = await api('/api/teacher/defense/state');
           var st = document.getElementById('defenseStatus');
           if(st){
             if(d.active && d.decision_at){ var dt=new Date(d.decision_at); st.textContent='\u2705 開催中：決戦 '+dt.toLocaleString(); st.className='text-xs text-rose-700 font-bold'; }
