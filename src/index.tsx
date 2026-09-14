@@ -8298,6 +8298,11 @@ app.get('/', async (c) => {
     const _zwr1 = "      if(cand && best < 6){ pu.target=cand; cand.target=pu; }"
     const _zwr2 = "      /* __ZWAR_REACH_FIX_V1__ ねらえる距離を 止まる距離と 同じものさし（画面のはばに対する％）で 出す。 */\n      if(cand){\n        var _zwBW = 600;\n        try{ _zwBW = Math.max(1, Number(warState && warState._battleW) || 600); }catch(e){ _zwBW = 600; }\n        var _zwHalfPct = function(un){ return ((((un && un.isBoss) ? 60 : 46) / 2) / _zwBW) * 100; };\n        var _zwStop = _zwHalfPct(pu) + _zwHalfPct(cand) + 0.2;\n        var _zwReach = Math.max(6, _zwStop + 0.2);\n        if(best < _zwReach){ pu.target=cand; cand.target=pu; }\n      }"
     if (t.indexOf(_zwr1) !== -1) { t = t.replace(_zwr1, _zwr2) } else { console.error('[__ZWAR_REACH_FIX_V1__] anchor not found') }
+    // __HS_TEACHER_EMPTY_V1__ 家庭学習シートの「先生から」欄は、返却コメントが空なら枠ごと出さない。
+    const _hste1 = "if (tcEl) tcEl.textContent = (entryToday && entryToday.teacherComment) || '';"
+    const _hste2 = "if (tcEl) { var _tcTxt = (entryToday && entryToday.teacherComment) || ''; tcEl.textContent = _tcTxt; var _tcBox = tcEl.parentNode; if (_tcBox && _tcBox.classList && _tcBox.classList.contains('hs-sigBox')) { _tcBox.style.display = _tcTxt ? '' : 'none'; } }"
+    if (t.indexOf(_hste1) !== -1) { t = t.replace(_hste1, _hste2) } else { console.error('[__HS_TEACHER_EMPTY_V1__] anchor not found') }
+
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
