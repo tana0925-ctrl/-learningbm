@@ -1,0 +1,51 @@
+name: 防衛戦を12:30におこす（DEF_AUTO_RESOLVE_V1・時計）
+
+# 先生が 画面を ひらいていなくても 12:30 に 決戦が はじまるように、
+# 外から /api/defense/auto-resolve を たたきます。
+#
+# たたかれる がわは
+#   ・決戦時刻の 前なら 何もしない（not_yet）
+#   ・もう 結果が あるなら 何もしない（already）
+#   ・勝敗が 決められないなら 1文字も 書かない（fail-closed）
+# なので、何回 たたいても 同じです。
+#
+# GitHub の 時計は 数分 おくれることが あります。
+# そこで 12:25 から 12:55 まで 5分おきに たたいて、
+# どれか 1回が 通れば よい かたちに しています。
+# それでも おくれた/動かなかった 日は、先生の画面の 黄色い帯に
+# 「予定どおりに 動かず ◯時◯分に 動きました」と 出ます。
+
+on:
+  schedule:
+    # UTC。03:30 UTC = JST 12:30。月〜金。
+    - cron: '25,30,35,40,45,50,55 3 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: def-auto-resolve
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: /api/defense/auto-resolve を たたく
+        run: |
+          set -u
+          URL="https://learning-bm.pages.dev/api/defense/auto-resolve"
+          ok=0
+          for i in 1 2 3; do
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' --max-time 90 "$URL") || code=000
+            echo "----- attempt $i / http=$code / $(date -u +%FT%TZ)"
+            cat /tmp/out.json 2>/dev/null || true
+            echo
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 15
+          done
+          if [ "$ok" != "1" ]; then
+            echo "NG: 200 が かえりませんでした"
+            exit 1
+          fi
