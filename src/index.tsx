@@ -4,6 +4,8 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { registerMi } from './mi'
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）
 import { registerDefTeacherStart } from './def_teacher_start'
+// __DEF_AUTO_RESOLVE_V1__ 先生が 画面を ひらいていなくても 12:30 に 決戦が おきるようにする
+import { registerDefAutoResolve, defAutoResolveHook } from './def_auto_resolve'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
 import { defDexEntry } from './def_dex'
@@ -2144,6 +2146,10 @@ app.get('/api/defense/status', async (c) => {
             }
           }
         } catch (_e) {}
+        // __DEF_AUTO_RESOLVE_V1__ 決戦時刻を すぎていて まだ 結果が 無いなら、ここで 決着させる。
+        // 2分に 1台だけ 通す（defense_carry_lock の にせ鍵）ので、
+        // 22台で 戦闘計算が 走ることは ない。しくじっても 児童の画面は 止めない。
+        try { await defAutoResolveHook(c.env, st, classId) } catch (_e) {}
         const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
         out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { user_id: r.uid, name: r.nm, monster: m, strategy: r.strat } })
       } catch (_e) {}
@@ -9429,6 +9435,8 @@ app.get('/teacher', (c) => {
           <span id="defenseStatus" class="text-xs text-rose-700 font-bold"></span>
           <!-- __DEF_TEACHER_START_V1__ 決戦をこの場ではじめる。先生はclass_membersに入っていないので
                児童用の /api/defense/status ではなく 教師用の /api/teacher/defense/state を見る。 -->
+          <!-- __DEF_AUTO_RESOLVE_V1__ 12:30に 動かなかったことに 気づけるように する -->
+          <div id="defHealthBox" class="mt-3 hidden text-xs rounded-lg px-3 py-2"></div>
           <div id="defStartBox" class="mt-3 hidden">
             <div id="defStartMsg" class="text-xs text-slate-500 mb-2"></div>
             <button id="defStartBtn" onclick="defTeacherStart()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-black hover:bg-rose-700 disabled:opacity-40">&#9876; 決戦をはじめる</button>
@@ -10169,6 +10177,8 @@ app.get('/teacher', (c) => {
          ・throw しない。しくじっても 先生の画面の 他の部分を 止めない。 */
       var _defTsBusy = false;
       var _defTsFired = '';
+      /* __DEF_AUTO_RESOLVE_V1__ 1回 しくじっても もう一度 たたけるように、さいごに たたいた時刻を のこす。 */
+      var _defTsLast = 0;
       function defTsMsg(t){ var e=document.getElementById('defStartMsg'); if(e) e.textContent = t; }
       async function defTeacherStart(){
         if(_defTsBusy) return;
@@ -10211,14 +10221,52 @@ app.get('/teacher', (c) => {
         }
         if(btn) btn.disabled = false;
         if(_defTsFired !== st.event_key){
-          _defTsFired = st.event_key;
+          _defTsFired = st.event_key; _defTsLast = Date.now();
           defTsMsg('決戦の時刻になりました。出陣 ' + (st.entries || 0) + '人。いまはじめます…');
           defTeacherStart();
           return;
         }
         defTsMsg('決戦の時刻をすぎています。出陣 ' + (st.entries || 0) + '人。ボタンでもはじめられます。');
+        /* __DEF_AUTO_RESOLVE_V1__ 1回 たたいても 決着していないなら 1分ごとに もう一度 たたく。
+           もとは たたく前に _defTsFired を 立てるだけだったので、通信が 1回 しくじると
+           そのページでは 二度と たたかず、だまったままに なっていた。 */
+        var _arNow = Date.now();
+        if(_arNow - _defTsLast > 60000){ _defTsLast = _arNow; defTeacherStart(); }
       }
       setInterval(function(){ try{ defTeacherTick(); }catch(e){ console.error('[__DEF_TEACHER_START_V1__]', e); } }, 20000);
+      /* __DEF_AUTO_RESOLVE_V1__ 「昨日は 12:30に 動きませんでした」を 先生の画面に 出す。
+         event_key（予定の時刻）と resolved_at（じっさいに 動いた時刻）の 差を 見るだけ。 */
+      async function loadDefHealth(){
+        var box = document.getElementById('defHealthBox');
+        if(!box) return;
+        var h = null;
+        try{ h = await api('/api/teacher/defense/health'); }catch(e){ return; }
+        if(!h || !h.ok) return;
+        var msgs = [];
+        try{
+          if(h.today && !h.today.resolved && Number(h.today.overdue_minutes) > 2){
+            msgs.push('きょうの決戦は まだ 動いていません（予定 ' + new Date(h.today.decision_at).toLocaleTimeString() + ' ／ ' + h.today.overdue_minutes + '分すぎ）。');
+          }
+          var rec = h.recent || [];
+          for(var i=0;i<rec.length;i++){
+            var r = rec[i];
+            if(r && r.late_minutes != null && Number(r.late_minutes) >= 5){
+              var got = new Date(String(r.resolved_at).replace(' ','T') + 'Z');
+              msgs.push(new Date(r.event_key).toLocaleDateString() + ' の決戦は 予定どおりに 動かず ' + got.toLocaleTimeString() + ' に 動きました（' + r.late_minutes + '分おくれ）。');
+            }
+          }
+        }catch(e){ return; }
+        if(!msgs.length){ box.className = 'mt-3 hidden text-xs rounded-lg px-3 py-2'; box.textContent = ''; return; }
+        box.className = 'mt-3 text-xs rounded-lg px-3 py-2 bg-amber-50 text-amber-800 border border-amber-300 font-bold';
+        box.textContent = '⚠ ' + msgs.join(' ／ ');
+      }
+      try{ loadDefHealth(); }catch(e){}
+      setInterval(function(){ try{ loadDefHealth(); }catch(e){} }, 60000);
+      /* __DEF_AUTO_RESOLVE_V1__ タブが うしろに まわると setInterval は 1分に1回まで しぼられ、
+         PCが スリープ・画面ロックすると 止まる。もどってきた ときに すぐ 見にいく。 */
+      document.addEventListener('visibilitychange', function(){ if(!document.hidden){ try{ defTeacherTick(); }catch(e){} } });
+      window.addEventListener('focus', function(){ try{ defTeacherTick(); }catch(e){} });
+      window.addEventListener('online', function(){ try{ defTeacherTick(); }catch(e){} });
       try{ defTeacherTick(); }catch(e){ console.error('[__DEF_TEACHER_START_V1__]', e); }
       // ===== 単元フェス =====
       var FEST_UNITS = {"1":[{"id":"m1-add-no","name":"算数：たしざん(くり上がりなし)"},{"id":"m1-sub-no","name":"算数：ひきざん(くり下がりなし)"},{"id":"m1-add-cy","name":"算数：たしざん(くり上がり)"},{"id":"m1-sub-bo","name":"算数：ひきざん(くり下がり)"},{"id":"m1-3num","name":"算数：3つのかずのけいさん"},{"id":"j1-kanji","name":"国語：かんじ(1年80字)"}],"2":[{"id":"m2-add2","name":"算数：たし算(2けた)"},{"id":"m2-sub2","name":"算数：ひき算(2けた)"},{"id":"m2-kuku","name":"算数：九九"},{"id":"m2-length","name":"算数：長さ(cm, mm)"},{"id":"j2-kanji","name":"国語：漢字(2年160字)"}],"3":[{"id":"m3-mul1","name":"算数：かけ算(2けた×1けた)"},{"id":"m3-div0","name":"算数：わり算(あまりなし)"},{"id":"m3-divR","name":"算数：わり算(あまりあり)"},{"id":"m3-large","name":"算数：大きい数の位"},{"id":"m3-weight","name":"算数：重さ(g, kg)"},{"id":"j3-kanji","name":"国語：漢字(3年)"},{"id":"j3-kotowaza","name":"国語：ことわざ"},{"id":"j3-romaji","name":"国語：ローマ字"},{"id":"s3-map","name":"社会：地図記号"},{"id":"r3-insect","name":"理科：こん虫の体"},{"id":"r3-magnet","name":"理科：じしゃく"},{"id":"r3-light","name":"理科：光の性質"}],"4":[{"id":"rounding","name":"算数：がい数"},{"id":"division","name":"算数：わり算(暗算)"},{"id":"fraction-mixed","name":"算数：分数"},{"id":"decimal","name":"算数：小数(×÷)"},{"id":"long-division","name":"算数：筆算(わり算)"},{"id":"area","name":"算数：面積"},{"id":"brackets","name":"算数：計算の順序"},{"id":"j4-kanji","name":"国語：漢字(4年)"},{"id":"idiom","name":"国語：慣用句"},{"id":"conjunction","name":"国語：つなぎ言葉"},{"id":"yoji","name":"国語：四字熟語"},{"id":"social","name":"社会：都道府県"},{"id":"social-nagoyasouth","name":"社会：名古屋南部の開発"},{"id":"social-seto","name":"社会：瀬戸のやきもの"},{"id":"s4-water","name":"社会：水はどこから"},{"id":"s4-garbage","name":"社会：ごみのしょりと利用"},{"id":"s4-disaster","name":"社会：自然災害からくらしを守る"},{"id":"s4-inuyama","name":"社会：犬山祭り"},{"id":"s4-minamichita","name":"社会：南知多町"},{"id":"s4-toyohashi","name":"社会：豊橋市"},{"id":"science-weather","name":"理科：天気と気温"},{"id":"science-seasons","name":"理科：季節と生き物"},{"id":"science-electric","name":"理科：電池のはたらき"},{"id":"science-airwater","name":"理科：空気と水"},{"id":"science-moonstars","name":"理科：月と星"},{"id":"science-rainwater","name":"理科：雨水のゆくえ"},{"id":"science-body","name":"理科：人の体のつくり"},{"id":"science-temperature-volume","name":"理科：ものの温度と体積"},{"id":"science-heat","name":"理科：もののあたたまり方"},{"id":"science-water-change","name":"理科：すがたを変える水"}],"5":[{"id":"m5-frac-eq","name":"算数：約分と通分"},{"id":"m5-percent","name":"算数：割合(百分率)"},{"id":"m5-volume","name":"算数：体積"},{"id":"m5-polygon","name":"算数：多角形の角"},{"id":"m5-avg","name":"算数：平均"},{"id":"m5-dec-mul","name":"算数：小数×小数"},{"id":"m5-dec-div","name":"算数：小数÷小数"},{"id":"m5-speed","name":"算数：速さ"},{"id":"m5-unit-qty","name":"算数：単位量あたり"},{"id":"j5-kanji","name":"国語：漢字(5年)"},{"id":"j5-keigo","name":"国語：敬語"},{"id":"j5-homoph","name":"国語：同音異義語"},{"id":"s5-agri","name":"社会：農業"},{"id":"s5-industry","name":"社会：工業"},{"id":"s5-env","name":"社会：国土と環境"},{"id":"s5-land","name":"社会：国土の地形と気候"},{"id":"s5-fishery","name":"社会：水産業"},{"id":"s5-info","name":"社会：情報と産業"},{"id":"s5-forest","name":"社会：森林とわたしたちの生活"},{"id":"s5-disaster","name":"社会：自然災害を防ぐ"},{"id":"r5-weather","name":"理科：天気の変化"},{"id":"r5-pendulum","name":"理科：ふりこ"},{"id":"r5-dissolve","name":"理科：もののとけ方"},{"id":"r5-magnet2","name":"理科：電磁石"},{"id":"r5-plant","name":"理科：植物の発芽と成長"},{"id":"r5-flow","name":"理科：流れる水のはたらき"},{"id":"r5-medaka","name":"理科：メダカのたんじょう"},{"id":"r5-human","name":"理科：人のたんじょう"}],"6":[{"id":"m6-frac-mul","name":"算数：分数×分数"},{"id":"m6-frac-div","name":"算数：分数÷分数"},{"id":"m6-frac-int","name":"算数：分数×÷整数"},{"id":"m6-frac-mixed","name":"算数：帯分数の計算"},{"id":"m6-frac-triple","name":"算数：分数3つの計算"},{"id":"m6-frac-dec","name":"算数：小数と分数"},{"id":"m6-ratio","name":"算数：比"},{"id":"m6-circle","name":"算数：円の面積"},{"id":"m6-proportion","name":"算数：比例と反比例"},{"id":"m6-expression","name":"算数：文字と式"},{"id":"j6-kanji","name":"国語：漢字(6年)"},{"id":"j6-bunpo","name":"国語：文法まとめ"},{"id":"j6-classic","name":"国語：古典"},{"id":"s6-hist-u1","name":"社会：縄文〜古墳"},{"id":"s6-hist-u2","name":"社会：天皇の国づくり"},{"id":"s6-hist-u3","name":"社会：貴族のくらし"},{"id":"s6-hist-u4","name":"社会：武士の世の中へ"},{"id":"s6-hist-u5","name":"社会：室町文化"},{"id":"s6-hist-u6","name":"社会：天下統一"},{"id":"s6-hist-u7","name":"社会：江戸の政治"},{"id":"s6-hist-u8","name":"社会：町人文化"},{"id":"s6-hist-u9","name":"社会：明治の国づくり"},{"id":"s6-hist-u10","name":"社会：戦争と人々"},{"id":"s6-hist-u11","name":"社会：新しい日本へ"},{"id":"s6-politics","name":"社会：政治"},{"id":"s6-world","name":"社会：世界の国々"},{"id":"r6-combust","name":"理科：ものの燃え方"},{"id":"r6-body","name":"理科：体のつくり(発展)"},{"id":"r6-earth","name":"理科：大地のつくり"},{"id":"r6-aqueous","name":"理科：水溶液の性質"},{"id":"r6-moon","name":"理科：月と太陽"},{"id":"r6-lever","name":"理科：てこのはたらき"},{"id":"r6-plant","name":"理科：植物のつくりとはたらき"},{"id":"r6-electric","name":"理科：電気の利用"},{"id":"r6-environment","name":"理科：生物と地球環境"}]};
@@ -14379,6 +14427,27 @@ registerMi(app)
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
 // 児童側の /api/defense/status と /api/defense/resolve には 1文字も さわっていない。
 registerDefTeacherStart(app, {
+  requireTeacher: requireTeacher,
+  jsonError: jsonError,
+  defenseSettings: defenseSettings,
+  defServerResolve: defServerResolve,
+  defEntryOk: defEntryOk,
+  defDexEntry: defDexEntry,
+  defCarrySnapOk: defCarrySnapOk,
+  defStageEnemies: defStageEnemies,
+  defBossApply: defBossApply,
+  DEFENSE_ENEMIES: DEFENSE_ENEMIES,
+  defEntryCount: defEntryCount,
+  defMvpMakeLedger: defMvpMakeLedger,
+  defStageMakeLedger: defStageMakeLedger,
+  DEFENSE_WIN_COINS: DEFENSE_WIN_COINS,
+  DEFENSE_ENTRY_BONUS_COINS: DEFENSE_ENTRY_BONUS_COINS
+})
+
+// __DEF_AUTO_RESOLVE_V1__ だれの端末も 要らない 入口 /api/defense/auto-resolve と
+// 先生むけの 見はり /api/teacher/defense/health を 登録する。
+// わたす ものは registerDefTeacherStart と まったく 同じ。
+registerDefAutoResolve(app, {
   requireTeacher: requireTeacher,
   jsonError: jsonError,
   defenseSettings: defenseSettings,
