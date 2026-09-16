@@ -1,0 +1,81 @@
+name: 🎫 カフート券 v1で買った子の返金額を800に直す（KAHOOT_PRICE_V3_LEGACY）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 触る前の状態を控えておく
+        run: git show HEAD:src/index.tsx > /tmp/index_before.tsx
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_kahoot_legacy_v3.py
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts src/def_engine.ts src/def_resolve.ts public/defense2.js || (echo 'NG: 防衛戦のファイルが変わっている'; exit 1)
+          git diff --quiet -- migrations public/kahoot_ticket.js || (echo 'NG: 想定外のファイルが変わっている'; exit 1)
+          echo 'src/index.tsx 以外は無傷'
+      - name: ビルドが通ることを確認
+        run: |
+          npm install
+          npm run build
+      - name: 確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          b = io.open('/tmp/index_before.tsx', encoding='utf-8').read()
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s（期待 %s）' % (label, got, want)); ok[0] = False
+          def chain(x):
+              i = x.index("app.get('/', async (c) => {")
+              j = x.index("app.get('/logout'", i)
+              return x[i:j].count('.replace(')
+          chk('チェーン件数', chain(s), chain(b))
+          chk('チェーン件数(実数)', chain(s), 106)
+          chk('800の定数', s.count('const KHT_LEGACY_PRICE = 800'), 1)
+          chk('返金の既定', s.count('|| KHT_LEGACY_PRICE)'), 1)
+          chk('古い既定が消えた', s.count('|| KHT_PRICE_MID)'), 0)
+          for label in ('CREATE TABLE', 'ALTER TABLE', "app.get('/sticker.js'", 'defStageMakeLedger'):
+              chk('（既存）' + label, s.count(label), b.count(label))
+          if 'KHT_LEGACY_PRICE' not in w:
+              print('NG: dist に入っていない'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし'; exit 0
+          fi
+          git commit -m 'KAHOOT_PRICE_V3_LEGACY: v1で800払った子の返金を800にする（1500で返さない）'
+          git pull --rebase origin main
+          git push origin HEAD:main
