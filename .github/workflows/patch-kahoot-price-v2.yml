@@ -1,0 +1,169 @@
+name: 🎫 カフート券の値段を3段階に（KAHOOT_PRICE_V2・500/1500/3000）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 触る前の状態を控えておく
+        run: |
+          git show HEAD:src/index.tsx > /tmp/index_before.tsx
+          git show HEAD:public/kahoot_ticket.js > /tmp/asset_before.js
+
+      - name: 流す前にチェーンと、v1のかたまりが1件であることを実測する
+        run: |
+          python3 - << 'PYEOF'
+          import importlib.util, io, os, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain =', n, ' applied =', 'KAHOOT_PRICE_V2' in s)
+          # 9/16 10:17 に v1 を入れた直後の着地が 106。
+          # 値段の変更ではチェーンを1本も増減しないので、前後とも同じ数でなければおかしい。
+          if n != 106:
+              print('NG: チェーンが 106 件でない（並行作業の可能性。止めて報告すること）'); sys.exit(1)
+          if not os.path.exists('scripts/patch_kahoot_ticket_v1.py'):
+              print('NG: v1 のスクリプトが無い'); sys.exit(1)
+          spec = importlib.util.spec_from_file_location('v1','scripts/patch_kahoot_ticket_v1.py')
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          if s.count(m.SERVER_ADD) != 1:
+              print('NG: v1 のサーバ部が 1 件でない'); sys.exit(1)
+          if s.count(m.TEACHER_ADD) != 1:
+              print('NG: v1 の先生画面が 1 件でない'); sys.exit(1)
+          print('PRECHECK OK')
+          PYEOF
+
+      - name: 入れるJSの文法を先に確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import importlib.util, io
+          spec = importlib.util.spec_from_file_location('v2','scripts/patch_kahoot_price_v2.py')
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          io.open('/tmp/kht_asset.js','w',encoding='utf-8').write(m.NEW_ASSET)
+          head = "(async function(){ const cls={id:'x'}; const header=document.createElement('div'); const api=async function(){return {};}; \n"
+          io.open('/tmp/kht_teacher.js','w',encoding='utf-8').write(head + m.NEW_TEACHER + "\n})();\n")
+          print('wrote temp js')
+          PYEOF
+          node --check /tmp/kht_asset.js
+          node --check /tmp/kht_teacher.js
+          echo 'JSの文法 OK'
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_kahoot_price_v2.py
+
+      - name: 触っていないはずのファイルが無傷か
+        run: |
+          git diff --quiet -- public/index.html || (echo 'NG: public/index.html が変わっている'; exit 1)
+          git diff --quiet -- src/def_stage.ts src/def_engine.ts src/def_resolve.ts public/defense2.js || (echo 'NG: 防衛戦のファイルが変わっている'; exit 1)
+          git diff --quiet -- migrations || (echo 'NG: migrations が変わっている'; exit 1)
+          echo 'src/index.tsx と public/kahoot_ticket.js 以外は無傷'
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配線と、壊してはいけないものを確かめる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          b = io.open('/tmp/index_before.tsx', encoding='utf-8').read()
+          k = io.open('public/kahoot_ticket.js', encoding='utf-8').read()
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s（期待 %s）' % (label, got, want)); ok[0] = False
+          def chain(x):
+              i = x.index("app.get('/', async (c) => {")
+              j = x.index("app.get('/logout'", i)
+              return x[i:j].count('.replace(')
+          # チェーンは1本も動いていないこと
+          chk('チェーン件数', chain(s), chain(b))
+          chk('チェーン件数(実数)', chain(s), 106)
+          # 値段
+          chk('500', s.count('KHT_PRICE_STREAK = 500'), 1)
+          chk('1500', s.count('KHT_PRICE_MID = 1500'), 1)
+          chk('3000', s.count('KHT_PRICE_NONE = 3000'), 1)
+          chk('連続3日', s.count('KHT_STREAK_NEED = 3'), 1)
+          chk('直近5登校日', s.count('KHT_RECENT_DAYS = 5'), 1)
+          chk('古い800が消えた', s.count('const KHT_PRICE ='), 0)
+          # 連続はサーバで計算し、保存値は使わない
+          chk('streak計算', s.count('function khtStreak('), 1)
+          chk('streak_afterを読んでいない', s.count('streak_after'), b.count('streak_after'))
+          # クラス全員は児童だけ
+          chk('児童だけ(khtSize)', s.count("u.role = 'student' AND u.is_active = 1"), 1)
+          chk('児童だけ(先生用2本)', s.count("u2.role = 'student' AND u2.is_active = 1"), 2)
+          # 子ども向けの返り値に人数が入っていないこと
+          cur = s[s.index("app.get('/api/shop/kahoot/current'"):s.index("app.post('/api/shop/kahoot/buy'")]
+          for bad in ('paid:', 'need:', 'pending', 'notPaid', 'buyers:', 'tier500', 'cannotAfford'):
+              if bad in cur:
+                  print('NG: 子ども向けの返り値に %s が入っている' % bad); ok[0] = False
+          # 子ども向けJSに、人数・名前を出す言葉が無いこと
+          for bad in ('pending', '.paid', 'notPaid', 'tier500', 'cannotAfford'):
+              if bad in k:
+                  print('NG: kahoot_ticket.js に %s が入っている' % bad); ok[0] = False
+          # 子ども向けJSに「あと◯日で安くなる」が入っていること（行き止まりにしない）
+          if 'つづけると' not in k:
+              print('NG: kahoot_ticket.js に「あと◯日つづけると」が無い'); ok[0] = False
+          # 高い理由を書いていないこと
+          for bad in ('出していないので', '出していないから', 'れんぞくしていないので'):
+              if bad in k:
+                  print('NG: kahoot_ticket.js に高い理由が書いてある'); ok[0] = False
+          # 先生画面はテンプレートリテラルの中。壊す文字が無いこと
+          seg = s[s.index("          btnGroup.appendChild(stkBtn);"):s.index('header.appendChild(khtBox);')]
+          if '`' in seg or '${' in seg:
+              print('NG: 先生画面の追加にバッククォートか ${ が入っている'); ok[0] = False
+          # ビルド済みにも入っていること
+          for need in ('/kahoot_ticket.js', '/api/shop/kahoot/buy', 'kahoot_v1:'):
+              if need not in w:
+                  print('NG: dist に %s が入っていない' % need); ok[0] = False
+          # 壊してはいけない既存のもの
+          for label in ("app.get('/sticker.js'", "app.post('/api/shop/sticker/buy'",
+                        "app.get('/def_join_nudge.js'", "app.get('/kahoot_ticket.js'",
+                        'defStageMakeLedger', 'applyDefStageGrants', 'CREATE TABLE', 'ALTER TABLE'):
+              chk('（既存）' + label, s.count(label), b.count(label))
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す（src と public だけコミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx public/kahoot_ticket.js
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'KAHOOT_PRICE_V2: カフート券を3段階(500/1500/3000)にし、クラス全員を在籍児童だけに直す'
+          git pull --rebase origin main
+          git push origin HEAD:main
