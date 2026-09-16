@@ -1,0 +1,108 @@
+name: 出陣がそろう前に決着させない（DEF_AUTO_GUARD_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: パッチ前を控える
+        run: |
+          git show HEAD:src/def_auto_resolve.ts > /tmp/dar.before.ts
+          git show HEAD:src/index.tsx > /tmp/index.before.tsx
+          wc -c /tmp/dar.before.ts /tmp/index.before.tsx
+
+      - name: パッチ適用（あて先が1つでなければ何も書かない）
+        run: python3 scripts/patch_def_auto_guard_v1.py
+
+      - name: 冪等の確認（2回流しても増えない）
+        run: python3 scripts/patch_def_auto_guard_v1.py
+
+      - name: src/index.tsx と 戦闘エンジンが1バイトも変わっていないこと
+        run: |
+          for f in src/index.tsx src/def_engine.ts src/def_resolve.ts src/def_stage.ts src/def_dex.ts src/def_teacher_start.ts public/defense2.js; do
+            if [ -f "$f" ]; then
+              git diff --quiet -- "$f" || { echo "NG: $f が変わっています"; exit 1; }
+              echo "OK(unchanged): $f"
+            fi
+          done
+
+      - name: 前後を突き合わせる
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+
+          before = io.open("/tmp/dar.before.ts", encoding="utf-8").read()
+          after  = io.open("src/def_auto_resolve.ts", encoding="utf-8").read()
+          idx    = io.open("src/index.tsx", encoding="utf-8").read()
+          ok = True
+
+          i = idx.index("app.get('/', async (c) => {")
+          j = idx.index("app.get('/logout'", i)
+          ch = idx[i:j].count(".replace(")
+          print("chain:", ch)
+          if ch != 104:
+              print("NG: チェーンが104ではありません"); ok = False
+
+          for k, want in [("async function darRosterReady", 1),
+                          ("async function darTooFew", 1),
+                          ("async function darMemberCount", 1),
+                          ("roster_not_ready", 1)]:
+              nb, na = before.count(k), after.count(k)
+              print("  %-34s before=%d after=%d" % (k[:34], nb, na))
+              if nb != 0 or na != want:
+                  print("   NG:", k); ok = False
+
+          # 出陣づくり → 見はり → 判定 の順であること
+          for mat, ready, res in [
+              ("const won = await darMaterialize(env, st.eventKey, classId)",
+               "darRosterReady(env, st.eventKey, classId, won)",
+               "const r = await darResolve(env, st, classId)"),
+              ("const won = await darMaterialize(env, st.eventKey, cid)",
+               "darRosterReady(env, st.eventKey, cid, won)",
+               "const r = await darResolve(env, st, cid)")]:
+              a, b, c = after.find(mat), after.find(ready), after.find(res)
+              print("  order:", a, b, c)
+              if not (0 <= a < b < c):
+                  print("   NG: 順番が違います"); ok = False
+
+          # 消えたのは 入れかえた 6行だけ
+          al = set(after.split("\n"))
+          miss = [x for x in before.split("\n") if x.strip() and x not in al]
+          print("消えた行:", len(miss))
+          for x in miss:
+              print("   -", x.strip()[:110])
+          for x in miss:
+              if "darBucketLock" not in x and "darMaterialize" not in x and "skipped: 'busy'" not in x and "if (!got) return false" not in x:
+                  print("   NG: 意図しない行が消えました"); ok = False
+
+          sys.exit(0 if ok else 1)
+          PYEOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 本番と同じビルドが通ること（通らなければコミットしない）
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: コミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/def_auto_resolve.ts
+          if git diff --cached --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "DEF_AUTO_GUARD_V1: 出陣がそろう前に決着させない（index.tsx無変更・チェーン104）"
+            git push
+          fi
