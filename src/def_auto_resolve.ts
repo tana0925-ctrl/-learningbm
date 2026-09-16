@@ -140,6 +140,34 @@ async function darResolve(env: any, st: any, classId: any) {
   return { resolved: true, result: srv.result, base_hp_end: srv.baseHpEnd, entries: srv.entries }
 }
 
+// __DEF_AUTO_GUARD_V1__ クラスの 人数。
+async function darMemberCount(env: any, classId: any) {
+  try {
+    const r = await env.DB.prepare("SELECT COUNT(*) AS c FROM class_members WHERE class_id=? LIMIT 1").bind(String(classId)).first()
+    const n = Number(r && r.c)
+    return Number.isFinite(n) ? Math.floor(n) : 0
+  } catch (_e) { return 0 }
+}
+
+// __DEF_AUTO_GUARD_V1__ 出陣が できあがっているか。
+// 自分で 作ったなら もちろん OK（同じ通信の中で 順番に 走っている）。
+// ほかの 通信が 作ったなら、それが 終わるだけの 時間（5秒）が たっていること。
+async function darRosterReady(env: any, eventKey: any, classId: any, wonLock: any) {
+  if (wonLock) return true
+  try {
+    const r = await env.DB.prepare("SELECT 1 AS x FROM defense_carry_lock WHERE event_key=? AND class_id=? AND done_at <= datetime('now','-5 seconds') LIMIT 1").bind(String(eventKey), String(classId)).first()
+    return !!r
+  } catch (_e) { return false }
+}
+
+// __DEF_AUTO_GUARD_V1__ 人数が あまりに 少ないときは 判定しない。
+// 「時間どおりに 2人で 負ける」より「おくれて みんなで 勝つ」ほうが いい。
+async function darTooFew(env: any, eventKey: any, classId: any) {
+  const n = await darEntryCountRaw(env, eventKey, classId)
+  const m = await darMemberCount(env, classId)
+  return { few: (m >= 5 && n < 3), entries: n, members: m }
+}
+
 // 児童の /api/defense/status から よぶ 入口（案B）。
 // 2分に 1台だけ 通す。しくじっても 児童の画面を 止めない。
 export async function defAutoResolveHook(env: any, st: any, classId: any) {
@@ -148,9 +176,13 @@ export async function defAutoResolveHook(env: any, st: any, classId: any) {
     if (!(st.decisionAt && Date.now() >= Date.parse(st.decisionAt))) return false
     const done = await env.DB.prepare("SELECT 1 AS x FROM defense_results WHERE event_key=? AND class_id=? LIMIT 1").bind(String(st.eventKey), String(classId)).first()
     if (done) return false
+    // __DEF_AUTO_GUARD_V1__ 先に 出陣を つくる。できあがる前なら 判定しない。
+    const won = await darMaterialize(env, st.eventKey, classId)
+    if (!(await darRosterReady(env, st.eventKey, classId, won))) return false
+    const few = await darTooFew(env, st.eventKey, classId)
+    if (few.few) return false
     const got = await darBucketLock(env, st.eventKey, classId, st.decisionAt)
     if (!got) return false
-    await darMaterialize(env, st.eventKey, classId)
     const r = await darResolve(env, st, classId)
     return !!(r && r.resolved)
   } catch (_e) { return false }
@@ -182,9 +214,13 @@ export function registerDefAutoResolve(app: any, deps: any) {
       try {
         const done = await env.DB.prepare("SELECT 1 AS x FROM defense_results WHERE event_key=? AND class_id=? LIMIT 1").bind(st.eventKey, cid).first()
         if (done) { out.classes.push({ class_id: cid, already: true }); continue }
+        // __DEF_AUTO_GUARD_V1__ 先に 出陣を つくる。できあがる前や 人数が 少なすぎるときは 待つ。
+        const won = await darMaterialize(env, st.eventKey, cid)
+        if (!(await darRosterReady(env, st.eventKey, cid, won))) { out.classes.push({ class_id: cid, skipped: 'roster_not_ready' }); continue }
+        const few = await darTooFew(env, st.eventKey, cid)
+        if (few.few) { out.classes.push({ class_id: cid, skipped: 'too_few', entries: few.entries, members: few.members }); continue }
         const got = await darBucketLock(env, st.eventKey, cid, st.decisionAt)
         if (!got) { out.classes.push({ class_id: cid, skipped: 'busy' }); continue }
-        await darMaterialize(env, st.eventKey, cid)
         const r = await darResolve(env, st, cid)
         if (r && r.resolved) { out.ran = true; out.classes.push({ class_id: cid, resolved: true, result: r.result, base_hp_end: r.base_hp_end, entries: r.entries }) }
         else if (r && r.already) out.classes.push({ class_id: cid, already: true })
