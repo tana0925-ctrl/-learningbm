@@ -9,6 +9,8 @@ import { registerDefAutoResolve, defAutoResolveHook } from './def_auto_resolve'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
 import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
 import { defDexEntry } from './def_dex'
+// __WORLD_V1__ 3周目「世界編」第1段。当てる中身は src/world_v1.ts。
+import { WORLD_V1_PATCHES } from './world_v1'
 
 // __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
 // 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
@@ -8311,6 +8313,11 @@ app.get('/', async (c) => {
     const _hste2 = "if (tcEl) { var _tcTxt = (entryToday && entryToday.teacherComment) || ''; tcEl.textContent = _tcTxt; var _tcBox = tcEl.parentNode; if (_tcBox && _tcBox.classList && _tcBox.classList.contains('hs-sigBox')) { _tcBox.style.display = _tcTxt ? '' : 'none'; } }"
     if (t.indexOf(_hste1) !== -1) { t = t.replace(_hste1, _hste2) } else { console.error('[__HS_TEACHER_EMPTY_V1__] anchor not found') }
 
+    // __WORLD_V1__ 3周目「世界編」第1段（あそべる箱だけ）。中身は src/world_v1.ts。
+    // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
+    for (const _wp of WORLD_V1_PATCHES) {
+      if (t.indexOf(_wp.a) !== -1) { t = t.replace(_wp.a, () => _wp.b) } else { console.error('[__WORLD_V1__] anchor not found: ' + _wp.tag) }
+    }
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
