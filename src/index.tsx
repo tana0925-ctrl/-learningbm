@@ -7145,6 +7145,9 @@ app.post('/api/shop/sticker/redeem', async (c) => {
 const KHT_PRICE_STREAK = 500
 const KHT_PRICE_MID = 1500
 const KHT_PRICE_NONE = 3000
+// v1 のとき（2026-09-16）に 800 で買った子の台帳には値段が入っていない。
+// 返金はその子が実際に払った 800 で返す。
+const KHT_LEGACY_PRICE = 800
 const KHT_STREAK_NEED = 3
 const KHT_RECENT_DAYS = 5
 const KHT_DAYS = 14
@@ -7333,7 +7336,7 @@ async function khtTeacherOwns(c: any, u: any, classId: string): Promise<boolean>
 // 返せなかった子は owed に積む。自動の再挑戦はしない（二重に返すほうが事故として重い）。
 async function khtSettleRound(env: any, classId: string, st: any, raw: string, why: string, refund: boolean): Promise<any> {
   const buyers: any[] = ((st.buyers || []).filter((b: any) => b && Number(b.p) === 1))
-    .map((b: any) => ({ u: String(b.u), c: Math.max(0, Math.floor(Number(b.c) || KHT_PRICE_MID)) }))
+    .map((b: any) => ({ u: String(b.u), c: Math.max(0, Math.floor(Number(b.c) || KHT_LEGACY_PRICE)) }))
   const next = JSON.parse(JSON.stringify(st))
   next.history = (next.history || []).slice(-9)
   next.history.push({ round: next.round, at: new Date().toISOString(), why: String(why), paid: buyers.length })
