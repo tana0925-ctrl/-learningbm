@@ -11,6 +11,8 @@ import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
 import { defDexEntry } from './def_dex'
 // __WORLD_V1__ 3周目「世界編」第1段。当てる中身は src/world_v1.ts。
 import { WORLD_V1_PATCHES } from './world_v1'
+// __WORLD_V2__ 3周目「世界編」第2段。当てる中身は src/world_v2.ts。
+import { WORLD_V2_PATCHES } from './world_v2'
 
 // __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
 // 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
@@ -707,6 +709,28 @@ app.get('/api/student/progress', async (c) => {
           _dsSt._defStageMonsterGranted[String(_dsMid)] = Number(_dsM.stage) || 0
         }
         _stateJson = JSON.stringify(_dsSt)
+      }
+    } catch (_e) {}
+  }
+  // __WORLD_V2__ 世界編ステージ初クリアのごほうび（キャラ1体）。台帳を作ってから、未適用ぶんだけを配る。
+  if (_stateJson) {
+    try {
+      await worldMakeLedger(c.env, u.id, _stateJson)
+      const _wsg = await applyWorldStageGrants(c.env, u.id)
+      if (_wsg && _wsg.monsters && _wsg.monsters.length) {
+        // DB 側はもう json_set で書き換わっている。ここは返す JSON をそれに合わせるだけ。
+        const _wsSt = JSON.parse(_stateJson)
+        for (const _wsM of _wsg.monsters) {
+          const _wsMid = Number(_wsM.id)
+          if (!Number.isFinite(_wsMid) || _wsMid <= 0) continue
+          if (!_wsSt.monsters || typeof _wsSt.monsters !== 'object') _wsSt.monsters = {}
+          if (!_wsSt.monsters[String(_wsMid)]) _wsSt.monsters[String(_wsMid)] = worldRewardSeed(_wsMid)
+          if (!Array.isArray(_wsSt.pokedex)) _wsSt.pokedex = []
+          if (!_wsSt.pokedex.includes(_wsMid)) _wsSt.pokedex.push(_wsMid)
+          if (!_wsSt._worldRewardGranted || typeof _wsSt._worldRewardGranted !== 'object') _wsSt._worldRewardGranted = {}
+          _wsSt._worldRewardGranted[String(_wsMid)] = Number(_wsM.stage)
+        }
+        _stateJson = JSON.stringify(_wsSt)
       }
     } catch (_e) {}
   }
@@ -1986,6 +2010,115 @@ async function applyDefStageGrants(env: any, userId: string): Promise<any> {
     }
   }
   return _dsApplied
+}
+
+
+// __WORLD_V2__ 3周目「世界編」ステージ初クリアのごほうび（キャラ1体ずつ・初クリアのみ）。
+//   資格の元 : その子自身が保存した warProgress.worldCleared だけ。クライアントの申告は使わない。
+//   配る相手 : その子だけ（防衛戦とちがってクラス全員ではない）。
+//   二重防止 : defense_stage_rewards と まったく同じ作法。
+//              1) applied_at を先に立てて枠を予約（changes===1 のときだけ先へ進む）
+//              2) 予約できたときだけ json_set で該当箇所だけ書き換える（state_json の全置換はしない）
+//              3) 途中で例外が出たら applied_at=NULL に戻して解放する（次回また配られる）
+//   public/index.html 側の WORLD_REWARD_BY_STAGE と 同じ表であること。
+const WORLD_STAGE_REWARDS: any = {
+  '3': { id: 2103, level: 35 },
+  '6': { id: 2112, level: 38 },
+  '8': { id: 2111, level: 40 },
+  '10': { id: 2117, level: 42 },
+  '13': { id: 2114, level: 45 },
+  '16': { id: 2102, level: 48 },
+  '18': { id: 2113, level: 50 },
+  '21': { id: 2115, level: 52 },
+  '22': { id: 2116, level: 55 },
+  '23': { id: 2101, level: 60 }
+}
+
+function worldRewardSeed(monsterId: number): any {
+  let level = 35
+  for (const k of Object.keys(WORLD_STAGE_REWARDS)) {
+    if (Number(WORLD_STAGE_REWARDS[k].id) === monsterId) { level = Number(WORLD_STAGE_REWARDS[k].level) || 35; break }
+  }
+  return { level: level, exp: 0, nextExp: Math.floor(100 + Math.pow(level, 2.2) * 10) }
+}
+
+async function worldEnsureTable(env: any) {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS world_stage_rewards (user_id TEXT NOT NULL, stage INTEGER NOT NULL, monster_id INTEGER, applied_at TEXT, PRIMARY KEY(user_id, stage))").run()
+}
+
+// __WORLD_V2__ クリア済みのぶんだけ 台帳行を作る。ここでは progress を1文字も触らない。
+// PRIMARY KEY(user_id, stage) + INSERT OR IGNORE なので、二重に呼ばれても行は増えない。
+async function worldMakeLedger(env: any, userId: string, stateJson: string): Promise<number> {
+  try {
+    const st = JSON.parse(stateJson)
+    const wp = (st && st.warProgress) ? st.warProgress : null
+    const wc = (wp && wp.worldCleared && typeof wp.worldCleared === 'object') ? wp.worldCleared : null
+    if (!wc) return 0
+    const rows: any[] = []
+    for (const k of Object.keys(WORLD_STAGE_REWARDS)) {
+      if (!wc[k]) continue
+      const stage = Math.floor(Number(k))
+      if (!Number.isInteger(stage) || stage < 0 || stage > 23) continue
+      const mid = Math.floor(Number(WORLD_STAGE_REWARDS[k].id) || 0)
+      if (!(mid > 0)) continue
+      rows.push([stage, mid])
+    }
+    if (!rows.length) return 0
+    await worldEnsureTable(env)
+    const ins = env.DB.prepare('INSERT OR IGNORE INTO world_stage_rewards (user_id, stage, monster_id, applied_at) VALUES (?, ?, ?, NULL)')
+    await env.DB.batch(rows.map((r: any) => ins.bind(userId, r[0], r[1])))
+    return rows.length
+  } catch (_e) { return 0 }
+}
+
+// __WORLD_V2__ 台帳の未適用ぶんを、この子の progress に配る。
+async function applyWorldStageGrants(env: any, userId: string): Promise<any> {
+  const _wsApplied: any = { monsters: [] }
+  let list: any[] = []
+  try {
+    const rows = await env.DB.prepare('SELECT stage, monster_id FROM world_stage_rewards WHERE user_id = ? AND applied_at IS NULL ORDER BY stage ASC LIMIT 24').bind(userId).all<any>()
+    list = ((rows && rows.results) || [])
+  } catch (_e) { return _wsApplied }
+  if (!list.length) return _wsApplied
+  for (const g of list) {
+    const stage = Math.floor(Number(g.stage))
+    const monsterId = Math.floor(Number(g.monster_id) || 0)
+    if (!Number.isInteger(stage) || stage < 0 || stage > 23) continue
+    // SQL のパスに差し込むのは 自分のテーブルから読んだ整数だけ。ここでも整数であることを確かめる。
+    if (!(Number.isInteger(monsterId) && monsterId > 0 && monsterId < 100000)) continue
+    let claimed = false
+    try {
+      const claim = await env.DB.prepare("UPDATE world_stage_rewards SET applied_at = datetime('now') WHERE user_id = ? AND stage = ? AND applied_at IS NULL").bind(userId, stage).run()
+      if (!claim.meta || claim.meta.changes !== 1) continue
+      claimed = true
+      const cur = await env.DB.prepare('SELECT state_json as sj FROM progress WHERE user_id = ? LIMIT 1').bind(userId).first<any>()
+      let hasMon = false
+      let dex: any = null
+      try {
+        const stt = JSON.parse((cur && cur.sj) || '{}')
+        hasMon = !!(stt && stt.monsters && stt.monsters[String(monsterId)])
+        dex = stt ? stt.pokedex : null
+      } catch (_e2) {}
+      const mPath = '$.monsters."' + String(monsterId) + '"'
+      if (!hasMon) {
+        const _m = await env.DB.prepare("UPDATE progress SET state_json = json_set(state_json, '" + mPath + "', json(?)), updated_at = datetime('now') WHERE user_id = ? AND json_valid(state_json)").bind(JSON.stringify(worldRewardSeed(monsterId)), userId).run()
+        if (!_m.meta || Number(_m.meta.changes || 0) !== 1) throw new Error('world_monster_not_applied')
+      }
+      if (!Array.isArray(dex)) {
+        await env.DB.prepare("UPDATE progress SET state_json = json_set(state_json, '$.pokedex', json('[]')), updated_at = datetime('now') WHERE user_id = ? AND json_valid(state_json) AND COALESCE(json_type(state_json, '$.pokedex'), 'x') <> 'array'").bind(userId).run()
+        dex = []
+      }
+      if (dex.map(Number).indexOf(monsterId) < 0) {
+        await env.DB.prepare("UPDATE progress SET state_json = json_insert(state_json, '$.pokedex[#]', ?), updated_at = datetime('now') WHERE user_id = ? AND json_type(state_json, '$.pokedex') = 'array'").bind(monsterId, userId).run()
+      }
+      _wsApplied.monsters.push({ id: monsterId, stage: stage })
+    } catch (_e) {
+      if (claimed) {
+        try { await env.DB.prepare('UPDATE world_stage_rewards SET applied_at = NULL WHERE user_id = ? AND stage = ?').bind(userId, stage).run() } catch (_e3) {}
+      }
+    }
+  }
+  return _wsApplied
 }
 
 
@@ -8814,6 +8947,11 @@ app.get('/', async (c) => {
     // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
     for (const _wp of WORLD_V1_PATCHES) {
       if (t.indexOf(_wp.a) !== -1) { t = t.replace(_wp.a, () => _wp.b) } else { console.error('[__WORLD_V1__] anchor not found: ' + _wp.tag) }
+    }
+    // __WORLD_V2__ 世界編 第2段（ごほうびキャラ10体）。中身は src/world_v2.ts。
+    // world_v1 のループより後ろであること（V02_card は world_v1 が入れた文字列に当てる）。
+    for (const _wp2 of WORLD_V2_PATCHES) {
+      if (t.indexOf(_wp2.a) !== -1) { t = t.replace(_wp2.a, () => _wp2.b) } else { console.error('[__WORLD_V2__] anchor not found: ' + _wp2.tag) }
     }
     _rootHtmlCache = t
     }
