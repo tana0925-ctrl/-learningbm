@@ -1,0 +1,173 @@
+name: 攻略モード 自動パワーは150まで（WARCAP150_V1）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: さぎょうツリーを きれいにする
+        run: git checkout -- .
+
+      - name: origin/main に おいつく
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す直前に チェーンを 実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8', newline='').read()
+          if s.count("app.get('/', async (c) => {") != 1:
+              print('NG: 家の入口が 一意で ない'); sys.exit(1)
+          if s.count("app.get('/logout'") != 1:
+              print('NG: 出口が 一意で ない'); sys.exit(1)
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          io.open('/tmp/chain_before.txt', 'w').write(str(n))
+          PYEOF
+
+      - name: パッチを 当てる（合わなければ 1文字も 書かずに 中止）
+        run: python3 scripts/patch_warcap150_v1.py
+
+      - name: さわってはいけない ファイルが 無傷か
+        run: |
+          git diff --quiet -- public || (echo 'NG: public が 変わっている'; exit 1)
+          git diff --quiet -- migrations || (echo 'NG: migrations が 変わっている'; exit 1)
+          git status --porcelain
+          git diff --numstat -- src/index.tsx
+          test "$(git diff --numstat -- src/index.tsx | cut -f2)" = "0" || (echo 'NG: src/index.tsx で 行が 消えている'; exit 1)
+
+      - name: ビルドが 通ることを 確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 中身と 番兵を たしかめる
+        run: |
+          python3 scripts/patch_warcap150_v1.py --verify
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8', newline='').read()
+          d = io.open('public/defense2.js', encoding='utf-8', newline='').read()
+          before = int(io.open('/tmp/chain_before.txt').read().strip())
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          now = s[i:j].count('.replace(')
+          ok = True
+          if before != 111:
+              print('NG: 直前の チェーンが', before, '（111 のはず）'); ok = False
+          if now != 112:
+              print('NG: いまの チェーンが', now, '（112 のはず）'); ok = False
+          else:
+              print('チェーン', before, '->', now)
+          for name in ('__WARCAP150_V1__', '__WARCOSTUI_V1__', '__WARCOST_V1__', '__WORLD_V2__', '__WORLD_V1__',
+                       '__ZWEAK_V1__', '__ZWAR_UNLOCK_V1__', '__DEFSTAGE_CHARS_V1__', '__DEF_LV50_V1__',
+                       '__S6WORLD_50__', '__BEAMDMG_V1__', 'HS_NEXT_RECALL_V1'):
+              if name not in s:
+                  print('NG: 番兵', name, 'が 消えている'); ok = False
+          for name in ('DEF2TRY_', 'DEF2SEND_GUARD_V1_MARK', 'DEF2TPL_LEARN_V1', 'DEF2TALLY_TREE_V2'):
+              if name not in d:
+                  print('NG: 番兵', name, 'が 消えている'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('SENTINELS OK')
+          PYEOF
+
+      - name: 配信される HTML を ためしに 組み立てて たしかめる
+        run: |
+          node - << 'JSEOF'
+          const fs = require('fs');
+          const s = fs.readFileSync('src/index.tsx', 'utf8');
+          let h = fs.readFileSync('public/index.html', 'utf8');
+          const base = h.length;
+          let bad = false;
+          function chk(label, cond) { if (!cond) { console.log('NG:', label); bad = true; } else { console.log('ok:', label); } }
+
+          const ma = s.match(/const _wcap0a = (".*")/);
+          const mb = s.match(/const _wcap0b = (".*")/);
+          if (!ma || !mb) { console.log('NG: _wcap0 が 見つからない'); process.exit(1); }
+          const A = JSON.parse(ma[1]), B = JSON.parse(mb[1]);
+          const f0 = h.indexOf(A);
+          chk('あて先が 一意', f0 !== -1 && f0 === h.lastIndexOf(A));
+          if (bad) process.exit(1);
+          h = h.replace(A, () => B);
+
+          chk('正解の パワー加算は さわっていない', h.indexOf('warState.power = clamp(warState.power + 12 + warState.combo*2, 0, warState.powerMax);') !== -1);
+          chk('コスト上限400は 無傷', h.split('/6), 30, 400);').length - 1 === 1);
+          chk('重さ表示は 無傷', h.indexOf('こたえると はやくなる') !== -1);
+          chk('HTML が 長くなった', h.length > base);
+
+          const step = new Function('ps', 'dt', 'getPowerMultiplier', B);
+          function timeTo(rate, target, useNew, mul) {
+            const ps = { power: 0, baseRate: rate, powerMax: 700 };
+            const dt = 0.05; let t = 0;
+            const gm = () => (mul || 1);
+            while (t < 2000) {
+              if (useNew) step(ps, dt, gm); else ps.power = Math.min(ps.powerMax, ps.power + ps.baseRate * gm() * dt);
+              t += dt;
+              if (ps.power >= target) return Math.round(t * 100) / 100;
+            }
+            return null;
+          }
+          const pairs = [[2, 30], [2, 62], [2, 100], [2, 150], [5, 30], [5, 62], [5, 100], [5, 150]];
+          for (const [rate, cost] of pairs) {
+            const oldT = timeTo(rate, cost, false), newT = timeTo(rate, cost, true);
+            console.log('  回復' + rate + '/秒 コスト' + cost + ': まえ ' + oldT + '秒 -> あと ' + newT + '秒');
+            chk('回復' + rate + ' コスト' + cost + ' の 間隔が 変わっていない', oldT === newT);
+          }
+          chk('コスト62 は 2.0/秒で およそ31秒', Math.abs(timeTo(2, 62, true) - 31) < 0.2);
+          chk('コスト62 は 5.0/秒で およそ12.4秒', Math.abs(timeTo(5, 62, true) - 12.4) < 0.2);
+
+          chk('⚡151 は 自動だけでは 届かない(2.0/秒)', timeTo(2, 151, true) === null);
+          chk('⚡151 は 自動だけでは 届かない(5.0/秒)', timeTo(5, 151, true) === null);
+          chk('⚡400 は 自動だけでは 届かない(5.0/秒)', timeTo(5, 400, true) === null);
+          chk('まえは ⚡400 に 5.0/秒で 届いていた', timeTo(5, 400, false) !== null);
+
+          const b4 = timeTo(2, 100, true, 1), b4x = timeTo(2, 100, true, 4);
+          console.log('  加速なし ' + b4 + '秒 / 加速x4 ' + b4x + '秒');
+          chk('150未満では 加速（コンボ）が ちゃんと効く', b4x < b4);
+
+          // 正解ぶんは 150を超えて積める（_warOnAnswered は さわっていないので 手で足して確かめる）
+          const ps2 = { power: 150, baseRate: 2, powerMax: 700 };
+          ps2.power = Math.min(ps2.powerMax, ps2.power + 12 + 2 * 5);
+          step(ps2, 0.05, () => 1);
+          console.log('  150のときに 正解1回 -> ' + ps2.power);
+          chk('正解ぶんは 150を 超えて積める', ps2.power > 150);
+          chk('150を超えたあと 自動で さらに増えない', ps2.power === 172);
+
+          if (bad) process.exit(1);
+          console.log('DRY RUN OK');
+          JSEOF
+
+      - name: ビルドの 副産物を 元に戻す（src/index.tsx だけ コミットする）
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo 'かわりなし（すでに 当てずみ）'; exit 0
+          fi
+          git commit -m 'WARCAP150_V1: 自動でたまる学習パワーは 150まで（正解ぶんは 150を超えて積める）'
+          git pull --rebase origin main
+          git push origin HEAD:main
