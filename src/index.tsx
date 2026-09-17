@@ -8951,6 +8951,15 @@ app.get('/', async (c) => {
     const _wcui0b = "if(hint) hint.textContent = ((cost>=200?'おもい':(cost>=90?'ふつう':'かるい')) + '・こたえると はやくなる'); if(text) text.textContent = ('⚡' + cost + '  あと' + Math.max(1, Math.ceil((cost - Number(ps.power||0)) / Math.max(0.1, Number(ps.baseRate||2)))) + '秒');"
     if (t.indexOf(_wcui0a) !== -1) { t = t.replace(_wcui0a, () => _wcui0b) } else { console.error('[__WARCOSTUI_V1__] anchor 0 not found') }
 
+    // __WARCAP150_V1__ 攻略モード：自動でたまる学習パワーは ⚡150 まで。
+    // 正解でもらう分（+12 +コンボ×2）は 150を超えて積める（_warOnAnswered 側は さわらない）。
+    // ⚡150以下のキャラは 自動だけで いままでと同じ間隔で出せる（たまる速さは 変えていない）。
+    // ⚡200超の3体は 自動だけでは 届かない。答えるしかない。
+    // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
+    const _wcap0a = "ps.power += ps.baseRate * getPowerMultiplier() * dt;"
+    const _wcap0b = "const _wcAuto = Math.min(Number(ps.powerMax||200), 150); if(ps.power < _wcAuto){ ps.power = Math.min(_wcAuto, ps.power + ps.baseRate * getPowerMultiplier() * dt); }"
+    if (t.indexOf(_wcap0a) !== -1) { t = t.replace(_wcap0a, () => _wcap0b) } else { console.error('[__WARCAP150_V1__] anchor 0 not found') }
+
     // __WORLD_V1__ 3周目「世界編」第1段（あそべる箱だけ）。中身は src/world_v1.ts。
     // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
     for (const _wp of WORLD_V1_PATCHES) {
