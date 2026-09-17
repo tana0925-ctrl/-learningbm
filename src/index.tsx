@@ -8794,6 +8794,22 @@ app.get('/', async (c) => {
     const _hste2 = "if (tcEl) { var _tcTxt = (entryToday && entryToday.teacherComment) || ''; tcEl.textContent = _tcTxt; var _tcBox = tcEl.parentNode; if (_tcBox && _tcBox.classList && _tcBox.classList.contains('hs-sigBox')) { _tcBox.style.display = _tcTxt ? '' : 'none'; } }"
     if (t.indexOf(_hste1) !== -1) { t = t.replace(_hste1, _hste2) } else { console.error('[__HS_TEACHER_EMPTY_V1__] anchor not found') }
 
+    // __WARCOST_V1__ 攻略モード：出撃コストの上限と 再出撃の上限を あげる。
+    // コストは (体力*0.55 + こうげき*4 + ぼうぎょ*0.8 + はやさ*0.5)/6 で決まるのに 上限160で切られていた。
+    // 373体のうち 上限160に当たるのは 999(本来928) / 153(840) / 152(516) / 981(171) の4体だけ。
+    // 残り369体は すでに式どおりの値段なので この変更で 1も動かない（巻き添えゼロ）。
+    // あわせて まちがえたときに 出撃クールダウンが 0に戻る（まちがえるほど早く出せる）のを やめる。
+    // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
+    const _wcst0a = "const move = 5 + clamp(spd,5,200)/14;  // ゆっくり行軍（にゃんこ風の「間」）\n    const cost = clamp(Math.round((hp*0.55 + atk*4 + def*0.8 + spd*0.5)/6), 30, 160);"
+    const _wcst0b = "const move = 5 + clamp(spd,5,200)/14;  // ゆっくり行軍（にゃんこ風の「間」）\n    const cost = clamp(Math.round((hp*0.55 + atk*4 + def*0.8 + spd*0.5)/6), 30, 400);"
+    if (t.indexOf(_wcst0a) !== -1) { t = t.replace(_wcst0a, () => _wcst0b) } else { console.error('[__WARCOST_V1__] anchor 0 not found') }
+    const _wcst1a = "return clamp(sec, 2.5, 12);"
+    const _wcst1b = "return clamp(sec, 2.5, 30);"
+    if (t.indexOf(_wcst1a) !== -1) { t = t.replace(_wcst1a, () => _wcst1b) } else { console.error('[__WARCOST_V1__] anchor 1 not found') }
+    const _wcst2a = "\n      warState.globalSpawnCd = 0;\n      warState.slotCd = [0,0,0];"
+    const _wcst2b = ""
+    if (t.indexOf(_wcst2a) !== -1) { t = t.replace(_wcst2a, () => _wcst2b) } else { console.error('[__WARCOST_V1__] anchor 2 not found') }
+
     // __WORLD_V1__ 3周目「世界編」第1段（あそべる箱だけ）。中身は src/world_v1.ts。
     // アンカーが無ければ console.error して飛ばす（throw するとチェーン全件が消えるため）。
     for (const _wp of WORLD_V1_PATCHES) {
