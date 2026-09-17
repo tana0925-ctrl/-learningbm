@@ -1,0 +1,55 @@
+name: patch-world-v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before (手で数えない・あとで突き合わせる)
+        run: |
+          git rev-parse HEAD
+          echo "--- bytes ---"
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:public/index.html | wc -c
+          git show HEAD:src/world_v1.ts | wc -c
+          git show HEAD:src/world_v2.ts | wc -c
+          echo "--- sha256 ---"
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | sha256sum
+          git show HEAD:src/world_v1.ts | sha256sum
+          git show HEAD:src/world_v2.ts | sha256sum
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_world_v2.py
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx
+          sha256sum src/index.tsx
+      - name: commit and push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "world: 3周目「世界編」第2段 ごほうびキャラ10体と配り先 (__WORLD_V2__)"
+          git push origin HEAD:main
