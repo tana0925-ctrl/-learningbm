@@ -1,0 +1,170 @@
+name: patch-warmix
+
+# WARMIX_V1 攻略モードの出題づくり。
+# src/index.tsx は約1.2MBで web editor では扱えないので、このワークフローで書きかえる。
+# 置きかえ文字列は JSON でエスケープ済み（正規表現のバックスラッシュを壊さないため）。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write edits.json
+        run: |
+          cat > /tmp/edits.json <<'WARMIX_EDITS_EOF'
+          [
+           {
+            "tag": "E1_chain(9手)",
+            "old": "\n    _rootHtmlCache = t\n",
+            "neu": "\n      // ══════ WARMIX_V1 攻略モードの出題づくり（まちがえた問題＋該当学年中心・未習は出さない） ══════\n      // 中身は public/war-mix.js。public/index.html は 手で 書きかえない。\n      // 置きかえ文字列は機械生成（\\d などのバックスラッシュを壊さないため）。\n      t = t.replace(\"</body>\", \"<script src=\\\"/war-mix.js?v=1\\\"></script></body>\")   // WARMIX_V1 WARMIX_SCRIPT\n      t = t.replace(\"    for(const om of oldModes){\\n      if(uGrade < om.minG) continue;\\n      if(candidates.some(c=>c.mode===om.mode)) continue; // 重複回避\\n      const fn = (typeof window[om.gen]==='function') ? window[om.gen] : null;\\n      if(fn) candidates.push({ mode: om.mode, gen: fn, grade: om.minG });\\n    }\\n    return candidates;\", \"    for(const om of oldModes){\\n      if(uGrade < om.minG) continue;\\n      if(candidates.some(c=>c.mode===om.mode)) continue; // 重複回避\\n      const fn = (typeof window[om.gen]==='function') ? window[om.gen] : null;\\n      if(fn) candidates.push({ mode: om.mode, gen: fn, grade: om.minG });\\n    }\\n    /* WARMIX_V1: 先生が設定した「習ったところまで」で未習の単元を外す。\\n       未設定なら何もしない＝これまでどおり全部出る。\\n       しぼりすぎて候補が枯れないよう war-mix.js 側に安全弁がある。 */\\n    try{ if(window.WARMIX) return window.WARMIX.filterCandidates(candidates); }catch(e){}\\n    return candidates;\")   // WARMIX_V1 WARMIX_CANDIDATES\n      t = t.replace(\"      let w = 35; // default\\n      try{\\n        if(window.player && player.trainingProgress && player.trainingProgress[c.mode]){\\n          const r = _recentAcc(c.mode);\\n          const base = 110 - (r.acc||0);\\n          const lack = (r.total||0) < 6 ? 18 : 0;\\n          w = Math.max(10, base + lack);\\n        }\\n      }catch(e){}\", \"      let w = 35; // default\\n      /* WARMIX_V1: 該当学年の単元を厚く、下の学年を薄く。\\n         もとの計算は window.player（アプリのどこにも作られていない）と\\n         _recentAcc（攻略モードからは見えない）に依存していて、一度も\\n         動いていなかった。正答率の反映も war-mix.js 側でやり直している。\\n         そちらでは「まだ1問も解いていない単元」を acc=0（正答率0%）とは\\n         読まない ＝ 35単元だけ128倍の重みになる副作用を潰してある。 */\\n      try{\\n        if(window.WARMIX){ w = window.WARMIX.weightOf(c); }\\n        else if(window.player && player.trainingProgress && player.trainingProgress[c.mode]){\\n          const r = _recentAcc(c.mode);\\n          const n = Number(r.total)||0;\\n          if(n > 0){\\n            const base = 110 - (r.acc||0);\\n            const lack = n < 6 ? 18 : 0;\\n            w = Math.max(10, base + lack);\\n          }\\n        }\\n      }catch(e){}\")   // WARMIX_V1 WARMIX_WEIGHT\n      t = t.replace(\"      if(Math.random() < 0.62){\\n        prob = _warPickFromWrongQuestions();\\n      }\", \"      /* WARMIX_V1: まちがえた問題の出し直し。\\n         もとの _warPickFromWrongQuestions は window.player が無いため\\n         一度も動かず、さらに4択を戻せない作りだった（選択肢を記録して\\n         いないうえ、参照する CONJUNCTION_QUESTIONS / SOCIAL_QUESTIONS も\\n         この中からは見えない）。war-mix.js の実装に置きかえる。\\n         比率は window.WARMIX.tuning.wrongRate。 */\\n      const _wm = window.WARMIX;\\n      if(_wm){\\n        try{ if(Math.random() < _wm.wrongRate()) prob = _wm.pickWrong(); }catch(e){ prob = null; }\\n      }else if(Math.random() < 0.62){\\n        prob = _warPickFromWrongQuestions();\\n      }\")   // WARMIX_V1 WARMIX_WRONGPICK\n      t = t.replace(\"      _warRecordWrong(warState.q);\", \"      /* WARMIX_V1: もとの _warRecordWrong は _stripTags を呼ぶが、この\\n         関数は攻略モードからは見えないので必ず例外になり、誤答が一度も\\n         記録されていなかった。war-mix.js 側で記録する（4択は選択肢つき）。 */\\n      (function(){\\n        try{ if(window.WARMIX){ window.WARMIX.recordWrong(warState.q); return; } }catch(e){}\\n        try{ _warRecordWrong(warState.q); }catch(e){}\\n      })();\")   // WARMIX_V1 WARMIX_RECORD\n      t = t.replace(\"    const out = { q: (prob.q==null?'':String(prob.q)), ans: prob.ans, mode: (prob._mode||prob.mode||'') };\", \"    const out = { q: (prob.q==null?'':String(prob.q)), ans: prob.ans, mode: (prob._mode||prob.mode||''), _weak: !!prob._weak };\")   // WARMIX_V1 WARMIX_KEEPFLAG\n      t = t.replace(\"      if(_warIsValidForWar(cand)) return cand;\", \"      if(_warIsValidForWar(cand)){\\n        try{ if(window.WARMIX) window.WARMIX.note(cand); }catch(e){}\\n        return cand;\\n      }\")   // WARMIX_V1 WARMIX_NOTE\n      t = t.replace(\"  function _warIsValidForWar(prob){\\n    if(!prob) return false;\\n    if(Array.isArray(prob.options) && prob.options.length===4) return true;\", \"  function _warIsValidForWar(prob){\\n    if(!prob) return false;\\n    if(Array.isArray(prob.options) && prob.options.length===4) return true;\\n    /* WARMIX_V1: もとの判定には2つの不具合があった。\\n       (1) 問題文に \\\")\\\" が入っているだけで「筆算」と誤判定していた。\\n           「わり算(あまりあり)」は問題文に「(5あまり2→52と入力)」と\\n           書いてあるだけで全滅（通過率0%）。三角形の面積・小数と分数も同様。\\n       (2) 答えが9999を超えると却下。「がい数」は答えが70000のような数に\\n           なるため94%が却下されていた。\\n       ここでは、まず答えが素直な数かどうかを見る。分数の文字列（\\\"2 2/7\\\"）は\\n       数字だけ抜くと \\\"227\\\" になって整数に見えてしまうので、先に形で弾く。\\n       筆算だけは表示が崩れやすいので、単元名で判定して従来どおり厳しめに扱う。 */\\n    {\\n      const _mode = String(prob.mode||'');\\n      /* 図（SVG）の問題は、スマホの幅だと問題欄が160pxまで縮んで\\n         数直線の目もりが7pxくらいになり読めない（実機で確認）。\\n         タブレット幅なら はっきり読めるので、画面のはばで出しわける。 */\\n      if(/^\\\\s*<svg/.test(String(prob.q||''))){\\n        try{ if(window.WARMIX && !window.WARMIX.figuresOk()) return false; }catch(e){}\\n      }\\n      const _a = (prob.ans==null) ? '' : prob.ans;\\n      let _n;\\n      if(typeof _a === 'number'){\\n        _n = _a;\\n      }else{\\n        const _s = String(_a).trim();\\n        if(!/^-?\\\\d+(\\\\.\\\\d+)?$/.test(_s)) return false;  // 分数・単位つき・空は出さない\\n        _n = Number(_s);\\n      }\\n      if(!Number.isFinite(_n)) return false;\\n      if(Math.abs(_n) > 9999999) return false;\\n      if(!Number.isInteger(_n)){\\n        // 小数は出してよい。ただし小数第3位以下は答えにくいので避ける。\\n        if(Math.abs(_n - Math.round(_n*100)/100) > 1e-9) return false;\\n      }\\n      if(_mode !== 'long-division') return true;\\n    }\")   // WARMIX_V1 WARMIX_VALID\n      t = t.replace(\"    const ok = (Number.isFinite(v) && v === Number(warState.q.ans));\", \"    /* WARMIX_V1: 小数の答えを許可したので、浮動小数の誤差を吸収する。 */\\n    const _exp = Number(warState.q.ans);\\n    const ok = (Number.isFinite(v) && Number.isFinite(_exp) && Math.abs(v - _exp) < 1e-9);\")   // WARMIX_V1 WARMIX_COMPARE\n    _rootHtmlCache = t\n"
+           },
+           {
+            "tag": "E2_routes",
+            "old": "app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })",
+            "neu": "app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })\n\n// WARMIX_V1 攻略モードの出題づくり。中身は public/war-mix.js。student-karte.js と同じ形。\napp.get('/war-mix.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/war-mix.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })\n// WARMIX_V1 先生用「習ったところまで」設定画面。中身は public/teacher-progress.js。\napp.get('/teacher-progress.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-progress.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })\n\n// WARMIX_V1 先生ページ用：児童用ページの CURRICULUM（単元の一覧）だけを切り出して返す。\n// 単元リストを別ファイルに写すと必ず古くなるので、正本から取り出す。\n// 返すのは文字列・数値・配列だけのデータ定義。\nlet _curriculumSrcCache: string | null = null\napp.get('/api/teacher/curriculum-units', async (c) => {\n  const u = requireTeacher(c)\n  if (!u) return jsonError(c, 401, 'unauthorized')\n  try {\n    if (!_curriculumSrcCache) {\n      const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))\n      if (!a) return jsonError(c, 500, 'asset_missing')\n      const t = await a.text()\n      const head = 'const CURRICULUM = {'\n      const i = t.indexOf(head)\n      if (i < 0) return jsonError(c, 500, 'curriculum_not_found')\n      let depth = 0, end = -1\n      for (let j = i + head.length - 1; j < t.length; j++) {\n        const ch = t[j]\n        if (ch === '{') depth++\n        else if (ch === '}') { depth--; if (depth === 0) { end = j; break } }\n      }\n      if (end < 0) return jsonError(c, 500, 'curriculum_unbalanced')\n      _curriculumSrcCache = t.slice(i + head.length - 1, end + 1)\n    }\n    return c.json({ ok: true, source: _curriculumSrcCache })\n  } catch (e) {\n    return jsonError(c, 500, 'curriculum_read_failed')\n  }\n})"
+           },
+           {
+            "tag": "E3_teacher_api",
+            "old": "  return c.json({ ok: true, defProgMaxLv: lv })\n})",
+            "neu": "  return c.json({ ok: true, defProgMaxLv: lv })\n})\n\n// ══════ WARMIX_V1 クラスごとの「習ったところまで」（攻略モードの出題範囲） ══════\n// 児童データ(progress)には書かない。書くのは classes の unit_progress 列だけ。\napp.get('/api/teacher/class/:classId/unit-progress', async (c) => {\n  const u = requireTeacher(c)\n  if (!u) return jsonError(c, 401, 'unauthorized')\n  const classId = c.req.param('classId')\n  const row: any = u.role === 'admin'\n    ? await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()\n    : await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? AND teacher_id = ? LIMIT 1').bind(classId, u.id).first<any>()\n  if (!row) return jsonError(c, 404, 'class_not_found')\n  let parsed: any = null\n  try { parsed = row.up ? JSON.parse(row.up) : null } catch (e) { parsed = null }\n  return c.json({ ok: true, unitProgress: parsed })\n})\n\napp.put('/api/teacher/class/:classId/unit-progress', async (c) => {\n  const u = requireTeacher(c)\n  if (!u) return jsonError(c, 401, 'unauthorized')\n  const classId = c.req.param('classId')\n  const body = await c.req.json().catch(() => null)\n  const src = (body && body.units && typeof body.units === 'object') ? body.units : null\n  if (!src) return jsonError(c, 400, 'bad_request')\n  const units: Record<string, false> = {}\n  let n = 0\n  for (const k of Object.keys(src)) {\n    if (src[k] !== false) continue\n    if (!/^[A-Za-z0-9_-]{1,40}$/.test(k)) continue\n    units[k] = false\n    if (++n > 400) break\n  }\n  const payload = JSON.stringify({ units, updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') })\n  const result = u.role === 'admin'\n    ? await c.env.DB.prepare('UPDATE classes SET unit_progress = ? WHERE id = ?').bind(payload, classId).run()\n    : await c.env.DB.prepare('UPDATE classes SET unit_progress = ? WHERE id = ? AND teacher_id = ?').bind(payload, classId, u.id).run()\n  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')\n  return c.json({ ok: true, count: n })\n})"
+           },
+           {
+            "tag": "E4_class_info",
+            "old": "app.get('/api/student/class-info', async (c) => {\n  const u = requireStudent(c)\n  if (!u) return jsonError(c, 401, 'unauthorized')\n  const row = await c.env.DB.prepare(`\n    SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,\n           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled\n    FROM class_members cm JOIN classes c ON c.id = cm.class_id\n    WHERE cm.user_id = ? LIMIT 1\n  `).bind(u.id).first<any>()\n  return c.json({ ok: true, class: row || null })\n})",
+            "neu": "app.get('/api/student/class-info', async (c) => {\n  const u = requireStudent(c)\n  if (!u) return jsonError(c, 401, 'unauthorized')\n  // WARMIX_V1 unit_progress（攻略モードの「習ったところまで」）を1列足した。\n  // この道は宿題・連絡帳・メニューの表示も決める大事な道なので、万一その列が\n  // まだ無い環境でも止まらないよう、失敗したら元のSELECTに戻して必ず答えを返す。\n  // ふだんは問い合わせ1回のまま（D1の読み取り回数を増やさない）。\n  let row: any = null\n  try {\n    row = await c.env.DB.prepare(`\n      SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,\n             c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled,\n             c.unit_progress as unitProgress\n      FROM class_members cm JOIN classes c ON c.id = cm.class_id\n      WHERE cm.user_id = ? LIMIT 1\n    `).bind(u.id).first<any>()\n  } catch (e) {\n    console.error('class-info: unit_progress 列が読めないので従来のSELECTに戻します', e)\n    row = await c.env.DB.prepare(`\n      SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,\n             c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled\n      FROM class_members cm JOIN classes c ON c.id = cm.class_id\n      WHERE cm.user_id = ? LIMIT 1\n    `).bind(u.id).first<any>()\n  }\n  return c.json({ ok: true, class: row || null })\n})"
+           },
+           {
+            "tag": "E5_teacher_ui",
+            "old": "btnGroup.appendChild(dpcSel);",
+            "neu": "btnGroup.appendChild(dpcSel);\n\n          // ══════ 📘 WARMIX_V1 習ったところまで（攻略モードの出題範囲） ══════\n          const upBtn = document.createElement('button');\n          upBtn.className = 'text-xs px-2 py-1 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100';\n          upBtn.textContent = '📘 習ったところまで';\n          upBtn.title = '攻略モードで出す単元を、習ったところまでにしぼります。修行モード・野生バトルには影響しません。';\n          upBtn.onclick = async ()=>{\n            const need = (src)=> new Promise((res,rej)=>{\n              if(document.querySelector('script[data-warmix=\"'+src+'\"]')) return res();\n              const s=document.createElement('script'); s.src=src; s.dataset.warmix=src;\n              s.onload=()=>res(); s.onerror=()=>rej(new Error(src+' が読み込めません'));\n              document.head.appendChild(s);\n            });\n            try{\n              if(!window.TEACHER_UNIT_PROGRESS){ await need('/war-mix.js?v=1'); await need('/teacher-progress.js?v=1'); }\n              window.TEACHER_UNIT_PROGRESS.open(cls);\n            }catch(e){ alert('設定画面を開けませんでした: '+(e.message||e)); }\n          };\n          btnGroup.appendChild(upBtn);"
+           }
+          ]
+          WARMIX_EDITS_EOF
+          python3 -c "import json;d=json.load(open('/tmp/edits.json'));print('edits loaded:',len(d))"
+
+      - name: Preflight — チェーンの現在値と各アンカーを確認
+        run: |
+          python3 - <<'PYEOF'
+          import json, re, sys
+          src = open('src/index.tsx', encoding='utf-8').read()
+          lines = src.split('\n')
+          start = next(i for i,l in enumerate(lines) if 'let t = await a.text()' in l)
+          end   = next(i for i,l in enumerate(lines) if re.fullmatch(r'\s*_rootHtmlCache = t\s*', l))
+          body  = '\n'.join(lines[start+1:end])
+          chain = len(re.findall(r'\.replace\s*\(', body))
+          print('chain replace count =', chain)
+          if chain != 113:
+              print('::error::チェーンの現在値が 113 ではありません (%d)。中止します。' % chain); sys.exit(1)
+          edits = json.load(open('/tmp/edits.json'))
+          bad = False
+          for e in edits:
+              n = src.count(e['old'])
+              print('%-18s anchor occurrences = %d' % (e['tag'], n))
+              if n != 1:
+                  print('::error::%s のアンカーが %d か所です（1でないと危険）' % (e['tag'], n)); bad = True
+          for m in ['unit_progress', 'WARMIX_V1', "app.get('/war-mix.js'"]:
+              if m in src:
+                  print('::error::すでに適用済みのようです: %s' % m); bad = True
+          if bad: sys.exit(1)
+          print('preflight OK')
+          PYEOF
+
+      - name: Apply edits to src/index.tsx
+        run: |
+          python3 - <<'PYEOF'
+          import json, re, sys
+          p = 'src/index.tsx'
+          src = open(p, encoding='utf-8').read()
+          before = len(src)
+          for e in json.load(open('/tmp/edits.json')):
+              assert src.count(e['old']) == 1, e['tag']
+              src = src.replace(e['old'], e['neu'], 1)
+              print('applied', e['tag'])
+          open(p, 'w', encoding='utf-8').write(src)
+          print('size %d -> %d (+%d)' % (before, len(src), len(src)-before))
+          PYEOF
+
+      - name: Postflight — チェーンが 122 になったか／必要なファイルが揃っているか
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys, os
+          src = open('src/index.tsx', encoding='utf-8').read()
+          lines = src.split('\n')
+          start = next(i for i,l in enumerate(lines) if 'let t = await a.text()' in l)
+          end   = next(i for i,l in enumerate(lines) if re.fullmatch(r'\s*_rootHtmlCache = t\s*', l))
+          body  = '\n'.join(lines[start+1:end])
+          chain = len(re.findall(r'\.replace\s*\(', body))
+          print('chain replace count =', chain)
+          ok = True
+          if chain != 122:
+              print('::error::チェーンが 122 になっていません (%d)' % chain); ok = False
+          for f in ['public/war-mix.js', 'public/teacher-progress.js', 'migrations/0036_class_unit_progress.sql']:
+              if not os.path.exists(f):
+                  print('::error::%s がありません。先にアップロードしてください。' % f); ok = False
+              else:
+                  print('found', f, os.path.getsize(f), 'bytes')
+          # 9手が全部入ったか
+          for tag in ['WARMIX_SCRIPT','WARMIX_CANDIDATES','WARMIX_WEIGHT','WARMIX_WRONGPICK','WARMIX_RECORD','WARMIX_KEEPFLAG','WARMIX_NOTE','WARMIX_VALID','WARMIX_COMPARE']:
+              if ('WARMIX_V1 ' + tag) not in src:
+                  print('::error::%s が入っていません' % tag); ok = False
+          # 正規表現のバックスラッシュが生き残っているか（\\d が d に潰れていないか）
+          if '\\\\d+(\\\\.\\\\d+)?' not in src:
+              print('::error::判定の正規表現が壊れています'); ok = False
+          if not ok: sys.exit(1)
+          print('postflight OK')
+          PYEOF
+
+      - name: D1 — classes.unit_progress 列を用意する（migrations/0036 と同じ内容）
+        # コードを配信する前に必ず列を作る。順番が逆だと class-info が落ちて
+        # 宿題・連絡帳の表示まで巻きこまれる。
+        # 列を1本足すだけの追加操作。既存データは触らない。児童データにも書かない。
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+        run: |
+          npm install --no-audit --no-fund
+          echo "--- いま適用済み／未適用のマイグレーション（見るだけ） ---"
+          npx wrangler d1 migrations list learningbm-production --remote 2>&1 | tail -30 || true
+          echo "--- 列を追加（すでにあれば失敗するがそれでよい） ---"
+          set +e
+          npx wrangler d1 execute learningbm-production --remote --yes \
+            --command "ALTER TABLE classes ADD COLUMN unit_progress TEXT;" 2>&1 | tail -15
+          set -e
+          echo "--- 列ができたか確認 ---"
+          npx wrangler d1 execute learningbm-production --remote --yes --json \
+            --command "PRAGMA table_info(classes);" > /tmp/cols.json
+          python3 - <<'PYEOF'
+          import json, sys
+          d = json.load(open('/tmp/cols.json'))
+          def rows(x):
+              if isinstance(x, list):
+                  for e in x:
+                      if isinstance(e, dict) and 'results' in e: return e['results']
+              if isinstance(x, dict):
+                  if 'results' in x: return x['results']
+                  if 'result' in x: return rows(x['result'])
+              return []
+          names = [r.get('name') for r in rows(d)]
+          print('classes の列:', names)
+          if 'unit_progress' not in names:
+              print('::error::unit_progress 列が作れませんでした。コードは配信しないでください。'); sys.exit(1)
+          print('unit_progress 列 OK')
+          PYEOF
+
+      - name: TypeScript build check
+        run: |
+          npm run build
+
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A src/index.tsx dist
+          git commit -m "warmix: 攻略モードの出題を「まちがえた問題＋該当学年」中心に（WARMIX_V1・チェーン113→122）"
+          git push
