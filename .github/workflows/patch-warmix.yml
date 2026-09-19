@@ -138,6 +138,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A src/index.tsx dist
+          # dist/ は .gitignore に入っているので add しない。
+          # deploy.yml が配信前に npm run build で作り直すので、これで問題ない。
+          git add src/index.tsx
           git commit -m "warmix: 攻略モードの出題を「まちがえた問題＋該当学年」中心に（WARMIX_V1・チェーン113→122）"
           git push
