@@ -120,45 +120,18 @@ jobs:
           print('postflight OK')
           PYEOF
 
-      - name: D1 — classes.unit_progress 列を用意する（migrations/0036 と同じ内容）
-        # コードを配信する前に必ず列を作る。順番が逆だと class-info が落ちて
-        # 宿題・連絡帳の表示まで巻きこまれる。
-        # 列を1本足すだけの追加操作。既存データは触らない。児童データにも書かない。
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
-        run: |
-          npm install --no-audit --no-fund
-          echo "--- いま適用済み／未適用のマイグレーション（見るだけ） ---"
-          npx wrangler d1 migrations list learningbm-production --remote 2>&1 | tail -30 || true
-          echo "--- 列を追加（すでにあれば失敗するがそれでよい） ---"
-          set +e
-          npx wrangler d1 execute learningbm-production --remote --yes \
-            --command "ALTER TABLE classes ADD COLUMN unit_progress TEXT;" 2>&1 | tail -15
-          set -e
-          echo "--- 列ができたか確認 ---"
-          npx wrangler d1 execute learningbm-production --remote --yes --json \
-            --command "PRAGMA table_info(classes);" > /tmp/cols.json
-          python3 - <<'PYEOF'
-          import json, sys
-          d = json.load(open('/tmp/cols.json'))
-          def rows(x):
-              if isinstance(x, list):
-                  for e in x:
-                      if isinstance(e, dict) and 'results' in e: return e['results']
-              if isinstance(x, dict):
-                  if 'results' in x: return x['results']
-                  if 'result' in x: return rows(x['result'])
-              return []
-          names = [r.get('name') for r in rows(d)]
-          print('classes の列:', names)
-          if 'unit_progress' not in names:
-              print('::error::unit_progress 列が作れませんでした。コードは配信しないでください。'); sys.exit(1)
-          print('unit_progress 列 OK')
-          PYEOF
+      # ── D1 の列について ──────────────────────────────────────────────
+      # classes.unit_progress 列は 2026-09-19 に管理操作として先に追加済み
+      # （migrations/0036_class_unit_progress.sql と同じ内容。列を1本足すだけ。
+      #   既存データ・児童データには触っていない）。
+      # このリポジトリの CLOUDFLARE_API_TOKEN は Pages 配信用で D1 の権限が無く
+      # （code 7403）、ワークフローからは D1 を触れないため、ここでは確認しない。
+      # なお src/index.tsx 側は、万一その列が無くても class-info が落ちないよう
+      # 従来の SELECT に戻すフォールバックを入れてある。
 
       - name: TypeScript build check
         run: |
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Commit
