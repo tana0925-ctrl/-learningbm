@@ -3102,6 +3102,44 @@ app.put('/api/teacher/class/:classId/defprog-maxlv', async (c) => {
   return c.json({ ok: true, defProgMaxLv: lv })
 })
 
+// ══════ WARMIX_V1 クラスごとの「習ったところまで」（攻略モードの出題範囲） ══════
+// 児童データ(progress)には書かない。書くのは classes の unit_progress 列だけ。
+app.get('/api/teacher/class/:classId/unit-progress', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const row: any = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? AND teacher_id = ? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!row) return jsonError(c, 404, 'class_not_found')
+  let parsed: any = null
+  try { parsed = row.up ? JSON.parse(row.up) : null } catch (e) { parsed = null }
+  return c.json({ ok: true, unitProgress: parsed })
+})
+
+app.put('/api/teacher/class/:classId/unit-progress', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body = await c.req.json().catch(() => null)
+  const src = (body && body.units && typeof body.units === 'object') ? body.units : null
+  if (!src) return jsonError(c, 400, 'bad_request')
+  const units: Record<string, false> = {}
+  let n = 0
+  for (const k of Object.keys(src)) {
+    if (src[k] !== false) continue
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(k)) continue
+    units[k] = false
+    if (++n > 400) break
+  }
+  const payload = JSON.stringify({ units, updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') })
+  const result = u.role === 'admin'
+    ? await c.env.DB.prepare('UPDATE classes SET unit_progress = ? WHERE id = ?').bind(payload, classId).run()
+    : await c.env.DB.prepare('UPDATE classes SET unit_progress = ? WHERE id = ? AND teacher_id = ?').bind(payload, classId, u.id).run()
+  if (!result.meta?.changes) return jsonError(c, 404, 'class_not_found')
+  return c.json({ ok: true, count: n })
+})
+
 // クラス詳細（メンバー＋ランキング）
 app.get('/api/teacher/class/:classId/ranking', async (c) => {
   const u = requireTeacher(c)
@@ -4757,12 +4795,28 @@ app.post('/api/student/join-class', async (c) => {
 app.get('/api/student/class-info', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
-  const row = await c.env.DB.prepare(`
-    SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
-           c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled
-    FROM class_members cm JOIN classes c ON c.id = cm.class_id
-    WHERE cm.user_id = ? LIMIT 1
-  `).bind(u.id).first<any>()
+  // WARMIX_V1 unit_progress（攻略モードの「習ったところまで」）を1列足した。
+  // この道は宿題・連絡帳・メニューの表示も決める大事な道なので、万一その列が
+  // まだ無い環境でも止まらないよう、失敗したら元のSELECTに戻して必ず答えを返す。
+  // ふだんは問い合わせ1回のまま（D1の読み取り回数を増やさない）。
+  let row: any = null
+  try {
+    row = await c.env.DB.prepare(`
+      SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
+             c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled,
+             c.unit_progress as unitProgress
+      FROM class_members cm JOIN classes c ON c.id = cm.class_id
+      WHERE cm.user_id = ? LIMIT 1
+    `).bind(u.id).first<any>()
+  } catch (e) {
+    console.error('class-info: unit_progress 列が読めないので従来のSELECTに戻します', e)
+    row = await c.env.DB.prepare(`
+      SELECT c.id, c.name, c.class_code as classCode, cm.joined_at as joinedAt,
+             c.homework_enabled as homeworkEnabled, c.contact_enabled as contactEnabled, c.menus_enabled as menusEnabled
+      FROM class_members cm JOIN classes c ON c.id = cm.class_id
+      WHERE cm.user_id = ? LIMIT 1
+    `).bind(u.id).first<any>()
+  }
   return c.json({ ok: true, class: row || null })
 })
 
@@ -8684,6 +8738,41 @@ app.get('/hs_next_recall.js', async (c) => { try { const a = await c.env.ASSETS?
 // DEF_JOIN_NUDGE_V1_WIRED 防衛戦のお知らせカードを配る道。student-karte.js とまったく同じ形。
 app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
+// WARMIX_V1 攻略モードの出題づくり。中身は public/war-mix.js。student-karte.js と同じ形。
+app.get('/war-mix.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/war-mix.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+// WARMIX_V1 先生用「習ったところまで」設定画面。中身は public/teacher-progress.js。
+app.get('/teacher-progress.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-progress.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+
+// WARMIX_V1 先生ページ用：児童用ページの CURRICULUM（単元の一覧）だけを切り出して返す。
+// 単元リストを別ファイルに写すと必ず古くなるので、正本から取り出す。
+// 返すのは文字列・数値・配列だけのデータ定義。
+let _curriculumSrcCache: string | null = null
+app.get('/api/teacher/curriculum-units', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  try {
+    if (!_curriculumSrcCache) {
+      const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/index.html')))
+      if (!a) return jsonError(c, 500, 'asset_missing')
+      const t = await a.text()
+      const head = 'const CURRICULUM = {'
+      const i = t.indexOf(head)
+      if (i < 0) return jsonError(c, 500, 'curriculum_not_found')
+      let depth = 0, end = -1
+      for (let j = i + head.length - 1; j < t.length; j++) {
+        const ch = t[j]
+        if (ch === '{') depth++
+        else if (ch === '}') { depth--; if (depth === 0) { end = j; break } }
+      }
+      if (end < 0) return jsonError(c, 500, 'curriculum_unbalanced')
+      _curriculumSrcCache = t.slice(i + head.length - 1, end + 1)
+    }
+    return c.json({ ok: true, source: _curriculumSrcCache })
+  } catch (e) {
+    return jsonError(c, 500, 'curriculum_read_failed')
+  }
+})
+
 let _rootHtmlCache: string | null = null
 
 app.get('/', async (c) => {
@@ -8976,6 +9065,18 @@ app.get('/', async (c) => {
     for (const _wp3 of WORLD_V3_PATCHES) {
       if (t.indexOf(_wp3.a) !== -1) { t = t.replace(_wp3.a, () => _wp3.b) } else { console.error('[__WORLD_V3__] anchor not found: ' + _wp3.tag) }
     }
+      // ══════ WARMIX_V1 攻略モードの出題づくり（まちがえた問題＋該当学年中心・未習は出さない） ══════
+      // 中身は public/war-mix.js。public/index.html は 手で 書きかえない。
+      // 置きかえ文字列は機械生成（\d などのバックスラッシュを壊さないため）。
+      t = t.replace("</body>", "<script src=\"/war-mix.js?v=1\"></script></body>")   // WARMIX_V1 WARMIX_SCRIPT
+      t = t.replace("    for(const om of oldModes){\n      if(uGrade < om.minG) continue;\n      if(candidates.some(c=>c.mode===om.mode)) continue; // 重複回避\n      const fn = (typeof window[om.gen]==='function') ? window[om.gen] : null;\n      if(fn) candidates.push({ mode: om.mode, gen: fn, grade: om.minG });\n    }\n    return candidates;", "    for(const om of oldModes){\n      if(uGrade < om.minG) continue;\n      if(candidates.some(c=>c.mode===om.mode)) continue; // 重複回避\n      const fn = (typeof window[om.gen]==='function') ? window[om.gen] : null;\n      if(fn) candidates.push({ mode: om.mode, gen: fn, grade: om.minG });\n    }\n    /* WARMIX_V1: 先生が設定した「習ったところまで」で未習の単元を外す。\n       未設定なら何もしない＝これまでどおり全部出る。\n       しぼりすぎて候補が枯れないよう war-mix.js 側に安全弁がある。 */\n    try{ if(window.WARMIX) return window.WARMIX.filterCandidates(candidates); }catch(e){}\n    return candidates;")   // WARMIX_V1 WARMIX_CANDIDATES
+      t = t.replace("      let w = 35; // default\n      try{\n        if(window.player && player.trainingProgress && player.trainingProgress[c.mode]){\n          const r = _recentAcc(c.mode);\n          const base = 110 - (r.acc||0);\n          const lack = (r.total||0) < 6 ? 18 : 0;\n          w = Math.max(10, base + lack);\n        }\n      }catch(e){}", "      let w = 35; // default\n      /* WARMIX_V1: 該当学年の単元を厚く、下の学年を薄く。\n         もとの計算は window.player（アプリのどこにも作られていない）と\n         _recentAcc（攻略モードからは見えない）に依存していて、一度も\n         動いていなかった。正答率の反映も war-mix.js 側でやり直している。\n         そちらでは「まだ1問も解いていない単元」を acc=0（正答率0%）とは\n         読まない ＝ 35単元だけ128倍の重みになる副作用を潰してある。 */\n      try{\n        if(window.WARMIX){ w = window.WARMIX.weightOf(c); }\n        else if(window.player && player.trainingProgress && player.trainingProgress[c.mode]){\n          const r = _recentAcc(c.mode);\n          const n = Number(r.total)||0;\n          if(n > 0){\n            const base = 110 - (r.acc||0);\n            const lack = n < 6 ? 18 : 0;\n            w = Math.max(10, base + lack);\n          }\n        }\n      }catch(e){}")   // WARMIX_V1 WARMIX_WEIGHT
+      t = t.replace("      if(Math.random() < 0.62){\n        prob = _warPickFromWrongQuestions();\n      }", "      /* WARMIX_V1: まちがえた問題の出し直し。\n         もとの _warPickFromWrongQuestions は window.player が無いため\n         一度も動かず、さらに4択を戻せない作りだった（選択肢を記録して\n         いないうえ、参照する CONJUNCTION_QUESTIONS / SOCIAL_QUESTIONS も\n         この中からは見えない）。war-mix.js の実装に置きかえる。\n         比率は window.WARMIX.tuning.wrongRate。 */\n      const _wm = window.WARMIX;\n      if(_wm){\n        try{ if(Math.random() < _wm.wrongRate()) prob = _wm.pickWrong(); }catch(e){ prob = null; }\n      }else if(Math.random() < 0.62){\n        prob = _warPickFromWrongQuestions();\n      }")   // WARMIX_V1 WARMIX_WRONGPICK
+      t = t.replace("      _warRecordWrong(warState.q);", "      /* WARMIX_V1: もとの _warRecordWrong は _stripTags を呼ぶが、この\n         関数は攻略モードからは見えないので必ず例外になり、誤答が一度も\n         記録されていなかった。war-mix.js 側で記録する（4択は選択肢つき）。 */\n      (function(){\n        try{ if(window.WARMIX){ window.WARMIX.recordWrong(warState.q); return; } }catch(e){}\n        try{ _warRecordWrong(warState.q); }catch(e){}\n      })();")   // WARMIX_V1 WARMIX_RECORD
+      t = t.replace("    const out = { q: (prob.q==null?'':String(prob.q)), ans: prob.ans, mode: (prob._mode||prob.mode||'') };", "    const out = { q: (prob.q==null?'':String(prob.q)), ans: prob.ans, mode: (prob._mode||prob.mode||''), _weak: !!prob._weak };")   // WARMIX_V1 WARMIX_KEEPFLAG
+      t = t.replace("      if(_warIsValidForWar(cand)) return cand;", "      if(_warIsValidForWar(cand)){\n        try{ if(window.WARMIX) window.WARMIX.note(cand); }catch(e){}\n        return cand;\n      }")   // WARMIX_V1 WARMIX_NOTE
+      t = t.replace("  function _warIsValidForWar(prob){\n    if(!prob) return false;\n    if(Array.isArray(prob.options) && prob.options.length===4) return true;", "  function _warIsValidForWar(prob){\n    if(!prob) return false;\n    if(Array.isArray(prob.options) && prob.options.length===4) return true;\n    /* WARMIX_V1: もとの判定には2つの不具合があった。\n       (1) 問題文に \")\" が入っているだけで「筆算」と誤判定していた。\n           「わり算(あまりあり)」は問題文に「(5あまり2→52と入力)」と\n           書いてあるだけで全滅（通過率0%）。三角形の面積・小数と分数も同様。\n       (2) 答えが9999を超えると却下。「がい数」は答えが70000のような数に\n           なるため94%が却下されていた。\n       ここでは、まず答えが素直な数かどうかを見る。分数の文字列（\"2 2/7\"）は\n       数字だけ抜くと \"227\" になって整数に見えてしまうので、先に形で弾く。\n       筆算だけは表示が崩れやすいので、単元名で判定して従来どおり厳しめに扱う。 */\n    {\n      const _mode = String(prob.mode||'');\n      /* 図（SVG）の問題は、スマホの幅だと問題欄が160pxまで縮んで\n         数直線の目もりが7pxくらいになり読めない（実機で確認）。\n         タブレット幅なら はっきり読めるので、画面のはばで出しわける。 */\n      if(/^\\s*<svg/.test(String(prob.q||''))){\n        try{ if(window.WARMIX && !window.WARMIX.figuresOk()) return false; }catch(e){}\n      }\n      const _a = (prob.ans==null) ? '' : prob.ans;\n      let _n;\n      if(typeof _a === 'number'){\n        _n = _a;\n      }else{\n        const _s = String(_a).trim();\n        if(!/^-?\\d+(\\.\\d+)?$/.test(_s)) return false;  // 分数・単位つき・空は出さない\n        _n = Number(_s);\n      }\n      if(!Number.isFinite(_n)) return false;\n      if(Math.abs(_n) > 9999999) return false;\n      if(!Number.isInteger(_n)){\n        // 小数は出してよい。ただし小数第3位以下は答えにくいので避ける。\n        if(Math.abs(_n - Math.round(_n*100)/100) > 1e-9) return false;\n      }\n      if(_mode !== 'long-division') return true;\n    }")   // WARMIX_V1 WARMIX_VALID
+      t = t.replace("    const ok = (Number.isFinite(v) && v === Number(warState.q.ans));", "    /* WARMIX_V1: 小数の答えを許可したので、浮動小数の誤差を吸収する。 */\n    const _exp = Number(warState.q.ans);\n    const ok = (Number.isFinite(v) && Number.isFinite(_exp) && Math.abs(v - _exp) < 1e-9);")   // WARMIX_V1 WARMIX_COMPARE
     _rootHtmlCache = t
     }
     return c.html(_rootHtmlCache)
@@ -11818,6 +11919,25 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(dpcSel);
+
+          // ══════ 📘 WARMIX_V1 習ったところまで（攻略モードの出題範囲） ══════
+          const upBtn = document.createElement('button');
+          upBtn.className = 'text-xs px-2 py-1 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100';
+          upBtn.textContent = '📘 習ったところまで';
+          upBtn.title = '攻略モードで出す単元を、習ったところまでにしぼります。修行モード・野生バトルには影響しません。';
+          upBtn.onclick = async ()=>{
+            const need = (src)=> new Promise((res,rej)=>{
+              if(document.querySelector('script[data-warmix="'+src+'"]')) return res();
+              const s=document.createElement('script'); s.src=src; s.dataset.warmix=src;
+              s.onload=()=>res(); s.onerror=()=>rej(new Error(src+' が読み込めません'));
+              document.head.appendChild(s);
+            });
+            try{
+              if(!window.TEACHER_UNIT_PROGRESS){ await need('/war-mix.js?v=1'); await need('/teacher-progress.js?v=1'); }
+              window.TEACHER_UNIT_PROGRESS.open(cls);
+            }catch(e){ alert('設定画面を開けませんでした: '+(e.message||e)); }
+          };
+          btnGroup.appendChild(upBtn);
 
           // ====== 全メニュー表示トグル ======
           const menusDivider = document.createElement('div');
