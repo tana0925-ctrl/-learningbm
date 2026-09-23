@@ -4779,14 +4779,14 @@ window.claimClassMission=async function(){
               <textarea id="hsWeatherReason" class="hs-refText" data-maxfs="15" data-minfs="6" data-lh="1.25" placeholder="れい：九九の7のだんがスラスラ言えた！／わり算のあまりがむずかしかった など"></textarea>
               <div class="hs-nextQ">次、どうすると学びの天気が良くなる？（晴れの人は、どうしたら晴れのままでできる？）</div>
               <textarea id="hsNextImprove" class="hs-nextText" data-maxfs="15" data-minfs="8" placeholder="れい：あしたは間ちがい直しから始める／むずかしい所を先生に聞く など"></textarea>
-              <div id="hsPhotoSection" style="margin-top:6px; padding:6px 8px; background:#ecfeff; border:1.5px dashed #06b6d4; border-radius:10px;">
+              <div id="hsPhotoSection1" style="margin-top:6px; padding:6px 8px; background:#ecfeff; border:1.5px dashed #06b6d4; border-radius:10px;">
                 <div style="font-size:11px; font-weight:bold; color:#0e7490; margin-bottom:4px;">📷 成果物の写真（任意）</div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:11px; font-weight:bold; padding:4px 10px; border-radius:8px; display:inline-block;">
                     写真をえらぶ
-                    <input type="file" id="hsPhotoInput" accept="image/*" capture="environment" style="display:none;" onchange="hsPhotoSelected(this)"/>
+                    <input type="file" id="hsPhotoInput1" accept="image/*" capture="environment" style="display:none;" onchange="hsPhotoSelected(this)"/>
                   </label>
-                  <span id="hsPhotoStatus" style="font-size:10px; color:#64748b;"></span>
+                  <span id="hsPhotoStatus1" style="font-size:10px; color:#64748b;"></span>
                 </div>
                 <div id="hsPhotoPreview" style="display:none; margin-top:6px; position:relative;">
                   <img id="hsPhotoThumb" style="max-width:120px; max-height:90px; border-radius:8px; border:1px solid #ccc;"/>
@@ -44827,7 +44827,8 @@ window._hsPhotoAnalysisResult = '';
 function hsPhotoSelected(input) {
   const file = input.files[0];
   if (!file) return;
-  const statusEl = document.getElementById('hsPhotoStatus');
+  // 2026-09-20: id 重複の解消。1枚版は hsPhotoStatus1 を使う
+  const statusEl = document.getElementById('hsPhotoStatus1');
   const previewEl = document.getElementById('hsPhotoPreview');
   const thumbEl  = document.getElementById('hsPhotoThumb');
   const analysisEl = document.getElementById('hsPhotoAnalysis');

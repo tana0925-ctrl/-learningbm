@@ -3815,20 +3815,46 @@ app.get('/api/teacher/ai-drafts', async (c) => {
   if (!classId) return jsonError(c, 400, 'classId required')
   if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
   await ensureAiDraftTable(c.env)
+  // 📌 2026-09-20: この API は先生が1日に何度も開く画面から呼ばれる。
+  //   読み取りを増やさないために二つ入れた。
+  //   ・?status=draft / ?kind=DAILY … 必要な分だけ読む（指定しなければ今までと同じ）
+  //   ・日付ラベルの取得を「1件ごとに1クエリ」→「まとめて1クエリ」へ（N+1 の解消）
+  //     本番では公開ずみ DAILY が85件あり、開くたびに85回余分に問い合わせていた。
+  const wantStatus = String(c.req.query('status') || '')
+  const wantKind = String(c.req.query('kind') || '').toUpperCase()
+  let sql = "SELECT id, kind, target_id as targetId, target_name as targetName, ref_key as refKey, body, status, created_at as createdAt, published_at as publishedAt FROM ai_review_drafts WHERE class_id=? AND teacher_id=?"
+  const binds: any[] = [classId, u.id]
+  if (wantStatus === 'draft' || wantStatus === 'published') { sql += ' AND status=?'; binds.push(wantStatus) }
+  else sql += " AND status<>'discarded'"
+  if (AI_DRAFT_KINDS.indexOf(wantKind) >= 0) { sql += ' AND kind=?'; binds.push(wantKind) }
+  sql += " ORDER BY (status='draft') DESC, kind, created_at DESC LIMIT 400"
   let rows: any = { results: [] }
-  try {
-    rows = await c.env.DB.prepare(
-      "SELECT id, kind, target_id as targetId, target_name as targetName, ref_key as refKey, body, status, created_at as createdAt, published_at as publishedAt FROM ai_review_drafts WHERE class_id=? AND teacher_id=? AND status<>'discarded' ORDER BY (status='draft') DESC, kind, created_at DESC LIMIT 400"
-    ).bind(classId, u.id).all<any>()
-  } catch {}
+  try { rows = await c.env.DB.prepare(sql).bind(...binds).all<any>() } catch {}
   const drafts = (((rows && rows.results) || []) as any[])
-  // 家庭学習コメントには、どの日の提出かを添えて先生が見分けられるようにする
+  // 家庭学習コメントには、どの日の提出かを添えて先生が見分けられるようにする。
+  //   refKey をまとめて IN で一度に引く（変数の上限に当たらないよう50件ずつ）。
+  const dailyKeys: string[] = []
   for (const d of drafts) {
-    if (d.kind === 'DAILY' && d.refKey) {
+    if (d.kind === 'DAILY' && d.refKey && dailyKeys.indexOf(String(d.refKey)) < 0) dailyKeys.push(String(d.refKey))
+  }
+  if (dailyKeys.length) {
+    const info: Record<string, any> = {}
+    for (let i = 0; i < dailyKeys.length; i += 50) {
+      const chunk = dailyKeys.slice(i, i + 50)
+      const ph = chunk.map(() => '?').join(',')
       try {
-        const hw = await c.env.DB.prepare('SELECT hs.day_key as dayKey, u2.name, u2.login_id as loginId FROM homework_submissions hs JOIN users u2 ON u2.id=hs.user_id WHERE hs.id=? LIMIT 1').bind(d.refKey).first<any>()
-        if (hw) { d.refLabel = hw.dayKey || ''; if (!d.targetName) d.targetName = hw.name || hw.loginId || '' }
+        const r = await c.env.DB.prepare(
+          'SELECT hs.id, hs.day_key as dayKey, u2.name, u2.login_id as loginId FROM homework_submissions hs JOIN users u2 ON u2.id=hs.user_id WHERE hs.id IN (' + ph + ')'
+        ).bind(...chunk).all<any>()
+        for (const row of (((r && r.results) || []) as any[])) info[String(row.id)] = row
       } catch {}
+    }
+    for (const d of drafts) {
+      if (d.kind !== 'DAILY' || !d.refKey) continue
+      const hw = info[String(d.refKey)]
+      if (!hw) continue
+      d.refLabel = hw.dayKey || ''
+      if (!d.targetName) d.targetName = hw.name || hw.loginId || ''
     }
   }
   return c.json({ ok: true, drafts })
@@ -10903,7 +10929,7 @@ app.get('/teacher', (c) => {
               <option value="">すべての期間</option>
             </select>
             <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm" title="いまの条件でもう一度読み込みます">🔄 更新</button>
-            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（コメントなし）</button>
+            <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（いま入っている文のまま）</button>
           </div>
           <!-- サマリーバー -->
           <div id="hwSummaryBar" class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-emerald-50 rounded-lg border border-blue-200 text-sm"></div>
@@ -10922,6 +10948,12 @@ app.get('/teacher', (c) => {
               <p class="text-xs text-slate-400">開くと読み込みます</p>
             </div>
           </details>
+          <style>
+            /* 2026-09-20: 45人ぶんを上から返していく画面なので、1人の高さを抑える。
+               子どものことばもサポーターのことばも、長いときだけ3行で畳む。 */
+            #hwList .hw-ctx { max-height: 4.6rem; overflow: hidden; }
+            #hwList .hw-ctx.hw-ctx-open { max-height: none; }
+          </style>
           <div id="hwList" class="space-y-3 text-sm">
           <!-- 📌 2026-09 整理: 空だった「4 今週の振り返り」タブの案内を、ここに1行で移した -->
           <p class="text-[11px] text-slate-400 mt-2 border-t pt-2">
@@ -14032,6 +14064,9 @@ wrap.innerHTML = '';
           if(!_hwDateFilter){ c.classList.remove('hidden'); return; }
           c.classList.toggle('hidden', c.dataset.hwDayKey !== _hwDateFilter);
         });
+        // 2026-09-20: 隠れている間は高さが 0 で測れないので、
+        //   見えるようになってから「…もっと見る」の要否を決め直す。
+        try{ hwSetupCtxMore(); }catch(e){}
       }
 
       async function loadHomework(){
@@ -14157,7 +14192,7 @@ wrap.innerHTML = '';
             + '<div class="font-bold">' + escH(__sName||'') + ' <span class="text-xs text-slate-400 font-normal">'+escH(s.grade+'年'+s.className)+'</span></div>'
             + '<div class="flex gap-1 items-center text-xs">' + returnedBadge + physicalBadge + '<span class="text-slate-400">'+escH(s.dayKey)+'</span></div>'
             + '</div>'
-            + '<div class="text-xs space-y-0.5 text-slate-700">'
+            + '<div class="text-xs space-y-0.5 text-slate-700 hw-ctx" id="hwCtx_'+s.id+'">'
             + '<div><b>今日やること：</b>'+escH(s.todo)+'</div>'
             + '<div><b>なんで：</b>'+escH(s.why)+'</div>'
             + '<div><b>めあて：</b>'+escH(s.aim)+'</div>'
@@ -14170,13 +14205,18 @@ wrap.innerHTML = '';
             + (s.parentComment ? '<div class="mt-1 p-1.5 bg-pink-50 rounded border border-pink-200"><b>🏠 サポーターから：</b>'+escH(s.parentComment)+'</div>' : '')
             + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物メモ（2026年8月までの自動分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
             + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
-            + '</div>';
+            + '</div>'
+            // 📌 2026-09-20: 45人ぶんを上から返していく画面なので、1人の高さを抑える。
+            //   長い子だけ「…もっと見る」で開く。短い子ではボタン自体を出さない。
+            + '<button type="button" id="hwCtxMore_'+s.id+'" class="hidden text-[10px] text-indigo-600 font-bold underline" onclick="hwToggleCtx(&#39;'+escH(s.id)+'&#39;, this)">…もっと見る</button>';
 
           if(!returned){
             // 返却フォーム
             const formDiv = document.createElement('div');
             formDiv.className='space-y-2 border-t pt-2';
-            formDiv.innerHTML = '<div class="text-xs font-bold text-slate-600">先生コメント（任意）</div>'
+            formDiv.innerHTML = '<div class="text-xs font-bold text-slate-600">先生コメント（任意）'
+              + '<span id="hwDraftBadge_'+s.id+'" class="hidden ml-1 bg-indigo-100 text-indigo-700 rounded px-1 py-0.5 text-[10px] font-bold">🤖 AIの下書きが入っています（直して返してください）</span>'
+              + '</div>'
               + '<textarea class="w-full border rounded p-2 text-xs" rows="2" placeholder="よく頑張りました！など" id="hwComment_'+s.id+'"></textarea>'
               + '<label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" id="hwPhysical_'+s.id+'"/> <span>成果物（ノートなど）も提出あり ⭐</span></label>'
               + '<button class="bg-emerald-600 text-white rounded px-3 py-1 text-xs font-bold" onclick="returnHomework(&#39;'+escH(s.id)+'&#39;, this)">✅ 返却する</button>'
@@ -14211,6 +14251,79 @@ wrap.innerHTML = '';
           }
           wrap.appendChild(card);
         }
+
+        // 📌 2026-09-20: 描き終えてから、はみ出している行にだけ「…もっと見る」を出す。
+        hwSetupCtxMore();
+        // 📌 2026-09-20: AIの下書きを、この一覧のコメント欄に流し込む（元の形に戻す）。
+        try { await hwFillAiDrafts(classId); } catch(e) {}
+      }
+
+      // 📌 2026-09-20 追加: 子どもの言葉・サポーターの箱の開閉。
+      function hwToggleCtx(id, btn){
+        var el = document.getElementById('hwCtx_'+id);
+        if(!el) return;
+        var opened = el.classList.toggle('hw-ctx-open');
+        if(btn) btn.textContent = opened ? '▲ とじる' : '…もっと見る';
+      }
+      // はみ出している行だけボタンを出す（短い子には出さない）
+      function hwSetupCtxMore(){
+        try{
+          var boxes = document.querySelectorAll('#hwList .hw-ctx');
+          for(var i=0;i<boxes.length;i++){
+            var el = boxes[i];
+            var id = String(el.id||'').replace('hwCtx_','');
+            var btn = document.getElementById('hwCtxMore_'+id);
+            if(!btn) continue;
+            if(el.scrollHeight > el.clientHeight + 2) btn.classList.remove('hidden');
+            else btn.classList.add('hidden');
+          }
+        }catch(e){}
+      }
+
+      // 📌 2026-09-20 追加: 未公開の家庭学習コメント下書きを、各行のコメント欄に入れる。
+      //   ・すでに先生が何か書いている欄は上書きしない
+      //   ・どの行がどの下書きかを _hwDraftMap に覚えておき、返却時に「公開ずみ」にする
+      //   ・読み取りは status=draft & kind=DAILY に絞った1クエリぶんだけ
+      window._hwDraftMap = {};
+      async function hwFillAiDrafts(classId){
+        window._hwDraftMap = {};
+        if(!classId) return;
+        var list = [];
+        try{
+          var d = await api('/api/teacher/ai-drafts?status=draft&kind=DAILY&classId='+encodeURIComponent(classId));
+          list = (d && d.drafts) || [];
+        }catch(e){ return; }
+        var filled = 0;
+        for(var i=0;i<list.length;i++){
+          var x = list[i];
+          if(!x || x.kind !== 'DAILY' || !x.refKey) continue;
+          var ta = document.getElementById('hwComment_'+x.refKey);
+          if(!ta) continue;                       // 返却済みの行にはコメント欄が無い
+          window._hwDraftMap[String(x.refKey)] = x.id;
+          if(!String(ta.value||'').trim()){ ta.value = String(x.body||''); filled++; }
+          var badge = document.getElementById('hwDraftBadge_'+x.refKey);
+          if(badge) badge.classList.remove('hidden');
+        }
+        if(filled){
+          var bar = document.getElementById('hwSummaryBar');
+          if(bar && !bar.classList.contains('hidden') && !document.getElementById('hwDraftNote')){
+            var note = document.createElement('div');
+            note.id = 'hwDraftNote';
+            note.className = 'mt-1 text-xs font-bold text-indigo-700';
+            note.textContent = '🤖 AIの下書きを ' + filled + '件、下のコメント欄に入れました。直してから返してください。';
+            bar.appendChild(note);
+          }
+        }
+      }
+
+      // 📌 2026-09-20 追加: その行を返したら、もとの下書きも「公開ずみ」にする。
+      //   こうしないと「今日のひと往復」④に、返し終わったものが未公開のまま残る。
+      async function hwMarkDraftsPublished(ids){
+        try{
+          var list = (ids||[]).filter(function(x){ return !!x; });
+          if(!list.length) return;
+          await api('/api/teacher/ai-drafts/mark',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ids:list,status:'published'})});
+        }catch(e){}
       }
 
       // 📌 2026-09 整理: 「今週の計画」を開いたら1回だけ読み込む。
@@ -14304,6 +14417,8 @@ wrap.innerHTML = '';
         const hasPhysical = (document.getElementById('hwPhysical_'+id)||{}).checked || false;
         try{
           await api('/api/teacher/homework/'+id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment,hasPhysical,noReward:!!noReward})});
+          // 📌 2026-09-20: この行に入っていたAIの下書きも公開ずみにする
+          await hwMarkDraftsPublished([ (window._hwDraftMap||{})[String(id)] ]);
           await loadHomework();
         }catch(e){
           btn.disabled=false;
@@ -14333,12 +14448,17 @@ wrap.innerHTML = '';
         if(!targets.length){ alert('未返却の提出がありません'); return; }
         if(!confirm(targets.length+'件まとめて返却します。よろしいですか？')) return;
         var ok=0, ng=0;
+        var _doneDraftIds = [];
         for(var ti=0;ti<targets.length;ti++){
           try{
             await api('/api/teacher/homework/'+targets[ti].id+'/return',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment:targets[ti].comment,hasPhysical:false})});
             ok++;
+            var _d = (window._hwDraftMap||{})[String(targets[ti].id)];
+            if(_d) _doneDraftIds.push(_d);
           }catch(e){ ng++; }
         }
+        // 2026-09-20: 返し終わったものの下書きを「公開ずみ」にし、④に残らないようにする
+        await hwMarkDraftsPublished(_doneDraftIds);
         alert((ng===0?'✅ ':('⚠️ '+ng+'件失敗 / '))+ok+'件返却しました！');
         await loadHomework();
       }
