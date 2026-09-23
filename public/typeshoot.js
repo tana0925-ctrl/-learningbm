@@ -460,9 +460,10 @@
       '<div style="padding:6px 14px"><div style="font-size:12px;color:#94a3b8">じぶん の きち</div>' +
         '<div style="background:#1e293b;border-radius:8px;height:14px;overflow:hidden;margin-top:3px"><div id="tsvMyBar" style="height:14px;background:#4ade80;width:100%;transition:width .3s"></div></div></div>' +
       '<div style="display:flex;gap:8px;justify-content:center;padding:8px 14px 0">' +
-        '<button id="tsvAtkBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">⚔ こうげき</button>' +
-        '<button id="tsvDefBtn" style="border:none;border-radius:10px;padding:8px 18px;font-weight:800;cursor:pointer">🛡 ぼうぎょ</button>' +
-        '<span style="align-self:center;font-size:11px;color:#64748b">（スペースで切替）</span>' +
+        '<button id="tsvAtkBtn" style="border:none;border-radius:10px;padding:12px 22px;font-size:16px;font-weight:800;cursor:pointer;touch-action:manipulation">⚔ こうげき</button>' +
+        '<button id="tsvDefBtn" style="border:none;border-radius:10px;padding:12px 22px;font-size:16px;font-weight:800;cursor:pointer;touch-action:manipulation">🛡 ぼうぎょ</button>' +
+        '<span style="align-self:center;font-size:11px;color:#64748b">（スペース、またはボタンをタップで切替）</span>' +
+        '<input id="tsvKbd" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="latin" aria-label="キーボード入力" style="position:fixed;left:8px;bottom:8px;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px">' +
       '</div>' +
       '<div style="padding:8px 14px 18px;text-align:center;background:#0f172a">' +
         '<div id="tsvWord" style="font-size:32px;font-weight:800;letter-spacing:4px">ねこ</div>' +
@@ -504,12 +505,26 @@
     box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
     box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + word + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
     f.appendChild(box);
-    V.missiles.push({ node: box, y: 18, word: word, pats: pats });
+    V.missiles.push({ node: box, y: 18, word: word, pats: pats, dir: 'down' });
+  }
+  /* 自分が撃った弾を自分の画面にも出す（相手には vSpawnIncoming で出ている） */
+  function vSpawnMine(word, ty, sprite) {
+    var f = el('tsvField'); if (!f) return;
+    var col = TYPE_COLOR[ty] || '#9ca3af';
+    var fh = f.clientHeight || 400;
+    var box = document.createElement('div');
+    var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
+    var y = Math.max(18, fh - 74);
+    box.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px;background:#14532d;border:2px solid #86efac;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + (sprite || '') + word + '</div>';
+    f.appendChild(box);
+    V.missiles.push({ node: box, y: y, word: word, pats: [], dir: 'up' });
   }
   function vFire() {
     var mon = vMyMon();
     vSend({ k: 'f', w: V.word, ty: mon.el, from: V.role }, 0);
     var f = el('tsvField'); if (f) fxFloat(f.clientWidth / 2 - 24, f.clientHeight - 74, 'はっしゃ！' + mon.sprite, '#fca5a5');
+    vSpawnMine(V.word, mon.el, mon.sprite);
     vSetWord();
   }
   function vLoop(ts) {
@@ -520,7 +535,13 @@
       var f = el('tsvField'); var fh = f ? f.clientHeight : 400;
       var speed = 0.06 * dt;
       for (var i = V.missiles.length - 1; i >= 0; i--) {
-        var mo = V.missiles[i]; mo.y += speed; mo.node.style.top = mo.y + 'px';
+        var mo = V.missiles[i];
+        if (mo.dir === 'up') {
+          mo.y -= speed; mo.node.style.top = mo.y + 'px';
+          if (mo.y <= 10) { try { mo.node.remove(); } catch (e) {} V.missiles.splice(i, 1); }
+          continue;
+        }
+        mo.y += speed; mo.node.style.top = mo.y + 'px';
         if (mo.y >= fh - 40) { vHitMe(); try { mo.node.remove(); } catch (e) {} V.missiles.splice(i, 1); }
       }
     }
@@ -533,18 +554,19 @@
   function vKey(e) {
     if (!V || V.ended) return;
     if (e.key === 'Escape') { e.preventDefault(); vClose(); return; }
-    if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); vSetMode(V.mode === 'attack' ? 'defense' : 'attack'); return; }
+    if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); if (!e.__soft) V._lastKeyAt = Date.now(); vSetMode(V.mode === 'attack' ? 'defense' : 'attack'); return; }
     if (!V.ready) return;
-    if (e.key === 'Backspace') { e.preventDefault(); V.typed = V.typed.slice(0, -1); vRenderTyped(); return; }
+    if (e.key === 'Backspace') { e.preventDefault(); if (!e.__soft) V._lastKeyAt = Date.now(); V.typed = V.typed.slice(0, -1); vRenderTyped(); return; }
     if (e.key && e.key.length === 1 && /[a-zA-Z\-]/.test(e.key)) {
       e.preventDefault();
+      if (!e.__soft) V._lastKeyAt = Date.now();
       var t = V.typed + e.key.toLowerCase();
       if (V.mode === 'attack') {
         if (isPrefix(t, V.pats)) { V.typed = t; vRenderTyped(); if (isComplete(V.typed, V.pats)) vFire(); }
         else { V.typed = ''; vRenderTyped(); }
       } else {
         var cands = [];
-        for (var ci = 0; ci < V.missiles.length; ci++) { if (isPrefix(t, V.missiles[ci].pats)) cands.push(V.missiles[ci]); }
+        for (var ci = 0; ci < V.missiles.length; ci++) { if (V.missiles[ci].dir === 'up') continue; if (isPrefix(t, V.missiles[ci].pats)) cands.push(V.missiles[ci]); }
         if (cands.length) {
           V.typed = t; vRenderTyped();
           var done = null, dy = -1;
@@ -611,6 +633,7 @@
     if (V.raf) cancelAnimationFrame(V.raf);
     if (V.poll) { clearTimeout(V.poll); V.poll = null; }
     document.removeEventListener('keydown', vKey, true);
+    vKbdOff();
     var iWon = (winner === V.role); var draw = (winner === 'draw');
     var r = el('tsvResult');
     r.innerHTML = '<div style="font-size:56px">' + (draw ? '🤝' : (iWon ? '🏆' : '💧')) + '</div>' +
@@ -622,6 +645,7 @@
   function vClose() {
     if (V) { V.ended = true; if (V.raf) cancelAnimationFrame(V.raf); if (V.poll) { clearTimeout(V.poll); V.poll = null; } for (var i = 0; i < V.missiles.length; i++) { try { V.missiles[i].node.remove(); } catch (e) {} } }
     document.removeEventListener('keydown', vKey, true);
+    vKbdOff();
     if (el('tsvOverlay')) el('tsvOverlay').style.display = 'none';
     V = null;
   }
@@ -631,6 +655,27 @@
     if (n > 0) { c.textContent = String(n); setTimeout(function () { vCountdown(n - 1); }, 700); }
     else { c.textContent = 'スタート！'; c.style.fontSize = '52px'; setTimeout(function () { c.style.display = 'none'; c.style.fontSize = '80px'; if (V) V.ready = true; }, 600); }
   }
+  /* iOS/iPadOS のソフトウェアキーボードは keydown の key が当てにならないことがあるので、
+     input イベントからも同じ vKey に流す。物理キーで処理済みの直後は二重に処理しない。 */
+  function vFakeKey(k) { vKey({ key: k, __soft: true, preventDefault: function () {} }); }
+  function vSoftInput(e) {
+    var box = el('tsvKbd'); if (box) box.value = '';
+    if (!V || V.ended) return;
+    if (Date.now() - (V._lastKeyAt || 0) < 60) return;
+    if (e.inputType === 'deleteContentBackward') { vFakeKey('Backspace'); return; }
+    var d = e.data; if (!d) return;
+    for (var i = 0; i < d.length; i++) {
+      var ch = d.charAt(i);
+      if (ch === ' ') { vFakeKey(' '); continue; }
+      if (/[a-zA-Z\-]/.test(ch)) vFakeKey(ch);
+    }
+  }
+  function vFocusKbd() { var box = el('tsvKbd'); if (box) { try { box.value = ''; box.focus({ preventScroll: true }); } catch (err) {} } }
+  function vKbdOff() {
+    var box = el('tsvKbd'); if (box) { box.removeEventListener('input', vSoftInput); try { box.blur(); } catch (err) {} }
+    var ov = el('tsvOverlay'); if (ov) ov.removeEventListener('touchend', vFocusKbd);
+  }
+
   function startTypeShootVS(roomId, role, oppParty, oppName) {
     try {
       vBuild();
@@ -643,6 +688,10 @@
       if (el('tsvInfo')) el('tsvInfo').textContent = 'あいて：' + (oppName || '???');
       vSetMode('attack'); vSetBars(); vSetWord();
       document.addEventListener('keydown', vKey, true);
+      var vkb = el('tsvKbd');
+      if (vkb) { vkb.removeEventListener('input', vSoftInput); vkb.addEventListener('input', vSoftInput); }
+      el('tsvOverlay').addEventListener('touchend', vFocusKbd);
+      vFocusKbd();
       V.raf = requestAnimationFrame(vLoop);
       vPoll(); /* 初回は即時。以後は応答が返ってから自己再帰でスケジュールする */
       vCountdown(3);
