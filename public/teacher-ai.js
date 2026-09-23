@@ -47,11 +47,22 @@
     for (var i = 0; i < 5; i++) out.push(fmtDay(new Date(mon.getTime() + i * 86400000)));
     return out;
   }
-  // カルテは月曜に印刷して配るので、児童の週の記録は「直前に終わった週」を使う
-function lastWeekDaysJst() {
+  // カルテは月曜に印刷して配るので、児童の週の記録は「直前に終わった週」を使う。
+//
+// ⚠ 2026-09 の直し：基準日を「今日」ではなく「このカルテを配る月曜」にした。
+//    今日を基準にすると、金曜に作って月曜に配ったとき
+//      紙の見出し（印刷日から逆算）＝ 9月14日〜18日
+//      本文（作った日から逆算）    ＝ 9月7日〜11日
+//    と一週ズレた。配る月曜を基準にすれば、水曜に作ろうが金曜に作ろうが同じ週になる。
+//    さらに、公開時にこの週をサーバへ送って保存し、紙の見出しもそれを使う
+//    （＝いつ作っていつ印刷しても、運用に関係なく必ず一致する）。
+function printMondayJst() {
   var d = jstNow();
-  var wd = (d.getDay() + 6) % 7;
-  var mon = new Date(d.getTime() - wd * 86400000 - 7 * 86400000);
+  var wd = (d.getDay() + 6) % 7;          // 0=月
+  return new Date(d.getTime() + (wd === 0 ? 0 : (7 - wd)) * 86400000);
+}
+function lastWeekDaysJst() {
+  var mon = new Date(printMondayJst().getTime() - 7 * 86400000);
   var out = [];
   for (var i = 0; i < 5; i++) out.push(fmtDay(new Date(mon.getTime() + i * 86400000)));
   return out;
@@ -88,10 +99,10 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       return o;
     } catch (e) { return null; }
   }
-  function cacheSet(key, text, blocks) {
+  function cacheSet(key, text, blocks, noMaterial) {
     try {
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        key: key, text: text, blocks: blocks, at: Date.now()
+        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, at: Date.now()
       }));
     } catch (e) {}
   }
@@ -110,8 +121,13 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       i = j;
       // 【直近の学習記録】は【この1週間（月〜金）】と内容が重複するので丸ごと落とす
       if (head.indexOf('【直近の学習記録') === 0) continue;
+      // 【ポートフォリオ】も丸ごと落とす。
+      //   取り込んだプリントは【今回の新しい取り込み】として別に渡すようになった。
+      //   そちらは「まだ一度もカルテに使っていないもの」だけで、取り込んだ日つき。
+      //   ここに残すと、前にほめた材料がもう一度まざる（2026-09 の事故）。
+      if (head.indexOf('【ポートフォリオ') === 0) continue;
       out.push(head);
-      if (head.indexOf('【ポートフォリオ') === 0) {
+      if (false) {
         var n = 0;
         items.forEach(function (it) {
           if (!isItem(it)) { out.push(it); return; }
@@ -191,7 +207,10 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       var m = window.__taiLast || {};
       var warn = (m.blocks > 60 || m.chars > 90000) ? '　⚠ 量が多いので、AIの返事が途中で切れることがあります（項目を減らすと安全です）' : '';
       var from = m.cached ? '（さっき作ったものを再利用：データベースは読んでいません）' : '';
-      say('✓ コピーしました' + from + '（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
+      // 「新しい取り込みなし」の子が何人いるかを出す。先生が
+      //   「この子には何か足すか、別の観点で書かせるか」を判断できるように。
+      var none = (m.noMaterial > 0) ? ('　📎新しい取り込みなし：' + m.noMaterial + '人') : '';
+      say('✓ コピーしました' + from + '（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）' + none + '。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt); done(); });
@@ -245,7 +264,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     if (!oneId && !window.__taiForceRefresh) {
       var hit = cacheGet(_ckey);
       if (hit && hit.text) {
-        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true };
+        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, noMaterial: hit.noMaterial || 0 };
         copyText(hit.text);
         return;
       }
@@ -282,6 +301,40 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     // ---------- 見出し・AIへの指示 ----------
     out.push('あなたは小学校の担任の先生を手伝うアシスタントです。');
     out.push('下のデータを読んで、「=== [ ... ] ===」で始まる目印の行の直後に、日本語で文章を書いてください。');
+    out.push('');
+    out.push('【この文章の目的（いちばん上の前提）】');
+    out.push('・ここで書く文は、子どもが「自分の学びを自分で動かせる」ようになるための材料です。');
+    out.push('  先生が指示を出すための文ではありません。');
+    out.push('・だから、ほめて終わりにしない。評価して終わりにしない。');
+    out.push('  最後は、本人が次を自分で決められる問いかけで終わる。決めるのは子ども本人です。');
+    out.push('・こちらが見つけた答えを渡すほど、子どもは自分で考えなくなります。');
+    out.push('  答えではなく、本人が気づける材料を差し出してください。');
+    out.push('');
+    out.push('【⚠ 正答率の読み方（ここを間違えると、事実と違う紙が子どもに渡ります）】');
+    out.push('・このアプリは、単元によって「問題の種類」の数がまるで違います。');
+    out.push('  種類が少ない単元は、同じ問題を何十回も解くことになります。');
+    out.push('  だから【教科別の正答率】には、問題の種類と「1問あたり何回解いたか」を書いてあります。');
+    out.push('  実際にあった例（同じクラスの、同じ子のデータ）:');
+    out.push('    ある社会の単元 … 問題の種類 7 ／ 1問あたり 14.7回 ／ 正答率 97%');
+    out.push('    ある算数の単元 … 問題の種類 220 ／ 1問あたり 1.1回 ／ 正答率 42%');
+    out.push('  この2つの「正答率」は、まったく意味がちがいます。');
+    out.push('・きまり:');
+    out.push('  - 1問あたりの回数が多い単元（「周回ぎみ」と書いてあるもの）の高い正答率を、');
+    out.push('    「理解している」「得意」「よくわかっている」の根拠にしないでください。');
+    out.push('    それは覚えているだけかもしれません。');
+    out.push('  - 1問あたりの回数が少ないのに正答率が高いときだけ、「力がついている」と書いてよいです。');
+    out.push('  - 1問あたりの回数が少なくて正答率が低いのは、いま初めて出会っている最中です。');
+    out.push('    「できていない」ではなく「いま出会っているところ」として書いてください。');
+    out.push('・周回している子を責めないでください。その子はルールの中でちゃんとがんばっています。');
+    out.push('  書くなら「同じところをようけ回っとるな。次はこっちにも行ってみいひん？」のように、');
+    out.push('  新しい場所へのさそいにする。「意味がない」「ずるい」とは絶対に書かない。');
+    out.push('');
+    out.push('【事実と見立てを分ける】');
+    out.push('・データから確実に言えること（事実）と、そこからの推しはかり（見立て）を混ぜないでください。');
+    out.push('  事実 … 「水曜に20分やって『楽しかった』って書いとったな」');
+    out.push('  見立て … 「好きなことやと長う続くんかもな」「〜のようや」「〜かもしれん」');
+    out.push('・見立てを書くときは、見立てだと分かる語尾にする。言い切らない。');
+    out.push('・記録に無いことは書かない。分からないことは、うめずに書かないでおく。');
     out.push('');
     out.push('【まもってほしいこと】');
     out.push('1. 目印の行（=== [...] === ）は1文字も変えずにそのまま残す。行の順番も変えない。');
@@ -325,7 +378,8 @@ out.push('  … 離れたデータ（教科・時間・本人のことば）を�
 out.push('・突き合わせの型（当てはまるものを1つ選べばよい。むりに全部使わない）:');
 out.push('  1) 本人が書いたことば × 実際の記録 … 「やる」と書いた日に記録があるか、時間はどうか');
 out.push('  2) 教科ごとの続いた時間の差 … 好きな教科と苦手な教科で、続く時間がどう違うか');
-out.push('  3) 取り組んだ問題数 × 正答率 … 量は多いのに正確さが伸びていない／少ないのに正確');
+out.push('  3) 問題の種類 × 1問あたりの回数 × 正答率 … のべ問題数だけを「量」と読まない。');
+out.push('     種類が少なく回数が多い＝周回。種類が多く回数が少ない＝新しいことに出会っている最中。');
 out.push('  4) 先週 × その前の週 … 何が変わったか（増えた・減った・やり方が変わった）');
 out.push('  5) 得意な教科でのやり方 × 苦手な教科 … うまくいくやり方を別の教科に移せないか');
 out.push('  6) 手ごたえ（☀☁🌧）× 学習内容 … どんな内容のときに手ごたえがよいか');
@@ -334,6 +388,8 @@ out.push('  8) 今週の予定・テスト × 先週の様子 … これから�
 if (wantWide) out.push('  9) アプリの正答率 × 紙のテストの傾向 … 知識はあるのに書いて答えるとくずれる、など');
 out.push('・「この子にしか当てはまらないこと」を書いてください。');
 out.push('  ほかの子にもそのまま言える文になったら、書き直してください。');
+out.push('・提出率のパーセントは、子どもが読む文には書かないでください。');
+out.push('  「5日のうち3日」のように、数えられる形で書いてください。');
 out.push('・深く書くことと、きつく書くことは違います。');
 out.push('  できていないことを責めない／点数・順位に触れない／ほかの子と比べない／');
 out.push('  タイプ分けをしない、は変わりません。理由は前向きな言い回しで書いてください。');
@@ -347,22 +403,37 @@ out.push('【目印の種類】');
       out.push('        例：〜やったな／〜しとったな／〜ちゃう／〜やで／〜か？。ていねい語（です・ます）は使わない。');
       out.push('        文体は、上の共通のきまりより この阪神マンのきまりを優先する。');
       out.push('      - ①よいところ ②気になるところ ③次の一歩 のような番号の見出しは使わない。通信簿の形にしない。');
-      out.push('      - 3〜4文・150字以内。ひとかたまりの話しことばで書く。');
+      out.push('      - 3〜4文・180字以内。ひとかたまりの話しことばで書く。紙に印刷するので、これより長くしない。');
+      out.push('        （これまでの実績は平均152字・最長276字。180字なら紙に収まります）');
       out.push('      - 本人が書いたことば（ふりかえり・きもちの理由・計画）があれば、かならず「 」でそのまま引用する。');
       out.push('        例：金曜に「複雑な円の面積が求められた！」って、自分で書いとったで。');
       out.push('      - できていないことは責めない。事実として返したうえで、それは別に悪いことちゃう、と受けとめる。');
-      out.push('      - 最後は指示ではなく、本人が決められる形で終わる。決めるのは本人。');
+      out.push('      - 最後は指示ではなく、本人が決められる問いかけで終わる。決めるのは本人。');
       out.push('        終わり方は週のタイプで変える。毎回おなじ問いかけをくり返さない:');
       out.push('        ・うまくいった週 … なぜうまくいったかを本人に言わせる（例：なんでうまいこといったか、自分では何やと思う？）');
       out.push('        ・つまずいた週 … 責めずに選ばせる（例：立て直すなら、どっちからいく？）');
       out.push('        ・記録がない週 … ハードルを下げて一つ選ばせる（例：5分だけやるとしたら、何にする？）');
-      out.push('        上の例文はそのまま使わず、その子の先週の中身に合わせて書きかえる。');
-      out.push('      - 【先週（' + weekLabel + '）】を主役にする。先週やったこと・書いたことを具体的に取り上げる。');
-      out.push('      - 【ふだんの様子】は背景。触れるとしても一言まで。今年度ぜんたいの話にしない。');
+      out.push('        上の例文はそのまま使わず、その子の中身に合わせて書きかえる。');
+      out.push('      - 土台は【先週（' + weekLabel + '）】。先週やったこと・書いたことを具体的に取り上げる。');
+      out.push('      - そのうえで【4月からの移りかわり】に、かならず一度は触れる。');
+      out.push('        のびたところ／夏休みで落ちたところ／ずっと続いていること のどれか一つでよい。');
+      out.push('        1週間だけでは言えない話が、その子にはいちばん効きます。');
+      out.push('      - 【今回の新しい取り込み】は、まだ一度もカルテでほめていないプリント・作品です。');
+      out.push('        ここにあるものは、中身を読んで具体的にほめてよいです（例：どこの説明がよかったか）。');
+      out.push('        日付が添えてあります。古い日付のものを「先週やったこと」のように書かないでください。');
+      out.push('        書くなら「前に書いた◯◯やけどな」のように、いつのものか分かる形にする。');
+      out.push('      - 【今回の新しい取り込み】が「なし」のときは、プリントや作品の話を書かない。');
+      out.push('        先週の家庭学習・本人のことば・4月からの移りかわり だけで書く。');
+      out.push('        むりに掘り返さない。書くことが少ない週は、短くてよいです。');
+      out.push('      - 【前に渡したカルテ】には、前にこの子へ渡した文が入っています。');
+      out.push('        同じ話題・同じほめ方・同じ問いかけをくり返さない。');
+      out.push('        前の文の続きとして書く（例：先週言うてた◯◯、その後どうなった？）か、別の角度から書く。');
       out.push('      - テストの点数・得点率・順位には いっさい触れない。');
-out.push(' - 上の「突き合わせの型」を1つ使って、この子だけの見立てを書く。データの言いかえで終わらせない。');
-      out.push('      - この下に先生がプリントやノートの内容を貼ることがあります。');
-      out.push('        貼ってあれば、その中身を読んで具体的にほめてください（例：どこの説明がよかったか）。');
+      out.push('      - 正答率を「できている」の根拠にするときは、上の【⚠ 正答率の読み方】を必ず守る。');
+      out.push('        「周回ぎみ」と書いてある単元の高い正答率を、理解の証拠として書かない。');
+      out.push('      - 上の「突き合わせの型」を1つ使って、この子だけの見立てを書く。データの言いかえで終わらせない。');
+      out.push('      - この下に先生がプリントやノートの内容を手で貼ることがあります。');
+      out.push('        貼ってあれば、その中身も読んで具体的にほめてください。');
     }
     if (want.plan)    {
 out.push('・=== [PLAN:...] === … 今週の計画へのアドバイス。①よい点 ②もっとよくする点 ③ひとこと。子ども向け。');
@@ -405,8 +476,11 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     if (want.report)  out.push('・=== [WEEKREPORT] === … 今週の週報。管理職・保護者にも見せられる文体で10行程度。先生向け。【テスト・成績】も使ってよい。');
     out.push('');
     out.push('【児童ごとのデータの並び】');
-    out.push('・【先週（' + weekLabel + '）】…個人カルテ・今週のおすすめ・振り返り返却は、ここを主役に。');
-    out.push('・【ふだんの様子（今年度の積み上げ）】…背景。カルテでは軽く触れる程度に。');
+    out.push('・【先週（' + weekLabel + '）】…個人カルテ・今週のおすすめ・振り返り返却は、ここが土台。');
+    out.push('・【4月からの移りかわり】…月ごとの動きと、前期(4〜7月)→後期(8月〜)のくらべ。カルテで一度は触れる。');
+    out.push('・【今回の新しい取り込み】…まだ一度もカルテに使っていないプリント・作品。取り込んだ日つき。');
+    out.push('・【前に渡したカルテ】…前にこの子へ渡した文。同じことを書かないための参考。');
+    out.push('・【ふだんの様子（4月からの積み上げ）】…背景。正答率は かならず「1問あたりの回数」とセットで読む。');
     if (wantWide) out.push('・【テスト・成績】…クラス所見と週報のための材料。個人カルテには使わないこと。');
     else out.push('（今回はテストの点数を渡していません。テストの話は書かないでください。）');
     out.push('');
@@ -621,6 +695,18 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     var dayLabels = ['月', '火', '水', '木', '金'];
     var wCount = 0;
 
+    // ── カルテの材料を受け取る（クラスで1回だけ・読み取りは約300行）──
+    //   返ってくるのは「まだ一度もカルテに使っていないもの」だけ。
+    //   引き出しは4月からの全期間ぜんぶ。使ったものだけが外れる仕組み（karte_material_uses）。
+    //   ここで受け取った時点では「予約」で、先生が公開したときに「使った」に変わる。
+    var pickBy = {}, pickNone = 0;
+    if (want.karte) {
+      say('カルテの材料をえらんでいます...');
+      var picked = await postJson('/api/teacher/karte-materials/pick', { classId: cid });
+      if (picked && picked.ok) { pickBy = picked.byStudent || {}; pickNone = picked.exhaustedCount || 0; }
+      else { say('材料の台帳が読めませんでした。プリントの話は今回は渡しません。'); }
+    }
+
     for (var i = 0; i < roster.length; i++) {
       var st = roster[i];
       var nm = nameOf(st.loginId, st.name);
@@ -741,7 +827,57 @@ try {
     }
   }
 } catch (e) {}
-// ===== ② ふだんの様子（今年度の積み上げ・カルテでは背景あつかい） =====
+// ===== ②-1 4月からの移りかわり（1週間だけでは言えない話は ここから作る）=====
+      try {
+        var _mt = (data && data.monthlyTrends) || [];
+        if (_mt.length) {
+          out.push('');
+          out.push('【4月からの移りかわり】');
+          out.push('・月ごと … ' + _mt.map(function (mm) {
+            return String(mm.month || '').slice(5) + '月:' + (mm.count || 0) + '回/' + (mm.avgMin || 0) + '分/☀' + (mm.sunRate || 0) + '%';
+          }).join('  '));
+          var _ups = [], _dns = [];
+          ((data && data.subjects) || []).forEach(function (su2) {
+            if (su2.earlyRate == null || su2.lateRate == null) return;
+            if ((su2.earlyTotal || 0) < 20 || (su2.lateTotal || 0) < 20) return;
+            var _df = su2.lateRate - su2.earlyRate;
+            var _nm = unitJa(su2.unit) + '(' + su2.earlyRate + '%→' + su2.lateRate + '%)';
+            if (_df >= 10) _ups.push(_nm); else if (_df <= -10) _dns.push(_nm);
+          });
+          if (_ups.length) out.push('・4〜7月 → 8月以降 でのびた … ' + _ups.slice(0, 4).join('、'));
+          if (_dns.length) out.push('・4〜7月 → 8月以降 で下がった … ' + _dns.slice(0, 4).join('、'));
+          if (!_ups.length && !_dns.length) out.push('・4〜7月 と 8月以降 で、はっきり動いた単元はありません（どちらも20問以上ある単元だけで比べています）。');
+        }
+      } catch (e) {}
+
+      // ===== ②-2 今回の新しい取り込み（一度カルテに使ったものは渡さない）=====
+      //   「一度ほめた内容をもう一度ほめない」ための本体。
+      //   渡せる材料が無い子には、無いと はっきり書く。掘り返させない。
+      var _pk = pickBy[st.userId] || null;
+      if (want.karte) {
+        out.push('');
+        if (_pk && _pk.materials && _pk.materials.length) {
+          out.push('【今回の新しい取り込み（まだ一度もカルテで使っていないもの）】');
+          _pk.materials.forEach(function (mt) {
+            var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + (mt.unit ? '／' + mt.unit : '') + (mt.evalRank ? '／先生の評価:' + mt.evalRank : '') + '）';
+            if (mt.evalComment) ln += ' 評価コメント:' + mt.evalComment;
+            if (mt.body) ln += ' 本文:' + mt.body;
+            if (mt.reflection) ln += ' ／本人の振り返り:' + mt.reflection;
+            out.push(ln);
+          });
+          if (_pk.heldBack) out.push('（ほかに ' + _pk.heldBack + ' 件ありますが、前のカルテでもうほめているので渡していません）');
+        } else {
+          out.push('【今回の新しい取り込み】…なし');
+          out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）');
+        }
+        if (_pk && _pk.pastKartes && _pk.pastKartes.length) {
+          out.push('');
+          out.push('【前に渡したカルテ（同じことを書かないための参考）】');
+          _pk.pastKartes.forEach(function (pkx) { out.push('・' + (pkx.on || '') + ' に渡した文：' + pkx.text); });
+        }
+      }
+
+      // ===== ③ ふだんの様子（4月からの積み上げ・カルテでは背景あつかい）=====
       if (data && data.ok) {
         var body = { main: [], test: [] };
         try {
@@ -749,7 +885,7 @@ try {
         } catch (e) { body = { main: ['(基本データの整形に失敗)'], test: [] }; }
 
         out.push('');
-        out.push('【ふだんの様子（今年度の積み上げ）】※個人カルテでは背景として軽く触れる程度に');
+        out.push('【ふだんの様子（4月からの積み上げ）】※正答率は「1問あたりの回数」とセットで読むこと');
         out = out.concat(body.main);
 
         // クラス平均との差（アプリ学習のみ。テストの点は含まない）
@@ -846,8 +982,8 @@ try {
     var _txt = out.join(NL);
     var _blocks = 0;
     for (var bi = 0; bi < out.length; bi++) { if (out[bi].indexOf('=== [') === 0) _blocks++; }
-    window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false };
-    if (!oneId) cacheSet(_ckey, _txt, _blocks);
+    window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false, noMaterial: pickNone };
+    if (!oneId) cacheSet(_ckey, _txt, _blocks, pickNone);
     window.__taiBusy = false;
     copyText(_txt);
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
@@ -1329,7 +1465,12 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
     }
     // --- 個人カルテ ---
     if (byKind.KARTE) {
+      // どの週について書いたカルテかを一緒に送る。サーバが本文と並べて保存し、
+      // 紙のカルテの見出しもこの週を使う（印刷日から逆算するのをやめたので、
+      // 金曜に作って月曜に配ってもズレない）。
+      var _pw = lastWeekDaysJst();
       var r2 = await postJson('/api/teacher/student-ai-comments', {
+        weekStart: _pw[0], weekEnd: _pw[4],
         comments: byKind.KARTE.map(function (x) { return { studentId: x.targetId, comment: x.body }; })
       });
       if (r2 && r2.ok) {
