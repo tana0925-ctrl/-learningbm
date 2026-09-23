@@ -1,0 +1,147 @@
+name: patch-hw-return-v1
+
+# HW_RETURN_V1 (2026-09-23)
+#   家庭学習の返却一覧に、AIの下書きを流し込む（2026-09-02「整理 第2段階」で消えた導線を戻す）。
+#   ・返したら下書きも「公開ずみ」にする
+#   ・子どもの言葉とサポーターのことばを3行で畳む
+#   ・/api/teacher/ai-drafts の N+1 を解消
+#   ・提出シートの写真欄の id 重複を解消
+#   src/index.tsx は約1.2MBで web editor では扱えないため、このワークフローで書きかえる。
+#   児童の画面（配信チェーン）は増やさない。増えていたら止まる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi). awanakereba nanimo kakazu tomaru'
+        required: true
+        default: '122'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          wc -c src/index.tsx public/index.html
+          sha256sum src/index.tsx public/index.html
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;9h7OfL#C)hy*v}29oJ6A!4AIOtrMCKjv=w?`TrK7l>+;F95VnZ)btRZ!In?_iZ-uv$?~*Xuz1oSr-Yz
+            vY_d19TTAs754BUJn8c=Q)ls>h=r<~JsF-adYj*Zo+P93J7mM;HsSOfDb>tObM2f`G4j>r^B<^Zl`Et&<70q_4XTxDl(G>QD`KPg#JH&nJ8+sT
+            n&f3(80y-47rXwLm)UN^u$@dqj!S07qWT<DLD;aZudFN|lRHl*@oiA0dexB-f{GN#S)jMsP3*p+C|9;FlPbJ5RZMmlYd2Mq5Hq9cUcnbK+7tT<
+            0TC7#NGJ6Hh%EwR?-`BJxMo^oT;R^nM0Ct42c2;5ELXFz9;U8cwAQDb+D;6=5PTia?^pD=ENW<s@vP?h;_Sy*ZB}W$RC8Ajiyh*WpA?xqa&ag?
+            &+ZCy@R=yB*GGkAUMr;{e78NbD^E~`(8-#DhZg_~JPsaKhfO|XXyxHA(X=E2??0GF1#k{Wfg{|grjHm6=*ngPM6^OXT|3J(4NGK;cWki@P6y7S
+            n9>bd{^CXVMUb%mETIoX@o#aC8ZD^b7xEPP|MZwUXKpuVmn~RdWg4zmgA}_}&SFY`I+O2g4?q(ur}vo$Xop_=xp6rmNP<kp&#W^B*wDH3fZs~z
+            (p^uU<gW!v@q<3GS%}Ec3`Ljwk}^FxnmD-&w2HdEp4@UU-Hh2@2HuSA`Kej1PsB-F96Q|Vjt|l9M=4_fzwF!<f0mj)brX?fUs@m<jdB~fE@1ee
+            2V)s|uPhEaNK~Mhl4(Te;PDXMIs8P=jm($HY4$j}2*kI8vri5xxdnr=oA%8ggBzG1=))QASHw^dW6mP@J!zDq$D#0-Wk}ZJ-N?r7@yL`o#+IpE
+            uw4kR#Mr@E#7nsSE-3<C9q+oqoRM^uQlBMY$K}Fb;n65Q26y#r9D?y~+ARvr*~z@o$*2UC@Hccks;grVI@~>0^<+!Y`=>iiYpJwr1<?WH{e{XP
+            =gz@VHeEu!EImqFD8%_V0c2(67vk1=v4~fQLf-=~SDujo>WpsvJ{;GafQ=KQx}p>MatC*x6!wUytY)FoF+dM2K+QU;{4P>a8%PCt#b#a`)ToGS
+            GQBe>quN0-(IpReh?{u@(F&ywHKet4i9xoY@Gj6~e*qpy@jyr@A~ARScg${|PvAe+;k=lcS8C<3B%kg095(*KEd>vz90QNfJS#F2ce$tn<Y%_y
+            x5zGeyJ}`5nOk$c=&Z&yo1F%wxub&%n%Kht#;GI8zM$AnA~{{j+VvQt7~_l*g_PSxvt%e{W*Nw&e0LS-!}dWYjVAZs`^q2fc3&j+`0AB2E`PSC
+            NpWhE-O+Y=7|$aHqhd3X9Yv@|x1pz`t>JOLq-JFmz3dB2$=CS~7&$=l4=Qx`@4|qIaJfn_grqS5Za`_D+s}8r)~_C!ty{qw$)?Pp#mZNxlgE3!
+            )J(H~4*0DYNR<gee~Z^%f(M+brg}SX;@3}_lHJ|ilMbkw_-i{K<4hKpdmLP&=Llxh;rNPt?W3CefFp-&gP*^!qk%qiC!(lw+8|=1mpDIQd6tQu
+            jGG;+6HLkt#_ndId}Ui``zRscw;4W_H<iEOn#E0`rD#u>-ni<wO;BK2m@$QCl4#N17N9e1Dsv2C8!B1U7!#!JprS4@u_U*FA=Je5R_iUOA8!WD
+            rX;ACmf8zDqj({|PZqkdO)D^B@6R10!GcA@)cDdq!-(|k>5mKfZrdY({ZAWHr~p=zk1r$NYmhlr3Wm4fEvaTfL!*(*aEAD)!}vO<JRJ+XPBmV?
+            g8nw_z8wGeYT$~<<5&g^cO^Q?GlE0{jK+xiH+BR$YOAGt%#k<TS2T9rc2!Xr$3PBh<phh|HpK2i<wGav(C{A8xLi<_bjo&sHwy%d-9<dk;~sbb
+            GTf@UBc~XtP(Y$GQpbd9lm2CTjOOHqHa}TCUC5zg5QwomQ1P{(;TBxtXX-~HFc;{(jjcleq19=b+bG^g2%s7$hPNz7*$@_HYWSWX<>96anB7o1
+            (w$WaV9E0l$6u5Aq1zAJn9gwJm?(Vjym=g9S(j@8t;)DbW5<cj<+cI=AJ;5cIEBFEN$3vqLB{D2fwg|VdoE5+B1uJQ$EtDM{WfksmbS_P<fNU1
+            Slp`mKsts&eOc0706LNs3bM|d3k%tBYXR{q&5)i~9BHIm1caFPW5-NIM-iU=p`PIj|BG5Y*jk#7chSgkMw9O7bGYP78Vr%C+V*+7>P*;ZSOvGL
+            J=}@^LBSrZ&-L9GsQ>PC-%BJ73CR{9y1-IPwO%C#^Y_454J-ODY*ElXho^CfZTYD4ts=oJ2?O|K3~WZ&_c6RhhWy7mB)Zne3Y#S8Keas*8^5DH
+            Y*j*)vu6O$Hxr1Ww)7&Y+w~z9lH$X?NdusN(~i+1PcgU12tVL5CTd<3x9oU8R>p^}beI~Y38|r`&YWbVa*<V(XP-p)<h9~xiSqtwAeQ+XlW4+p
+            gH>$_@S9InaOS|#ae!5GS@h?T&?j33&Z5ae?~W~Y0;4Yo^dM|~Arw@y(kq`2ok31s7bJ2EDQ-^9BJ~MFb%3l((h*c-ElR6H6{MpQid-UjFEC^?
+            WIXW;M%m523+GG6j2$g`J3{Kg{CgODsmw9xh*Et9l_wyF5>^A+?Cx_pOM}jwCpqrfl##I8OUqCXb_7#Gl&mn0tvMq*B7V%VzwhMdGLEa)GVfWM
+            Tp4{sW@eOcaol4-dwupq32oMsnrU#L)bo3Q_MO-6WcW(F7#%uzPWCMKe>{Mu*E=~>y0WDuJKGZ_{eAUwmLPoM$P&xd*Osg19$a6vL#DduG-QY4
+            Y1IT&ABAr?z*a6RTQuMWer`Yd09#L?glX&wH*&bWZqVKOP+*AI+aIlvC6T_d3I_hL`*@2w=A8tWb^Lh;kwH`&5=P^_8)5q{6=F}DJPjy5VjYoo
+            %|Cfp<(S1x3k@u?`Bk7uZ+uW8yd{-<mG?0<LHQx$e{yVDuaN<!Pxnnc(er|N3H}SCz=|(i5WykHmE?AP|3(1`^jjl5X1Iwkn{jH&#X0w+8n5wo
+            2<{;{YkLGHZ}f^3u4{n|qOk@eTwLikHlYkaoUBVWbIzFLR(-N51b^$A$4}<iZIL82^5)4IIZ#^K_3kGLTrm|ig8t5@vGcYt0X(pQjuoUoTP?=S
+            uHg<?Hv<DkYAnRZ1GVdJuP#w`(|Q>687XXW6T&W%vZuu~aIYF%G8Q`aUvk_e3@lC`QpAyyzT|jhc!$lQ=IeGYq7m6NWnPL8bYbE1L~rzP#~|>6
+            ;ZBq~nF5}A|7VZYgR#Ax9n~^wj*t&Xi_)*qPM8JqbN79Ra(xY@L*l2$eu^Q(mOkf~JE5<Bedu|^$xl`Cn9n+Bgi(2WOL(=(h0hzMEeBP;fGALQ
+            -DWEdq1+L6<l&ugU{9G1%{;U105EG;a7R{1@L~E<50Zsk>auVgp88MQ_yzTYEi6FG`2-76&D@_^<YTa`lrudG7VzjBbQoE6_<?Ca(aoQRABR-u
+            <$J(I_*%A`VRvmJdX6QR#r0hiPW7(-!k690mPXv}6VnA&r@@=t<Gbbb6Hr$T<{r&BY{Um6!}v=FznxZuc(aJj)o;1v;o}foP+#W+nWjp%a&nki
+            y9Qf<9kYWa*p(Rlf$;fbH7VLkEjtvhp&mB<<6i*`&aZkkafsl21b}<Nk998&nHDuUAgIo#M&{?9ADdKO(Wit5z`y=!2^89a7G)~5v++W<WmSW#
+            AKo^dBnOVK_x5X1^cujw;MWgS);NA6IEo@+T2W`E7c0HTZET4>2w|pSd38TcNC;Q@4iiB~GnS2)vGM$uWEQggzhlOO5V8CwJ2`3k<i1Z<nMnsQ
+            g3e;?P#eBx{r=U${mz^49J*($A)qo^p4`rIPf(UqlL@!@BvAYCPP{BW*XTHLjL8cjLTekUYHUw7uYS|RaK|MD*yU+H>Shkh_PWVksHOl-D=9`y
+            xZZ{1iMQo5rCw?0e&Qz}8|u=|y&UVlS*zCf92J&CN{FX^3BittgjR~Kyn=iUW^V;W8yk;eayLU`0ck^_+=Mu0u7Ps`0~Bu_eI?Pj-gFmf8P>{Q
+            fZ<Zp6&eIjINS*dq2-U@>%mQ%`vK5dx?d89ILksxAVl#Z$EH{4LS4X=ivz(~lI|Caly|3wPn%Lkn6i9-%h7|Hx7bWb+W$b2&@WDI2tD+(oeDJn
+            |7<8^7A^wl01gb*`?!Vva~|E92TQ=2&K}FIeM}aco;pA!9M5eA4PQC`T{Twt3MVV-ANmam8e$Gfp(wBhqMxS@HaS^$vWxuY$4e*2;OkR-3dOAk
+            5`c!>0}8&>Y71{WG*zVx6{Ok$EkTLt2#RS7Ozz5?(y5)Ow|`k+!BR{XOA*Mc#va<Qk<gm-kd=jn=GzZ1Vz3xM!QW2xW-BgoOQ2CI3AFs6E^rC`
+            uK}bQA(E6sp|A}32SoJORalORZS}hJ)P#{&-X6Vy#Iw7wYY6=P?x7mwUKNX$mKn8JJS@SKr%;Eum@=XZ&M5_+tNGT+xT@pe%(;!e6B(fI!P*Ts
+            n$11p{YkNcJAwLMF-o^AznYjaa4V{E2>=qZ^QP?M5t;ROyN2JV8x$m;hcw@8@+`S!@kL(9V{SnPJeDWm{hWYmF*m6%1kKr1@F3w#g9s!P16i)P
+            MueU-5Q2bmM06q<_sk21f~;$|iB48NK_qb3DmggyY>_d?L|9rbd(#vY057t~muDSQi~%i!pT<%vl)-M?PLG@s#)MnY7~7%G-(Y}!NKL95dhYa*
+            W+HFN1)obK-?ZG>y3ldhU_&0j{T+nA*hZD@5Mx<OXpHv8XI;|el&rG{fel!o2o1vG)~nSMLO(q<@$Me>X*}pI+||3i4d<AY+Uju<q(Vy={3oC)
+            PtV_3aP)r8h@rRK-6WU+EQ3r4_Nos@S)M_cCcljMDCY*2?w&y|&-5sRKG0x`h%q*cyuvoRe6AK(j3Wcza?X{yEV~1NEZrJcu{%+tcQ=K~An5CH
+            GJ3qmI>5jbY=O->eC1iCwZVP<wX{!g$TLyyVLknW9j3L5=ae;RQKDq(a_>xAqKxk9FJzCmf~4_aq!w^<7GhX(>J`m!KGXV>Vu?y0;`@hwk*>G{
+            b-?PG^|Irm`KD4wsgtYXBp|l*^sG900`hFu6Y@@=Wr#U-J_ay;1zD2Vei=L{duA|_!LiWA*FE-5L6>DtD_idwdRMuTi5O7v%n+?ZCoPZ?f}3iF
+            qz{M-bB=t10w*X+UxK+?-6hI#2@3#LH^}nWecyu;VwkNIvNsWZeg=u>yUW9PU9e_Pc7k+AXE^S|n>GIFsf25M0!W2eje-V~K%;asB_pp8m9{~L
+            Jdd3gXS9hHI&=b8#Uz|1!NSa-S&DU7-|K|EGXN{`xuogrpUwdh2yG_x0_<|*<$F`07=>NkQjhIjV>RQ80fJFoH%x(ifkuAM!k;yI(+`J)s*_^X
+            l@)o;6hPLW;!DBAVw9qya59`zp<&+kcesj%LUNI?^<t!~Cm}6m#4YM97L<Iq7>Vg%K7v&*K=8v*F`^xI2B_pWE0^G`6>U5*T%SKrzBhw@WV4D;
+            3XV@tp;;^)Hsj6K0}#sVfoFvQU@51zw|MS6EMuBz9ts{fziWFM2u}ugTWc*Z!4Z&4qY<93`*~szaj$4K?0_k=QSoz)JK+#go^_a9$`=1lEVcf@
+            MYCHI!ry#7@B>=kg#Zgb3N6kl7wyq_ihUd}SOLGB9F{KTVnt*5@HTjPP5nWvQ3|L?eNjGp<a?ilZhhh<^g5@UeCnhbBRfVFweFEa%QC|R!7&vm
+            AC)h!u$@)T>B9N*&kmC4dMnR@?vr)ZmwEYuMi*NZp?yL9W{w4uY;u$}Wi*E1s41X%r8H20FaLRyCNf>e^&+cVr{4kg>GY@@l(hz}tuc&C{6%>0
+            WECYOw}gU_R8bywy1K<Y*ny_O&wq9s5`TP75Nh4C4^L@)|4!`RO|McUry9$Jz8q<i;A`Z0q!NSR$DZ7L$cy=XABeQ;yxIiGyY|v@@^vJ)?&vCr
+            !uw(seKfcX*bFCEB10t2iB43q$tw@k%#_zbet^ToTY7M87580G+FV3G|5_x?(b-UJN{1NmPMoY{8~tBTO}ceYP$@$MXQ#`24bZJZ*p2`1GMxhk
+            ?r(Kdij?xS8A%wgp0O9J=p&1~=`G#~>P!NY7H#b$gUU>V%sL6s$Nr--xs$48k*nN~3#Z8||3^-2P9tT4)NWGw*O})&=@19t!w0(aMv=U>dpt5r
+            cxJ?V(@O{861AI1Lvzr4Ym5=W|LLJ<BqL>aA5vPp(VVqENNla6r@K-!^J&_;Go{qHT_nZ*Uy>)RY1;$fA0=07@xRh;PW}(X(cKpb#pHl8!EB36
+            Z=6&5MSp2JaxblSihFqh1XE)_d!6T4L+vATZ{ujWBH@B#@h6ALz8Moqp%n9FG})p9SUW-l=oV>%K=gT1dG;PDUIq?JD0oghI-zEz`fSo2bi)Wn
+            pcggwaJ84P$c|ehvAH*G{EEV`b$ak)r9%PKC3Z}Ach!B}BY;P<!vtK7k<u<5rs)cQ;wnX_Ma~TT;=kJ*uG{%!>-1DBzIZ(`2{a?`qo~n~tzAr=
+            3=H+UG|9<n0RfDizYfjRvbQgu?H7VP>Pim{P{d5*K`&)^bA`mzF(DMJl~}FFFJUz|aWw+Cl=z?$TLYN3V{I}SPYq=Uq0GBaXT1PO!Egq_AehE?
+            jsLO~_@%=QzgYao4WS|OEE!Rhl%u7HbS7p|1=eijAq80$HiS>;pVaboIeRwzO2iPR<B9v{=Fj|A?kb0AL#vtK@Z(?|<50kr>VtjyMv@Y7BRsQ|
+            nCErOIq-x(l|3fwZsW7d=BdPH6}Tcn^s4%^`l<dNBn<7vW$~_^3k{J!BpjgsKz9uzNgDu4w0}~(x%Ml@E;bf4RI5uWc`+v=4_H=wMd2*;ErEu;
+            p|4!-xK^h})teKBU`~tm|DL=wTZr-NyDe#MEnsodg`)5niJHg*nEgqzj}OzFU{9rwL%HILw+}o}@#Q7`x&I)Cx~sZ+MGJ?O_na>BH5ggO_!%<?
+            GFec0gX{xPgQFjOK`OBgx|XsSc_M+?*TcO0Bu=4T7g$6nO%c~%TT(v_*v2pZDt64xXqjwe`Bg$B*JP>`J`Hd}1+XaO8HCAceIeJWx_XB`+i2}!
+            6oH5*v3C$9!eW(3N!Q@0#T_?y=ADmM)UY5yFGt8FP&DJ4J!Ge&pMyQG9PT3WkQfqB6`H2o$}k!uMF63ICduca&T0q)Aqz1?rD~FFhqm$&UVjV<
+            ScW%=MXj~olSM@T8nJe0(vvyiVK6m9%KP431hp8j(7m-2iv6@0KXCS1K~G7yHVm$T&$*VvF_cH`PWFJ*0!hABF{;)Px2iW}MOK2L<n@7wILk#`
+            O6+H*s`pM{wvy5$NRseWS%ZO};D6W`;9ySBd{^SEUpOX6L}O3Vzmz3ZDl}WFfCY`LE<vj&>&IgRL1AqEqU$sdaI3ve{enMuTY7lfE}yDvwNZO0
+            <*(tPh2f~<w2Vd5NAT=5S!fFO)dWtwe;vY^2TZ>){l4KVw{Me~s;a|1Go(w^P4XKXP|35FcjRU}Em}e6#D?04EFRKU1yaF*WP06K>CSkP6{~3W
+            6#S!^r%!<f7!I0=<TDq!TWdY@AAtK?Kv}FA7Yg@m?gtop2)E=EeGM{(Lg_oV*IHkX-TPIb!lWkZ=tzRBn|JKm_=x$JBy@SVruQa}FuJz4arN%^
+            ;fcb=H5HY%9#@iWBbN{#<0#R!Sg+FyLwejMtpqKG1lO$0(2{&mP2oE%l)1oC5iQh6cy0<V(H0C%Um{@e^H|cP__3^fa1$I*1z!VE^F3&viiD@@
+            =hf4^@zNnQ*b$ing;aBX-E3bmv}*pMQhR&|<Ng0UmpnQLqi2866fo)p-subl!Y)0GsRFjm3xCUZ={p1sIg@tB;_5R3GHG~37x&rWNK-s?3?xwa
+            (n2mFTXR?<zw1E+Ybb@aN!U)dL1%s3pQMUph`a3mGFsY84ioH03k?In{yIr@ov((<4h6#;&vINp0M6GdU=eQ?Lzq6YQ-!$#w&bcY^{WHT*?W6B
+            g)RzQa(Km*G`s>SA5y<AL0hG9oU6E_b(b>&bvQc-uN2+gi?R+gf=!Bzr27y*7yjaaR77ryewf6K19bmyj36U`waJO}U}Z2}v}Gf#6M*C#@_jq9
+            f+s*BS_x302^T)Rg8Hm~)8B1OyfdWPow}GX;fqd-@i`ey1KKu<$=ZZ#e((74OaGONcC!4*hE9%3iM4a=cPLEZ;OPYWaW?z#KZ1P3z|SBRi+A!m
+            lIC-|tca*BH)c&kh_o~j0@tw;5<r5aGF3+pT{%vFJ~#W;@21j-J3R9xN#mEEO2wb3{2?#;OANrT;6XBDhpUN(ns2h+I9S#xAdZpy^2M8%h!M5j
+            )<pDKXju_2o01$Ac<hWKEvC6ByW{2bjjc@%Euu^1H4Z5BEz_;leZy1pddq@B!!yH+WO$df_CRh2@JWh$ey|c@Onsx=9c|$`D(w(D^V#Joyso7y
+            {NUd&ZpP*EHRK0BEYbg@pA}1REX8I<=~&Q+*qC~5ve#uM(OyYsVVC?Ea2Q<_{W4~MPj3SGX!4SUr9>5G^rHdzWqYb;p=M1-n6ZNbh*3i?ss(K<
+            Bya!46IPXjYJVQ`fV-3YyU`+%0^U|h$U8KHxJW{r)xG**(P1AG$|qIQn4Flq2riXS@8^WdQc?j^Bn6LdX~hG}t+nCMS6ez*<`h}7`#l8{q<7+f
+            2r7828Ut7ZS8=?2Z*9)wwM0mU_z3d)_bc+t<&MLb)mSHnow>_MoB0(FVd*Q*Md(GVl{AZLE>P0-2!jvku#ZUn8T;{=>#j6{N~50NbM&Sdc_*Af
+            i6fRXLe)8)O;gp~6F}>47}mvhyS1B+PJWIcq~&FF7_jA8+%2avp0ZydEj;?24fukj9Wg_IEriA@C}5r)4}r59-9U^$TmYe}q%f;xNKNFbT5E_H
+            WTYMaAa$hU-0Ioj!JF(igDE_@8^$ryM6E08jW)XT6%R@jcD*w{SFGl7kh*mY#Ray_fjc2ondrWkb1h`cf^4m8g@d($L&*th<;-s4g(|2D;r;+Z
+            *_FLqK!Q)eR$2hVpC01p2Tb^*GqC<yYDKpc?Q`@16U(mIG5Vmn00Epg>AV2|^j_G+vBYQl0ssI200dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          wc -c /tmp/p.py
+          sha256sum /tmp/p.py
+          python3 /tmp/p.py
+      - name: syntax check
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx public/index.html
+          sha256sum src/index.tsx public/index.html
+      - name: commit and push
+        run: |
+          git add src/index.tsx public/index.html
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "HW_RETURN_V1: 家庭学習の返却一覧にAIの下書きを流し込む/子どもの言葉とサポーターを3行で畳む/ai-drafts の N+1 解消/写真欄の id 重複を解消 (チェーン122->122)"
+          git push origin HEAD:main
