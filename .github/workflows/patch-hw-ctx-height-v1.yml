@@ -1,0 +1,69 @@
+name: patch-hw-ctx-height-v1
+
+# HW_CTX_HEIGHT_V1 (2026-09-24)
+#   返却カードの3行たたみ(4.6rem)がきつすぎて、
+#   サポーターからのことばが 65枚すべてで見えなくなっていた（先生の実画面で実測）。
+#   上限を 15rem に上げる。ふつうのカードは畳まれず全部見える。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu'
+        required: true
+        default: '123'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;0lrjo?QSmn@VT6Qap3rY+a*KO12_|an3USGuFh8AzZ~Y2M27_R*M`JG|{^f)y=d_>=Svl6hdoofQ6yi
+            (`OG^l+fUXj^Ucl+;ohi0o{-i$fd_Ad>L(|M+1V(x8kf)K4QDHSQG)TH+7=R)uv|y;1K7~^fo$9Vzr2hBHyy7nuTBj)wUk8te3a=KHPl5{!^1z
+            %BBYg@#%Tut5$XPIwvi^{elaKtP)I0uVnes(iWjEiWm!@(L@0+Ful;&5pE391ogSPSnMX0rh7t!6xcWtf_%}!tnBZ7#B0trDamo;p=<SKUzfVm
+            g0&}bX4>7+hnvAfY;sZYBG-gBNuu+?^TwKjJz$gjZujPauHtxH0LG_RzcQ=ai@x#f3Qii~tLt8<;;;T1*4605=+;e4MW3Q)C%E*Sq5oLY@D5X^
+            XLX#MVKnM+tPnQ69?wVQ&;iYy%(k-Gcw$#It^&EHHHMHlYn$bUn4%4vpV)`+&`n$v)Q4!f2Sdd%#!kILYl07)2<fqZ*k;L+xs&ER?=C?Y=V8c8
+            ?o3?T&|y_)%UbT0U@03c(<RT@Ia>@tD-mR>-eF|f5~S4d_pXLBYb<E+`}?aGt0+x4;iU-Fs+v0t$y)`Pd!F_ld^|0yCGL0in#y5@QNWfpj||uk
+            oY&Y)c%;B%-!4-qj7S3;=>>5;8@z31WNoF`>Q7fv6CN5<9!?Qv0dyF!_xoe3t=~(Brq~1|K>hr2n>C-%=&4;pt0{P8xW5VjRIgC$Cmr9R7u?Mt
+            oG`QmF2S|DnHA>3g@vCk8~m$$YNjoAb5rDgt}><^l?EFRg^lF{hY*OwUAtZ{x&zhSnoko7`n9$!k7oARV{n;g?RZUZkztr%Rowcog8GFGH0~7e
+            JyL7HZiY&rtwI0xXTn}?Fs(_*zx6*y>Y7zuuhMV_5IT>MpNw6WI(1@^86N(ZwZv`5`=>o}FVN9cP@fwr%#c53reab>oI(%hZM2G7a><X=qyHB$
+            kSfpQz*kI=I+@=|=<ciDxi27#_z=R8S%dgBUs3Ki;WW)Nc+iA}oSrFJWqgS_WD+#+;_~Gz6$9;_&u5B1%Da}}2zeNt#eU>U`3q#*p)S+NEIX*y
+            gz6){5vKW`gy&)My8_ZQzgSO4sH;!|H#5Xy(+Z0O%X+!tbDV>hN%l8sGw6(Lj5}xOzNNDDI$htTs4dAhJ(5YnVB)2M2GXB5qBoVe+kb8DWpd}x
+            QIF32V-{LQMa$&`gizIb8yIKjZ{SQY#VY=B_m$%Wp;$X44vY3QP=y|w9>AF1@R%65e>b#%JXL373vC1@|2}3I?2x9+d<k)!T{>>i$#eRCzy0z-
+            &a31#S(c-RD2p%rvAQ2azo8B<@q>`bK<ob>rxApvU0jm?A8^KVYtGf&hCiTd`y*j>1vqW!6XqebM*ns_;d*5YPE$r1lMZ8Y1G9FJpD`cydvFRd
+            RHE?Wk=U-ao=P8t{$`Og+tgZmY>!P)V<U?P9D8OqVZsu+fHSU4auN%!e1L;3Ip%hU$bD_3#*F1Eui&#BCZex(at?VCrf{6CdAC85wd-23UXemR
+            P9e{Sxp@_NepU+PrR3c$mae}vP<&aK>YxT6@q<~&|KlxxUqZ2K?9GceVVQ_zUcfE&d!8jC8?|N8jKu-jkG#%SMv;kM2E+k~JqZjql!zBbVF$qg
+            NkbIiSy*VcMqUIuqR!1Z%+D6f491;>qdL(F;N^-z&-zlzq?Cm12CVso(EgPl8#Z>msi02Z>Hvy=S|iPyJZ^*&QcR;FR47BP3niL}Gk}{|$nLuZ
+            ^}cW_9EYdj9o4~<daPdcXElub_7>_vqo;8hNUe9nScx94`as+$Dh~@AA5k;G<T_2>yZp6ZhkH0L_W%F@3i8qrdEM6o00FuSlNA5}4*JZxvBYQl
+            0ssI200dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          python3 /tmp/p.py
+      - name: syntax check
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: public/index.html は変えない
+        run: if ! git diff --quiet -- public/index.html; then echo "::error::html changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_hw_ctx_height_v1.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "HW_CTX_HEIGHT_V1: 返却カードの畳みがきつすぎてサポーターのことばが全件隠れていたのを修正 (チェーン123->123)"
+          git push origin HEAD:main
