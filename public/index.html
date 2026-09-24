@@ -42661,31 +42661,37 @@ async function hwRenderWeekView(){
     }
 
     // 計画承認・振り返り返却の報酬チェック
-    if(isPastWeek){
-      const notice = document.getElementById('hwRewardNotice');
-      if(notice){ notice.classList.add('hidden'); notice.innerHTML = ''; }
-      const sugBoxP = document.getElementById('hwPlanSuggestBox');
-      if(sugBoxP){ sugBoxP.classList.add('hidden'); sugBoxP.innerHTML = ''; }
-    }
-    if(!isPastWeek) try{
-      const statusRes = await fetch('/api/student/weekly-plan-status?weekKey='+encodeURIComponent(weekKey)).then(r=>r.json()).catch(()=>null);
+    // 📌 2026-09-25 PLAN_LOOP_V1:
+    //   前は「過去の週では通知枠を隠し、そもそも取りにも行かない」作りだった。
+    //   そのため先生が返したコメントは、その週が今週のあいだしか読めず、
+    //   週が変わると二度と読めなかった（先生が返す意味が消えていた）。
+    //   ここを直して、過去の週でも文章は読めるようにする。
+    //   ⚠ 受け取りボタンだけは今週のぶんに限る。受け取りの記録がブラウザにしか無く、
+    //     過去の週にボタンを出すと、もらい直せてしまうため。
+    try{
+      // 今週を見ているときは、先週ぶんも一緒にもらう（月曜に先生のおへんじを読んでから計画を書く流れ）
+      var _wkPrev = (typeof hsPrevWeekKey === 'function') ? hsPrevWeekKey(weekKey) : null;
+      var _qs = (!isPastWeek && _wkPrev) ? ('weekKeys='+encodeURIComponent(weekKey+','+_wkPrev))
+                                         : ('weekKey='+encodeURIComponent(weekKey));
+      const statusRes = await fetch('/api/student/weekly-plan-status?'+_qs).then(r=>r.json()).catch(()=>null);
       const st = statusRes && statusRes.status;
+      const stPrev = (statusRes && statusRes.statuses && _wkPrev) ? statusRes.statuses[_wkPrev] : null;
       const sugBox = document.getElementById('hwPlanSuggestBox');
       if(sugBox){ if(st && st.planSuggestion){ sugBox.innerHTML = '<div class="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-3 space-y-1"><div class="font-bold text-yellow-900 text-sm">\uD83D\uDC2F 今週の阪神マンのおすすめ</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planSuggestion)+'</div><div class="text-[10px] text-slate-400">\u203B あくまで参考。自分で計画を立ててみよう！</div></div>'; sugBox.classList.remove('hidden'); } else { sugBox.innerHTML=''; sugBox.classList.add('hidden'); } }
       const notice = document.getElementById('hwRewardNotice');
       if(notice && st){
         let html = '';
         if(st.planAiComment){ html += '<div class="bg-violet-50 border-2 border-violet-300 rounded-xl p-3 space-y-1"><div class="font-bold text-violet-700 text-sm">\uD83D\uDCCB 先生からの計画アドバイス</div><div class="text-xs text-slate-700 whitespace-pre-wrap">'+escapeHtml(st.planAiComment)+'</div></div>'; }
-        // 計画承認報酬
-        if(st.planApproved && !localStorage.getItem('hwPlanReward_'+weekKey)){
+        // 計画承認報酬（⚠ 受け取りは今週のぶんだけ。過去の週は上の文章だけ出す）
+        if(!isPastWeek && st.planApproved && !localStorage.getItem('hwPlanReward_'+weekKey)){
           html += '<div class="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 space-y-1">'
             + '<div class="font-bold text-emerald-700 text-sm">🎉 今週の計画が承認されました！</div>'
             + '<div class="text-sm font-bold text-orange-600">報酬: コイン300枚 ＋ かけら5個</div>'
             + '<button onclick="hwClaimPlanReward(\''+weekKey+'\')" class="mt-1 px-4 py-1.5 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600">受け取る！</button>'
             + '</div>';
         }
-        // 振り返り返却報酬
-        if(st.reflectionReturnedAt && !localStorage.getItem('hwRefReward_'+weekKey)){
+        // 振り返り返却報酬（⚠ 受け取りは今週のぶんだけ）
+        if(!isPastWeek && st.reflectionReturnedAt && !localStorage.getItem('hwRefReward_'+weekKey)){
           html += '<div class="bg-orange-50 border-2 border-orange-400 rounded-xl p-3 space-y-1">'
             + '<div class="font-bold text-orange-700 text-sm">🎉 振り返りが返却されました！</div>'
             + (st.reflectionComment ? '<div class="text-xs text-emerald-700 bg-emerald-50 rounded p-1.5 border border-emerald-200">💬 '+escapeHtml(st.reflectionComment)+'</div>' : '')
@@ -42693,6 +42699,26 @@ async function hwRenderWeekView(){
             + '<button onclick="hwClaimRefReward(\''+weekKey+'\')" class="mt-1 px-4 py-1.5 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600">受け取る！</button>'
             + '</div>';
         }
+        // 📌 2026-09-25: 先週ぶんの「先生からのおへんじ」を、いちばん上に出す。
+        //   金曜に返してもらったものを、月曜に計画を書くときに読めるようにするため。
+        if(stPrev && (stPrev.planAiComment || stPrev.reflectionComment)){
+          var _ph = '<div class="bg-sky-50 border-2 border-sky-300 rounded-xl p-3 space-y-1">'
+            + '<div class="font-bold text-sky-800 text-sm">💬 先生からのおへんじ <span class="text-[10px] font-normal text-sky-600">（先週ぶん）</span></div>';
+          if(stPrev.planAiComment)    _ph += '<div class="text-xs text-slate-700 whitespace-pre-wrap"><b>📋 計画に…</b> '+escapeHtml(stPrev.planAiComment)+'</div>';
+          if(stPrev.reflectionComment)_ph += '<div class="text-xs text-slate-700 whitespace-pre-wrap"><b>🔄 ふりかえりに…</b> '+escapeHtml(stPrev.reflectionComment)+'</div>';
+          _ph += '<div class="text-[10px] text-sky-600">読んでから、今週の計画を書いてみよう。</div></div>';
+          html = _ph + html;
+        }
+        // 📌 2026-09-25: 画面に出したものは「読んだ」印を付ける。
+        //   付けないと赤いバッジが永久に消えない。
+        try{
+          if(st && st.planAiComment)     localStorage.setItem('hwSeenPlanCmt_'+weekKey, '1');
+          if(st && st.reflectionComment) localStorage.setItem('hwSeenRefCmt_'+weekKey, '1');
+          if(_wkPrev && stPrev){
+            if(stPrev.planAiComment)     localStorage.setItem('hwSeenPlanCmt_'+_wkPrev, '1');
+            if(stPrev.reflectionComment) localStorage.setItem('hwSeenRefCmt_'+_wkPrev, '1');
+          }
+        }catch(_e){}
         if(html){ notice.innerHTML = html; notice.classList.remove('hidden'); }
         else { notice.classList.add('hidden'); notice.innerHTML = ''; }
       }
@@ -43450,6 +43476,15 @@ let hsSheetTimer = null;
 let _hsWeeklyMenuCache = null;
 
 // ISO週番号キーを返す (YYYY-Wnn)
+// 📌 2026-09-25 PLAN_LOOP_V1: 前の週のキー（2026-W38 -> 2026-W37）
+function hsPrevWeekKey(wk){
+  var m = String(wk||'').match(/^(\d{4})-W(\d{2})$/);
+  if(!m) return null;
+  var y = parseInt(m[1],10), w = parseInt(m[2],10);
+  w--; if(w < 1){ y--; w = 52; }
+  return y + '-W' + String(w).padStart(2,'0');
+}
+
 function hsGetWeekKey(dayKey){
   const d = hsParseDayKey(dayKey);
   const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -45156,10 +45191,30 @@ async function hsCheckReturned() {
     for (const s of (r.submissions || [])) {
       if (s.teacherComment) window.__hsPendingReturns[s.id] = { dayKey: s.dayKey, teacherComment: s.teacherComment };
     }
+    // 📌 2026-09-25 PLAN_LOOP_V1: いままでバッジは「毎日の家庭学習の返却」だけを見ていた。
+    //   計画アドバイスと振り返りの返却は、どこにも印が出ず、子どもが気づけなかった。
+    //   今週と先週のぶんを1クエリで見て、未読があればバッジを出す。
+    var _extra = 0;
+    try{
+      var _wk = (typeof hsGetWeekKey === 'function' && typeof hsGetDayKey830 === 'function')
+        ? hsGetWeekKey(hsGetDayKey830(new Date())) : null;
+      var _pv = (_wk && typeof hsPrevWeekKey === 'function') ? hsPrevWeekKey(_wk) : null;
+      if(_wk){
+        var _q = _pv ? ('weekKeys='+encodeURIComponent(_wk+','+_pv)) : ('weekKey='+encodeURIComponent(_wk));
+        var _sr = await fetch('/api/student/weekly-plan-status?'+_q).then(function(x){return x.json();}).catch(function(){return null;});
+        var _map = (_sr && _sr.statuses) || {};
+        Object.keys(_map).forEach(function(k){
+          var v = _map[k]; if(!v) return;
+          if(v.planAiComment && !localStorage.getItem('hwSeenPlanCmt_'+k)) _extra++;
+          if(v.reflectionComment && !localStorage.getItem('hwSeenRefCmt_'+k)) _extra++;
+        });
+      }
+    }catch(_e){}
+    var _show = (pending.length + _extra) > 0;
     const badge = document.getElementById('hsReturnBadge');
-    if (badge) badge.style.display = pending.length > 0 ? '' : 'none';
+    if (badge) badge.style.display = _show ? '' : 'none';
     const navBadge = document.getElementById('hsNavBadge');
-    if (navBadge) navBadge.style.display = pending.length > 0 ? '' : 'none';
+    if (navBadge) navBadge.style.display = _show ? '' : 'none';
     // モーダルが開いていれば通知エリアも更新
     if (document.getElementById('hsReturnNotice')) hsRenderReturnNotice(pending);
   } catch(e) {}

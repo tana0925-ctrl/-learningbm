@@ -6091,19 +6091,28 @@ app.get('/api/student/weekly-menu', async (c) => {
 app.get('/api/student/weekly-plan-status', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
+  // 📌 2026-09-25 PLAN_LOOP_V1:
+  //   もとは同じ表を3回引いていた（row / plan_ai_comment / plan_suggestion）。1回にまとめる。
+  //   さらに ?weekKeys=A,B で複数週をまとめて取れるようにした（月曜に先週ぶんも読むため）。
+  //   ぜんぶ1クエリなので、先週ぶんを足しても読み取りは前より減る。
   const weekKey = c.req.query('weekKey') || getWeekKey()
-  const row = await c.env.DB.prepare(`
-    SELECT plan_approved as planApproved, plan_reward_coins as planRewardCoins,
-           reflection_comment as reflectionComment, reflection_returned_at as reflectionReturnedAt,
-           reflection_reward_coins as reflectionRewardCoins
-    FROM student_weekly_plans WHERE user_id=? AND week_key=?
-  `).bind(u.id, weekKey).first<any>()
-  let planAiComment: any = null
-  try { const _pc = await c.env.DB.prepare('SELECT plan_ai_comment as planAiComment FROM student_weekly_plans WHERE user_id=? AND week_key=?').bind(u.id, weekKey).first<any>(); if (_pc) planAiComment = _pc.planAiComment || null } catch {}
-  let planSuggestion: any = null
-  try { const _ps = await c.env.DB.prepare('SELECT plan_suggestion as planSuggestion FROM student_weekly_plans WHERE user_id=? AND week_key=?').bind(u.id, weekKey).first<any>(); if (_ps) planSuggestion = _ps.planSuggestion || null } catch {}
-  const status2 = row ? { ...row, planAiComment, planSuggestion } : ((planAiComment || planSuggestion) ? { planAiComment, planSuggestion } : null)
-  return c.json({ ok: true, status: status2 })
+  const rawKeys = String(c.req.query('weekKeys') || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 2)
+  const keys = rawKeys.length ? rawKeys : [weekKey]
+  const ph = keys.map(() => '?').join(',')
+  let rows: any = { results: [] }
+  try {
+    rows = await c.env.DB.prepare(
+      `SELECT week_key as weekKey, plan_approved as planApproved, plan_reward_coins as planRewardCoins,
+              reflection_comment as reflectionComment, reflection_returned_at as reflectionReturnedAt,
+              reflection_reward_coins as reflectionRewardCoins,
+              plan_ai_comment as planAiComment, plan_suggestion as planSuggestion
+       FROM student_weekly_plans WHERE user_id=? AND week_key IN (${ph})`
+    ).bind(u.id, ...keys).all<any>()
+  } catch (e) {}
+  const byWeek: Record<string, any> = {}
+  for (const r of (((rows && rows.results) || []) as any[])) byWeek[String(r.weekKey)] = r
+  const status2 = byWeek[keys[0]] || null
+  return c.json({ ok: true, status: status2, statuses: byWeek })
 })
 
 app.get('/api/student/ranking-rewards', async (c) => {
@@ -6662,6 +6671,7 @@ app.get('/api/teacher/weekly-plans', async (c) => {
            swp.plan_approved as planApproved, swp.plan_approved_at as planApprovedAt,
            swp.reflection_comment as reflectionComment, swp.reflection_returned_at as reflectionReturnedAt,
            swp.revision_count as revisionCount,
+           swp.plan_ai_comment as planAiComment,
            u.id as userId, u.login_id as loginId, u.name as studentName, u.grade, u.class_name as className
     FROM student_weekly_plans swp
     JOIN users u ON u.id = swp.user_id
@@ -11162,7 +11172,7 @@ app.get('/teacher', (c) => {
           <!-- 📌 2026-09 整理: 「2 今週の計画」をここへ畳んだ。
                開いたときに自動で読み込むので、毎回ボタンを押さなくてよい。 -->
           <details id="hwPlanBox" class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3" ontoggle="if(this.open) hwPlanOpened();">
-            <summary class="cursor-pointer font-bold text-sm text-blue-800 select-none">📝 生徒の今週の計画</summary>
+            <summary class="cursor-pointer font-bold text-sm text-blue-800 select-none">📝 生徒の今週の計画 <span id="hwPlanCount" class="ml-1 text-[11px] font-normal text-slate-500"></span></summary>
             <div class="mt-2 flex justify-end">
               <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込み直す</button>
             </div>
@@ -12660,6 +12670,25 @@ app.get('/teacher', (c) => {
 
 
 
+      // 📌 2026-09-25 PLAN_LOOP_V1: 計画への一言を返す（既存APIをそのまま使う）
+      async function savePlanComment(userId, btn){
+        var ta = document.getElementById('planCmt_'+userId);
+        if(!ta) return;
+        var txt = String(ta.value||'').trim();
+        if(!txt){ alert('ひとことを書いてください'); return; }
+        btn.disabled = true;
+        try{
+          await api('/api/teacher/plan-ai-comments', {method:'POST', headers:{'content-type':'application/json'},
+            body: JSON.stringify({ weekKey: getWeekKeyLocal(), comments: [{ studentId: userId, comment: txt }] })});
+          await loadStudentPlans();
+        }catch(e){ btn.disabled = false; alert('エラー: '+String(e.message||e)); }
+      }
+      function planCommentEdit(userId, btn){
+        var box = document.getElementById('planCmtBox_'+userId);
+        if(box) box.classList.remove('hidden');
+        if(btn) btn.style.display = 'none';
+      }
+
       async function loadStudentPlans(){
         const wrap = document.getElementById('studentPlansList');
         if(!wrap) return;
@@ -12716,6 +12745,20 @@ app.get('/teacher', (c) => {
               html += '<div class="flex justify-end"><button class="bg-green-600 text-white rounded px-3 py-1 text-xs font-bold hover:opacity-90" onclick="approvePlan('+p.id+',this)">✅ 計画OK (+300coin+5かけら)</button></div>';
             }
 
+            // 📌 2026-09-25 PLAN_LOOP_V1: 計画に一言返す欄。いままで手で返す場所が無く、
+            //   分析タブでAIの下書きを作るしか手段が無かった（先生が「返していない」のではなく
+            //   返す欄が無かった）。保存は既存の /api/teacher/plan-ai-comments をそのまま使う。
+            if(p.planAiComment && String(p.planAiComment).trim()){
+              html += '<div class="text-xs mt-1 p-1.5 bg-violet-50 rounded border border-violet-200">'
+                + '<span class="font-bold text-violet-700">📋 計画へのひとこと：</span>'+escH(p.planAiComment)
+                + ' <button class="ml-1 text-[10px] underline text-violet-600" onclick="planCommentEdit(\''+escH(p.userId)+'\',this)">直す</button>'
+                + '</div>';
+            }
+            html += '<div class="flex items-center gap-1 mt-1'+((p.planAiComment && String(p.planAiComment).trim())?' hidden':'')+'" id="planCmtBox_'+escH(p.userId)+'">'
+              + '<textarea id="planCmt_'+escH(p.userId)+'" class="flex-1 border rounded p-1.5 text-xs" rows="1" placeholder="計画へひとこと（子どもの画面に出ます）"></textarea>'
+              + '<button class="bg-violet-600 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="savePlanComment(\''+escH(p.userId)+'\',this)">返す</button>'
+              + '</div>';
+
             // 金曜の振り返り
             const friKey = keys[4] || '';
             const friVal = friKey ? parsed[friKey] : '';
@@ -12739,6 +12782,26 @@ app.get('/teacher', (c) => {
             card.innerHTML = html;
             wrap.appendChild(card);
           }
+          // 📌 2026-09-25 PLAN_LOOP_V1: 見出しに件数を出す（取ってあるデータを数えるだけ）
+          try{
+            var _cnt = document.getElementById('hwPlanCount');
+            if(_cnt){
+              var _wrote = 0, _noReply = 0;
+              plans.forEach(function(q){
+                var _o = {}; try{ _o = JSON.parse(q.plansJson||'{}'); }catch(_e){}
+                var _has = false;
+                Object.keys(_o).forEach(function(k){
+                  if(k === '_modified') return;
+                  var v = _o[k];
+                  var tx = (v && typeof v === 'object') ? (v.free || '') : (v || '');
+                  if(String(tx).trim()) _has = true;
+                });
+                if(_has) _wrote++;
+                if(_has && !(q.planAiComment && String(q.planAiComment).trim())) _noReply++;
+              });
+              _cnt.textContent = '（' + _wrote + '人が提出' + (_noReply ? ' / 未返信 ' + _noReply + '人' : '') + '）';
+            }
+          }catch(_e){}
           // 一括パネル表示
           const bulkPanel = document.getElementById('bulkRefPanel');
           if(bulkPanel) bulkPanel.classList.toggle('hidden', window._weeklyRefData.length === 0);
