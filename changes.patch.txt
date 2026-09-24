@@ -1,3 +1,5 @@
+
+[2026-09-24] HS_PHOTO_MULTI_V1 / HS_PHOTO_CHAIN_FIX_V1 / HW_CTX_HEIGHT_V1 を配信（チェーン123のまま）
 diff --git a/public/index.html b/public/index.html
 index 2bf66c2..ca78b29 100644
 --- a/public/index.html
