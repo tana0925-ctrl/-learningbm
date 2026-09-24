@@ -1,0 +1,77 @@
+name: patch-karte-fix-v2
+
+# KARTE_FIX_V2 (2026-09-24 の緊急直し)
+#   ・公開 API の D1 呼び出しをバッチにまとめる（23人で47回・8.7秒 → 2回）
+#   ・/teacher-ai.js の版数を v=7 -> v=8（古いJSを掴む余地を消す）
+#   週ズレの直しは public/teacher-ai.js 側で別に入れる。
+#   児童の画面（配信チェーン）は1件も増やさない。増えていたら止まる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | sha256sum
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_fix_v2.py
+      - name: public/index.html は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- public/index.html; then
+            echo "::error::public/index.html が変わっています。中止します。"; exit 1
+          fi
+      - name: 構文検査
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash']:
+              n = s.count(k)
+              print('%-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx
+          sha256sum src/index.tsx
+      - name: commit and push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "KARTE_FIX_V2: 公開のD1呼び出しをバッチ化（47回->2回）／teacher-ai.js を v=8 に（チェーン122->122）"
+          git push origin HEAD:main
