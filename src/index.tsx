@@ -12745,6 +12745,17 @@ app.get('/teacher', (c) => {
               html += '<div class="flex justify-end"><button class="bg-green-600 text-white rounded px-3 py-1 text-xs font-bold hover:opacity-90" onclick="approvePlan('+p.id+',this)">✅ 計画OK (+300coin+5かけら)</button></div>';
             }
 
+            // 📌 2026-09-25 PLAN_LOOP_V2: 子どもからの返事（月曜の中に入っている）
+            try{
+              var _mk = keys[0] || '';
+              var _mv = _mk ? parsed[_mk] : '';
+              var _rep = (_mv && typeof _mv === 'object') ? (_mv.reply || '') : '';
+              if(_rep && String(_rep).trim()){
+                html += '<div class="text-xs mt-1 p-1.5 bg-sky-50 rounded border border-sky-200">'
+                  + '<span class="font-bold text-sky-700">✍️ 本人からの返事：</span>'+escH(_rep)+'</div>';
+              }
+            }catch(_e){}
+
             // 📌 2026-09-25 PLAN_LOOP_V1: 計画に一言返す欄。いままで手で返す場所が無く、
             //   分析タブでAIの下書きを作るしか手段が無かった（先生が「返していない」のではなく
             //   返す欄が無かった）。保存は既存の /api/teacher/plan-ai-comments をそのまま使う。
