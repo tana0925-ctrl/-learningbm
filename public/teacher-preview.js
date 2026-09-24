@@ -1,5 +1,6 @@
 /* ===================================================================
-   teacher-preview.js — 👀 児童画面プレビュー（先生用）
+   teacher-preview.js — 📨 この子にいま届いているもの（先生用・読み取り専用）
+   ⚠️ これは子どもの画面を映したものではありません。DBを読んで「届いているか」を並べた一覧です。
    -------------------------------------------------------------------
    先生の言葉：「子供の画面にどうでてるかよくわからないんだよね」
 
@@ -437,7 +438,7 @@
     btn.id = 'tspOpenBtn';
     btn.type = 'button';
     btn.className = 'fixed bottom-4 right-4 z-[9998] bg-sky-600 hover:bg-sky-700 text-white font-black rounded-full shadow-lg px-5 py-3 text-sm';
-    btn.textContent = '👀 児童画面プレビュー';
+    btn.textContent = '📨 この子にいま届いているもの';
     btn.onclick = openModal;
     document.body.appendChild(btn);
 
@@ -448,7 +449,7 @@
       '<div class="absolute inset-0 flex items-start justify-center p-2 sm:p-6 overflow-auto">' +
       '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">' +
       '<div class="px-4 py-3 border-b border-slate-200 flex items-center gap-2 flex-wrap">' +
-      '<div class="font-black text-slate-800">👀 児童画面プレビュー</div>' +
+      '<div class="font-black text-slate-800">📨 この子にいま届いているもの</div>' +
       '<div class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 font-bold">読み取り専用</div>' +
       '<div class="ml-auto flex gap-2">' +
       '<button type="button" id="tspReload" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">再読み込み</button>' +
@@ -460,10 +461,10 @@
       '<span class="text-[11px] text-slate-500">この画面からは何も書き換わりません。</span>' +
       '</div>' +
       '<div class="p-3 bg-slate-100">' +
-      '<div class="mx-auto bg-white rounded-2xl border-4 border-slate-800 overflow-hidden" style="max-width:375px">' +
+      '<div class="mx-auto bg-white rounded-2xl border-2 border-slate-300 overflow-hidden">' +
       '<div id="tspBody" class="p-3" style="max-height:70vh;overflow:auto"></div>' +
       '</div>' +
-      '<div class="text-center text-[11px] text-slate-500 mt-2">スマホと同じ幅（375px）で出しています。文の長さの見え方もこのままです。</div>' +
+      '<div class="text-center text-xs text-slate-600 mt-2 leading-relaxed">これは<b>子どもの画面そのものではありません</b>。「先生から出したものが、その子に届いているか」を一覧にしたものです。<br>実際の見え方（iPad横向きの崩れなど）は、この画面では分かりません。</div>' +
       '</div></div></div>';
     document.body.appendChild(ov);
 
