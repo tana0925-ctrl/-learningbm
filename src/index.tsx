@@ -4312,6 +4312,13 @@ app.post('/api/teacher/test-scores/parse', async (c) => {
   const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
   const idx: Record<string, string> = {}
   for (const m of roster as any[]) { if (m.name) idx[_tsNorm(m.name)] = m.id; if (m.loginId) idx[_tsNorm(m.loginId)] = m.id }
+  // 📌 二重取り込みの下調べ。同じクラスで直近60日に取り込んだテスト名を集める（LIMIT つき）。
+  const _tsDupNames: Record<string, string> = {}
+  try {
+    const _since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10)
+    const _dr = await c.env.DB.prepare("SELECT sts.test_name as t, substr(sts.created_at,1,10) as d FROM student_test_scores sts WHERE sts.user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND substr(sts.created_at,1,10) >= ? ORDER BY sts.id DESC LIMIT 300").bind(classId, _since).all<any>()
+    for (const r of (((_dr && _dr.results) || []) as any[])) { const t = _tsNorm(r.t); if (!t) continue; if (!_tsDupNames[t]) _tsDupNames[t] = String(r.d || '') }
+  } catch (e) {}
   const parsed = _tsParseText(body.text)
   const rows = parsed.rows.map((r: any) => {
     const key = _tsNorm(r.rawName)
@@ -4320,7 +4327,8 @@ app.post('/api/teacher/test-scores/parse', async (c) => {
     const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
     return { rawName: r.rawName, score: r.score, evalRank: r.evalRank || '', evalKnowledge: r.evalKnowledge || '', evalThinking: r.evalThinking || '', evalAttitude: r.evalAttitude || '', comment: r.comment, matchedUserId: uid, matchedName: mm ? mm.name : null }
   })
-  return c.json({ ok: true, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore, grade: parsed.grade }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
+  const _dupOn = _tsDupNames[_tsNorm(parsed.testName)] || ''
+  return c.json({ ok: true, dupOn: _dupOn, rosterCount: (roster as any[]).length, header: { testName: parsed.testName, testDate: parsed.testDate, subject: parsed.subject, maxScore: parsed.maxScore, grade: parsed.grade }, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
 })
 app.post('/api/teacher/test-scores/save', async (c) => {
   const u = c.get('user')
@@ -4364,6 +4372,19 @@ app.post('/api/teacher/test-scores/save', async (c) => {
 function _recNorm(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}).replace(/[ 　]/g,'').toLowerCase(); }
 function _recHalfDate(v){ var s=String(v==null?'':v).replace(/[０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248);}); s=s.split('年').join('-').split('月').join('-').split('日').join('').split('/').join('-').split('.').join('-').trim(); if(s.charAt(s.length-1)==='-') s=s.slice(0,-1); return s; }
 function _recNormRank(v){ var s=String(v==null?'':v); if(s.indexOf('◎')>=0) return '◎'; if(s.indexOf('○')>=0||s.indexOf('〇')>=0) return '○'; if(s.indexOf('△')>=0) return '△'; var t=s.toUpperCase(); if(t.indexOf('A')>=0) return '◎'; if(t.indexOf('B')>=0) return '○'; if(t.indexOf('C')>=0) return '△'; return ''; }
+// ===== 取り込みの行き先・種類を、中身から自動で決める __IMPORT_AUTO_V1__ =====
+//  ・点数 または 観点別（知技／思判表／主体）が入っていれば「成績」= student_test_scores
+//    （通知表の画面は student_test_scores しか読まないため。◎○△だけでは分かれない：
+//      成果物89件の全件に◎○△が入っており、分かれ目にならないことを実データで確認ずみ）
+//  ・それ以外（本文・振り返り・◎○△だけ）は「記録」= student_records
+//  ・先生には何も聞かない。点数欄に書いたかどうかだけで決まる。
+function _impHasScore(r){ var v=(r&&r.score); if(v===''||v==null) return false; var n=parseInt(String(v),10); return !isNaN(n); }
+function _impHasKanten(r){ return !!((r&&r.evalKnowledge)||(r&&r.evalThinking)||(r&&r.evalAttitude)); }
+function _impDest(r){ return (_impHasScore(r)||_impHasKanten(r)) ? 'score' : 'record'; }
+// 種類（まとめ／振り返り／その他）も中身から決める。先生の3択は廃止。
+//  本文あり→まとめ／本文なし・振り返りあり→振り返り／どちらも無し→その他
+//  既存89件すべてがこの規則に一致することを実データで確認ずみ。
+function _impAutoType(r){ if(String((r&&r.body)||'').trim()) return 'report'; if(String((r&&r.reflection)||'').trim()) return 'reflect'; return 'other'; }
 function _recParseText(text){
   var NL=String.fromCharCode(10);
   var lines=String(text||'').split(NL);
@@ -4372,7 +4393,7 @@ function _recParseText(text){
     var rawLine=String(lines[i]==null?'':lines[i]);
     var line=rawLine.trim();
     var mk=line.match(/^===\s*\[([^\]]*)\]\s*(.*?)\s*===$/);
-    if(mk){ if(cur) blocks.push(cur); cur={ idRaw:String(mk[1]||'').trim(), nameRaw:String(mk[2]||'').trim(), title:'', day:'', subject:'', unit:'', body:'', reflection:'', evalRank:'', evalComment:'' }; sec=null; continue; }
+    if(mk){ if(cur) blocks.push(cur); cur={ idRaw:String(mk[1]||'').trim(), nameRaw:String(mk[2]||'').trim(), title:'', day:'', subject:'', unit:'', body:'', reflection:'', evalRank:'', evalComment:'', score:'', maxScore:'', evalKnowledge:'', evalThinking:'', evalAttitude:'' }; sec=null; continue; }
     if(!cur) continue;
     var ci=line.indexOf('：'); if(ci<0) ci=line.indexOf(':');
     var handled=false;
@@ -4383,6 +4404,11 @@ function _recParseText(text){
       else if(k.indexOf('日付')>=0||k.indexOf('日時')>=0||k.indexOf('実施日')>=0){ cur.day=_recHalfDate(v); sec=null; handled=true; }
       else if(k.indexOf('教科')>=0||k.indexOf('科目')>=0){ cur.subject=v; sec=null; handled=true; }
       else if(k.indexOf('単元')>=0){ cur.unit=v; sec=null; handled=true; }
+      else if(k.indexOf('点数')>=0||k.indexOf('得点')>=0){ cur.score=_tsKeepNum(v); sec=null; handled=true; }
+      else if(k.indexOf('満点')>=0||k.indexOf('配点')>=0){ cur.maxScore=_tsKeepNum(v); sec=null; handled=true; }
+      else if(k.indexOf('知技')>=0||k.indexOf('知識')>=0){ cur.evalKnowledge=_recNormRank(v); sec=null; handled=true; }
+      else if(k.indexOf('思判表')>=0||k.indexOf('思考')>=0){ cur.evalThinking=_recNormRank(v); sec=null; handled=true; }
+      else if(k.indexOf('主体')>=0||k.indexOf('態度')>=0){ cur.evalAttitude=_recNormRank(v); sec=null; handled=true; }
       else if(k.indexOf('評価コメント')>=0||k.indexOf('評価メモ')>=0){ cur.evalComment=v; sec='evalComment'; handled=true; }
       else if(k.indexOf('評価')>=0){ cur.evalRank=_recNormRank(v); sec=null; handled=true; }
       else if(k.indexOf('振り返り')>=0||k.indexOf('ふりかえり')>=0){ sec='reflection'; if(v){ cur.reflection+=v; } handled=true; }
@@ -4410,13 +4436,21 @@ app.post('/api/teacher/records/parse', async (c) => {
   const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
   const idx: Record<string, string> = {}
   for (const m of roster as any[]) { if (m.name) idx[_recNorm(m.name)] = m.id; if (m.loginId) idx[_recNorm(m.loginId)] = m.id }
+  // 📌 二重取り込みの下調べ。同じクラスの直近60日ぶんのタイトルだけを引く（LIMIT つき・軽い）。
+  const _recDup: Record<string, string> = {}
+  try {
+    const _since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10)
+    const _dr = await c.env.DB.prepare("SELECT sr.user_id as uid, sr.title as t, substr(sr.created_at,1,10) as d FROM student_records sr WHERE sr.user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND substr(sr.created_at,1,10) >= ? ORDER BY sr.id DESC LIMIT 400").bind(classId, _since).all<any>()
+    for (const r of (((_dr && _dr.results) || []) as any[])) { const t = _recNorm(r.t); if (!t) continue; const k = String(r.uid) + '|' + t; if (!_recDup[k]) _recDup[k] = String(r.d || '') }
+  } catch (e) {}
   const blocks = _recParseText(body.text)
   const rows = blocks.map((bk: any) => {
     const keyId = _recNorm(bk.idRaw); const keyNm = _recNorm(bk.nameRaw)
     let uid: string | null = idx[keyId] || idx[keyNm] || null
     if (!uid && keyNm) { for (const m of roster as any[]) { const nn = _recNorm(m.name); if (nn && (nn.indexOf(keyNm) >= 0 || keyNm.indexOf(nn) >= 0)) { uid = m.id; break } } }
     const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
-    return { idRaw: bk.idRaw, nameRaw: bk.nameRaw, title: bk.title, day: bk.day, subject: bk.subject, unit: bk.unit, body: bk.body, reflection: bk.reflection, evalRank: bk.evalRank, evalComment: bk.evalComment, matchedUserId: uid, matchedName: mm ? mm.name : null }
+    const dupKey = uid ? (uid + '|' + _recNorm(bk.title)) : ''
+    return { idRaw: bk.idRaw, nameRaw: bk.nameRaw, title: bk.title, day: bk.day, subject: bk.subject, unit: bk.unit, body: bk.body, reflection: bk.reflection, evalRank: bk.evalRank, evalComment: bk.evalComment, score: bk.score, maxScore: bk.maxScore, evalKnowledge: bk.evalKnowledge, evalThinking: bk.evalThinking, evalAttitude: bk.evalAttitude, dest: _impDest(bk), autoType: _impAutoType(bk), dupOn: (dupKey && _recDup[dupKey]) ? _recDup[dupKey] : '', matchedUserId: uid, matchedName: mm ? mm.name : null }
   })
   return c.json({ ok: true, rows, roster: (roster as any[]).map((m: any) => ({ userId: m.id, name: m.name, loginId: m.loginId })) })
 })
@@ -4436,8 +4470,10 @@ app.post('/api/teacher/records/save', async (c) => {
   try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN reflection TEXT").run() } catch {}
   try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN eval_rank TEXT").run() } catch {}
   try { await c.env.DB.prepare("ALTER TABLE student_records ADD COLUMN eval_comment TEXT").run() } catch {}
+  // 📌 __IMPORT_AUTO_V1__ 種類（まとめ／振り返り／その他）は先生に聞かない。中身から決める。
+  //    互換のため body.type も受けるが、行ごとの自動判定を優先する。
   const allowTypes = new Set(['report', 'reflect', 'other'])
-  let rtype = String(body.type || 'report'); if (!allowTypes.has(rtype)) rtype = 'other'
+  let rtypeFallback = String(body.type || '').trim(); if (!allowTypes.has(rtypeFallback)) rtypeFallback = ''
   const nowIso = new Date().toISOString()
   let saved = 0
   for (const it of body.rows) {
@@ -4452,6 +4488,7 @@ app.post('/api/teacher/records/save', async (c) => {
     const subj = String((it && it.subject) || '').slice(0, 40)
     const unit = String((it && it.unit) || '').slice(0, 80)
     const day = String((it && it.day) || '').slice(0, 40)
+    const rtype = _impAutoType({ body: bodyTxt, reflection }) || rtypeFallback || 'other'
     await c.env.DB.prepare('INSERT INTO student_records (user_id, class_id, type, title, body, reflection, eval_rank, eval_comment, subject, unit, day_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uid, classId, rtype, title, bodyTxt, reflection, evalRank, evalComment, subj, unit, day, u.id, nowIso).run()
     saved++
   }
@@ -10831,7 +10868,9 @@ app.get('/teacher', (c) => {
 
         <!-- サブタブ⑤: テスト結果の取り込み -->
         <div id="anPane_tests" class="hidden space-y-3">
-          <div class="bg-white rounded-xl shadow p-4">
+          <details class="bg-white rounded-xl shadow p-4">
+            <summary class="font-bold text-slate-700 cursor-pointer text-sm">📘 ドリルパークの取り込み（エクセル）<span class="ml-2 text-[10px] font-normal text-slate-400">ふだんは使いません</span></summary>
+            <div class="mt-2">
             <div class="font-bold text-slate-700 mb-1">📘 ドリルパークの取り込み（エクセル）</div>
             <div class="text-xs text-slate-500 mb-2">ドリルパークから書き出した「ドリル実施状況」のエクセルを、そのまま選ぶだけで取り込めます。<b>1問ごとの正誤</b>まで取り込むので、「どの教材の何問目でつまずいたか」まで個人分析・カルテに出ます。同じファイルを二度取り込んでも二重には入りません。</div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -10841,44 +10880,28 @@ app.get('/teacher', (c) => {
             </div>
             <div id="dpPreview" class="mt-3"></div>
             <div id="dpBatches" class="mt-2 border-t pt-2"></div>
-          </div>
+            </div>
+          </details>
           <div class="bg-white rounded-xl shadow p-4">
-            <div class="font-bold text-slate-700 mb-1">📝 テスト結果の取り込み</div>
-            <div class="text-xs text-slate-500 mb-2">ロイロやテストのPDF/画像を外部AI（ChatGPT・Gemini・Claude）に読み取らせ、書き出した結果をここに貼り付けて取り込みます。点数に加え、学年の目標に照らした評価（◎○△）も取り込めます。名前が読みにくい子は名簿から予測します。保存先は「クラス全体」で選んだクラスです。</div>
+            <div class="font-bold text-slate-700 mb-1">📥 取り込み（テスト・成果物・振り返り）</div>
+            <div class="text-xs text-slate-500 mb-2">貼り付け欄は<b>1つ</b>です。テストでも成果物でも振り返りでも、同じ欄に貼ってください。<b>種類を選ぶ必要はありません。</b>点数があるものには点数を書く、それだけです。<br><span class="text-slate-400">点数か観点別（知技・思判表・主体）が入っていれば「成績」へ、入っていなければ「記録（カルテの材料）」へ、アプリが振り分けます。</span><br><b class="text-rose-600">保存の前にかならず一覧が出ます。おかしな値には印が付き、確認するまで保存されません。</b></div>
             <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
               <label class="text-slate-500">学年 <select id="tsGrade" class="border rounded p-1 bg-white"><option value="">自動</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
               <label class="text-slate-500">教科 <select id="tsSubject" class="border rounded p-1 bg-white"><option value="">（教科をえらぶ）</option><option>国語</option><option>算数</option><option>理科</option><option>社会</option><option>英語</option></select></label>
               <input id="tsUnit" class="border rounded p-1" placeholder="単元(任意)" style="width:130px">
             </div>
             <div class="flex items-center gap-2 flex-wrap mb-2">
-              <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
+              <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 テストを読ませるプロンプト</button>
+              <button onclick="copyRecordPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 成果物・振り返りを読ませるプロンプト</button>
               <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
+              <span id="recPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
             </div>
-            <textarea id="tsPaste" rows="7" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（テスト名: / 実施日: / 教科: / 学年: / 満点: / --- / 名前, 点数, 評価, コメント …）"></textarea>
+            <textarea id="tsPaste" rows="8" class="w-full border rounded-lg p-2 text-xs" placeholder="外部AI（ChatGPT・Gemini・Claude）が書き出した結果を、そのままここに貼り付けてください。テストの一覧でも、児童ごとの成果物でも、どちらでも読み取ります。"></textarea>
             <div class="flex items-center gap-2 mt-2">
-              <button onclick="parseTestScores()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
+              <button onclick="parseImport()" class="bg-indigo-600 text-white rounded-lg px-4 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
               <span id="tsParseStatus" class="text-xs text-slate-500"></span>
             </div>
             <div id="tsPreview" class="mt-3"></div>
-          </div>
-          <div class="bg-white rounded-xl shadow p-4">
-            <div class="font-bold text-slate-700 mb-1">📚 記録の取り込み（まとめ・振り返り・その他）</div>
-            <div class="text-xs text-slate-500 mb-2">ロイロ等の「調べたこと・レポート・振り返り」を外部AIに決まった形式で書き出させ、ここに貼り付けて児童ごとに保存します。保存先は上の「クラス」で選んだクラスです。</div>
-            <div class="flex items-center gap-2 flex-wrap mb-2">
-              <span class="text-xs font-bold text-slate-600">種類:</span>
-              <select id="recType" class="border p-1.5 rounded text-xs bg-white">
-                <option value="report">まとめ・レポート（調べたこと）</option>
-                <option value="reflect">振り返り</option>
-                <option value="other">その他</option>
-              </select>
-              <button onclick="copyRecordPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 AI用プロンプトをコピー</button>
-              <span id="recPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
-            </div>
-            <textarea id="recPaste" rows="8" class="w-full border rounded-lg p-2 text-xs" placeholder="AIが書き出した結果をここに貼り付け（=== [児童ID] 名前 === / タイトル: / 日付: / 教科: / 単元: / 本文: …）"></textarea>
-            <div class="flex items-center gap-2 mt-2">
-              <button onclick="parseRecords()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:opacity-90">🔍 読み取り</button>
-              <span id="recParseStatus" class="text-xs text-slate-500"></span>
-            </div>
             <div id="recPreview" class="mt-3"></div>
             <div class="mt-3 border-t border-slate-200 pt-3">
               <div class="font-bold text-slate-700 mb-1 text-sm">✍ 直接入力（1件ずつ手で追加）</div>
@@ -10886,17 +10909,16 @@ app.get('/teacher', (c) => {
               <div class="flex items-center gap-2 flex-wrap mb-2">
                 <select id="recDirStudent" class="border p-1.5 rounded text-xs bg-white"><option value="">（児童をえらぶ）</option></select>
                 <button onclick="recDirLoadRoster()" class="bg-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold hover:bg-slate-300">🔄 名簿を読み込む</button>
-                <select id="recDirType" class="border p-1.5 rounded text-xs bg-white">
-                  <option value="report">まとめ・レポート</option>
-                  <option value="reflect">振り返り</option>
-                  <option value="other">その他</option>
-                </select>
               </div>
               <input id="recDirTitle" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="タイトル（例：平安文化のキャッチフレーズ）">
               <textarea id="recDirBody" rows="3" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="本文・成果物（児童が作った文など。任意）"></textarea>
               <textarea id="recDirReflection" rows="2" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="振り返り（任意）"></textarea>
               <div class="flex items-center gap-2 flex-wrap mb-1">
-                <span class="text-xs text-slate-500">評価:</span>
+                <span class="text-xs text-slate-500">点数:</span>
+                <input id="recDirScore" type="number" class="border rounded p-1 text-xs w-16 text-center" placeholder="—">
+                <span class="text-xs text-slate-400">/</span>
+                <input id="recDirMax" type="number" class="border rounded p-1 text-xs w-14 text-center" value="100">
+                <span class="text-xs text-slate-500 ml-2">評価:</span>
                 <select id="recDirEval" class="border p-1.5 rounded text-xs bg-white"><option value="">評価なし</option><option value="◎">◎</option><option value="○">○</option><option value="△">△</option></select>
                 <input id="recDirEvalC" class="border rounded p-1 text-xs flex-1" placeholder="評価コメント（任意）">
               </div>
@@ -13736,18 +13758,29 @@ app.get('/teacher', (c) => {
         var uid=gv('recDirStudent'); if(!uid){ if(st) st.textContent='児童をえらんでください'; return; }
         var title=gv('recDirTitle'); var body=gv('recDirBody'); var refl=gv('recDirReflection'); var er=gv('recDirEval'); var ec=gv('recDirEvalC');
         if((!title||!title.trim())&&(!body||!body.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ if(st) st.textContent='タイトル・本文・振り返り・評価のどれかを入力してください'; return; }
-        var rtype=gv('recDirType')||'report';
+        // 📌 __IMPORT_AUTO_V1__ 種類は聞かない。点数が入っていれば成績側へ、無ければ記録側へ。
+        var _sc=gv('recDirScore'); var _mx=parseInt(gv('recDirMax'),10)||100;
+        var _hasScore=!(_sc===''||_sc==null||isNaN(parseInt(_sc,10)));
+        if(_hasScore){
+          var _n=parseInt(_sc,10);
+          if(_n<0||_n>_mx){ if(st) st.textContent='点数が満点('+_mx+')の範囲を外れています。確かめてください'; return; }
+          if(st) st.textContent='保存中...';
+          fetch('/api/teacher/test-scores/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, testName:(title||gv('recDirUnit')||'テスト'), testDate:gv('recDirDay'), subject:gv('recDirSubject'), maxScore:_mx, rows:[{userId:uid, score:_n, evalRank:er, evalKnowledge:er, evalThinking:'', evalAttitude:'', comment:ec}]})}).then(function(r){return r.json();}).then(function(res){
+            if(res&&res.ok&&res.saved>0){ if(st) st.textContent='✓ 点数として保存しました（成績・通知表に反映されます）'; var ids=['recDirTitle','recDirBody','recDirReflection','recDirEvalC','recDirScore']; for(var k=0;k<ids.length;k++){ var e=document.getElementById(ids[k]); if(e) e.value=''; } }
+            else { if(st) st.textContent='保存できませんでした（児童の割り当てを確認）'; }
+          }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
+          return;
+        }
         var row={userId:uid, title:title, body:body, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recDirSubject'), unit:gv('recDirUnit'), day:gv('recDirDay')};
         if(st) st.textContent='保存中...';
-        fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, type:rtype, rows:[row]})}).then(function(r){return r.json();}).then(function(res){
+        fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, rows:[row]})}).then(function(r){return r.json();}).then(function(res){
           if(res&&res.ok&&res.saved>0){ if(st) st.textContent='✓ 保存しました。個人分析のポートフォリオに反映されます'; var ids=['recDirTitle','recDirBody','recDirReflection','recDirEvalC']; for(var k=0;k<ids.length;k++){ var el=document.getElementById(ids[k]); if(el) el.value=''; } }
           else { if(st) st.textContent='保存できませんでした（児童の割り当てを確認）'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function copyRecordPrompt(){
         var NL=String.fromCharCode(10);
-        var sel=document.getElementById('recType'); var t=sel?sel.value:'report';
-        var label=_recTypeLabel(t);
+        var label='成果物・振り返り';
         var L=[];
         L.push('あなたは小学校の先生のアシスタントです。アップロードした（または貼り付けた）児童の'+label+'のPDF・画像から、児童ごとに内容を読み取り、次の「出力形式」だけを、コードブロックに入れずそのまま出力してください。前置きや説明は書かないでください。');
         L.push('');
@@ -13762,6 +13795,7 @@ app.get('/teacher', (c) => {
         L.push('振り返り: （児童の振り返りがあれば。なければ空欄。複数行でよい）');
         L.push('評価: （先生の評価があれば ◎ / ○ / △ のどれか。なければ空欄）');
         L.push('評価コメント: （先生の評価コメントがあれば。なければ空欄）');
+        L.push('点数: （テストの点数があれば数字だけ。成果物なら空欄のまま）');
         L.push('');
         L.push('【ルール】児童IDは名簿のログインID。わからなければ [名前] のように名前を入れる。1人ずつ「=== [..] .. ===」で区切る。本文・振り返りはそれぞれの見出しの次の行から次の見出しか次の===まで。成果物と振り返りがセットなら両方入れる。評価・振り返りが無ければ空欄でよい。要約や講評を勝手に足さず、児童の記述を尊重する。読み取れない児童は飛ばしてよい。');
         var txt=L.join(NL);
@@ -13769,9 +13803,20 @@ app.get('/teacher', (c) => {
         var done=function(){ if(st) st.textContent='✓ コピーしました。AIに貼り付けてください'; };
         if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
       }
+      // 📌 __IMPORT_AUTO_V1__ 入口は1つ。貼られた形を見て、こちらで振り分ける。
+      //    「=== [ID] 名前 ===」の行があれば 児童ごとのブロック形式（成果物・振り返り）、
+      //    無ければ 名簿の一覧形式（テスト）。先生はどちらを貼ってもよい。
+      function parseImport(){
+        var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
+        var st=document.getElementById('tsParseStatus');
+        var pv1=document.getElementById('tsPreview'); if(pv1) pv1.innerHTML='';
+        var pv2=document.getElementById('recPreview'); if(pv2) pv2.innerHTML='';
+        if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
+        if(/^\s*===\s*\[[^\]]*\]/m.test(raw)){ parseRecords(); } else { parseTestScores(); }
+      }
       function parseRecords(){
-        var ta=document.getElementById('recPaste'); var raw=ta?ta.value:'';
-        var st=document.getElementById('recParseStatus');
+        var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
+        var st=document.getElementById('tsParseStatus');
         var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
         if(!cid){ if(st) st.textContent='先に「クラス」を選んでください'; return; }
         if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
@@ -13784,19 +13829,57 @@ app.get('/teacher', (c) => {
           _recRenderPreview(d);
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
+      // ===== 取り込んだ値の点検 __IMPORT_CHECK_V1__ =====
+      //  先生が点数をカルテに出さない理由は「読み取りミスがこわいから」。
+      //  そこで、名前の突き合わせ（v188）と同じ作法を、値そのものにも広げる。
+      //   ・おかしい値は黄色で出し、「確かめました」にチェックするまで保存しない
+      //   ・検出する中身は実データ（テスト53件・成果物89件）を見て決めた。
+      //     5の倍数でない点数などは、誤検知のほうが害が大きいので入れていない。
+      function _impRowWarn(r, maxScore){
+        var w=[];
+        var v=(r&&r.score); var has=!(v===''||v==null||isNaN(parseInt(String(v),10)));
+        if(has){
+          var n=parseInt(String(v),10); var mx=parseInt(String(maxScore),10)||100;
+          if(n>mx) w.push('満点'+mx+'点なのに'+n+'点になっています');
+          else if(n<0) w.push('点数がマイナスです');
+          else if(n===0) w.push('0点です。お休みでしたか？読み取れなかっただけではありませんか？');
+        }
+        if(r&&r.dupOn) w.push('同じ内容が '+r.dupOn+' に取り込みずみです');
+        return w.join(' / ');
+      }
+      // 表ぜんたいの点検。行ごとではなく、上に1行だけ出す。
+      function _impTableNote(d, maxScore){
+        var notes=[]; var rows=(d&&d.rows)||[];
+        var vals=[]; for(var i=0;i<rows.length;i++){ var v=rows[i].score; if(!(v===''||v==null||isNaN(parseInt(String(v),10)))) vals.push(parseInt(String(v),10)); }
+        if(vals.length>=5){ var same=true; for(var j=1;j<vals.length;j++){ if(vals[j]!==vals[0]){ same=false; break; } }
+          if(same) notes.push('⚠️ '+vals.length+'人ぜんぶが同じ'+vals[0]+'点です。読み取れているか確かめてください'); }
+        if(d&&d.dupOn) notes.push('⚠️ 同じ名前のテストを '+d.dupOn+' に取り込みずみです。二重になっていませんか？');
+        var rc=(d&&d.rosterCount)||0;
+        if(rc && rows.length && rows.length<rc) notes.push('ℹ️ 名簿'+rc+'人のうち '+rows.length+'人ぶんを読み取りました（'+(rc-rows.length)+'人は空欄のままです）');
+        return notes;
+      }
+      function _impNoteHtml(notes){
+        if(!notes||!notes.length) return '';
+        var h='<div class="bg-amber-50 border border-amber-300 rounded-lg p-2 mb-2 text-xs text-amber-800 space-y-0.5">';
+        for(var i=0;i<notes.length;i++) h+='<div>'+escH(notes[i])+'</div>';
+        return h+'</div>';
+      }
       function _recEvalOpts(sel){ var o=[['','評価なし'],['◎','◎'],['○','○'],['△','△']]; var s=''; for(var i=0;i<o.length;i++){ s+='<option value="'+o[i][0]+'"'+(o[i][0]===(sel||'')?' selected':'')+'>'+o[i][1]+'</option>'; } return s; }
       function _recRenderPreview(d){
         var el=document.getElementById('recPreview'); if(!el) return;
         var roster=d.roster||[];
         var opts=function(selId){ var s='<option value="">（未割り当て）</option>'; for(var j=0;j<roster.length;j++){ var rm=roster[j]; s+='<option value="'+escH(rm.userId)+'"'+(rm.userId===selId?' selected':'')+'>'+escH(_tsDispName(rm))+'</option>'; } return s; };
-        var unmatched=0; var h='';
+        var unmatched=0; var _warnN=0; var h='';
+        h+=_impNoteHtml(_impTableNote(d, 100));
         h+='<div class="space-y-2 max-h-96 overflow-y-auto">';
         for(var i=0;i<d.rows.length;i++){
           var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
+          var _vw=_impRowWarn(r, 100); if(_vw) _warnN++;
+          var _dest=(r.dest==='score')?'<span class="text-[9px] text-white bg-indigo-500 rounded px-1 ml-1">成績へ</span>':'<span class="text-[9px] text-white bg-slate-400 rounded px-1 ml-1">記録へ</span>';
           var _bg=(ms==='auto')?'bg-slate-50':(ms==='cand')?'bg-amber-50':'bg-red-50'; var _bd=(ms==='auto')?'<span class="text-green-600">✓自動</span>':(ms==='cand')?'<span class="text-amber-600">≈候補(要確認)</span>':'<span class="text-red-600">⚠未マッチ</span>';
           h+='<div class="border rounded-lg p-2 '+_bg+'">';
           h+='<div class="flex items-center gap-1 flex-wrap mb-1">';
-          h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+' '+_bd+'</span>';
+          h+='<span class="text-[10px] text-slate-400">読取: '+escH(r.idRaw||'')+' '+escH(r.nameRaw||'')+' '+_bd+'</span>'+_dest;
           h+='<select id="recRow_'+i+'_user" class="border rounded p-1 text-xs">'+opts(r.matchedUserId)+'</select>'+((ms==='cand')?('<label class="flex items-center gap-1 ml-1 text-[10px] text-amber-700"><input type="checkbox" id="recRow_'+i+'_confirm">確定</label>'):'');
           h+='</div>';
           h+='<div class="grid grid-cols-3 gap-1 mb-1">';
@@ -13807,6 +13890,8 @@ app.get('/teacher', (c) => {
           h+='</div>';
           h+='<textarea id="recRow_'+i+'_body" rows="3" class="w-full border rounded p-1 text-xs" placeholder="本文（成果物）">'+escH(r.body||'')+'</textarea>';
           h+='<textarea id="recRow_'+i+'_reflection" rows="2" class="w-full border rounded p-1 text-xs mt-1" placeholder="振り返り（任意）">'+escH(r.reflection||'')+'</textarea>';
+          h+='<div class="flex items-center gap-1 mt-1 flex-wrap"><span class="text-[10px] text-slate-500">点数:</span><input id="recRow_'+i+'_score" type="number" class="border rounded p-1 text-xs w-14 text-center'+(_vw?' bg-amber-100 border-amber-400':'')+'" placeholder="—" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-[10px] text-slate-400">入れると成績へ</span></div>';
+          if(_vw){ h+='<div class="text-[10px] text-amber-700 mt-0.5">⚠️ '+escH(_vw)+'<label class="flex items-center gap-1 mt-0.5"><input type="checkbox" id="recRow_'+i+'_okval">確かめました</label></div>'; }
           h+='<div class="flex items-center gap-1 mt-1"><span class="text-[10px] text-slate-500">評価:</span><select id="recRow_'+i+'_eval" class="border rounded p-1 text-xs">'+_recEvalOpts(r.evalRank)+'</select><input id="recRow_'+i+'_evalc" class="border rounded p-1 text-xs flex-1" placeholder="評価コメント（任意）" value="'+escH(r.evalComment||'')+'"></div>';
           h+='</div>';
         }
@@ -13818,25 +13903,47 @@ app.get('/teacher', (c) => {
       function saveRecords(){
         var d=window._recParsed; if(!d) return;
         var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
-        var tsel=document.getElementById('recType'); var rtype=tsel?tsel.value:'report';
         var st=document.getElementById('recSaveStatus');
         var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
-        var rows=[]; var skipped=0; var needConfirm=0;
+        var rows=[]; var scoreRows=[]; var skipped=0; var needConfirm=0; var needCheck=0;
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('recRow_'+i+'_user');
           var title=gv('recRow_'+i+'_title'); var bodyTxt=gv('recRow_'+i+'_body');
           var refl=gv('recRow_'+i+'_reflection'); var er=gv('recRow_'+i+'_eval'); var ec=gv('recRow_'+i+'_evalc');
           if(!uid){ skipped++; continue; }
           var _msr=(d.rows[i]&&d.rows[i].matchStatus)||''; if(_msr==='cand' && uid===(d.rows[i]&&d.rows[i].matchedUserId)){ var _cbx=document.getElementById('recRow_'+i+'_confirm'); if(!_cbx||!_cbx.checked){ needConfirm++; continue; } }
-          if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())){ skipped++; continue; }
+          var _sc=gv('recRow_'+i+'_score');
+          var _vw2=_impRowWarn({score:_sc, dupOn:(d.rows[i]&&d.rows[i].dupOn)||''}, 100);
+          if(_vw2){ var _ck=document.getElementById('recRow_'+i+'_okval'); if(!_ck||!_ck.checked){ needCheck++; continue; } }
+          if((!title||!title.trim())&&(!bodyTxt||!bodyTxt.trim())&&(!refl||!refl.trim())&&!er&&(!ec||!ec.trim())&&(_sc===''||_sc==null)){ skipped++; continue; }
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].nameRaw)||'', uid); }catch(_e){}
+          // 📌 __IMPORT_AUTO_V1__ 点数か観点別が入っていれば成績側へ。先生には聞かない。
+          var _r0=d.rows[i]||{};
+          var _hasSc=!(_sc===''||_sc==null||isNaN(parseInt(_sc,10)));
+          var _hasKan=!!(_r0.evalKnowledge||_r0.evalThinking||_r0.evalAttitude);
+          if(_hasSc||_hasKan){
+            scoreRows.push({userId:uid, _title:title, _subject:gv('recRow_'+i+'_subject'), _day:gv('recRow_'+i+'_day'),
+              score:(_hasSc?parseInt(_sc,10):null), evalRank:(er||_r0.evalKnowledge||''),
+              evalKnowledge:(_r0.evalKnowledge||er||''), evalThinking:(_r0.evalThinking||''), evalAttitude:(_r0.evalAttitude||''), comment:ec});
+            continue;
+          }
           rows.push({userId:uid, title:title, body:bodyTxt, reflection:refl, evalRank:er, evalComment:ec, subject:gv('recRow_'+i+'_subject'), unit:gv('recRow_'+i+'_unit'), day:gv('recRow_'+i+'_day')});
         }
-        if(!rows.length){ if(st) st.textContent='保存できる行がありません（児童の割り当てと内容を確認）'; return; }
+        if(!rows.length && !scoreRows.length){ if(st) st.textContent='保存できる行がありません'+(needConfirm?('（要確認 '+needConfirm+'件は「確定」にチェック）'):'')+(needCheck?('（要確認の値 '+needCheck+'件は「確かめました」にチェック）'):'')+(!needConfirm&&!needCheck?'（児童の割り当てと内容を確認）':''); return; }
         if(st) st.textContent='保存中...';
-        fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, type:rtype, rows:rows})}).then(function(r){return r.json();}).then(function(res){
-          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は「確定」にチェックで保存）'):'')+'。個人分析のポートフォリオに反映されます'; }
+        // 点数・観点別が入っていた行は、そのまま成績側（通知表が読む表）へ保存する
+        var _scDone=0;
+        var _saveScores=function(){
+          if(!scoreRows.length) return Promise.resolve(0);
+          var _h=scoreRows[0];
+          return fetch('/api/teacher/test-scores/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, testName:(_h._title||'取り込み'), testDate:(_h._day||''), subject:(_h._subject||''), maxScore:100, rows:scoreRows})}).then(function(r){return r.json();}).then(function(x){ _scDone=(x&&x.saved)||0; return _scDone; }).catch(function(){ return 0; });
+        };
+        _saveScores().then(function(){
+        if(!rows.length){ if(st) st.textContent='✓ '+_scDone+'人分を成績として保存しました（通知表・分析に反映されます）'; return; }
+        return fetch('/api/teacher/records/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, rows:rows})}).then(function(r){return r.json();}).then(function(res){
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を記録として保存'+(_scDone?('／'+_scDone+'人分を成績として保存'):'')+'しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は「確定」にチェックで保存）'):'')+(needCheck?('（要確認の値 '+needCheck+'件は「確かめました」にチェックで保存）'):'')+'。個人分析のポートフォリオに反映されます'; }
           else { if(st) st.textContent='保存に失敗しました'; }
+        });
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
       function copyTestPrompt(){
@@ -13992,7 +14099,8 @@ app.get('/teacher', (c) => {
         h+='<label class="flex flex-col text-slate-500">教科<input id="tsHdrSubject" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(hd.subject||'')+'"></label>';
         h+='<label class="flex flex-col text-slate-500">満点<input id="tsHdrMax" type="number" class="border rounded p-1 mt-0.5 text-slate-700" value="'+escH(String(hd.maxScore||100))+'"></label>';
         h+='</div></div>';
-        var unmatched=0;
+        h+=_impNoteHtml(_impTableNote(d, hd.maxScore||100));
+        var unmatched=0; var _warnN=0;
         h+='<div class="max-h-72 overflow-y-auto"><table class="w-full text-xs"><thead><tr class="text-slate-400"><th class="text-left p-1">読み取った名前</th><th class="text-left p-1">割り当てる児童</th><th class="p-1">点数</th><th class="p-1">知技</th><th class="p-1">思判表</th><th class="p-1">主体</th><th class="text-left p-1">コメント</th></tr></thead><tbody>';
         for(var i=0;i<d.rows.length;i++){
           var r=d.rows[i]; var ms=r.matchStatus||(r.matchedUserId?'auto':'none'); if(ms==='none') unmatched++;
@@ -14002,7 +14110,8 @@ app.get('/teacher', (c) => {
           h+='<tr class="'+(_pred?'bg-amber-50':(ms==='auto')?'':(ms==='cand')?'bg-amber-50':'bg-red-50')+'">';
           h+='<td class="p-1 font-bold text-slate-700">'+escH(r.rawName||'')+_bd+_pb+'</td>';
           h+='<td class="p-1"><select id="tsRow_'+i+'_user" class="border rounded p-1 w-full">'+opts(r.matchedUserId)+'</select>'+((ms==='cand')?('<label class="flex items-center gap-1 mt-0.5 text-[10px] text-amber-700"><input type="checkbox" id="tsRow_'+i+'_confirm">この子で確定</label>'):'')+'</td>';
-          h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span></td>';
+          var _vw=_impRowWarn(r, hd.maxScore||100); if(_vw) _warnN++;
+          h+='<td class="p-1 text-center"><input id="tsRow_'+i+'_score" type="number" class="border rounded p-1 w-16 text-center'+(_vw?' bg-amber-100 border-amber-400':'')+'" value="'+escH(String(r.score==null?'':r.score))+'"><span class="text-slate-400"> / '+escH(String(hd.maxScore||100))+'</span>'+(_vw?('<div class="text-[10px] text-amber-700 mt-0.5 text-left">⚠️ '+escH(_vw)+'</div><label class="flex items-center gap-1 text-[10px] text-amber-700"><input type="checkbox" id="tsRow_'+i+'_okval">確かめました</label>'):'')+'</td>';
           var _eo=function(vv){ var a=[['',''],['◎','◎'],['○','○'],['△','△']]; var o=''; for(var _z=0;_z<a.length;_z++){ o+='<option value="'+a[_z][0]+'"'+(a[_z][0]===vv?' selected':'')+'>'+a[_z][1]+'</option>'; } return o; };
           var _ekv=r.evalKnowledge||r.evalRank||''; var _etv=r.evalThinking||''; var _eav=r.evalAttitude||'';
           h+='<td class="p-1 text-center"><select id="tsRow_'+i+'_ek" class="border rounded p-1">'+_eo(_ekv)+'</select></td>';
@@ -14022,7 +14131,7 @@ app.get('/teacher', (c) => {
         var st=document.getElementById('tsSaveStatus');
         var gv=function(id){ var e=document.getElementById(id); return e?e.value:''; };
         var testName=gv('tsHdrName'), testDate=gv('tsHdrDate'), subject=gv('tsHdrSubject'), maxScore=gv('tsHdrMax')||'100';
-        var rows=[]; var skipped=0; var needConfirm=0;
+        var rows=[]; var skipped=0; var needConfirm=0; var needCheck=0;
         for(var i=0;i<d.rows.length;i++){
           var uid=gv('tsRow_'+i+'_user'); var score=gv('tsRow_'+i+'_score');
           if(!uid){ skipped++; continue; }
@@ -14031,13 +14140,16 @@ app.get('/teacher', (c) => {
           var _ev=_ek||_et||_ea;
           var _hasScore=!(score===''||score==null);
           if(!_hasScore && !_ev){ skipped++; continue; }
+          // 📌 __IMPORT_CHECK_V1__ おかしな値は「確かめました」にチェックが無いと保存しない
+          var _hd2=(d.header||{}); var _vw2=_impRowWarn({score:score, dupOn:(d.rows[i]&&d.rows[i].dupOn)||''}, (document.getElementById('tsHdrMax')||{}).value||_hd2.maxScore||100);
+          if(_vw2){ var _ck=document.getElementById('tsRow_'+i+'_okval'); if(!_ck||!_ck.checked){ needCheck++; continue; } }
           try{ _rememberAlias(cid, (d.rows[i]&&d.rows[i].rawName)||'', uid); }catch(_e){}
           rows.push({userId:uid, score:(_hasScore?parseInt(score,10):null), evalRank:_ev, evalKnowledge:_ek, evalThinking:_et, evalAttitude:_ea, comment:_cm});
         }
-        if(!rows.length){ if(st) st.textContent='保存できる行がありません'+(needConfirm?('（要確認 '+needConfirm+'件は「この子で確定」にチェック）'):'（児童の割り当てと点数を確認）'); return; }
+        if(!rows.length){ if(st) st.textContent='保存できる行がありません'+(needConfirm?('（要確認 '+needConfirm+'件は「この子で確定」にチェック）'):'')+(needCheck?('（要確認の値 '+needCheck+'件は「確かめました」にチェック）'):'')+(!needConfirm&&!needCheck?'（児童の割り当てと点数を確認）':''); return; }
         if(st) st.textContent='保存中...';
         fetch('/api/teacher/test-scores/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid, testName:testName, testDate:testDate, subject:subject, maxScore:(parseInt(maxScore,10)||100), rows:rows})}).then(function(r){return r.json();}).then(function(res){
-          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は候補にチェックで保存）'):'')+'。個人分析・カルテ・アナリティクスに反映されます'; }
+          if(res&&res.ok){ if(st) st.textContent='✓ '+res.saved+'人分を保存しました'+(skipped?('（未保存 '+skipped+'件）'):'')+(needConfirm?('（要確認 '+needConfirm+'件は候補にチェックで保存）'):'')+(needCheck?('（要確認の値 '+needCheck+'件は「確かめました」にチェックで保存）'):'')+'。個人分析・カルテ・アナリティクスに反映されます'; }
           else { if(st) st.textContent='保存に失敗しました'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
