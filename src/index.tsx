@@ -1222,9 +1222,17 @@ async function settleClassWeek(env: any, classId: string, weekKey: string) {
   const awards: Record<string, Array<{ type: string, rank: number, shards: number }>> = {}
   for (const td of typeDefs) {
     const sorted = list.filter((r) => td.get(r) > 0).sort((a, b) => td.get(b) - td.get(a))
-    for (let i = 0; i < Math.min(3, sorted.length); i++) {
+    // ══════ RANKTIE_SAME_V1 (2026-09-25) 同じ点なら同じ順位・同じかけら ══════
+    //  もとは並べた順に1位2位3位を付けていたので、まったく同じ点でも
+    //  内部の並び順しだいで 6かけら / 3かけら / なし に割れていた。
+    //  2026-09-14 の週に、ずかんが同じ10個の子が3人いて実際に起きた。
+    //  数えかたは運動会と同じ（標準競技順位）：1位が2人いたら次の子は3位。
+    //  0点の子は今までどおり対象外なので、誰も取っていない部門では誰にも配らない。
+    let rank = 0
+    for (let i = 0; i < sorted.length; i++) {
+      if (!(i > 0 && td.get(sorted[i]) === td.get(sorted[i - 1]))) rank = i + 1
+      if (rank > 3) break
       const uid = String(sorted[i].uid)
-      const rank = i + 1
       if (!awards[uid]) awards[uid] = []
       awards[uid].push({ type: td.type, rank, shards: SHARDS[rank] })
     }
@@ -1292,7 +1300,14 @@ async function updateWeeklyAndSettle(env: any, userId: string, stats: any) {
       const cDex = Math.max(0, dex - Number(base.base_dex || 0))
       const cTs = Math.max(0, ts - Number(base.base_ts || 0))
       const cWild = Math.max(0, wild - Number(base.base_wild || 0))
-      await env.DB.prepare("INSERT INTO ranking_weekly_scores (user_id, week_key, correct_pt, pokedex, typeshoot, wild, updated_at) VALUES (?,?,?,?,?,?,datetime('now')) ON CONFLICT(user_id, week_key) DO UPDATE SET correct_pt=excluded.correct_pt, pokedex=excluded.pokedex, typeshoot=excluded.typeshoot, wild=excluded.wild, updated_at=datetime('now')").bind(userId, info.curOpenWeek, cPt, cDex, cTs, cWild).run()
+      // ══════ RANKBEST_V1 (2026-09-25) その週の「いちばん良かった記録」で競う ══════
+      //  もとは保存のたびに上書きしていたので、週の途中で良い記録を出しても
+      //  そのあと下がると 0 になっていた。タイプシュートの点も やせいバトルの連勝も
+      //  積み上がる数ではないので、最後に保存した時点の値で競うのは説明できない。
+      //  MAX にすれば「その週のいちばん良かったところ」で競える。
+      //  正解ポイントとずかんは積み上がる数なので MAX でも今までと同じ結果になり、
+      //  古い端末の上書きで下がったときだけ、下がらないように守られる。
+      await env.DB.prepare("INSERT INTO ranking_weekly_scores (user_id, week_key, correct_pt, pokedex, typeshoot, wild, updated_at) VALUES (?,?,?,?,?,?,datetime('now')) ON CONFLICT(user_id, week_key) DO UPDATE SET correct_pt=MAX(excluded.correct_pt, COALESCE(correct_pt,0)), pokedex=MAX(excluded.pokedex, COALESCE(pokedex,0)), typeshoot=MAX(excluded.typeshoot, COALESCE(typeshoot,0)), wild=MAX(excluded.wild, COALESCE(wild,0)), updated_at=datetime('now')").bind(userId, info.curOpenWeek, cPt, cDex, cTs, cWild).run()
     }
   }
   try {
