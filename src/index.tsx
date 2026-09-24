@@ -5246,21 +5246,47 @@ app.post('/api/homework/analyze-photo', async (c) => {
     const imageBytes = new Uint8Array(await photo.arrayBuffer())
     const mimeType = photo.type || 'image/jpeg'
 
-    // D1のhomework_photosテーブルにBLOBとして写真を保存（R2の代わり）
+    // 📌 2026-09-24 HS_PHOTO_MULTI_V1:
+    //   写真は homework_photos2 (user_id, day_key, idx) に入れる。
+    //   旧 homework_photos は主キーが (user_id, day_key) で1まいしか持てないので、
+    //   既存の写真には触らず、新しいぶんだけ新テーブルへ入れていく。
     const ext = mimeType === 'image/png' ? 'png' : 'jpg'
     const photoKey = `photos/${u.id}/${dayKey}.${ext}` // work_photo_key用マーカー（teacher dashboardの<img>表示条件）
+    const photoIdx = Math.min(2, Math.max(0, Number(formData.get('idx') || 0) | 0))
+    // ⚠️ homework_photos2 がまだ無い環境でも、絶対に写真を落とさない。
+    //   このリポジトリの CI トークンには D1 権限が無く（code 7403）、
+    //   migrations/0039 は管理操作として別に当てる必要がある。当たるまでのあいだは
+    //   これまでどおり旧テーブルに1まい入る（＝いまと同じ動き）。当たれば5まいになる。
+    let savedToV2 = false
     try {
+      if (photoIdx === 0) {
+        await c.env.DB.prepare('DELETE FROM homework_photos2 WHERE user_id=? AND day_key=?').bind(u.id, dayKey).run()
+      }
       await c.env.DB.prepare(
-        `INSERT INTO homework_photos (user_id, day_key, mime_type, bytes, byte_size)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, day_key) DO UPDATE SET
+        `INSERT INTO homework_photos2 (user_id, day_key, idx, mime_type, bytes, byte_size)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, day_key, idx) DO UPDATE SET
            mime_type=excluded.mime_type, bytes=excluded.bytes, byte_size=excluded.byte_size, created_at=datetime('now')`
-      ).bind(u.id, dayKey, mimeType, imageBytes, imageBytes.length).run()
-      // homework_submissions にもキーマーカーを記録
+      ).bind(u.id, dayKey, photoIdx, mimeType, imageBytes, imageBytes.length).run()
+      savedToV2 = true
+    } catch (_e2: any) {
+      console.warn('homework_photos2 unavailable, falling back:', _e2?.message || _e2)
+    }
+    try {
+      // 新テーブルに入らなかったときは、これまでどおり旧テーブルへ（1まい目だけ）
+      if (!savedToV2 && photoIdx === 0) {
+        await c.env.DB.prepare(
+          `INSERT INTO homework_photos (user_id, day_key, mime_type, bytes, byte_size)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, day_key) DO UPDATE SET
+             mime_type=excluded.mime_type, bytes=excluded.bytes, byte_size=excluded.byte_size, created_at=datetime('now')`
+        ).bind(u.id, dayKey, mimeType, imageBytes, imageBytes.length).run()
+      }
       const existing0 = await c.env.DB.prepare(
         `SELECT id FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`
       ).bind(u.id, dayKey).first<any>()
       if (existing0) {
+        // ※ キーマーカーは必ず先に入れる（これが無いと先生の画面に写真が出ない）
         await c.env.DB.prepare(
           `UPDATE homework_submissions SET work_photo_key=? WHERE id=?`
         ).bind(photoKey, existing0.id).run()
@@ -5363,11 +5389,22 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     if (!isMine) return jsonError(c, 403, 'forbidden')
   }
 
-  // D1のhomework_photosからBLOBを取得（R2の代わり）
+  // 📌 2026-09-24: 新テーブル(複数まい) → 無ければ旧テーブル(1まい) の順に見る。
+  //   ?idx=0..4 で何まい目かを指定。指定なしは1まい目。
+  //   むかしの写真は旧テーブルにあるので、これまでどおり idx なしで出る。
+  const wantIdx = Math.min(2, Math.max(0, Number(c.req.query('idx') || 0) | 0))
   try {
-    const row = await c.env.DB.prepare(
-      `SELECT mime_type, bytes FROM homework_photos WHERE user_id=? AND day_key=? LIMIT 1`
-    ).bind(targetUserId, dayKey).first<any>()
+    let row: any = null
+    try {
+      row = await c.env.DB.prepare(
+        `SELECT mime_type, bytes FROM homework_photos2 WHERE user_id=? AND day_key=? AND idx=? LIMIT 1`
+      ).bind(targetUserId, dayKey, wantIdx).first<any>()
+    } catch (_e) {}
+    if (!row?.bytes && wantIdx === 0) {
+      row = await c.env.DB.prepare(
+        `SELECT mime_type, bytes FROM homework_photos WHERE user_id=? AND day_key=? LIMIT 1`
+      ).bind(targetUserId, dayKey).first<any>()
+    }
     if (!row?.bytes) return jsonError(c, 404, 'photo_not_found')
     const headers = new Headers()
     headers.set('Content-Type', row.mime_type || 'image/jpeg')
@@ -5396,6 +5433,12 @@ async function cleanupOldPhotos(c: any) {
     const result = await c.env.DB.prepare(
       `DELETE FROM homework_photos WHERE created_at < datetime('now', '-180 days')`
     ).run()
+    // 📌 2026-09-24: 複数まいのほうも同じ180日で消す（消し忘れると容量に効く）
+    try {
+      await c.env.DB.prepare(
+        `DELETE FROM homework_photos2 WHERE created_at < datetime('now', '-180 days')`
+      ).run()
+    } catch (_e) {}
     if (result.meta?.changes) {
       console.log('[cleanupOldPhotos] deleted ' + result.meta.changes + ' photos older than 180 days')
     }
@@ -5410,7 +5453,9 @@ app.post('/api/admin/cleanup-old-photos', async (c) => {
   if (!u || (u.role !== 'admin' && u.role !== 'teacher')) return jsonError(c, 403, 'forbidden')
   await cleanupOldPhotos(c)
   const stats = await c.env.DB.prepare(
-    `SELECT COUNT(*) as count, COALESCE(SUM(byte_size),0) as totalBytes FROM homework_photos`
+    `SELECT (SELECT COUNT(*) FROM homework_photos) + (SELECT COUNT(*) FROM homework_photos2) as count,
+            (SELECT COALESCE(SUM(byte_size),0) FROM homework_photos)
+          + (SELECT COALESCE(SUM(byte_size),0) FROM homework_photos2) as totalBytes`
   ).first<any>()
   return c.json({ ok: true, remaining: { count: stats?.count || 0, totalBytes: stats?.totalBytes || 0 } })
 })
@@ -5519,7 +5564,12 @@ app.get('/api/teacher/class/:classId/photos', async (c) => {
     SELECT hp.user_id as userId, hp.day_key as dayKey, hp.mime_type as mimeType, hp.byte_size as byteSize,
            u.login_id as loginId, u.name as studentName,
            hs.work_photo_analysis as analysis
-    FROM homework_photos hp
+    FROM (
+      SELECT user_id, day_key, mime_type, byte_size FROM homework_photos2 WHERE idx = 0
+      UNION ALL
+      SELECT user_id, day_key, mime_type, byte_size FROM homework_photos hp0
+      WHERE NOT EXISTS (SELECT 1 FROM homework_photos2 p2 WHERE p2.user_id=hp0.user_id AND p2.day_key=hp0.day_key)
+    ) hp
     JOIN class_members cm ON cm.user_id = hp.user_id AND cm.class_id = ?
     JOIN users u ON u.id = hp.user_id
     LEFT JOIN homework_submissions hs ON hs.user_id = hp.user_id AND hs.day_key = hp.day_key
@@ -5574,7 +5624,26 @@ app.get('/api/teacher/homework', async (c) => {
   sql += ` ORDER BY hs.submitted_at DESC LIMIT ` + lim
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
-  return c.json({ ok: true, submissions: res.results })
+  const rowsOut = ((res.results || []) as any[])
+  // 📌 2026-09-24 HS_PHOTO_MULTI_V1: 成果物写真の枚数を、まとめて1クエリで数える。
+  //   1件ずつ引くと先生が開くたびに45回問い合わせることになるので、GROUP BY で1回にする。
+  //   表示する期間のぶんだけに絞る。テーブルがまだ無ければ何もしない（1まい扱い）。
+  try {
+    let minDay = ''
+    for (const r of rowsOut) { const d = String(r.dayKey || ''); if (d && (!minDay || d < minDay)) minDay = d }
+    if (minDay) {
+      const cnt = await c.env.DB.prepare(
+        'SELECT user_id as userId, day_key as dayKey, COUNT(*) as n FROM homework_photos2 WHERE day_key >= ? GROUP BY user_id, day_key'
+      ).bind(minDay).all<any>()
+      const map: Record<string, number> = {}
+      for (const x of (((cnt && cnt.results) || []) as any[])) map[String(x.userId) + '|' + String(x.dayKey)] = Number(x.n) || 0
+      for (const r of rowsOut) {
+        const k = String(r.userId) + '|' + String(r.dayKey)
+        if (map[k]) r.photoCount = map[k]
+      }
+    }
+  } catch (_e) {}
+  return c.json({ ok: true, submissions: rowsOut })
 })
 
 // 教師：返却（コメント＋成果物フラグ）
@@ -14084,6 +14153,30 @@ app.get('/teacher', (c) => {
         try{ hwSetupCtxMore(); }catch(e){}
       }
 
+      // 📌 2026-09-24 HS_PHOTO_MULTI_V1: 成果物写真を最大5まい、小さくならべる。
+      //   ・56pxのサムネイルなので、3行たたみ（.hw-ctx）の中におさまり1行は伸びない
+      //   ・押すと大きくなる（もう一度押すと戻る）
+      //   ・枚数は photoCount（一覧APIがまとめて1クエリで数えたもの）。無ければ1まい
+      function hwPhotoStrip(s){
+        var n = Math.max(1, Math.min(3, Number(s.photoCount || 0) || 1));
+        var base = '/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey);
+        var h = '<div class="mt-1 flex gap-1 flex-wrap items-start">';
+        for(var i=0;i<n;i++){
+          h += '<img src="'+base+'?idx='+i+'" loading="lazy" alt="成果物写真"'
+             + ' class="rounded border border-slate-200 h-14 w-14 object-cover cursor-pointer hover:opacity-90"'
+             + ' onclick="hwZoomPhoto(this)"'
+             + ' onerror="this.style.display=&#39;none&#39;"/>';
+        }
+        if(n > 1) h += '<span class="text-[10px] text-slate-400 self-center">'+n+'まい</span>';
+        h += '</div>';
+        return h;
+      }
+      function hwZoomPhoto(img){
+        var small = img.classList.contains('h-14');
+        if(small){ img.classList.remove('h-14','w-14','object-cover'); img.classList.add('max-h-96'); }
+        else { img.classList.remove('max-h-96'); img.classList.add('h-14','w-14','object-cover'); }
+      }
+
       async function loadHomework(){
         hwFillMonthOptions();
         hwSyncUnreturnedMode();
@@ -14219,7 +14312,7 @@ app.get('/teacher', (c) => {
             + (s.weeklyReflection ? '<div class="mt-1 p-1.5 bg-amber-50 rounded border border-amber-200"><b>🔄 週の振り返り：</b>'+escH(s.weeklyReflection)+'</div>' : '')
             + (s.parentComment ? '<div class="mt-1 p-1.5 bg-pink-50 rounded border border-pink-200"><b>🏠 サポーターから：</b>'+escH(s.parentComment)+'</div>' : '')
             + (s.workPhotoAnalysis ? '<div class="mt-1 p-1.5 bg-cyan-50 rounded border border-cyan-200"><b>📷 成果物メモ（2026年8月までの自動分析）：</b>'+escH(s.workPhotoAnalysis)+'</div>' : '')
-            + (s.workPhotoKey ? '<div class="mt-1"><img src="/api/photo/'+encodeURIComponent(s.userId)+'/'+encodeURIComponent(s.dayKey)+'" class="rounded-lg border border-slate-200 max-h-48 cursor-pointer hover:opacity-90" onclick="this.classList.toggle(&#39;max-h-48&#39;);this.classList.toggle(&#39;max-h-none&#39;)" loading="lazy" alt="成果物写真"/></div>' : '')
+            + (s.workPhotoKey ? hwPhotoStrip(s) : '')
             + '</div>'
             // 📌 2026-09-20: 45人ぶんを上から返していく画面なので、1人の高さを抑える。
             //   長い子だけ「…もっと見る」で開く。短い子ではボタン自体を出さない。

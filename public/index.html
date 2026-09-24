@@ -4784,7 +4784,7 @@ window.claimClassMission=async function(){
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:11px; font-weight:bold; padding:4px 10px; border-radius:8px; display:inline-block;">
                     写真をえらぶ
-                    <input type="file" id="hsPhotoInput1" accept="image/*" capture="environment" style="display:none;" onchange="hsPhotoSelected(this)"/>
+                    <input type="file" id="hsPhotoInput1" accept="image/*" style="display:none;" onchange="hsPhotoSelected(this)"/>
                   </label>
                   <span id="hsPhotoStatus1" style="font-size:10px; color:#64748b;"></span>
                 </div>
@@ -4829,7 +4829,7 @@ window.claimClassMission=async function(){
       <!-- 成果物写真（複数枚対応） -->
       <div id="hsPhotoSection" style="padding:10px 14px; background:#ecfeff; border:2px dashed #06b6d4; border-radius:12px;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <div style="font-size:13px; font-weight:bold; color:#0e7490;">📷 成果物の写真（任意・複数OK）</div>
+          <div style="font-size:13px; font-weight:bold; color:#0e7490;">📷 成果物の写真（任意・3まいまでOK）</div>
           <label style="cursor:pointer; background:#06b6d4; color:#fff; font-size:12px; font-weight:bold; padding:5px 14px; border-radius:8px; display:inline-block;">
             写真を追加
             <input type="file" id="hsPhotoInput" accept="image/*" multiple style="display:none;" onchange="hsPhotosSelected(this)"/>
@@ -44718,29 +44718,43 @@ async function hsEditEntrySave(dayKey){
 var _hsPhotoAnalysisResult = '';
 var _hsPhotoFiles = [];
 
-function hsPhotosSelected(input) {
-  var files = input.files;
-  if (!files || !files.length) return;
-  var statusEl = document.getElementById('hsPhotoStatus');
-  for (var i = 0; i < files.length; i++) {
-    var file = files[i];
-    if (file.size > 5 * 1024 * 1024) { alert('写真のサイズが大きすぎます（5MBまで）：' + file.name); continue; }
-    if (_hsPhotoFiles.length >= 5) { alert('写真は最大5枚までです'); break; }
-    _hsPhotoFiles.push(file);
-    hsAddPhotoPreview(file, _hsPhotoFiles.length - 1);
-  }
-  input.value = '';
-  if (statusEl) statusEl.textContent = _hsPhotoFiles.length ? '📎 ' + _hsPhotoFiles.length + '枚セット済み' : '';
-  // 最初の1枚だけAI分析（教師用）
-  if (_hsPhotoFiles.length > 0 && !_hsPhotoAnalysisResult) {
-    var sess = hsGetSession();
-    var dayKey = sess ? sess.dayKey : hsGetDayKey830(new Date());
-    var fd = new FormData();
-    fd.append('photo', _hsPhotoFiles[0]);
-    fd.append('dayKey', dayKey);
-    fetch('/api/homework/analyze-photo', { method: 'POST', body: fd })
-      .then(function(r) { return r.json(); })
-      .then(function(j) {
+// 📌 2026-09-24 HS_PHOTO_MULTI_V1: 送る前に写真を小さくする。
+//   iPadで撮ったノートの写真は本番の実測で平均557KB・最大3.2MB。そのまま送ると
+//   時間がかかるうえ、ためる場所（D1）も食う。長辺1600px・JPEG0.72まで落とすと
+//   だいたい120〜250KBになる。見るのは先生の画面なので、これで十分読める。
+function hsShrinkPhoto(file) {
+  return new Promise(function (resolve) {
+    try {
+      if (!/^image\//.test(file.type || '')) { resolve(file); return; }
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var MAX = 1280;
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          var sc = Math.min(1, MAX / Math.max(w, h));
+          var cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          cv.getContext('2d').drawImage(img, 0, 0, cw, ch);
+          cv.toBlob(function (b) {
+            try { URL.revokeObjectURL(url); } catch (e2) {}
+            // 縮めて逆に大きくなったら、もとのまま送る
+            if (!b || b.size >= file.size) { resolve(file); return; }
+            resolve(new File([b], 'photo.jpg', { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.72);
+        } catch (e) { try { URL.revokeObjectURL(url); } catch (e2) {} resolve(file); }
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e2) {} resolve(file); };
+      img.src = url;
+    } catch (e) { resolve(file); }
+  });
+}
+
+// もとの「1まい目の返事」の処理（写真ボーナス・超激レア）。中身はそのまま。
+function hsApplyPhotoResult(j) {
+  if (!j) return;
+
         if (j.ok && j.analysis) _hsPhotoAnalysisResult = j.analysis;
         try {
           if (j && j.photoBonus && j.photoBonus.res) {
@@ -44772,9 +44786,64 @@ function hsPhotosSelected(input) {
             var _psL = document.getElementById('hsPhotoStatus'); if (_psL) { _psL.textContent = '✨ 超激レア！聖なる神をゲット！'; }
           }
         } catch (_e4) {}
-      })
-      .catch(function(e) { console.warn('[photo-analysis]', e); });
+      }
+
+// 📌 2026-09-24: えらんだぶんを1まいずつ順に送る。
+//   前は1まい目しか送っていなかった（「最大5枚」と書いてあるのに4まい消えていた）。
+//   途中経過を出すのは、子どもが「固まった」と思わないため。
+var _hsPhotoUploading = false;
+async function hsUploadPhotos() {
+  if (_hsPhotoUploading) return;
+  if (!_hsPhotoFiles.length) return;
+  _hsPhotoUploading = true;
+  var statusEl = document.getElementById('hsPhotoStatus');
+  var sess = hsGetSession();
+  var dayKey = sess ? sess.dayKey : hsGetDayKey830(new Date());
+  var total = _hsPhotoFiles.length, ok = 0;
+  try {
+    for (var i = 0; i < total; i++) {
+      if (statusEl) statusEl.textContent = '\uD83D\uDCE4 ' + (i + 1) + '/' + total + 'まい 送信中…';
+      try {
+        var small = await hsShrinkPhoto(_hsPhotoFiles[i]);
+        var fd = new FormData();
+        fd.append('photo', small);
+        fd.append('dayKey', dayKey);
+        fd.append('idx', String(i));
+        var r = await fetch('/api/homework/analyze-photo', { method: 'POST', body: fd });
+        var j = await r.json().catch(function () { return null; });
+        if (j && j.ok) {
+          ok++;
+          if (j.analysis) _hsPhotoAnalysisResult = j.analysis;
+          // ごほうびはサーバ側で1日1回。返ってきたときだけ反映する
+          if (i === 0) { try { hsApplyPhotoResult(j); } catch (e) {} }
+        }
+      } catch (e) { console.warn('[photo-upload]', e); }
+    }
+  } finally {
+    _hsPhotoUploading = false;
   }
+  if (statusEl && statusEl.textContent.indexOf('\u30dc\u30fc\u30ca\u30b9') < 0) {
+    statusEl.textContent = (ok === total)
+      ? '\u2705 ' + ok + 'まい 送りました'
+      : '\u26A0\uFE0F ' + ok + '/' + total + 'まいだけ送れました';
+  }
+}
+
+function hsPhotosSelected(input) {
+  var files = input.files;
+  if (!files || !files.length) return;
+  var statusEl = document.getElementById('hsPhotoStatus');
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (file.size > 5 * 1024 * 1024) { alert('写真のサイズが大きすぎます（5MBまで）：' + file.name); continue; }
+    if (_hsPhotoFiles.length >= 3) { alert('写真は最大 3まい までです'); break; }
+    _hsPhotoFiles.push(file);
+    hsAddPhotoPreview(file, _hsPhotoFiles.length - 1);
+  }
+  input.value = '';
+  if (statusEl) statusEl.textContent = _hsPhotoFiles.length ? '\uD83D\uDCCE ' + _hsPhotoFiles.length + 'まいセット済み' : '';
+  // \uD83D\uDCCC 2026-09-24: えらんだぶんを全部おくる（前は1まい目だけだった）
+  hsUploadPhotos();
 }
 
 function hsAddPhotoPreview(file, idx) {
@@ -44804,6 +44873,9 @@ function hsPhotoRemove(idx) {
   for (var i = 0; i < _hsPhotoFiles.length; i++) hsAddPhotoPreview(_hsPhotoFiles[i], i);
   var statusEl = document.getElementById('hsPhotoStatus');
   if (statusEl) statusEl.textContent = _hsPhotoFiles.length ? '📎 ' + _hsPhotoFiles.length + '枚セット済み' : '';
+  // 📌 2026-09-24: 消したあとは残ったぶんを送り直す
+  //   (送り直さないと、消したはずの写真が先生の画面に残る)
+  if (_hsPhotoFiles.length) { hsUploadPhotos(); }
 }
 
 function hsPhotoClear() {
