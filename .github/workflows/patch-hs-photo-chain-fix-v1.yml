@@ -1,0 +1,95 @@
+name: patch-hs-photo-chain-fix-v1
+
+# HS_PHOTO_CHAIN_FIX_V1 (2026-09-24)
+#   配信チェーンの写真まわりの置換（2026-09-11 の hs-photo-submit-20260911）と、
+#   今日の HS_PHOTO_MULTI_V1 が食いちがっていたのを直す。
+#   ・P1 旧ブロック撤去の目印が変わって効かなくなり、旧い写真欄が復活していた
+#   ・P2 見出しが変わって効かなくなり、ボーナスの案内文が消えていた
+#   ・P3 だけ効き続けていて、multiple を剥がして1まいに戻していた ← 複数まいが死んでいた原因
+#   置換の本数は増やさない（チェーン123のまま）。中身だけ実態に合わせる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi)'
+        required: true
+        default: '123'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          sha256sum src/index.tsx public/index.html
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;2t&##9aV1n@VT6Qap3rY+a*KO12_|an3USGuFh8AzZ~Y2M27_R*M`JG|{^f)y=d_>=Svl6hdoofQ6yi
+            (`OG^l+fUXj@zcLXn~^}>RkJg9h^!?TYn%Ir=O}*EoS#_{Qw7{XnueM*z&SjRGVQs3meqRx^W;!r*do0c7IJwck0Fb@qPo<JMjup@p5`@I18j5
+            6zo}8ND+aJra`|TJwDa|lN3g^qmP>go%FZlZuNQ1bUfam2$3~5>J1nb&zP?^ye;|b$7GKxuVa0Zh6~8FoPi=Kjp-dhx);8OvOw~6E_W@QQe8bm
+            ;i_CTcm`GJVw%84&jb{JWxX#fs!>VDkTB_WWb<9k{%+g!mrV4?=fn}E3m0OAV$PPnXIT5;%Q1UFLg<*3KxufN@e`viV}EMiKpm;B5VFf1OSw6y
+            Q-zu;XL<``*+Khl4=Id)Q<P?MQ#k0DO19S4kB^Ayq5=LLW~*ytoXa`jHx?9@Dzy>{flTW^ab834P%)R?wI|=CQ<BR+aK|F74f3_d#7Bl7*!aFp
+            a5Xz8xd;YDj?NM1@xW2Yo>v>Ski4a1qW(N@XNbk)Do3r;y-5Rcd)PhgG!ze|iOF&OZxZL16OU11F%Us=^=;6It)g>a!8QuZpXuIlbx{;O97J+&
+            _91UV@;vhA3~*%fn<>!jy}tpw=JaCq`mr{~-S-dJ6mv8!XsL80GB5WDnwj{5L{rIl6X?9^D=}G}5Ja)t3DU$(m&?QFeAuTUMXPIgU#nfrFglI~
+            0{GCjM6lC6HKufhejk!9VH6@#N6k3ik`3$o8-D`CD*38H-^?I@IAm8(WmZ-eB)sBW;cznYs?lWeryoyZ-MP$~b%+BV)W`lB#Mrk^3(4W?UYPf-
+            %U<o4a+a!5b^aNl$d-kZueJM`Ns?bD1yOaj<BEzWCu<YvmJ}X$rl80PMTkyc6A;fWw^<aCuH6d545RAHN6ETz$x+F0$C-r8ta`D0H<{lgk4Y`-
+            04W1BODM2z<3rq9+;l&)m={XS{ouIkyt_zCH24l|v*v8>&=a=aV1hTDJSsC`&Vy`6t$nptaSfl)uBeB4Z^JCV^GsGzfS$t?UhFC%TDS2gclt&e
+            (AN(Q4k1cGc>AN2f_)G3v6{XVe+}iF&N6t-$c&k0OoB-Gx}#r48N&GX(GZ5AePS*jRU>Jw{+n0Lwum^hu$(A)IvtIyEr>WmiZ#%Y(T)*SssC#O
+            9AbfIF=8o!u8@$Xy}LIjz%#cOIZi_FGU{ZPmqJ{B>_0%yG_Nt4_*mlVUHcoM+<jpYDOi-}ooBv5t;Cf8BD((Cb@?Chns994Y$x|OH8Fw2A{E(G
+            6D_38rf-?6o@lz2l~@mdr^=S(X?`V)zbGbW!B_#5Hj8BDudw^<jn1Wl7&yo7qe8A-&ZJ>;<%X#0VR@rK-G`|(ndxjS>LZn)x535jv5F&tsSKki
+            hp+o_8Wu*d5nM4vd}(uw%IJ(M%TE6OH#tXcmdjSoJ0aBEe*sVOyy?#pHGbX2#MEJ`8@9NZ6^MF-rdMfX<ssH7I=|Lt4sp)&z0BYYmU8Is^H4@s
+            KWdsMwIUiedcd~`;#_5PH+M5$SX)}`WTBNJy!O~DgL1Y6F(#kIK2)f7!y{Sd3A8i5=pA}S!*Vm-$byZR@Xpc20x1O{2*LcI0lP!sI`QH5qTOJT
+            5`3A!3(!Xp0GmVxV(F>d_FGeM8LH;s78{vBI}atlk%1|k%8baj!-VtS5tvS@zCGM>P`j^|P=kGI**IzVRSP{!f@^xj@|2I|t15YS;!!9DrP%fZ
+            !yJibiu>~#3_TFXJOMf<<1y2ffc4#P+fA(x;ztcc?&@Pe4{ELdDMXj*U}9^N$BWUGg)O`)o6!PPnZmHC+mHBEf^~7|r5M1ySSaU8y62g|7cOnR
+            m%O{7`=5+oc-FQqcG?F+G4sHoXX0{|wKz|9e&pk;=L#(r$BzoO#i%Z-H9C2+C{>9K@<1F~Nq>33n^ssB6uNKO4s1GopLAV1tba%$AR(%J7!(J2
+            61=jj+DJpSK9+eGL|fb3N%!g!hOrGmOgD-ceI+#d_%=8)^yZ2Cd;CNW(ljpgzMmL;VA;p2fIpQJT4&A)pPi(qyA{Fvq9x`o)B{RJZN|@%8Segd
+            i*B?t6|F0>YLCi0sl>F$H_1k!f<D?^Q;CM&Wj0*UtFBdw=>}@L{W&g!p+_}c7`>*oW&<`qO+!N=Ca4PffG^1UF9@j2YJ_N89@7jVz(TRLcNJ-u
+            Rj=d@e?aM2?Kc$>XC8!lCe$?ALRet?eyja5!rJc`fedtL0*H0t7{;O-Tuv#MIbRn4lkW0TUk#f%QHTe)(B?VcNNyLcg|_)GAx1Gn%oF=XR(bKx
+            $cz7Kc<eB<Gyzztt$XRcd+|#nCyJVIoS^}xf0uag`#8*EU3!qK#=88#j&E~VO+9E|;~&?+cjoo+e?skT^@#dOe9{~DsiH1lR90+Xdq)k)8@T40
+            T_(+)9gVcKQg`X_j~zO4b?~ABg84_(W0J{fR~GN54~Z8R-vKr2kd#O01IJy2ejiCgShvj>w`jyaEQvj$AT-w56^M>E6sD|L1R>U{yk*dz^V-pB
+            -wX(alfgd)Y<SRWLonSiq0d^+tsq0^e1QmlAhI<=VE-Uimy8rt3xkdXw-7jO9U`;QP}EAWgOpSyBDee>HNJh`T+El9jUpQB*lsAV={;3)mu@Z{
+            2apAhR@JfJG({nWIV`QUB)!Y>I|R8iT9#8-)Da+5atcro5Zqjf*4UFA{CSR&KS3fyUQ(OxWaai1ijGqQ`<T$tMmJMVF?FsHv$fNd9F=ug9iw4|
+            <Wno)$npX&hqu&sv{roprScb_ybg*kdL4%exDVx{IpV|($2X@-@rq18W0)jCh||j6Gvki?m!K=LaZd}v<?;YE0`vMR9(?k&1}*0~vd@g+#9(KG
+            WkX<U@ce;kV?zOvyh~^wN@S^#E}#UCvlJYW{M?wb12qe{e~|z$@iY7tXox|g%KJIE9N#{XGH;Iqp4K=vCQX;lh#JEgD)v!|H>g{rS@F>H%PHx0
+            4@Z7rS%twI;?h|y)SZ`5sjA*vMZqn3rCSJkzkNPH&x>7C=8(RjK3NbKWfQ|_BRtlyYluN=uwsm{C31$Yyo(YL7T|XL2kOurrana3Z9Y$KB%a2_
+            =X_OPml2*Moow6{MJa4E)pc$$h>l6)NgS=Cx)v}7Az_#=*OdL1Xx170JLwx>RVTJdTGcUdnP696IYYPUtGY&Nxg7t4Nyfh`^rnDQj$t?3!$bb$
+            (BoMmRC7vbxC}9Gi7Z~@-MRlst0M+4wKj@Y>#-avCFGalkh$Ur{W=-bmqa~zV~<xB;k<$M3P+BuFXz4kK?Z;bM1Go=EC+KQf}5D?H6=Du-G8m>
+            YFZ182&8NMna<AXx>MbkO`x?VW-pv`7>4KP;9;HtWhFMKr7gK$j8HIt4J`XQ=WukMZZSqk|H`u%vMbjyw6ed<&E)bYpTbB2me~8$T#(kthSH$@
+            I^W$`g9R8s79f)cJ=K#8SnX7|am@ak%nK#Z#cGU2Y)}BZR{XeXo!eANitkR*mQLYnkr@lx9tZ#cVm=Yfq_>H000H0?w>$s<dcDQavBYQl0ssI2
+            00dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          sha256sum /tmp/p.py
+          python3 /tmp/p.py
+      - name: syntax check
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+      - name: public/index.html は1バイトも変えない
+        run: |
+          if ! git diff --quiet -- public/index.html; then echo "::error::public/index.html changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_hs_photo_chain_fix_v1.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git --no-pager diff --cached --stat
+          git commit -m "HS_PHOTO_CHAIN_FIX_V1: 配信チェーンが multiple を剥がして複数まいを殺していたのを修正/旧写真欄の撤去とボーナス案内を復活 (チェーン123->123)"
+          git push origin HEAD:main
