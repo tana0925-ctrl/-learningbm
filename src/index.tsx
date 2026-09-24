@@ -15,6 +15,8 @@ import { WORLD_V1_PATCHES } from './world_v1'
 import { WORLD_V2_PATCHES } from './world_v2'
 // __WORLD_V3__ 3周目「世界編」第3段。当てる中身は src/world_v3.ts。
 import { WORLD_V3_PATCHES } from './world_v3'
+// __DEFMOP_V1__ 防衛戦：全滅で即終了しない。当てる中身は src/defmop_v1.ts。
+import { DEFMOP_V1_PATCHES } from './defmop_v1'
 
 // __DEF_CARRY_FRESH_V1_SENTINEL__ 持ち越しの編成が新しい形式（spd・skills あり）かを見る。
 // 古い形式のまま参加させると番人にはじかれ、サーバ計算がいつまでも動かないため。
@@ -9402,6 +9404,10 @@ app.get('/', async (c) => {
     // __WORLD_V3__ 世界編 第3段（宇宙人化＝青い敵 と 洗脳）。中身は src/world_v3.ts。
     for (const _wp3 of WORLD_V3_PATCHES) {
       if (t.indexOf(_wp3.a) !== -1) { t = t.replace(_wp3.a, () => _wp3.b) } else { console.error('[__WORLD_V3__] anchor not found: ' + _wp3.tag) }
+    }
+    // __DEFMOP_V1__ 防衛戦の掃討フェーズ。既定（mopTicks=0）では 何も変わらない。
+    for (const _dm of DEFMOP_V1_PATCHES) {
+      if (t.indexOf(_dm.a) !== -1) { t = t.replace(_dm.a, () => _dm.b) } else { console.error('[__DEFMOP_V1__] anchor not found: ' + _dm.tag) }
     }
       // ══════ WARMIX_V1 攻略モードの出題づくり（まちがえた問題＋該当学年中心・未習は出さない） ══════
       // 中身は public/war-mix.js。public/index.html は 手で 書きかえない。
