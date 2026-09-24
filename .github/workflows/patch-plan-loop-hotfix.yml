@@ -1,0 +1,81 @@
+name: patch-plan-loop-hotfix
+
+# PLAN_LOOP_HOTFIX (2026-09-25) 緊急
+#   教師ダッシュボードの本体スクリプト(33万文字)が SyntaxError で丸ごと止まっている。
+#   テンプレートリテラルの中で onclick の \' を 1段だけにしたため、
+#   配信後の JS で文字列が途中で閉じていた。
+#   対象は 4か所（QRHUNT_V1 の2か所 と PLAN_LOOP_V1 の2か所）。
+#   HTMLエンティティ &#39; に置きかえて段数に左右されないようにする。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu'
+        required: true
+        default: '132'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;1kmc5?uf^n@VT6Qap3rY+a*KO12_|an3USGuFh8AzZ~Y2M27_R*M`JG|{^f)y=d_>=Svl6hdoofQ6yi
+            (`OG^l+fUXlA2^mU{fPm$pM={Z5!-6aCD^0$;fK02F6a+28rE|iuFbyUG%$47glPf^w&~j>_U-p__o)=LwY@_%p{&X%XQzU6G=481QfqCbtL(H
+            OIBJ_#TNVG2U$xoD52~dI5e@>^k)+DwSU}K#hs;v;ZhhJUcG_@GtMjj@0!WPr$Cr;O$`$C-#zWR#4xt|%|&aPw3WAbBI*F~`M_qf;t$eXnT<kb
+            jd8;W!XrxgK-wfkdi`l#s8Pd+Wz_+EXi{+A$b;~A6?oaS$BTXbEW@Cg+-iT3Gj*W;HL8DDB(xmBQ+?kYD2n1n_E6j?H1h1kA<ada+8^e=>nVaW
+            #kCvZ$w0;z_vP5WwaR1dQQq<O2*hSz2h0T~Ot^v0^d_f}xg41*&W2^4V~ngsaU|JDFvO0x8bC5R7{G_+7GhlgI1_87X_%3CXYZ~j=OGgOs>y)j
+            2`RBRbUCVS|B3*c9wi<=jmM|RcAiS{vggXDhv@S)Gq$tRk4m>dif9XWzc6LlB}%7oydL24P0EG*Kg9P62fmmF<jaFa0W348XWi*FGl?jk)<OIZ
+            @dI#k`pm#nM^RTJVCCCcpZstnx2+hb8T~Mus!;Bwp`PtsyVTbslIjsn3*&0=tGF8^gLEC`vF$!dQHTgHxDDh{({h5{*;jNAsje`L4D-3koQH_u
+            %}&;(Ji|kKFsWPM(wnn)QBa0O7y&~EHFLOtS?QpiCum{4r|VF{tFn5Ia)nluSBO24$)!|m|J8d$UQeFjBzcLuaV^d;0t21A2fnXy3?Pt6O-?+9
+            Pl^5%z~2<jjZ3VZ&qlRtp>$PdXe6t<jePB6i<bD9&ck6D%eS(k&ZYhPP+fY}&bWNw6s=`2jI_Uwq0vds7V%l*LmV?)sp#OQ37BdP*U!Vv24s=g
+            xZFr8!q)ik0J~6BC&u24P<W_9X_<7_mGwIheb7cS(V*`t%%-F)TzD1EU;OsT?ait9P1=)ET<v{jpz5)KYE0et9PcoxygA<49(kzIK~ii6=>6&m
+            sNkiCzf+1(dUqh5Uocg(*1i1=oGw=w44;rcivrL+SEFmR#}e*ZId-HR1D~ns!wD2^z3)>b{8W(o{@tu^lM16t#BOj-K^z0Vd=(bS2drF+Wni|9
+            L4lq*hXW)UKNZ`}2qC*~K<!qcabb?_!Ebaa=gytxQ2xe#K{=42a1Ium<>X{Ij!L73Z(*?^9XT|AsgFG^<>5f`xmIjpraW?F{6G*a0GaU1j_HNc
+            OXuy$0*?YPAyOnNP9~E6GWU-M=eTZRqHpiB>!jOkLwoTNM?}h>`+acjP@yN}oNYl}`<jr`N+A!Jrr<vFI~wlM<R@Wps(MXyb>WazusJ<zT7!7&
+            gR{_0CIYaYlkCcz0JwRf3E1_S$~D`=rFz}QXiUYWY1ddV)yN1B*S}BHp1D35KL>K~=bDSp-RLGRDJ}b#j=G*krX1YV7JqWV!A8u^*x?u@o2!7y
+            rOD9ul)nf^Xb9}`JE%@4^5q@hyXM1Wc!Yc=5?PYzV-Cf5Vp{5k12Ivnvoe{`6C*G$8?7qP!A3x;kCp(QU8g3@5Y3hXE;knPWgIW&=WLebf|wCZ
+            Smq=0*x8#XF2aPT|GnPJbKtV9Afb8_sC(&oeCRqtZzJU3TR%<R(oPpIZ0nFQH(iz~p0LZRNj1oPb(P`>qZ34~1ssNXsXaHyfv@L&zHgn~&Y^NA
+            `r1}~H+6d>*!U5gvXfiDQ`qIL>H4Mj+PJ2J6##YHf@?J8hz+s&zKL8qpo3R8u8Cez_~0)ui8<S#!U>hdp!cErN=X+AE?h`%)jz*|>ykT~oItXm
+            r<cZ|_Fw!+04Eaa{HyE{Ls)1`>@d<Ga0&=&c#`}de6C7GDL1m=`c>e(DO3}qo%J%AguUET2*}VN#_I0muin0G!mz|K!@~2KUT)8-_Uhk<PSdV7
+            QTOp+|C>_ccN1!;@*@es#ePH8m;~J-0K{Pg=A#h13jzmvR(#ea_-omhQ>{r3Zs8sX!;O$sTJPd6Mmn#q{FqdDDmg~nJgepyU0X#jQIth%2QaOe
+            VA}0t)7TW(681I7=~o_bYwav2tD9zQ(hL#OC`O%V1!|Q|xC#3DrI3<d`^<L;yrYG1L0;)S;Wc_S9teklC}R!eNULlQ{tyT6l&(jM$<HgNmstk4
+            d-Q6ps0NW=%TB4NPoG<2@#?{e^Oh?en3o(Iie^6JkT-4(DT28E4uIPm>P#ywuAO>*ynWc2dn)@j8O4)qQK}4wqo&tm-8WRHX!|KO;*rH`R?N?X
+            _ou6qE(pUV?DdQ=Ew#cKIf~VT3k0|^wx?>9PYjF?rdQ=T+i$?$TnbSF1cc%`Q#_Itv@>pL^1c%qRzoJxfpP%btGnW_w!@8k!ZmLwa-etNMlD+j
+            j13gWNs-6bo8|`E6gpve-uh<6#*K<<`y)M4S)bRhMM;IjffR8MfIKuOUTHs1?~C3gEl;$eooLRj<tR)!kn2(F<%CkOvSuTD6gzTP9~pAuQ*kDU
+            4n{@Wosw&J@99f9p?@yFXk85;eK4w8ZHsAalzHzWJM`K#i~=;L$Bcf<BHtn8n#KQNlLs{i8-v4grNPM|Uq*``r8dsfR#U8xpcRf0GP0fKiJN>X
+            1d9-t$fzc*HXy~OY^4tzqFFE`r_w(&<eP3HRu%1#gJ#8E706A84A5%_7~RJMIqokrI-AOMMg8T6;<+hBPJwkSNsz+7MPa~68EDET3jp%MA{Hhf
+            wB}JVpPNrl2vqG^6NtO@RIT$)yk93|C)8DJ!vQ2SmH;kTREEsZb{$&KO1mo`%DYwT)lp4$xaC8bc(}Lkj03N*-8~rZI2)q=Ew8R_PMX2O*V5{)
+            n6sgzy+OQRFsL;Ve@V${<%7oQgk8DUHEu}i5vL5{)^q3{p}Nc{9`)QH)zy7rCaGfT=1WL|79;g#4mdd%000007@jwjEO4E*00FKN)F%J{3LaN(
+            vBYQl0ssI200dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          python3 /tmp/p.py
+      - name: syntax check
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: public/index.html は変えない
+        run: if ! git diff --quiet -- public/index.html; then echo "::error::html changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_plan_loop_hotfix.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "PLAN_LOOP_HOTFIX: 教師ダッシュボードが丸ごと動かなくなっていたのを復旧（onclick のエスケープ4か所・QRHUNTの2か所を含む） (チェーン132->132)"
+          git push origin HEAD:main
