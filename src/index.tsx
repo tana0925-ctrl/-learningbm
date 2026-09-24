@@ -1175,11 +1175,41 @@ async function ensureRankingRewardTables(env: any) {
 
 async function settleClassWeek(env: any, classId: string, weekKey: string) {
   if (!classId || !weekKey) return
-  const lock = await env.DB.prepare("INSERT OR IGNORE INTO ranking_settlement (week_key, class_id, settled_at) VALUES (?,?,datetime('now'))").bind(weekKey, classId).run()
-  if (!lock.meta || lock.meta.changes === 0) return
-  const rows = await env.DB.prepare("SELECT ws.user_id as uid, ws.correct_pt as cpt, ws.pokedex as dex, ws.typeshoot as ts, ws.wild as wd FROM ranking_weekly_scores ws JOIN class_members cm ON cm.user_id=ws.user_id AND cm.class_id=? JOIN users u ON u.id=ws.user_id AND u.is_active=1 WHERE ws.week_key=?").bind(classId, weekKey).all<any>()
+  // ══════ RANKSETTLE_RETRY_V1 (2026-09-24) 途中で落ちても配り直せるようにする ══════
+  //  もとは「配り終えた印を先に立ててから配る」順だったので、配っている
+  //  途中で処理が打ち切られると、その週は二度と配られなかった。
+  //  2026-09-07 の週は実際に1人目で止まり、4人ぶん32かけらが未付与のまま残った。
+  //  そこで印を二段にする：
+  //    ・作業中 … settled_at が 'RUN <ISO日時>'
+  //    ・完了   … settled_at が datetime('now')（従来どおりの日時だけ）
+  //  最後まで配り終えたときだけ「完了」にする。途中で落ちた「作業中」の印は
+  //  10分たてば次の保存が引き継いで、足りないぶんだけ配り直す。
+  //  配り直しても二重付与にならないのは、台帳 ranking_rewards が主キーで守られ、
+  //  INSERT が成功した行のぶんしか足さないから（homework_claims と同じ作法）。
+  //  昔の行は 'RUN ' が付いていないので「完了」とみなす＝過去の週は動かさない。
+  let claimed = ''
+  try {
+    const cur = await env.DB.prepare("SELECT settled_at FROM ranking_settlement WHERE week_key=? AND class_id=? LIMIT 1").bind(weekKey, classId).first<any>()
+    if (!cur) {
+      claimed = 'RUN ' + new Date().toISOString()
+      const ins = await env.DB.prepare("INSERT OR IGNORE INTO ranking_settlement (week_key, class_id, settled_at) VALUES (?,?,?)").bind(weekKey, classId, claimed).run()
+      if (!ins.meta || ins.meta.changes === 0) return
+    } else {
+      const was = String(cur.settled_at || '')
+      if (was.indexOf('RUN ') !== 0) return
+      const startedMs = Date.parse(was.slice(4))
+      if (!(startedMs > 0) || (Date.now() - startedMs) < 600000) return
+      claimed = 'RUN ' + new Date().toISOString()
+      const took = await env.DB.prepare("UPDATE ranking_settlement SET settled_at=? WHERE week_key=? AND class_id=? AND settled_at=?").bind(claimed, weekKey, classId, was).run()
+      if (!took.meta || took.meta.changes === 0) return
+    }
+  } catch (_e) { return }
+  const markDone = async () => {
+    try { await env.DB.prepare("UPDATE ranking_settlement SET settled_at=datetime('now') WHERE week_key=? AND class_id=? AND settled_at=?").bind(weekKey, classId, claimed).run() } catch (_e) {}
+  }
+  const rows = await env.DB.prepare("SELECT ws.user_id as uid, ws.correct_pt as cpt, ws.pokedex as dex, ws.typeshoot as ts, ws.wild as wd FROM ranking_weekly_scores ws JOIN class_members cm ON cm.user_id=ws.user_id AND cm.class_id=? JOIN users u ON u.id=ws.user_id AND u.is_active=1 AND u.role='student' WHERE ws.week_key=?").bind(classId, weekKey).all<any>()
   const list = ((rows && rows.results) || []) as any[]
-  if (!list.length) return
+  if (!list.length) { await markDone(); return }
   const SHARDS: Record<number, number> = { 1: 10, 2: 6, 3: 3 }
   const typeDefs: Array<{ type: string, get: (r: any) => number }> = [
     { type: 'correct', get: (r) => Number(r.cpt || 0) },
@@ -1197,14 +1227,19 @@ async function settleClassWeek(env: any, classId: string, weekKey: string) {
       awards[uid].push({ type: td.type, rank, shards: SHARDS[rank] })
     }
   }
+  let anyFailed = false
   for (const uid of Object.keys(awards)) {
     const kept = awards[uid].sort((a, b) => b.shards - a.shards).slice(0, 2)
     let total = 0
+    const insertedTypes: string[] = []
     for (const a of kept) {
       const ins = await env.DB.prepare("INSERT OR IGNORE INTO ranking_rewards (week_key, class_id, type, user_id, rank, shards, seen, created_at) VALUES (?,?,?,?,?,?,0,datetime('now'))").bind(weekKey, classId, a.type, uid, a.rank, a.shards).run()
-      if (ins.meta && ins.meta.changes > 0) total += a.shards
+      if (ins.meta && ins.meta.changes > 0) { total += a.shards; insertedTypes.push(a.type) }
     }
     if (total > 0) {
+      // 加算できたかどうかを必ず見る。できていなければ台帳の行を消して、
+      // 次の配り直しでやり直せるようにする（class-mission/:id/claim と同じ作法）。
+      let applyOk = false
       try {
         const prog = await env.DB.prepare("SELECT state_json FROM progress WHERE user_id=?").bind(uid).first<any>()
         if (prog && prog.state_json) {
@@ -1214,11 +1249,27 @@ async function settleClassWeek(env: any, classId: string, weekKey: string) {
           state._rankShardsApplied = (Number(state._rankShardsApplied) || 0) + total
           try { if (state.decimalFest) state.decimalFest.totalShards = state.lab.shards } catch (_e) {}
           try { if (state.fractionFest) state.fractionFest.totalShards = state.lab.shards } catch (_e) {}
-          await env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), uid).run()
+          const upd = await env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), uid).run()
+          applyOk = !!(upd.meta && upd.meta.changes > 0)
+        } else {
+          // まだセーブが無い子。足す先が無いだけなので台帳はそのままでよい。
+          applyOk = true
         }
-      } catch (_e) {}
+      } catch (_e) {
+        console.error('[rank-settle] shard apply error', uid)
+        applyOk = false
+      }
+      if (!applyOk) {
+        anyFailed = true
+        for (const t of insertedTypes) {
+          try { await env.DB.prepare("DELETE FROM ranking_rewards WHERE week_key=? AND class_id=? AND type=? AND user_id=?").bind(weekKey, classId, t, uid).run() } catch (_e) {}
+        }
+      }
     }
   }
+  // 1人でも配れなかったら「完了」にしない。印は作業中(RUN)のまま残り、
+  // 10分後の保存が引き継いで、足りないぶんだけ配り直す。
+  if (!anyFailed) await markDone()
 }
 
 async function updateWeeklyAndSettle(env: any, userId: string, stats: any) {
