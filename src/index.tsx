@@ -11100,7 +11100,7 @@ app.get('/teacher', (c) => {
           <style>
             /* 2026-09-20: 45人ぶんを上から返していく画面なので、1人の高さを抑える。
                子どものことばもサポーターのことばも、長いときだけ3行で畳む。 */
-            #hwList .hw-ctx { max-height: 4.6rem; overflow: hidden; }
+            #hwList .hw-ctx { max-height: 15rem; overflow: hidden; }
             #hwList .hw-ctx.hw-ctx-open { max-height: none; }
           </style>
           <!-- 📌 2026-09-24 修正: この案内は #hwList の中にあったため、loadHomework() の
