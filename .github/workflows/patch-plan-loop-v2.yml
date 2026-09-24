@@ -1,0 +1,117 @@
+name: patch-plan-loop-v2
+
+# PLAN_LOOP_V2 (2026-09-25)
+#   (5) 報酬の向き … 承認のごほうびは据え置き（減らさない・条件も足さない）。
+#       先生が忙しくて承認だけ押した週に、子どもが損をする形にはしない。
+#       足りていなかった「計画へのひとこと」にだけ 100コイン+2かけら（承認より小さい）。
+#       振り返りの返却は元から300+5なのでそのまま。既に受け取った子には触れない。
+#   (4後半) 子どもからの返事 … 新しいテーブルも列も作らない。
+#       plans_json のトップレベルにキーを足すと「5番目＝金曜」と数えている6か所が壊れるため、
+#       月曜の日オブジェクトの中に reply を入れる（トップレベルのキーは1つも増えない）。
+#       ごほうびは付けない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi)'
+        required: true
+        default: '132'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;4=^qB3%G9n@VT6Qap3rY+a*KO12_|an3USGuFh8AzZ~Y2M27_R*M`JG|{^f)y=d_>=Svl6hdoofQ6yi
+            (`OG^l+fUXlA2^mU{fPm$t@$*quWJo!C-qFp&^cG!LSP7d0DAm)1L;Q_pWUmoM#0p*8SZp+~e2^hxl?<?uPDUkB8?4V9P^m0_Gw**DTO^fDxLb
+            *OVv;sgZr?06D0lNI@;%+`C`20JV;mQR_w0#8XNo5|1?EWpGG5pE09WQfs#(h*m=j7ih`#6-}}JW@k-Zi<n2mIA>{0_wm>A?AJMid(TCu0{hB_
+            bvHnaQX|Nzc-q>EO7i3K?QhoZAlGzIWisupcT`%$1u6vM&uI&W(vS1xp~(Q>4a1d^l=Y7=+^#Z&$hwumz5m}V7%^Y<CDNNv)hJfys!Pheh0Jm{
+            +dt4~L)}z0#r1yQ`b*fo7<5JH?kI~t1T%ecs-W7T@tqhaUKR<(45+!qWh{{v5o6#Ko@5v~z0N&TKn&qxGexw)>ajf+zrmX3G&GJ18k->egf^wo
+            W-k@GSq-x$rACJevitQ8rM9$G<4SP9dWb%aDG$9zBf?gdXgH!N<<D=xPm^3lfnQJkgwErh_&#S;YAR12_FVy$0MxqC9zMQsl8>jy(lP*tqoF%z
+            cmEcODIxQnyb3%;hcE*&gPh1;e+IX|!mq*}Lpks%{jiL0Ewz=}Rei3_2VLb3YrT9!6(<Y)W(k~mZ$D}lyCsQE3%1DZg6<Iw6~&E^0<<->ZcU!q
+            6A2qLO=+rD!LYG9B$AbEuAJS5h2J!33U18ri?M*C^469B_pxx$Z%1-OlS3#(k42j$V*}tM<cv`Srw>z~m%L26((~?UYoO{dtan-p>IU(V)B^b}
+            Q2kaI%Crf-jC?n@F%CQjf6w^Pqwe(!Y*N~jTe(<S|E<uf{20-PG<vAWm2#xpspGzGs%Kx2ureUaJZJYB!d!Ywp8r{i*xrYp>M3hHWbpS1ObkdO
+            qLPxby>5UorEl=uLfX+OXkhFW;D9ZME1C{{w3zBLX28%nlQumSi$3!k%L8W%+3LKlZ;)jKXRi6y|G1)&e(c@nXZqQxWjmQHexI(E=x!{2Vhx`y
+            4b(RqS4%V&$hF8`87`^Y9Hm53zt9W)XVEyxW#I|)zi*l()yr4N`s<aejGgZRnBeETIt}Uf$4zk-4G0-8v?QYj5g#b&K+~^IiacVZw^WiJza)ML
+            iS2>gVBMY)BymiZ!UUv%4|2c{OJCGp<!~U%)P0<7KGSMl215QoZ@sYoV>rosOgNNMz9@N8>WTG1x4Va2NB}8PiaF>lL+-1>>s@BRGf3$M7Hpv(
+            J>q1smw8I}+|)0zm}*Xq=fjREaUOFtIt|^`k}eKu(D@NJA6Bb|e`e>U0T7-CFs1`3cehFw)<=_~ruqRByTF2D$~9Y=Bz*2n$9E)G_DYD=5Z|kl
+            ;2+RpnwTnJ?H4rc6MCNoGh81g++2uBRxvFI?*Q*_<QPDk!jar>B*#vH!JhuaDA#Z-qxbW=j4%MIX5IFwi|Z{Fr6Sr0upd7S!mwNc#6)h+y!Qvh
+            n!9BZSIx|th!b%pY?`|T<Qd)Z#0n1;LlG*48w?%hNq-{>z6$cXd-4SsnAw5^hL*K%43V`10ug+WH$-6hftJN0C+m_T3}oYze!w)L7g3tUQ`Zjj
+            +dRT=k;ClfuekcL*SxDkoWK8RAwNF$5#OR}SIw(U<A)edmS|r6j8>VCQSI2H<b6mwo0(kr<70<=r^;2<AOl2a`TtXZkhzamAXuOf8aw!@uGq`|
+            gfpa|z(yr+86~0Ndcnq|c7MS>M%gkDWb~nR-O_UNjp>HIBc+jRnvjrs>B-+3{m?Jv4zWrh_lsAWAC4$^gUGOWhbjHREuE9rp_RxTY>1lYlg>5}
+            NLM&~#!-1D=&HDq=B*_$^!iiT(~0<#4HkE!&^aW8+j_4rcjE`ZO*Y!c=;72DvO8aQk>60A;o&%jX_ha|O6|tcAlqY0P_30>R+P6pS<)Ei<19RV
+            )ftq6_0stdkpM#F&@yN({;cyk#CxH#i9~&9w}<GCH5bG_ixN{xDAc(X*}a<Zy(#N~S)dJ}?LupB0b7sv1-N<~hUDQOlwA5ysZH0pcbJS}{H~}{
+            dp;9D;mh8VBRS!gHJ#vo-P$Z(HYSb<!3pqssDYPcYN^1iRXzK_vf~8T^yT~&7^m}->biaSbh4J0TUHV^V<BD)MEp=#P;-~&_A(^6>QdQTa`m{r
+            T)pSqVp9e}|AR-U6`21E+<gaVW~AntLm*?p1J3o0GMTmjbb>Ib=vMA}B@rLH8Z=1A^4i5PbMh4sZ0BY6Iolj~+*P1Y@~8ET&WcW_-!37(U%$B|
+            {dQ@fdcWYbvMPgg_<qx9P@!1}%@en}wl6D}{(B3=44_K^n1i(HqyeXQJ<}o$3exGgI;<tx#awRGItadwCtz?|Un7ndoE>#ECG$EGHa|p`i-Ugt
+            3sJ^w<0|AH{>`tW`lKFNBDnyCQyP*vy%yPzru}<Wh_SqtHa`bCBPX~$Vd-0;AZt($WLnRRvns}1U)?(6!7CO1?D$@V+~eg?!`+IAJBV!ZZC4w#
+            o#%d0_d(}8?<L(}oPgDfZ}!~tGy)FEM0H4@h(2|^LD?OLB7Bt+mr$5(4d6AG4oWj)Iey&@KLHO|?ZjxKm{-eX0@+K1K)Y|NhdHJS7X=qedKU?+
+            x-vRX&|^rEi!lz>^l)V|ZmlP4L-sdMH<-M+w#klU6~^{MhqYlw5eAagM~Alt_0ud(%67ht>%cy$2B7|a$T5#qp=nAHMywogKhU368idx&!bHt;
+            YQ`f*tbm^`$0q(h5D$FX>p8hSF3eicTUSXZ^npv(6I&x<<;SuS_x@`|=19sc%-yHt$kgCb74uXE)$|T!sr<^i6j1>fbXuc)io+#G+2#Jegd@4L
+            i{z5?v8;pwOjdhC{?lE<LwQBENrs-f^Zks9^k~nSu$elZt!3ml&$z!G`MMAx@a7gbQBqNFkOb8xz}{J?MC;rO9S#g&Di}uipl8GR&05W-d53U@
+            c+@RLH)Mq(2%wtfu1yDRr^99pKA|r|*Nc4Z3Pn@qwREVkx5>MoxfV|P_kKqD#BBn|IDfs#d0ph3Y%S-2wsuw{1IL5AtQxHCbwy}j30)>mk#XS~
+            62i5o)*~d9CoG=fxzJPoRikzACGK+KP#J~PwE{<-fj!#y?~4})@Gs9VI2)d?q5O~BV8dXlj*vdIVoAcx#b_PxR$7u9T#SkWo{zMzIjwiHqb*I{
+            C_N$Zu^bQiWEu$`OYPL^$nu8Pa7?OFWplYtRhPs4^aFsaMBX5I4)wCM;pVb<@}pcCPVOo+5r1{=EW%c5=640@Or*L(#p`?$kAe8Qps<WifC+g$
+            =#wut=0R(nR#2R6%lrppGpz%f%}lqN%O_yRY}wZ`-6Zrv!~fGXj!!)((k=BVqPqzPsxmqgeI=`fRA1p(Cbztsi(+NQScvn)!G)uuICF__WP7%3
+            )v>&Gs2cr*HyK`4H9t+8VL9-BcKR@ErXZXFh$b`q?FaRI>h7Z$reVrk(%!mV!O1-#z85qr`qy$`A;y*!^<5tRA%dGz^e|}$y0XoLWusF9Xbf=-
+            I|lJjRCqTlJ^dE*<f#euxu12Qg3GJiP8qc`CpB5IxV&#^YPJeXqt1wuX;P6$@%i4my^_ptlm{vUhcdt6X2JXo5eyKfqgdyC%V-kiEF@xPMyAU9
+            R+{oBI(?fPuhSEV-nn?vakQUFLe18KGOC#Fd@=usS-x@BzKR>303Ihf^#|EQhI4%RlEfa)6K5Wu;T;)5smT4^a#E1W8|vV!_T;Gh4ae-vArRNd
+            wf_u~>8}np`fpmdMDj0lek%S`NKYqp+3RiNht2F8i6Do8qN7*p0Qlt0L~!^^-4Rah-8IA?%zs|>#<e6W%9t-iQQ?ZQ%V=QB5c^UpUE+K-c)<ck
+            NuG=UAeUbj`O4gd!TyLZg<Lv-tt9DGXlJG3=6N_Jc}hU7S_@`VOqN33ZA_Mn8;aks0c7{-jdb8X-cMX{S*cZ(EKRBDxNybZ9x3Opqrk=1DF2G-
+            3$mM_v~J>zPWPn3ChS#4gl^D4j1*ZXBLL-m4l=C~@tX550p>1hX5@LOf=T9q4L7l>#2##@yE;y6v!7a0+@vVm#_C#^PaA7Ty<6t)z)f@jdUPUt
+            28;#{HA@GjRb5woEo$GKFXyDiI^HS60T7?&i#Cf|gb;}q&I{M;Lucg3GZGk^5}C@WI#mQSPs9scn`9dYy)j!k!mxnGtlA8lQzhYm?to8|`b6Ja
+            c1Rml!*o^@)xZnbuT{Jz5bCM$?85)@M>QUJqd04@tIs`l3J}?cQ;~0K!lL$FtFXD^KKvd5A!+JS*SJM``dzbiVWzp)#8K0VfaHrGdS=p=OfXb-
+            Kym?ee;Jd>u_T)tx3Y7G3Nx0DZ|Xz_kCWz$$d?`j%Pj}M*Mk`m$Va>+tzMt@0>0imfoh^~uESY(lXTJ~g$~Bho-K+!h1Kky57CRi3)~wE6=u68
+            hLSuK6b&Uf*n#p3vG_NGSNt(OD}i_xiX0ei$#(7V(hg%g)Y&Fx!SpPAtfY4T2mG@)q>aEDgChjV+e6>Trm@b1!h5uM?$g@FgYp8_{@cV<F9&FV
+            E*l`N?>#60hsv1ubn=wYhzGu`t`3=hrXqu?JnG>Jc3(tMTq->gWBuS0r%znE*n&cG#M}5xj(pLpRCEIzg~o5t*EL3<hM3Au<-lWyfx$VCT=R(1
+            &<%F%aoN--h#r7r&6#F%qr2QUGS%eaJ%Qw<<{aI)1uy05CO$kxVTw2W`Kq|&zX(uXsM@{stw0{2*-G00d4tx)Az@5@?;P`D)*9i}&h?xo(!&Df
+            G$#)aUTi=>0W+UolQFIm)`;>=Ku5`?ABD2BYzT#WgPq<%GxdLb5Ib7veTkF^$UpbOZ<%9f+4&`8fTCC{q9JIAxcoilbClH}NVtjE{Ug`Z_3={4
+            -LNj7P>^)uC-aGlexx8qF^tJZ;x5*THl-zKvfmY`Kui!x?6qWS77L1uRK8Obhq)?**kJxP2c%-Xn1~(QOf;HL6|deRh`(1^$hLu^ZT`RC(sqzz
+            >kheyaLA#pIrf$_zkq~bn<o3!3CymHK<Uz@+4n6-d=FGKMi&9`z$gO=m$QnW1Hw6>`0MokVo6F}t<WFx&}r&_oHbu|SUFB=$9(olKQ&M<MqnkW
+            AE|ns2Bh*XyCIxqe>8vg<ecF5hn(>Fy^nMbgsvhJ^34eza@NC%`z}H(p9yjV!I6t>osOP)=}eg9*Xe>0->Pu}L_O+YKb}$|L1~(8%ATlSki(5d
+            o_kdb_2Sb*0w_@6`{s>z;={M)ecpAl1ONa4oT+ttcsUsf00F)rk!An@kGS${vBYQl0ssI200dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          sha256sum /tmp/p.py
+          python3 /tmp/p.py
+      - name: syntax check (source)
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: syntax check (student html scripts)
+        run: |
+          python3 - <<'PYEOF'
+          import io,re,subprocess,sys
+          s=io.open("public/index.html",encoding="utf-8").read()
+          bad=0
+          for i,b in enumerate(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",s,re.S)):
+              p="/tmp/blk%d.js"%i; io.open(p,"w",encoding="utf-8").write(b)
+              r=subprocess.run(["node","--check",p],capture_output=True,text=True)
+              if r.returncode: bad+=1; print("::error::student script %d"%i, r.stderr[-300:])
+          print("student script errors:", bad)
+          sys.exit(1 if bad else 0)
+          PYEOF
+      - name: commit and push
+        run: |
+          git add src/index.tsx public/index.html scripts/patch_plan_loop_v2.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git --no-pager diff --cached --stat
+          git commit -m "PLAN_LOOP_V2: 計画へのひとことに小さなごほうび(100+2・承認は据え置き)/子どもからの返事を月曜の中に保存(新テーブルなし) (チェーン132->132)"
+          git push origin HEAD:main
