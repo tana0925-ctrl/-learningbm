@@ -24,6 +24,8 @@ function defCarrySnapOk(mj: any): boolean {
   try { return defEntryOk(JSON.parse(String(mj))) } catch (_e) { return false }
 }
 import { defStageEnemies } from './def_stage'
+// QRHUNT_V1 既存「ひみつのQR」の作り替え。中身は src/qrhunt.tsx に閉じている。
+import { registerQrHunt, qrHuntCard } from './qrhunt'
 
 type Bindings = {
   DB: D1Database
@@ -8825,11 +8827,13 @@ app.get('/api/student/class-mission', async (c) => {
     }
   }
 
-  if (!m) return c.json({ ok: true, mission: null })
+  // QRHUNT_V1: ここに相乗りさせる（新しいAPI呼び出しを増やさない）
+  const _qrCard = await qrHuntCard(c, cm.class_id, u.id)
+  if (!m) return c.json({ ok: true, mission: null, qrHunt: _qrCard })
   const progress = (_preProgress != null) ? _preProgress
     : await countMissionProgress(c, cm.class_id, m.startAt, m.endAt, m.id, m.goalCorrect)
   const claimed = await c.env.DB.prepare(`SELECT 1 FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1`).bind(m.id, u.id).first<any>()
-  return c.json({ ok: true, mission: { ...m, progress, achieved: progress >= m.goalCorrect, claimed: !!claimed } })
+  return c.json({ ok: true, mission: { ...m, progress, achieved: progress >= m.goalCorrect, claimed: !!claimed }, qrHunt: _qrCard })
 })
 
 // 児童: ミッション達成報酬を受け取る（コイン＋かけらをサーバー側で加算）
@@ -9136,6 +9140,10 @@ app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?
 // WARMIX_V1 攻略モードの出題づくり。中身は public/war-mix.js。student-karte.js と同じ形。
 app.get('/war-mix.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/war-mix.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // WARMIX_V1 先生用「習ったところまで」設定画面。中身は public/teacher-progress.js。
+// QRHUNT_V1 児童側（カメラで読むので読み取りライブラリは無い）
+app.get('/qrhunt.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/qrhunt.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+// QRHUNT_V1 先生の印刷ページ専用。外部CDNを使わないために同梱している
+app.get('/qrgen.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/qrgen.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=3600' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/teacher-progress.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-progress.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
 // WARMIX_V1 先生ページ用：児童用ページの CURRICULUM（単元の一覧）だけを切り出して返す。
@@ -9170,6 +9178,16 @@ app.get('/api/teacher/curriculum-units', async (c) => {
 
 let _rootHtmlCache: string | null = null
 
+// QRHUNT_V1 撤去する死んだコード（public/index.html の実物と一字一句同じ）
+const QRHUNT_DEAD_INIT2 = "            // Secret coin QR (shop)\n                if (typeof setupQrFileUpload === 'function') {\n                    setupQrFileUpload('shop-qr-file-input','shop-qr-canvas');\n                }\n                // Character restore QR\n                if (typeof setupCharRestoreQrFileUpload === 'function') {\n                    setupCharRestoreQrFileUpload('char-restore-qr-file-input','char-restore-qr-canvas');\n                }\n"
+// QRHUNT_V1 撤去する死んだコード（public/index.html の実物と一字一句同じ）
+const QRHUNT_DEAD_FN_SHOP = "function setupQrFileUpload(fileInputId, canvasId) {\n            const fileInput = document.getElementById(fileInputId);\n            const canvas = document.getElementById(canvasId);\n\n            if (!fileInput || !canvas) {\n                console.warn(`setupQrFileUpload: Missing elements ${fileInputId} or ${canvasId}`);\n                return;\n            }\n\n            const ctx = canvas.getContext('2d');\n\n            fileInput.addEventListener('change', (e) => {\n                const file = e.target.files[0];\n                if (!file) return;\n\n                const reader = new FileReader();\n                reader.onload = (event) => {\n                    const img = new Image();\n                    img.onload = () => {\n                        // キャンバスに描画して解析\n                        canvas.width = img.width;\n                        canvas.height = img.height;\n                        ctx.drawImage(img, 0, 0);\n\n                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);\n                        // jsQRが存在するか確認\n                        if (typeof jsQR === 'function') {\n                            const code = jsQR(imageData.data, canvas.width, canvas.height, {\n                                inversionAttempts: \"dontInvert\",\n                            });\n\n                            if (code && code.data) {\n                                console.log('QR Code detected from file:', code.data);\n                                // 成功\n                                onSecretQrDecoded(code.data);\n                                // 入力をクリア (同じファイルを再度選べるように)\n                                fileInput.value = '';\n                            } else {\n                                alert(\"画像からQRコードを読み取れませんでした。\");\n                            }\n                        } else {\n                            console.error('jsQR library not found!');\n                            alert(\"QRコード読み取りライブラリが読み込まれていません。\");\n                        }\n                    };\n                    img.onerror = () => {\n                        alert(\"画像の読み込みに失敗しました。\");\n                    };\n                    img.src = event.target.result;\n                };\n                reader.readAsDataURL(file);\n            });\n        }"
+// QRHUNT_V1 撤去する死んだコード（public/index.html の実物と一字一句同じ）
+const QRHUNT_DEAD_FN_CHARRESTORE = "function setupCharRestoreQrFileUpload(fileInputId, canvasId) {\n            const fileInput = document.getElementById(fileInputId);\n            const canvas = document.getElementById(canvasId);\n            if (!fileInput || !canvas) {\n                console.warn(`setupCharRestoreQrFileUpload: Missing elements ${fileInputId} or ${canvasId}`);\n                return;\n            }\n            const ctx = canvas.getContext('2d');\n            fileInput.addEventListener('change', (e) => {\n                const file = e.target.files && e.target.files[0];\n                if (!file) return;\n\n                const reader = new FileReader();\n                reader.onload = (event) => {\n                    const img = new Image();\n                    img.onload = () => {\n                        canvas.width = img.width;\n                        canvas.height = img.height;\n                        ctx.drawImage(img, 0, 0);\n                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);\n                        if (typeof jsQR === 'function') {\n                            const code = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: \"dontInvert\" });\n                            if (code && code.data) {\n                                console.log('Char restore QR detected:', code.data);\n                                onCharRestoreQrDecoded(code.data);\n                                fileInput.value = '';\n                            } else {\n                                alert(\"画像からQRコードを読み取れませんでした。\");\n                            }\n                        } else {\n                            alert(\"QRコード読み取りライブラリが読み込まれていません。\");\n                        }\n                    };\n                    img.onerror = () => alert(\"画像の読み込みに失敗しました。\");\n                    img.src = event.target.result;\n                };\n                reader.onerror = () => alert(\"ファイルの読み込みに失敗しました。\");\n                reader.readAsDataURL(file);\n            });\n        }"
+
+// QRHUNT_V1 撤去する旧「ひみつのQR」セクション（public/index.html の実物と一字一句同じ）
+const QRHUNT_OLD_SHOP_SECTION = "<!-- ひみつのQR セクション -->\n<div class=\"mt-4 border-t-2 border-dashed border-gray-300 pt-4 pb-8\" id=\"secretQrSection\">\n<!-- タイトルをひみつのQRに統一 -->\n<h3 class=\"text-center text-sm font-bold text-gray-500 mb-2\">🔒 ひみつのQR</h3>\n  <!-- File Upload for QR Reading -->\n<div class=\"pt-2 w-full max-w-[240px]\">\n<p class=\"text-xs font-bold text-gray-600 mb-2 text-center\">QRコードを読み取る</p>\n<label class=\"flex items-center justify-center w-full bg-white/50 border-2 border-dashed border-gray-400 rounded-lg p-3 cursor-pointer hover:bg-white transition\">\n<div class=\"text-center\">\n<span class=\"text-2xl block\">📁</span>\n<span class=\"text-xs font-bold text-gray-600\">画像をアップロード</span>\n</div>\n<input accept=\"image/*\" class=\"hidden\" id=\"shop-qr-file-input\" type=\"file\"/>\n</label>\n</div>\n<canvas id=\"shop-qr-canvas\" style=\"display:none;\"></canvas>\n<!-- secretQrOutput removed -->\n</div>\n"
+
 app.get('/', async (c) => {
   try {
     if (!_rootHtmlCache) {
@@ -9180,6 +9198,30 @@ app.get('/', async (c) => {
       t = t.replace("👾 敵軍団（'+d.enemy_squad.length+'体）", "👾 ステージ'+(d.stage||1)+' ／ てき '+d.enemy_squad.length+'たい").replace(SUDDEN_OLD, SUDDEN_NEW).replace("var _seed=(((Date.now()>>>0)^0x9e3779b9)>>>0);", "var _seed=((_hash(String(_gcGid))^0x9e3779b9)>>>0);").replace("function genMoonSun6(){return _pickBank(_SB.ms6);}", "function genMoonSun6(){return _pickBank(_SB.ms6);}function genElectric6(){return _pickBank([{q:'手回し発電機のハンドルを速く回すと、豆電球の明るさはどうなる？',correct:'明るくなる',wrongs:['暗くなる','変わらない','消える']},{q:'コンデンサーのはたらきは？',correct:'電気をためる',wrongs:['電気を消す','音を出す','光を強くする']},{q:'同じ電気の量で長く光り続けるのはどっち？',correct:'LED',wrongs:['豆電球','どちらも同じ','どちらも光らない']},{q:'電気を「光」に変えて使う道具は？',correct:'電灯（LED・豆電球）',wrongs:['電子オルゴール','モーター','電熱線']},{q:'光電池（太陽光パネル）に強い光を当てるとどうなる？',correct:'電気が作られる',wrongs:['電気をためる','音が出る','回路が切れる']},{q:'電気を「熱」に変えて使っているものは？',correct:'電熱線（トースターなど）',wrongs:['豆電球','モーター','スピーカー']}]);}try{window.genElectric6=genElectric6;}catch(e){}function genEnvironment6(){return _pickBank([{q:'生き物どうしの「食べる・食べられる」のつながりを何という？',correct:'食物連鎖',wrongs:['光合成','蒸散','燃焼']},{q:'食物連鎖の出発点になるのは？',correct:'植物',wrongs:['草食動物','肉食動物','分解者']},{q:'植物が出し、動物が呼吸で取り入れる気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']},{q:'動物や植物が呼吸で出す気体は？',correct:'二酸化炭素',wrongs:['酸素','水素','ヘリウム']},{q:'水が蒸発→雲→雨とすがたを変えて自然をめぐることを何という？',correct:'水の循環',wrongs:['食物連鎖','光合成','発電']},{q:'人が環境を守るためにできることは？',correct:'ごみを減らす・リサイクル',wrongs:['木を全部切る','よごれた水を流す','生き物を捕りつくす']}]);}try{window.genEnvironment6=genEnvironment6;}catch(e){}function genPlant6(){return _pickBank([{q:'植物が日光を受けて養分（でんぷん）を作るはたらきを何という？',correct:'光合成',wrongs:['呼吸','蒸散','消化']},{q:'光合成に必要なものは？',correct:'日光・水・二酸化炭素',wrongs:['月の光・油','電気・砂','塩・氷']},{q:'光合成で作られる養分は？',correct:'でんぷん',wrongs:['水','二酸化炭素','酸素']},{q:'でんぷんがあるか調べる薬品は？',correct:'ヨウ素液',wrongs:['石灰水','リトマス紙','食塩水']},{q:'植物の葉から水が水蒸気となって出ていくことを何という？',correct:'蒸散',wrongs:['光合成','発芽','受粉']},{q:'光合成で植物が出す気体は？',correct:'酸素',wrongs:['二酸化炭素','ちっ素','水素']}]);}try{window.genPlant6=genPlant6;}catch(e){}").replace("return '野生バトル（モンスタボールで捕まえる）';", "return (function(){try{var _a=[];for(var _k in WILD_AREA_POOLS){var _p=WILD_AREA_POOLS[_k];for(var _d in _p){if(Array.isArray(_p[_d])&&_p[_d].indexOf(id)>=0){if(_a.indexOf(_k)<0)_a.push(_k);break;}}}if(_a.length){var _S={math:'算数',jp:'国語',soc:'社会',science:'理科',sci:'理科'};var _ls=[];for(var _j=0;_j<_a.length;_j++){var _m=null;for(var _i=0;_i<PVE_AREAS.length;_i++){if(PVE_AREAS[_i].id===_a[_j]){_m=PVE_AREAS[_i];break;}}if(_m)_ls.push((_S[_m.subject]||'')+(_m.grade?'（'+_m.grade+'年）':'')+'「'+(_m.name||_a[_j])+'」');}if(_ls.length){return _ls.slice(0,2).join('／')+(_ls.length>2?('など計'+_ls.length+'か所'):'')+'の野生バトル（モンスタボールで捕まえる）';}}}catch(e){}return '野生バトル（モンスタボールで捕まえる）';})();").replace("if (m.isBoss) continue;", "if (m.isBoss) continue; if (m.uncapturable) continue;").replace("else if(f.adv>=1-CR&&enemyBaseHp>0){ structKind='base'; }", "else if(f.adv>=1-CR&&enemyBaseHp>0&&(function(){var _ff=(f.side==='A')?B:A,_fl=(f.curLn!=null?f.curLn:f.lane);for(var _k=0;_k<_ff.length;_k++){var _e=_ff[_k];if(!_e.alive||_e.hp<=0)continue;if(Math.abs(_fl-(_e.curLn!=null?_e.curLn:_e.lane))<=1.05&&(1-_e.adv)>=0.85){return false;}}return true;})()){ structKind='base'; }").replace('function _gcFight(){', '/*__PB_HASH_FIX__*/function _hash(s){s=String(s==null?"":s);var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}function _gcFight(){').replace("分子は？',ans:n}", "分子は？',ans:n/_gcd(n,d)}").replace("分母は？',ans:d}", "分母は？',ans:d/_gcd(n,d)}").replace("var base=getMonster(Number(spec.id)); if(!base) return null;", "var base=getMonster(Number(spec.id)); if(spec&&spec.raw){var R=spec.raw;base={name:R.name||'てき',sprite:R.sprite||'',buff:R.buff||'attack',elementType:(R.elementType!=null?R.elementType:'normal'),skills:(Array.isArray(R.skills)&&R.skills.length)?R.skills:[{name:'こうげき',pow:Number(R.skillPow||12),acc:0.95,element:'normal'}]};} if(!base) return null;").replace("var lvl=Math.max(1,Number(spec.level||1)); var s=getStats(base,lvl);", "var lvl=Math.max(1,Number(spec.level||1)); var s=(spec&&spec.raw)?{atk:Number(spec.raw.atk||10),def:Number(spec.raw.def||5),spd:Number(spec.raw.spd||10),hp:Number(spec.raw.hp||100),maxHp:Number(spec.raw.hp||100)}:getStats(base,lvl);").replace("window._defShowReplay=_defShowReplay;", "window._defShowReplay=_defShowReplay;window._defRenderBattle=function(rep){try{_gcReplay=rep;_gcPlayIdx=0;if(!_gcSpeed)_gcSpeed=1;_gcRenderBattle();}catch(e){}};")
       t = t.replace("resultDiv.innerHTML = html;", "if(!window.__gachaResultOrig){ try{ window.__gachaResultOrig = resultDiv.innerHTML; }catch(e){} } resultDiv.innerHTML = html;").replace("const resDiv = document.getElementById('gachaResult');", "const resDiv = document.getElementById('gachaResult'); try{ if(!document.getElementById('gachaResultSprite') && window.__gachaResultOrig){ resDiv.innerHTML = window.__gachaResultOrig; } }catch(e){}").replace("const ans = (trainingQ && trainingQ.ans !== undefined) ? String(trainingQ.ans) : '';", "let ans = ''; if (trainingQ && trainingQ.ans !== undefined) { if (trainingQ.options && typeof trainingQ.ans === 'number' && trainingQ.options[trainingQ.ans] != null) { ans = String(trainingQ.options[trainingQ.ans]); } else { ans = String(trainingQ.ans); } }").replace("return FALLBACK[k] || k;", "try{ if(typeof CURRICULUM !== 'undefined' && CURRICULUM){ for(const _sk of Object.keys(CURRICULUM)){ const _sj = CURRICULUM[_sk]; if(!_sj || !_sj.grades) continue; for(const _gk of Object.keys(_sj.grades)){ const _us = _sj.grades[_gk] && _sj.grades[_gk].units; if(!_us) continue; for(const _uu of _us){ if(_uu && _uu.id === k && _uu.name) return _uu.name; } } } } }catch(e){} return FALLBACK[k] || k;"); t = t.replace('</body>', '<script src="/egg2p.js?v=1"></script><script src="/sticker.js?v=1"></script><script src="/defense2.js?v=21"></script><script src="/g8core.js?v=2"></script><script src="/g8math.js?v=1"></script><script src="/g8eng.js?v=1"></script><script src="/g8sci.js?v=1"></script><script src="/g8soc.js?v=1"></script><script src="/g8jp.js?v=1"></script><script src="/g8wild.js?v=1"></script><script src="/g9core.js?v=2"></script><script src="/g9math.js?v=1"></script><script src="/g9eng.js?v=1"></script><script src="/g9sci.js?v=1"></script><script src="/g9soc.js?v=1"></script><script src="/g9jp.js?v=1"></script><script src="/g9wild.js?v=1"></script><script src="/g10core.js?v=2"></script><script src="/g10math.js?v=1"></script><script src="/g10sci.js?v=1"></script><script src="/g10soc.js?v=1"></script><script src="/g10wild.js?v=2"></script><script src="/hanshin_advice2.js?v=1"></script></body>')
       t = t.replace('</body>', '<script src="/g8xmath.js?v=1"></script><script src="/g8xeng.js?v=1"></script><script src="/g8xsci.js?v=1"></script><script src="/g8xsoc.js?v=1"></script><script src="/g8xjp.js?v=1"></script></body>')
+      // ── QRHUNT_V1 ─────────────────────────────────────────────
+      t = t.replace('</body>', '<script src="/qrhunt.js?v=1"></script></body>')
+
+      // 死んでいた「ひみつのQR」一式の撤去。消してよいと判断した根拠（2026-09-24 実測）:
+      //   ・発行UI（teacherQrGenBox / secretQrGenerateBtn / secretQrCoinAmount / secretQrValidMin）は
+      //     HTML に1つも存在しない ＝ 先生は1枚も作れない状態だった
+      //   ・D1 の progress 26行中、使った形跡は1アカウントのみ。nonce を復号すると
+      //     2025-12-18 14:10〜14:20 の5回だけで、以後9か月ゼロ
+      //   ・キャラ復元QR（BMCHAR3）も発行側が児童用パッチで無効化ずみ、読み取り側の要素も不在。
+      //     代わりに「バックアップコード／ファイル」が生きている（player 全体を戻せる上位互換）
+      //   残っていたのは読み取り口だけ。カメラで読む方式に一本化するので、ここで外す。
+      t = t.replace('<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>',
+                    '<!-- QRHUNT_V1: jsQR 撤去。QRは iPad のカメラが読むのでライブラリ不要（外部CDN依存も1本減る） -->')
+      t = t.replace(QRHUNT_OLD_SHOP_SECTION,
+                    '<!-- QRHUNT_V1: ショップの「画像をアップロード」口は撤去。カメラで読む方式に一本化した -->')
+      t = t.replace("try{ setupQrFileUpload('shop-qr-file-input', 'shop-qr-canvas'); }catch(e){ console.warn('QR file upload init skipped', e); }",
+                    "/* QRHUNT_V1: 撤去ずみ */")
+      t = t.replace("try{ setupCharRestoreQrFileUpload('char-restore-qr-file-input', 'char-restore-qr-canvas'); }catch(e){ console.warn('Char restore QR file upload init skipped', e); }",
+                    "/* QRHUNT_V1: 撤去ずみ（要素は元から存在しなかった）*/")
+      // 初期化はもう1か所あった（書式がちがうので上の replace では落ちない）。関数の本体ごと外す。
+      // 呼ぶ人も、呼ばれる先の要素も、もう無い。
+      t = t.replace(QRHUNT_DEAD_INIT2, '                /* QRHUNT_V1: 撤去ずみ */\n')
+      t = t.replace(QRHUNT_DEAD_FN_SHOP, '/* QRHUNT_V1: setupQrFileUpload 撤去ずみ */')
+      t = t.replace(QRHUNT_DEAD_FN_CHARRESTORE, '/* QRHUNT_V1: setupCharRestoreQrFileUpload 撤去ずみ。\n   ⚠️ キャラ復元QR（BMCHAR3）は、作る側も読む側も画面が丸ごと無い状態だった。\n   代替は「💾 バックアップ」（ファイル／コードから復元）だが、これは\n   あらかじめ自分でバックアップを取っていた子しか救えない。\n   先生が発行して子どもを後追いで復旧させる手段は、いま無い。別便で作り直す候補。 */')
       // 🐯 阪神マンの追加アドバイス(hanshin_advice2.js)が追記できるよう、initGame内のconstをwindowにも公開
       t = t.replace("const HANSHIN_ADVICE_TREE = {", "const HANSHIN_ADVICE_TREE = window.HANSHIN_ADVICE_TREE = {")
       // __HANSHIN_ADV2_LOOKUP_V1__ 阪神マン: アドバイス参照の直前にマージを保証し、未登録なら単元IDをコンソールに出す
@@ -9555,7 +9597,25 @@ app.get('/login', (c) => {
           return;
         }
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
-        if(me.user && me.user.role === 'teacher') { location.href = '/teacher'; }
+        // QRHUNT_V1: 読んだQRのURLに戻す。これが無いとQRの中身が消える。
+        // ⚠️ ?next=https://わるいサイト を通すと踏み台にされるので、
+        //    「/ で始まり // で始まらない」相対パスだけ許可する。
+        var _next = '';
+        try { _next = new URLSearchParams(location.search).get('next') || ''; } catch(e) {}
+        // ⚠️ 正規表現やバックスラッシュを書くと、この HTML が TS の
+        //    テンプレートリテラルの中にあるせいで エスケープが1段食われ、
+        //    配信時に構文エラーになる（実際に一度なった）。
+        //    だからバックスラッシュを一切書かずに判定する。
+        //      ・「/」で始まる（相対パス）
+        //      ・「//」で始まらない（//evil.com は外部サイト）
+        //      ・バックスラッシュを含まない（ブラウザが / に正規化して //evil.com になる）
+        var _bs = String.fromCharCode(92);
+        var _safeNext = '';
+        if (_next.length > 1 && _next.charAt(0) === '/' && _next.charAt(1) !== '/' && _next.indexOf(_bs) < 0) {
+          _safeNext = _next;
+        }
+        if(_safeNext) { location.href = _safeNext; }
+        else if(me.user && me.user.role === 'teacher') { location.href = '/teacher'; }
         else { location.href = '/'; }
       };
     </script>
@@ -11159,6 +11219,17 @@ app.get('/teacher', (c) => {
           <h3 class="font-bold mb-3">ミッション一覧・進捗</h3>
           <div id="cmList"></div>
         </div>
+
+        <!-- QRHUNT_V1: 校内でさがすQR。既存の「ひみつのQR」の作り替え。
+             新しいタブは作らない。クラスは上の cmClassFilter を使い回す（選ぶ場所を増やさない）。 -->
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-1">🔒 ひみつのQR（校内でさがす）</h3>
+          <p class="text-xs text-slate-500 mb-3">
+            先生がQRを校内にはり、子どもが iPad の<b>カメラでうつす</b>と ひとこと がもらえます。1人1枚1回だけ。<br>
+            アプリの中に読み取り画面はありません（カメラが標準で読みます）。ひとことは<b>空欄のままでも動きます</b>。
+          </p>
+          <div id="qrHuntBox" class="text-sm text-slate-400">よみこみ中…</div>
+        </div>
       </div>
 
       <!-- 連絡帳タブ -->
@@ -11586,6 +11657,121 @@ app.get('/teacher', (c) => {
         if(typeof renderClasses === 'function') renderClasses();
       }
 
+      /* ===== QRHUNT_V1 先生側 ===== */
+      function qrEsc(x){ return String(x==null?'':x).replace(/[&<>"']/g, function(ch){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+
+      async function loadQrHunts(){
+        var box = document.getElementById('qrHuntBox'); if(!box) return;
+        var sel = document.getElementById('cmClassFilter');
+        var classId = sel ? sel.value : '';
+        if(!classId){ box.innerHTML = '<span class="text-slate-400">クラスをえらんでください</span>'; return; }
+        try{
+          var j = await fetch('/api/teacher/qr-hunts?classId=' + encodeURIComponent(classId)).then(function(r){return r.json();});
+          var hs = (j && j.hunts) || [];
+          var html = '';
+          if(!hs.length){
+            html += '<p class="text-slate-500 mb-2">まだありません。</p>';
+          }
+          hs.forEach(function(h){
+            var st = {open:'📗 開催中', before:'⏳ これから', after:'🌙 おわり', closed_now:'🕒 いまは時間外'}[h.state] || '';
+            html += '<div class="border rounded-lg p-3 mb-3">'
+              + '<div class="flex items-center justify-between gap-2 flex-wrap">'
+              +   '<div class="font-bold">' + qrEsc(h.title) + ' <span class="text-xs font-normal text-slate-500">' + st + '</span></div>'
+              +   '<div class="text-xs text-slate-500">' + qrEsc(String(h.start_at).slice(0,10)) + ' 〜 ' + qrEsc(String(h.end_at).slice(0,10))
+              +     (h.open_from ? '　' + qrEsc(h.open_from) + '〜' + qrEsc(h.open_to) + ' のみ' : '') + '</div>'
+              + '</div>'
+              + '<div class="mt-2 space-y-1">';
+            (h.spots||[]).forEach(function(sp){
+              html += '<div class="flex items-center gap-2 flex-wrap text-xs">'
+                +  '<span class="font-black w-6 text-center">' + sp.sort_no + '</span>'
+                +  '<input class="border rounded px-2 py-1 flex-1 min-w-[140px]" placeholder="どこに貼ったか（先生用メモ）" value="' + qrEsc(sp.label) + '" id="qrl_' + sp.token + '"/>'
+                +  '<input class="border rounded px-2 py-1 flex-[2] min-w-[180px]" placeholder="ひとこと（空欄でもOK）" value="' + qrEsc(sp.reward_text) + '" id="qrt_' + sp.token + '"/>'
+                +  '<input class="border rounded px-2 py-1 w-20" type="number" min="0" placeholder="キャラ番号" value="' + (sp.reward_monster_id||'') + '" id="qrm_' + sp.token + '" title="図鑑の番号。わからなければ空欄で"/>'
+                +  '<button class="bg-slate-200 rounded px-2 py-1 font-bold" onclick="saveQrSpot(\'' + sp.token + '\')">保存</button>'
+                + '</div>';
+            });
+            html += '</div>'
+              + '<div class="mt-3 flex gap-2 flex-wrap">'
+              +   '<a class="bg-amber-500 text-white rounded px-3 py-1 text-xs font-bold" target="_blank" href="/teacher/qr-print?hunt=' + encodeURIComponent(h.id) + '">🖨 印刷する</a>'
+              +   '<button class="bg-slate-200 rounded px-3 py-1 text-xs font-bold" onclick="showQrFinds(\'' + h.id + '\')">👀 だれが何まい</button>'
+              + '</div>'
+              + '<div class="mt-2 text-xs" id="qrf_' + h.id + '"></div>'
+              + '</div>';
+          });
+          html += '<div class="border-t pt-3 mt-2 space-y-2">'
+            + '<div class="font-bold text-sm">あたらしく作る</div>'
+            + '<input id="qrNewTitle" class="w-full border p-2 rounded text-sm" placeholder="なまえ（例：秋のひみつのQR）"/>'
+            + '<div class="flex gap-2 flex-wrap">'
+            +   '<div class="flex-1 min-w-[110px]"><label class="text-xs font-bold text-gray-600">まい数</label><input id="qrNewCount" type="number" min="1" max="60" value="6" class="w-full border p-2 rounded text-sm"/></div>'
+            +   '<div class="flex-1 min-w-[130px]"><label class="text-xs font-bold text-gray-600">はじまり</label><input id="qrNewStart" type="date" class="w-full border p-2 rounded text-sm"/></div>'
+            +   '<div class="flex-1 min-w-[130px]"><label class="text-xs font-bold text-gray-600">おわり</label><input id="qrNewEnd" type="date" class="w-full border p-2 rounded text-sm"/></div>'
+            + '</div>'
+            + '<div class="flex gap-2 flex-wrap items-end">'
+            +   '<div class="flex-1 min-w-[110px]"><label class="text-xs font-bold text-gray-600">よめる時間（から）</label><input id="qrNewFrom" type="time" class="w-full border p-2 rounded text-sm"/></div>'
+            +   '<div class="flex-1 min-w-[110px]"><label class="text-xs font-bold text-gray-600">（まで）</label><input id="qrNewTo" type="time" class="w-full border p-2 rounded text-sm"/></div>'
+            +   '<div class="flex-1 min-w-[180px] text-xs text-slate-500 pb-2">空欄なら終日。中休み・昼休みだけにすると、写真を持ち帰っても使えなくなります。</div>'
+            + '</div>'
+            + '<button class="bg-amber-600 hover:bg-amber-700 text-white rounded px-4 py-2 font-bold text-sm" onclick="createQrHunt()">🔒 作る</button>'
+            + '<p id="qrNewMsg" class="text-sm"></p>'
+            + '</div>';
+          box.innerHTML = html;
+        }catch(e){ box.innerHTML = '<span class="text-red-600">よみこみに失敗しました</span>'; }
+      }
+
+      async function createQrHunt(){
+        var sel = document.getElementById('cmClassFilter');
+        var msg = document.getElementById('qrNewMsg');
+        var classId = sel ? sel.value : '';
+        if(!classId){ msg.textContent = 'クラスをえらんでください'; return; }
+        var body = {
+          classId: classId,
+          title: document.getElementById('qrNewTitle').value || 'ひみつのQR',
+          count: Number(document.getElementById('qrNewCount').value) || 6,
+          startAt: document.getElementById('qrNewStart').value || undefined,
+          endAt: document.getElementById('qrNewEnd').value || undefined,
+          openFrom: document.getElementById('qrNewFrom').value || undefined,
+          openTo: document.getElementById('qrNewTo').value || undefined
+        };
+        msg.textContent = '作っています…';
+        try{
+          var r = await fetch('/api/teacher/qr-hunt', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+          var j = await r.json();
+          if(!r.ok){ msg.textContent = 'しっぱい：' + (j.error||''); return; }
+          msg.textContent = '';
+          loadQrHunts();
+        }catch(e){ msg.textContent = 'しっぱいしました'; }
+      }
+
+      async function saveQrSpot(token){
+        var label = (document.getElementById('qrl_' + token)||{}).value || '';
+        var text  = (document.getElementById('qrt_' + token)||{}).value || '';
+        var mon   = Number((document.getElementById('qrm_' + token)||{}).value || 0);
+        var body = { label: label, text: text, kind: mon > 0 ? 'monster' : 'word', monsterId: mon > 0 ? mon : null, coins: 0 };
+        try{
+          await fetch('/api/teacher/qr-spot/' + encodeURIComponent(token), {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+          var b = document.getElementById('qrt_' + token);
+          if(b){ b.style.background = '#dcfce7'; setTimeout(function(){ b.style.background=''; }, 900); }
+        }catch(e){ alert('保存できませんでした'); }
+      }
+
+      async function showQrFinds(huntId){
+        var box = document.getElementById('qrf_' + huntId); if(!box) return;
+        box.textContent = 'よみこみ中…';
+        try{
+          var j = await fetch('/api/teacher/qr-hunt/' + encodeURIComponent(huntId) + '/finds').then(function(r){return r.json();});
+          var rows = (j && j.rows) || [];
+          if(!rows.length){ box.textContent = 'まだだれも見つけていません'; return; }
+          var html = '<table class="w-full text-xs"><tr class="text-slate-500"><th class="text-left">なまえ</th><th>みつけた</th><th class="text-right">さいご</th></tr>';
+          rows.forEach(function(r){
+            html += '<tr><td>' + qrEsc(r.name||r.loginId) + '</td><td class="text-center font-bold">' + r.found + ' / ' + j.total + '</td>'
+                 +  '<td class="text-right text-slate-400">' + qrEsc(r.lastAt||'-') + '</td></tr>';
+          });
+          html += '</table><p class="text-slate-400 mt-1">※ 短い時間に全員がそろっていたら、写真が回った可能性があります。記録するだけで、罰は作っていません。</p>';
+          box.innerHTML = html;
+        }catch(e){ box.textContent = 'よみこみに失敗しました'; }
+      }
+
       function switchTab(tab){
         ['classes','contact','announcements','homework','analytics','mail','missions'].forEach(function(t){
           var pane = document.getElementById('tabPane' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -11599,7 +11785,7 @@ app.get('/teacher', (c) => {
         if(tab === 'analytics') { initAnalyticsFilters(); initLearnAnalytics(); switchAnalyticsSubTab('overview'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
-        if(tab === 'missions') loadClassMissions();
+        if(tab === 'missions') { loadClassMissions(); loadQrHunts(); }
         if(tab === 'mail'){ loadTeacherMail(); if(_mailListPollTimer) clearInterval(_mailListPollTimer); _mailListPollTimer = setInterval(function(){ loadMailStudentList(); }, 10000); } else { if(_mailPollTimer){ clearInterval(_mailPollTimer); _mailPollTimer=null; } if(_mailListPollTimer){ clearInterval(_mailListPollTimer); _mailListPollTimer=null; } }
       }
 
@@ -16054,6 +16240,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
 
 // 🧭 MIしらべ（/mi, /teacher-mi, /api/mi/*, /api/teacher/mi/*）を登録
 registerMi(app)
+registerQrHunt(app)   // QRHUNT_V1
 
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
 // 児童側の /api/defense/status と /api/defense/resolve には 1文字も さわっていない。
