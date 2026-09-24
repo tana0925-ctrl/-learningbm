@@ -11698,13 +11698,13 @@ app.get('/teacher', (c) => {
                 +  '<input class="border rounded px-2 py-1 flex-1 min-w-[140px]" placeholder="どこに貼ったか（先生用メモ）" value="' + qrEsc(sp.label) + '" id="qrl_' + sp.token + '"/>'
                 +  '<input class="border rounded px-2 py-1 flex-[2] min-w-[180px]" placeholder="ひとこと（空欄でもOK）" value="' + qrEsc(sp.reward_text) + '" id="qrt_' + sp.token + '"/>'
                 +  '<input class="border rounded px-2 py-1 w-20" type="number" min="0" placeholder="キャラ番号" value="' + (sp.reward_monster_id||'') + '" id="qrm_' + sp.token + '" title="図鑑の番号。わからなければ空欄で"/>'
-                +  '<button class="bg-slate-200 rounded px-2 py-1 font-bold" onclick="saveQrSpot(\'' + sp.token + '\')">保存</button>'
+                +  '<button class="bg-slate-200 rounded px-2 py-1 font-bold" onclick="saveQrSpot(&#39;' + sp.token + '&#39;)">保存</button>'
                 + '</div>';
             });
             html += '</div>'
               + '<div class="mt-3 flex gap-2 flex-wrap">'
               +   '<a class="bg-amber-500 text-white rounded px-3 py-1 text-xs font-bold" target="_blank" href="/teacher/qr-print?hunt=' + encodeURIComponent(h.id) + '">🖨 印刷する</a>'
-              +   '<button class="bg-slate-200 rounded px-3 py-1 text-xs font-bold" onclick="showQrFinds(\'' + h.id + '\')">👀 だれが何まい</button>'
+              +   '<button class="bg-slate-200 rounded px-3 py-1 text-xs font-bold" onclick="showQrFinds(&#39;' + h.id + '&#39;)">👀 だれが何まい</button>'
               + '</div>'
               + '<div class="mt-2 text-xs" id="qrf_' + h.id + '"></div>'
               + '</div>';
@@ -12762,12 +12762,12 @@ app.get('/teacher', (c) => {
             if(p.planAiComment && String(p.planAiComment).trim()){
               html += '<div class="text-xs mt-1 p-1.5 bg-violet-50 rounded border border-violet-200">'
                 + '<span class="font-bold text-violet-700">📋 計画へのひとこと：</span>'+escH(p.planAiComment)
-                + ' <button class="ml-1 text-[10px] underline text-violet-600" onclick="planCommentEdit(\''+escH(p.userId)+'\',this)">直す</button>'
+                + ' <button class="ml-1 text-[10px] underline text-violet-600" onclick="planCommentEdit(&#39;'+escH(p.userId)+'&#39;,this)">直す</button>'
                 + '</div>';
             }
             html += '<div class="flex items-center gap-1 mt-1'+((p.planAiComment && String(p.planAiComment).trim())?' hidden':'')+'" id="planCmtBox_'+escH(p.userId)+'">'
               + '<textarea id="planCmt_'+escH(p.userId)+'" class="flex-1 border rounded p-1.5 text-xs" rows="1" placeholder="計画へひとこと（子どもの画面に出ます）"></textarea>'
-              + '<button class="bg-violet-600 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="savePlanComment(\''+escH(p.userId)+'\',this)">返す</button>'
+              + '<button class="bg-violet-600 text-white rounded px-2 py-1 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="savePlanComment(&#39;'+escH(p.userId)+'&#39;,this)">返す</button>'
               + '</div>';
 
             // 金曜の振り返り
