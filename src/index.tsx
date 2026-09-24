@@ -3621,28 +3621,45 @@ app.post('/api/teacher/student-ai-comments', async (c) => {
     const rows = await c.env.DB.prepare(`SELECT cm.user_id as uid FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=?`).bind(u.id).all<any>()
     allowed = new Set((rows.results || []).map((r: any) => String(r.uid)))
   }
+  // ══════ KARTE_FIX_V2 (2026-09-24) 公開を1回のバッチにまとめる ══════
+  //  もとは児童1人につき D1 を2回（本文の保存＋台帳の確定）呼んでいた。
+  //  23人で47回・実測8.7秒。先生が毎週押すボタンとしては遅すぎるので、
+  //  prepare した文を bind して並べ、batch() で一度に流す（2回ぶん）。
+  //  週（week_start / week_end）はリクエスト全体で同じなので1回だけ決める。
   let saved = 0
+  const _kmW = _karteWeekOf(String((body && (body as any).weekStart) || ''), String((body && (body as any).weekEnd) || ''))
+  const _stInsert = c.env.DB.prepare(`INSERT INTO student_ai_comments (user_id, comment, updated_at, week_start, week_end, week_guessed) VALUES (?, ?, datetime('now'), ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET comment=excluded.comment, updated_at=datetime('now'), week_start=excluded.week_start, week_end=excluded.week_end, week_guessed=excluded.week_guessed`)
+  const _stUse = c.env.DB.prepare("UPDATE karte_material_uses SET used_at=datetime('now') WHERE user_id=? AND used_at IS NULL AND reserved_at >= datetime('now','-7 days')")
+  const _targets: string[] = []
+  const _batch: any[] = []
   for (const it of body.comments) {
     const sid = String((it && it.studentId) || '')
     if (!sid) continue
     if (allowed && !allowed.has(sid)) continue
-    // ══════ KARTE_MATERIAL_V1 ここが「公開」＝台帳の確定点 ══════
-    //  (1) どの週について書いたカルテかを、本文と一緒に残す。
-    //      印刷日から逆算していたころは、金曜に作って月曜に配ると
-    //      見出し(9/14〜18)と本文(9/7〜11)が一週ズレた。
-    //      週を保存して見出しもこれを使えば、いつ作っていつ印刷しても一致する。
-    //  (2) まとまりに入れて渡した材料を「使った」にする。
-    //      予約のうち7日以内のものだけ。作っただけで公開しなかったぶんは
-    //      予約のまま自然に戻る（makeup_grants と同じ流儀）。
-    const _kmW = _karteWeekOf(String((body && (body as any).weekStart) || ''), String((body && (body as any).weekEnd) || ''))
-    try {
-      await c.env.DB.prepare(`INSERT INTO student_ai_comments (user_id, comment, updated_at, week_start, week_end, week_guessed) VALUES (?, ?, datetime('now'), ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET comment=excluded.comment, updated_at=datetime('now'), week_start=excluded.week_start, week_end=excluded.week_end, week_guessed=excluded.week_guessed`).bind(sid, String(it.comment || ''), _kmW.start, _kmW.end, _kmW.guessed).run()
-    } catch (e) {
-      console.error('student-ai-comments: 週の列が無いので本文だけ保存します', e)
-      await c.env.DB.prepare(`INSERT INTO student_ai_comments (user_id, comment, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET comment=excluded.comment, updated_at=datetime('now')`).bind(sid, String(it.comment || '')).run()
-    }
-    try { await c.env.DB.prepare("UPDATE karte_material_uses SET used_at=datetime('now') WHERE user_id=? AND used_at IS NULL AND reserved_at >= datetime('now','-7 days')").bind(sid).run() } catch {}
+    _targets.push(sid)
+    _batch.push(_stInsert.bind(sid, String((it && it.comment) || ''), _kmW.start, _kmW.end, _kmW.guessed))
+    _batch.push(_stUse.bind(sid))
     saved++
+  }
+  if (_batch.length) {
+    try {
+      await c.env.DB.batch(_batch)
+    } catch (e) {
+      // 週の列が無い等で落ちたときは、本文だけの古い形でもう一度だけ試す。
+      // ここまで失敗したら 500 を返す（画面に「公開できませんでした」と出る）。
+      console.error('student-ai-comments: まとめて保存できませんでした。本文だけで入れ直します', e)
+      const _stOld = c.env.DB.prepare(`INSERT INTO student_ai_comments (user_id, comment, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET comment=excluded.comment, updated_at=datetime('now')`)
+      const _retry: any[] = []
+      for (const it of body.comments) {
+        const sid = String((it && it.studentId) || '')
+        if (_targets.indexOf(sid) < 0) continue
+        _retry.push(_stOld.bind(sid, String((it && it.comment) || '')))
+      }
+      try { await c.env.DB.batch(_retry) } catch (e2) {
+        console.error('student-ai-comments: 本文だけの保存も失敗しました', e2)
+        return jsonError(c, 500, 'save_failed')
+      }
+    }
   }
   return c.json({ ok: true, saved })
 })
@@ -14891,7 +14908,7 @@ wrap.innerHTML = '';
       })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=7"></script>
+    <script src="/teacher-ai.js?v=8"></script>
     <script src="/teacher-preview.js?v=1"></script>
   </body></html>`)
 })
