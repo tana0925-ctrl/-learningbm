@@ -1,0 +1,52 @@
+name: patch-defmop-v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          echo "--- bytes ---"
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:public/index.html | wc -c
+          git show HEAD:src/defmop_v1.ts | wc -c
+          echo "--- sha256 ---"
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:src/defmop_v1.ts | sha256sum
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_defmop_v1.py
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx
+          sha256sum src/index.tsx
+      - name: commit and push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "defense: 全滅で即終了しない掃討フェーズ（既定OFF・挙動不変） (__DEFMOP_V1__)"
+          git push origin HEAD:main
