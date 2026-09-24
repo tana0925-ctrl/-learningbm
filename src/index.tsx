@@ -10534,51 +10534,10 @@ app.get('/teacher', (c) => {
       </div>
 
       <!-- 🔑 パスワード再設定（追加） -->
-      <div class="bg-white rounded-xl shadow p-4">
-        <h2 class="font-bold mb-3">🔑 児童のパスワード再設定</h2>
-        <div class="mb-3 bg-amber-50 border-2 border-amber-300 rounded-lg p-3">
-          <div class="font-bold text-amber-800 text-sm">🆘 何人もまとめて直したいとき</div>
-          <p class="text-xs text-amber-700 mt-1">「2学期に入ってからログインしていない子」などでしぼりこみ → まとめてパスワードを作り直し → 切って配れるカードを印刷、まで1つの画面でできます。</p>
-          <a href="/teacher-recovery" class="inline-block mt-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold">ログイン復旧の画面をひらく →</a>
-        </div>
-        <p class="text-xs text-slate-400 mb-2">パスワードを忘れた児童のパスワードを新しくします（担任クラスの児童のみ）。新しいパスワードは画面に表示されるので、本人に伝えてください。</p>
-        <div class="flex flex-wrap gap-2 items-center">
-          <select id="pwResetStudent" class="border p-1.5 rounded text-sm bg-white min-w-[220px]"><option value="">児童をえらぶ…</option></select>
-          <input id="pwResetNew" class="border p-1.5 rounded text-sm" placeholder="新パスワード(空欄で自動生成)">
-          <button id="pwResetBtn" class="bg-slate-800 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-black">パスワードを再設定</button>
-        </div>
-        <p id="pwResetResult" class="text-sm font-bold mt-2"></p>
-      </div>
-      <script>
-      (function(){
-        var sel=document.getElementById('pwResetStudent');
-        fetch('/api/teacher/all-students').then(function(r){return r.json();}).then(function(j){
-          if(!j||!j.students) return;
-          j.students.forEach(function(x){
-            var o=document.createElement('option'); o.value=x.userId;
-            var label=(x.name&&x.name!==x.loginId)?(x.name+'（'+x.loginId+'）'):x.loginId;
-            o.textContent=(x.grade?('['+x.grade+'年'+(x.className||'')+'] '):'')+label;
-            sel.appendChild(o);
-          });
-        }).catch(function(){});
-        document.getElementById('pwResetBtn').onclick=async function(){
-          var res=document.getElementById('pwResetResult');
-          res.className='text-sm font-bold mt-2 text-slate-600'; res.textContent='';
-          var id=sel.value;
-          if(!id){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='児童をえらんでください'; return; }
-          var np=document.getElementById('pwResetNew').value.trim();
-          if(!confirm('この児童のパスワードを再設定します。よろしいですか？')) return;
-          try{
-            var r=await fetch('/api/teacher/reset-student-password/'+id,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({newPassword:np})});
-            var j=await r.json().catch(function(){return {};});
-            if(!r.ok){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='失敗: '+(j.error||r.status); return; }
-            res.className='text-sm font-bold mt-2 text-emerald-700';
-            res.textContent='新しいパスワード: '+j.tempPassword+' （本人に伝えてください）';
-            document.getElementById('pwResetNew').value='';
-          }catch(e){ res.className='text-sm font-bold mt-2 text-red-600'; res.textContent='通信エラー'; }
-        };
-      })();
-      </script>
+      <!-- 2026-09-25 整理: 「🔑 児童のパスワード再設定」カードを撤去。
+           同じことが「ログイン復旧の画面」(/teacher-recovery) でできる。あちらは
+           10人まとめて再発行＋印刷まででき、こちらの上位版。機能は減っていない。 -->
+      
 
       <!-- イベント管理 -->
       <div class="bg-white rounded-xl shadow p-4">
@@ -10735,7 +10694,7 @@ app.get('/teacher', (c) => {
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptDaily" checked class="accent-indigo-600"> 家庭学習コメント（毎日）</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptKarte" checked class="accent-indigo-600"> 個人カルテ</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptClass" class="accent-indigo-600"> クラス所見</label>
-              <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReport" class="accent-indigo-600"> 週報</label>
+              
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptPlan" class="accent-indigo-600"> 計画アドバイス</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReflect" class="accent-indigo-600"> 週の振り返りの返却</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptSuggest" class="accent-indigo-600"> おすすめ計画</label>
@@ -10755,7 +10714,7 @@ app.get('/teacher', (c) => {
               <div class="font-bold text-sm text-rose-800"><span class="bg-rose-500 text-white rounded-full px-2 py-0.5 text-xs mr-1">4</span>先生が確認して公開</div>
               <div class="flex items-center gap-2">
                 <span id="taiPubCount" class="text-xs font-bold text-rose-700"></span>
-                <button onclick="taiLoadDrafts()" class="bg-white border border-rose-300 text-rose-700 rounded px-2 py-1 text-xs font-bold hover:bg-rose-100">🔄 更新</button>
+                
               </div>
             </div>
             <p class="text-xs text-rose-700 mb-2">公開ボタンを押すまで、子どもには何も届きません。</p>
@@ -10859,7 +10818,7 @@ app.get('/teacher', (c) => {
           <div class="bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200 rounded-xl p-4 space-y-2">
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div class="font-bold text-sm text-sky-800">📄 いま子どもに届いている文（AIが書き、先生が公開したもの）</div>
-              <button onclick="loadAiSummary()" class="bg-sky-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-sky-700">🔄 更新</button>
+              
             </div>
             <div id="aiSummaryBox" class="text-sm text-slate-600"><p class="text-xs text-slate-400">クラスを選ぶと、保存済みのAI分析がここに表示されます</p></div>
           </div>
@@ -10887,12 +10846,7 @@ app.get('/teacher', (c) => {
           </div>
 
           <!-- 提出ヒートマップ -->
-          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-            <div class="font-bold text-sm text-slate-700">🗓️ 提出ヒートマップ（今週）</div>
-            <div id="heatmapContent" class="overflow-x-auto">
-              <p class="text-xs text-slate-400">分析データが読み込まれると自動で表示されます</p>
-            </div>
-          </div>
+          <!-- 2026-09-25 整理: 「🗓️ 提出ヒートマップ」は渡されるデータに曜日情報が無く、常に空だった。撤去。同じことは「📊 提出状況」タブに正しく出る。 -->
 
           </div>
 
@@ -10918,7 +10872,8 @@ app.get('/teacher', (c) => {
             <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
               <label class="text-slate-500">学年 <select id="tsGrade" class="border rounded p-1 bg-white"><option value="">自動</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
               <label class="text-slate-500">教科 <select id="tsSubject" class="border rounded p-1 bg-white"><option value="">（教科をえらぶ）</option><option>国語</option><option>算数</option><option>理科</option><option>社会</option><option>英語</option></select></label>
-              <input id="tsUnit" class="border rounded p-1" placeholder="単元(任意)" style="width:130px">
+              <!-- 2026-09-25 整理: 「単元」は student_test_scores に保存先の列が無く、入力しても消えていた（AIに渡す文にしか使われない）。撤去。
+                 ★将来復活させる候補：分析で単元名を突き合わせるために必要。列を足すときに戻すこと。 -->
             </div>
             <div class="flex items-center gap-2 flex-wrap mb-2">
               <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 テストを読ませるプロンプト</button>
@@ -10970,7 +10925,7 @@ app.get('/teacher', (c) => {
           <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center gap-2 flex-wrap mb-2">
               <div class="font-bold text-slate-700">🏫 クラス全体メモ</div>
-              <button onclick="loadNotes()" class="bg-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold hover:bg-slate-300">🔄 読み込む</button>
+              
             </div>
             <div class="text-xs text-slate-500 mb-2">上の「クラス」で選んだクラスの、その日の授業の気づきを記録します。</div>
             <div class="flex flex-col gap-2">
@@ -12635,16 +12590,7 @@ app.get('/teacher', (c) => {
 
 
 
-      async function sendFeedback(userId, btn){
-        btn.disabled = true;
-        const msg = (document.getElementById('fbMsg_'+userId)||{}).value || '';
-        if(!msg.trim()){ alert('メッセージを入力してください'); btn.disabled=false; return; }
-        try{
-          await api('/api/teacher/message', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({studentId:userId, content:msg})});
-          btn.textContent='✅ 送信済';
-          btn.className='bg-slate-300 text-slate-500 rounded px-2 py-1.5 text-[11px] font-bold shrink-0';
-        }catch(e){ btn.disabled=false; alert('送信エラー: '+String(e.message||e)); }
-      }
+      /* 2026-09-25 整理: sendFeedback は呼び出し元が無く、送る中身もAPI仕様と不一致で必ず失敗していた。撤去。子どもへの連絡は「💬 質問チャット」タブ。 */
 
       // ===== クラス分析ダッシュボード =====
       async function loadClassAnalytics(){
