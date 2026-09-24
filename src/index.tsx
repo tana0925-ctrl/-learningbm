@@ -15058,6 +15058,77 @@ app.get('/teacher', (c) => {
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=8"></script>
     <script src="/teacher-preview.js?v=1"></script>
+    <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
+         クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
+         あり、連動していなかった。上の「クラス:」を変えても、テスト取り込み等は
+         分析①の中の laClassSelect を読むため、前のクラスに保存される事故が起きていた。
+         読む側の関数（16個。取り込み口を含む）は1つも触らず、3つのセレクトを
+         いつも同じ値に保つだけにしてある（他の便と衝突しない作り）。
+         あわせて分析①の重複セレクトは隠し、選択中のクラス名を文字で出す。 -->
+    <script>
+    (function(){
+      var IDS = ['analyticsClassFilter','laClassSelect','activityClassFilter'];
+      var busy = false;
+      function els(){ return IDS.map(function(id){ return document.getElementById(id); }); }
+      function hasOpt(sel, val){ if(!sel) return false; for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===val) return true; } return false; }
+      function label(){
+        var lab = document.getElementById('classSyncLabel');
+        if(!lab) return;
+        var a = document.getElementById('analyticsClassFilter');
+        var t = (a && a.selectedOptions && a.selectedOptions[0]) ? a.selectedOptions[0].textContent : '';
+        lab.textContent = t ? ('対象: ' + t) : '';
+      }
+      function apply(val, fromId){
+        if(busy) return;
+        if(val==null || val==='') { label(); return; }
+        busy = true;
+        try{
+          els().forEach(function(sel){
+            if(!sel) return;
+            if(sel.id===fromId) return;
+            if(sel.value===val) return;
+            if(!hasOpt(sel, val)) return;
+            sel.value = val;
+            try{ sel.dispatchEvent(new Event('change', { bubbles: true })); }catch(e){}
+          });
+        } finally { busy = false; }
+        label();
+      }
+      function current(){
+        var a = document.getElementById('analyticsClassFilter');
+        if(a && a.value) return a.value;
+        var l = document.getElementById('laClassSelect');
+        if(l && l.value) return l.value;
+        var t = document.getElementById('activityClassFilter');
+        return t ? t.value : '';
+      }
+      function wire(){
+        els().forEach(function(sel){
+          if(!sel || sel.__csWired) return;
+          sel.__csWired = true;
+          sel.addEventListener('change', function(){ apply(sel.value, sel.id); });
+          try{ new MutationObserver(function(){ apply(current(), null); }).observe(sel, { childList: true }); }catch(e){}
+        });
+      }
+      function hideDup(){
+        var l = document.getElementById('laClassSelect');
+        if(l && l.style.display !== 'none' && l.parentNode){
+          l.style.display = 'none';
+          if(!document.getElementById('classSyncLabel')){
+            var lab = document.createElement('span');
+            lab.id = 'classSyncLabel';
+            lab.className = 'text-sm font-bold text-indigo-700';
+            l.parentNode.insertBefore(lab, l);
+          }
+        }
+      }
+      function boot(){ try{ wire(); hideDup(); apply(current(), null); }catch(e){ console.error('[CLASSSYNC_V1]', e); } }
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 600); });
+      else setTimeout(boot, 600);
+      setTimeout(boot, 2500);
+      setTimeout(boot, 6000);
+    })();
+    </script>
   </body></html>`)
 })
 
