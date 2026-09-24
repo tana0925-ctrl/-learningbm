@@ -100,10 +100,10 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       return o;
     } catch (e) { return null; }
   }
-  function cacheSet(key, text, blocks, noMaterial) {
+  function cacheSet(key, text, blocks, noMaterial, peopleWords) {
     try {
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, at: Date.now()
+        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, peopleWords: peopleWords || 0, at: Date.now()
       }));
     } catch (e) {}
   }
@@ -178,6 +178,36 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     }
     return { main: main, test: test };
   }
+  // ══════ KARTE_ANON_V1 (2026-09-24) 束から児童の実名を外す ══════
+  //  外部AIに貼る文章には、名前のかわりに その場かぎりの符号（A01〜）を入れる。
+  //  ・割り当てはコピーのたびにシャッフルする。先週と今週で同じ子でも違う符号になる。
+  //  ・目印のIDは loginId（名前そのものの子がいる）をやめて userId（UUID）にする。
+  //    取り込み側は もともと userId でも照合できる（put(normId(s.userId), s.userId)）。
+  //  ・対応表はこのブラウザの sessionStorage にだけ置く。貼り戻すときに使う。
+  //  ⚠ これで外れるのは「児童本人の氏名」だけ。子どもが書いた本文の中の
+  //    友達の名前・先生の名前・塾名などは消せない（消すと引用が壊れる）。
+  var TAI_ALIAS_KEY = 'taiAliasMap';
+  var _aliasByUid = {}, _aliasByKey = {};
+  function _akey(v) { return String(v == null ? '' : v).replace(/[\s　]/g, '').toLowerCase(); }
+  function buildAliases(roster) {
+    _aliasByUid = {}; _aliasByKey = {};
+    var idx = [];
+    for (var i = 0; i < roster.length; i++) idx.push(i + 1);
+    for (var j = idx.length - 1; j > 0; j--) { var k = Math.floor(Math.random() * (j + 1)); var t = idx[j]; idx[j] = idx[k]; idx[k] = t; }
+    for (var m = 0; m < roster.length; m++) {
+      var n = idx[m], a = 'A' + (n < 10 ? '0' + n : '' + n), r = roster[m];
+      _aliasByUid[r.userId] = a;
+      if (r.userId) _aliasByKey[_akey(r.userId)] = a;
+      if (r.loginId) _aliasByKey[_akey(r.loginId)] = a;
+      if (r.name) _aliasByKey[_akey(r.name)] = a;
+      try { var dn = nameOf(r.loginId, r.name); if (dn) _aliasByKey[_akey(dn)] = a; } catch (e) {}
+    }
+    try { sessionStorage.setItem(TAI_ALIAS_KEY, JSON.stringify(_aliasByUid)); } catch (e) {}
+  }
+  // 名簿に無い子は名前を出さずに伏せる。実名が漏れるより、分からないほうが安全。
+  function anonOf(loginId, name) { return _aliasByKey[_akey(loginId)] || _aliasByKey[_akey(name)] || '（名簿外）'; }
+  function anonUid(uid) { return _aliasByUid[uid] || '（名簿外）'; }
+
   function nameOf(loginId, fallback) {
     try { if (typeof resolveStudentName === 'function') return resolveStudentName(loginId, fallback); } catch (e) {}
     return fallback || '';
@@ -211,6 +241,8 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       // 「新しい取り込みなし」の子が何人いるかを出す。先生が
       //   「この子には何か足すか、別の観点で書かせるか」を判断できるように。
       var none = (m.noMaterial > 0) ? ('　📎新しい取り込みなし：' + m.noMaterial + '人') : '';
+      // 実名は外してあるが、本文の中の人名までは消せない。貼る前に気づけるように数だけ出す。
+      if (m.peopleWords > 0) none += '　⚠ 本文に人名らしい語 ' + m.peopleWords + '件';
       say('✓ コピーしました' + from + '（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）' + none + '。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -265,7 +297,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     if (!oneId && !window.__taiForceRefresh) {
       var hit = cacheGet(_ckey);
       if (hit && hit.text) {
-        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, noMaterial: hit.noMaterial || 0 };
+        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
         copyText(hit.text);
         return;
       }
@@ -291,6 +323,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       roster = (rd && rd.roster) || [];
     } catch (e) {}
     if (!roster.length) { say('名簿が取得できませんでした'); window.__taiBusy = false; return; }
+    buildAliases(roster);   // KARTE_ANON_V1 この回かぎりの符号を割り当てる
     if (oneId) {
       roster = roster.filter(function (r) { return String(r.userId) === oneId; });
       if (!roster.length) { sayOne('その児童が名簿に見つかりません'); window.__taiBusy = false; return; }
@@ -338,6 +371,9 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     out.push('・記録に無いことは書かない。分からないことは、うめずに書かないでおく。');
     out.push('');
     out.push('【まもってほしいこと】');
+    out.push('0. 児童の名前は渡していません。かわりに「A01」のような符号が入っています。');
+    out.push('   あなたが書く文の中に、符号を書かないでください（紙に記号が載ってしまいます）。');
+    out.push('   先生が読む文（クラス所見・週報）では「A01の子」のように符号で書いてかまいません。');
     out.push('1. 目印の行（=== [...] === ）は1文字も変えずにそのまま残す。行の順番も変えない。');
     out.push('2. 前置き・あいさつ・まとめ・「承知しました」などは書かない。目印と本文だけ。');
     out.push('3. 数字の言いかえはしない。「提出率は80%です」のように、見ればわかることを書き直すのは不要。');
@@ -404,7 +440,15 @@ out.push('【目印の種類】');
       out.push('        例：〜やったな／〜しとったな／〜ちゃう／〜やで／〜か？。ていねい語（です・ます）は使わない。');
       out.push('        文体は、上の共通のきまりより この阪神マンのきまりを優先する。');
       out.push('      - ①よいところ ②気になるところ ③次の一歩 のような番号の見出しは使わない。通信簿の形にしない。');
-      out.push('      - 3〜4文・180字以内。ひとかたまりの話しことばで書く。紙に印刷するので、これより長くしない。');
+      out.push('      - 4〜6文・280字以内。ひとかたまりの話しことばで書く。紙に印刷するので、これより長くしない。');
+      out.push('        280字は上限であって目標ではない。書くことが少ない週は150字でもよい。');
+      out.push('        長くするために、同じことの言いかえを増やさない。');
+      out.push('        「がんばろう」「大事だよ」のような、だれにでも言える文を足さない。');
+      out.push('      - 次の4つを必ず全部入れる（順番は自由。1文に2つ入れてもよい）:');
+      out.push('        (1) 先週の事実を1つ。本人が書いたことばを「 」でそのまま引用する');
+      out.push('        (2) 【4月からの移りかわり】から1つ（のびた／夏休みで落ちた／ずっと続いている）');
+      out.push('        (3) 見立てを1つ。「〜かもしれん」「〜ちゃうか？」と、見立てと分かる語尾で');
+      out.push('        (4) 本人が決められる問いかけで終わる');
       out.push('        （これまでの実績は平均152字・最長276字。180字なら紙に収まります）');
       out.push('      - 本人が書いたことば（ふりかえり・きもちの理由・計画）があれば、かならず「 」でそのまま引用する。');
       out.push('        例：金曜に「複雑な円の面積が求められた！」って、自分で書いとったで。');
@@ -429,7 +473,12 @@ out.push('【目印の種類】');
       out.push('      - 【前に渡したカルテ】には、前にこの子へ渡した文が入っています。');
       out.push('        同じ話題・同じほめ方・同じ問いかけをくり返さない。');
       out.push('        前の文の続きとして書く（例：先週言うてた◯◯、その後どうなった？）か、別の角度から書く。');
-      out.push('      - テストの点数・得点率・順位には いっさい触れない。');
+      out.push('      - 名前も「A07」のような符号も、文の中には絶対に書かない。');
+      out.push('        符号はこちらが誰のことか区別するための目印で、子どもには意味がない。');
+      out.push('        文は本人に向けて書くので、「あなた」「きみ」も要らない。');
+      out.push('      - テストは「いつ・何があったか」だけ渡してある。点数・評価は渡していない。');
+      out.push('        点数を推測して書かない。「よくできた」「結果が出た」など出来ばえにも触れない。');
+      out.push('        ほめてよいのは、テストに向けた取り組み（家庭学習の記録や本人のことば）だけ。');
       out.push('      - 正答率を「できている」の根拠にするときは、上の【⚠ 正答率の読み方】を必ず守る。');
       out.push('        「周回ぎみ」と書いてある単元の高い正答率を、理解の証拠として書かない。');
       out.push('      - 上の「突き合わせの型」を1つ使って、この子だけの見立てを書く。データの言いかえで終わらせない。');
@@ -479,7 +528,9 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     out.push('【児童ごとのデータの並び】');
     out.push('・【先週（' + weekLabel + '）】…個人カルテ・今週のおすすめ・振り返り返却は、ここが土台。');
     out.push('・【4月からの移りかわり】…月ごとの動きと、前期(4〜7月)→後期(8月〜)のくらべ。カルテで一度は触れる。');
-    out.push('・【今回の新しい取り込み】…まだ一度もカルテに使っていないプリント・作品。取り込んだ日つき。');
+    out.push('・【最近の取り込み】…まだ一度もカルテに使っていないプリント・作品。取り込んだ日つき。');
+    out.push('  古いものは渡していません。ここに無いものは、今週は話題にしないでください。');
+    out.push('・【最近のテスト】…あったという事実だけ。点数・評価は渡していません。');
     out.push('・【前に渡したカルテ】…前にこの子へ渡した文。同じことを書かないための参考。');
     out.push('・【ふだんの様子（4月からの積み上げ）】…背景。正答率は かならず「1問あたりの回数」とセットで読む。');
     if (wantWide) out.push('・【テスト・成績】…クラス所見と週報のための材料。個人カルテには使わないこと。');
@@ -606,7 +657,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
         var sigJa = { consec: '直近3問連続で不正解', drop: '後半で正答率が下がった', regress: '一度できたのに戻った' };
         out.push('■ 早期対応リスト（アプリ学習のつまずきサイン）');
         (ea.alerts || []).slice(0, 25).forEach(function (a) {
-          out.push('・' + nameOf(a.loginId, a.name) + '／' + unitJa(a.unit) + '：' +
+          out.push('・' + anonOf(a.loginId, a.name) + '／' + unitJa(a.unit) + '：' +
                    (a.signals || []).map(function (s) { return sigJa[s] || s; }).join('・') +
                    '（正答率' + a.acc + '%' + (a.recentAcc != null ? '→直近' + a.recentAcc + '%' : '') + '・' + a.total + '問）');
         });
@@ -625,7 +676,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
         out.push('（目安：50点以上=高 / 25点以上=中 / 24点以下=低 / データ不足=判定材料が片方しかない / 判定不可=記録がほとんどない）');
         var lows = [], unknowns = [], listed = 0;
         (rs.students || []).forEach(function (st) {
-          var nm2 = nameOf(st.loginId, st.name);
+          var nm2 = anonOf(st.loginId, st.name);
           if (st.level === 'unknown') { unknowns.push(nm2); return; }
           if (st.level === 'low') { lows.push(nm2); return; }
           var sg = (st.signals || []).join('／') || '（サインなし）';
@@ -646,7 +697,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       out.push('■ 最近ペースが落ちている子（直近7日の提出回数が、その前の7日より大きく減っている）');
       if (dropList.length) {
         dropList.forEach(function (ds) {
-          out.push('・' + nameOf(ds.loginId, ds.name) + '（前の7日 ' + ds.prev7 + '回 → 直近7日 ' + ds.recent7 + '回）');
+          out.push('・' + anonOf(ds.loginId, ds.name) + '（前の7日 ' + ds.prev7 + '回 → 直近7日 ' + ds.recent7 + '回）');
         });
       } else {
         out.push('・（直近で大きく落ちている子はいません）');
@@ -700,25 +751,25 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     //   返ってくるのは「まだ一度もカルテに使っていないもの」だけ。
     //   引き出しは4月からの全期間ぜんぶ。使ったものだけが外れる仕組み（karte_material_uses）。
     //   ここで受け取った時点では「予約」で、先生が公開したときに「使った」に変わる。
-    var pickBy = {}, pickNone = 0;
+    var pickBy = {}, pickNone = 0, pickFreshFrom = '', pickFreshDays = 0;
     if (want.karte) {
       say('カルテの材料をえらんでいます...');
       var picked = await postJson('/api/teacher/karte-materials/pick', { classId: cid });
-      if (picked && picked.ok) { pickBy = picked.byStudent || {}; pickNone = picked.exhaustedCount || 0; }
+      if (picked && picked.ok) { pickBy = picked.byStudent || {}; pickNone = picked.exhaustedCount || 0; pickFreshFrom = picked.freshFrom || ''; pickFreshDays = picked.freshDays || 0; }
       else { say('材料の台帳が読めませんでした。プリントの話は今回は渡しません。'); }
     }
 
     for (var i = 0; i < roster.length; i++) {
       var st = roster[i];
-      var nm = nameOf(st.loginId, st.name);
-      var sid = st.loginId || st.userId;
+      var nm = anonUid(st.userId);          // 束には符号だけ（実名は入れない）
+      var sid = st.userId;                  // 目印のIDは UUID（loginId が実名の子がいるため）
       say('児童のデータを集めています... (' + (i + 1) + '/' + roster.length + ')');
 
       var data = null;
       try { data = await getJson('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(st.userId)); } catch (e) {}
 
       out.push('--------------------------------------------------');
-      out.push('▼ 児童データ: ' + nm + '（ID: ' + sid + '）');
+      out.push('▼ 児童データ: ' + nm + '（ID: ' + sid + '）');  // nm は符号
       out.push('--------------------------------------------------');
 
       // ===== ① この1週間（個人カルテ・家庭学習コメント・振り返り返却の主役） =====
@@ -858,9 +909,11 @@ try {
       if (want.karte) {
         out.push('');
         if (_pk && _pk.materials && _pk.materials.length) {
-          out.push('【今回の新しい取り込み（まだ一度もカルテで使っていないもの）】');
+          out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
           _pk.materials.forEach(function (mt) {
-            var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + (mt.unit ? '／' + mt.unit : '') + (mt.evalRank ? '／先生の評価:' + mt.evalRank : '') + '）';
+            // KARTE_TEST_V1 ◎○△ は渡さない（子どもの紙に評価記号が出る事故を構造で防ぐ）。
+            //   先生が言葉で書かれた「評価コメント」は数値ではないので残す。
+            var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + (mt.unit ? '／' + mt.unit : '') + '）';
             if (mt.evalComment) ln += ' 評価コメント:' + mt.evalComment;
             if (mt.body) ln += ' 本文:' + mt.body;
             if (mt.reflection) ln += ' ／本人の振り返り:' + mt.reflection;
@@ -871,6 +924,24 @@ try {
           out.push('【今回の新しい取り込み】…なし');
           out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）');
         }
+        // ④ テストは「いつ・何があったか」だけ。点数・満点・得点率・順位・◎○△は渡さない。
+        //    読み取りに間違いがあっても、数値が束に入らなければ子どもの紙に害が出ない。
+        try {
+          var _ts = (data && data.testScores) || [];
+          var _tl = [];
+          for (var _ti = 0; _ti < _ts.length && _tl.length < 5; _ti++) {
+            var _t = _ts[_ti];
+            var _td = String((_t && _t.testDate) || '').slice(0, 10);
+            if (!_td) continue;                              // 日付のないものは渡さない
+            if (pickFreshFrom && _td < pickFreshFrom) continue;  // 古いものは渡さない
+            _tl.push('・' + _td + ' ' + String(_t.subject || '') + ' 「' + String(_t.testName || '') + '」');
+          }
+          if (_tl.length) {
+            out.push('');
+            out.push('【最近のテスト】※点数・評価は渡していません。あったという事実だけです');
+            out = out.concat(_tl);
+          }
+        } catch (e) {}
         if (_pk && _pk.pastKartes && _pk.pastKartes.length) {
           out.push('');
           out.push('【前に渡したカルテ（同じことを書かないための参考）】');
@@ -983,8 +1054,20 @@ try {
     var _txt = out.join(NL);
     var _blocks = 0;
     for (var bi = 0; bi < out.length; bi++) { if (out[bi].indexOf('=== [') === 0) _blocks++; }
-    window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false, noMaterial: pickNone };
-    if (!oneId) cacheSet(_ckey, _txt, _blocks, pickNone);
+    // KARTE_ANON_V1 本文に人名らしい語が残っていないか、貼る前に気づけるようにする。
+    //   ⚠ 「さん・くん・ちゃん・先生」を数えるだけの簡易な見張り。人名かどうかは判定していない。
+    var _pn = 0;
+    try {
+      var _pl = _txt.split(String.fromCharCode(10));
+      for (var _pi = 0; _pi < _pl.length; _pi++) {
+        var _pt = _pl[_pi];
+        if (_pt.indexOf('【') === 0 || _pt.indexOf('===') === 0 || _pt.indexOf('・【') === 0) continue;
+        if (/(くん|君|ちゃん|先生)/.test(_pt)) { _pn++; continue; }
+        if (/さん/.test(_pt) && !/(たくさん|みなさん|皆さん)/.test(_pt)) _pn++;
+      }
+    } catch (e) {}
+    window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false, noMaterial: pickNone, peopleWords: _pn };
+    if (!oneId) cacheSet(_ckey, _txt, _blocks, pickNone, _pn);
     window.__taiBusy = false;
     copyText(_txt);
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
@@ -1148,6 +1231,9 @@ async function ensureRoster(cid) {
 function scanOthers(body, selfUid, selfName, people) {
   var strong = [], weak = [], t = String(body || '');
   if (t.indexOf('=== [') >= 0 || t.indexOf('＝＝') >= 0) strong.push('目印らしい行');
+  // KARTE_ANON_V1 符号（A07 など）が本文に残っていたら、紙に記号が載ってしまう。
+  var _sym = t.match(/A[0-9]{2}/g);
+  if (_sym && _sym.length) strong.push('符号 ' + _sym[0] + ' が本文に残っています');
   for (var i = 0; i < (people || []).length; i++) {
     var p = people[i];
     if (selfUid && p.uid === selfUid) continue;
@@ -1267,7 +1353,19 @@ async function taiImport(opts) {
     if (!uid) { hold('名簿に一致する児童が見つかりません', label, ''); return; }
 
     var expect = nameMap[uid] || '';
-    if (afterName && expect) {
+    // KARTE_ANON_V1 束では名前を符号(A07)に置きかえている。符号どうしで照合する。
+    //   符号は完全一致で比べるので、氏名の部分一致より取り違えに強い。
+    //   対応表が無いとき（翌日貼るなど）は、これまでどおり氏名で比べる。
+    var _alMap = null;
+    try { _alMap = JSON.parse(sessionStorage.getItem(TAI_ALIAS_KEY) || 'null'); } catch (e) {}
+    var _af = String(afterName || '').trim();
+    if (_alMap && /^A[0-9]{2}$/.test(_af)) {
+      var _want = _alMap[uid] || '';
+      if (_want && _af !== _want) {
+        hold('符号と児童が食い違っています（ID→' + _want + ' ／ 目印には「' + _af + '」）', label, '');
+        return;
+      }
+    } else if (afterName && expect) {
       var a = normName(afterName), e2 = normName(expect);
       if (a && e2 && a.indexOf(e2) < 0 && e2.indexOf(a) < 0) {
         hold('IDと氏名が食い違っています（ID→' + expect + ' ／ 目印には「' + afterName + '」）', label, '');
