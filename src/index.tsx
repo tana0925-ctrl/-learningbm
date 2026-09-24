@@ -9098,6 +9098,18 @@ app.get('/', async (c) => {
       // P10 縮小コールバックを閉じる（P4とセット）
       t = t.replace("      .catch(function(e) { console.warn('[photo-analysis]', e); });\n  }\n}", "      .catch(function(e) { console.warn('[photo-analysis]', e); });\n    });\n  }\n}")
 
+      // ===== HSEDIT_Z_V1 (2026-09-24) =====
+      // 家庭学習の「履歴を直す」窓は z-50、サイドバー(.lbm-sidebar)は z-60。
+      // そのため窓を開けている間もサイドバーが手前に出て、見えていないつもりのナビがタップできる。
+      // 2026-09-07 の「見えないのに押せる」と同型（あのときは野生バトルが勝手に始まった）。
+      // 窓側だけを最前面へ上げる。サイドバー側は触らない。
+      {
+        const _hsEditZOld = "m.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4';"
+        const _hsEditZNew = "m.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4';"
+        if (!t.includes(_hsEditZOld)) console.error('[HSEDIT_Z_V1] アンカーが見つかりません。置換は不発です。')
+        t = t.replace(_hsEditZOld, _hsEditZNew)
+      }
+
       // ===== hs-minutes-input-20260911 =====
       // P5 タイマー未使用時だけヒントを出す
       t = t.replace("<div id=\"hsElapsedLine\" class=\"hs-elapsedLine hidden\">経過 0:00</div>", "<div id=\"hsElapsedLine\" class=\"hs-elapsedLine hidden\" data-hint=\"1\">経過 0:00</div><div id=\"hsMinHint\">⏱タイマーでも、手入力でもOK</div><style>#hsMinHint{display:none; position:absolute; left:8px; right:8px; top:31px; text-align:center; font-size:10px; font-weight:700; color:#0e7490; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;} #hsElapsedLine.hidden + #hsMinHint{display:block;}</style>")
@@ -10878,7 +10890,7 @@ app.get('/teacher', (c) => {
           <div class="font-bold text-sm text-green-800">📋 先生メニュー（今週の課題）</div>
           <div class="text-xs text-green-700 mb-2">クラス全体に出す漢字スキル・計算スキルのページ指示を設定します。生徒の家庭学習シートに表示されます。</div>
           <div class="flex gap-2 items-center flex-wrap">
-            <select id="menuClassFilter" class="border p-2 rounded text-sm bg-white"></select>
+            <select id="menuClassFilter" class="border p-2 rounded text-sm bg-white" onchange="loadWeeklyMenu()"></select>
             <span id="menuWeekLabel" class="text-xs text-slate-500 font-bold"></span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -10971,12 +10983,15 @@ app.get('/teacher', (c) => {
             #hwList .hw-ctx { max-height: 4.6rem; overflow: hidden; }
             #hwList .hw-ctx.hw-ctx-open { max-height: none; }
           </style>
-          <div id="hwList" class="space-y-3 text-sm">
-          <!-- 📌 2026-09 整理: 空だった「4 今週の振り返り」タブの案内を、ここに1行で移した -->
-          <p class="text-[11px] text-slate-400 mt-2 border-t pt-2">
-            週の振り返りへの返却は <b>分析タブ →「📋 今日のひと往復」</b> です。
+          <!-- 📌 2026-09-24 修正: この案内は #hwList の中にあったため、loadHomework() の
+               wrap.innerHTML='読み込み中...' で毎回まるごと消されていた（＝先生の目に一度も触れていない）。
+               #hwList の外へ出し、11px灰色から見える帯に変えた。文言は変えていない。 -->
+          <div class="mb-3 p-3 rounded-lg bg-amber-50 border-2 border-amber-300 text-sm text-amber-900 leading-relaxed">
+            <span class="font-black">📌 週の振り返りを返す場所は、ここではありません。</span><br>
+            <b>分析タブ →「📋 今日のひと往復」</b> です。
             「今回ふくめるもの」の<b>週の振り返りの返却</b>にチェックを入れてください（金曜日は自動でON）。
-          </p></div>
+          </div>
+          <div id="hwList" class="space-y-3 text-sm"></div>
         </div>
         </div>
 
@@ -11018,7 +11033,7 @@ app.get('/teacher', (c) => {
         <div class="bg-white rounded-xl shadow p-4">
           <h3 class="font-bold mb-3">連絡帳を書く</h3>
           <div class="space-y-2">
-            <select id="cnClassFilter" class="border p-2 rounded text-sm bg-white w-full"></select>
+            <select id="cnClassFilter" class="border p-2 rounded text-sm bg-white w-full" onchange="loadContactNotes()"></select>
             <div class="flex gap-2">
               <div class="flex-1">
                 <label class="text-xs font-bold text-gray-600">日付</label>
@@ -11327,7 +11342,7 @@ app.get('/teacher', (c) => {
           await loadServerNameMap();
           if(st) st.textContent='✓ '+cnt+'名の表示名を保存しました（先生みんなで共有）';
         }catch(_e){ if(st) st.textContent='✓ '+cnt+'名を保存（この端末のみ・共有保存に失敗）'; }
-        try{ renderClassList(); }catch(_e){}
+        try{ renderClasses(); }catch(_e){}
       }
       async function downloadStudentCSV(){
         try {
@@ -11408,7 +11423,7 @@ app.get('/teacher', (c) => {
           var msg = document.getElementById('csvStatusMsg');
           if(msg) msg.textContent = '✅ 名簿を読み込みました（' + count + '名）。このブラウザにのみ保存されます。';
           // 画面を更新
-          if(typeof loadClasses === 'function') loadClasses();
+          if(typeof renderClasses === 'function') renderClasses();
         } catch(e){
           alert('エラー: ' + String(e.message||e));
         }
@@ -11425,7 +11440,7 @@ app.get('/teacher', (c) => {
           var msg = document.getElementById('csvStatusMsg');
           if(msg) msg.textContent = '🔒 匿名化完了（' + (r.updated||0) + '名の名前を空にしました）';
           alert('匿名化しました。');
-          if(typeof loadClasses === 'function') loadClasses();
+          if(typeof renderClasses === 'function') renderClasses();
         } catch(e){
           alert('エラー: ' + String(e.message||e));
         }
@@ -11435,7 +11450,7 @@ app.get('/teacher', (c) => {
         setStudentNameMap({});
         var msg = document.getElementById('csvStatusMsg');
         if(msg) msg.textContent = '🗑 名簿マッピングを削除しました';
-        if(typeof loadClasses === 'function') loadClasses();
+        if(typeof renderClasses === 'function') renderClasses();
       }
 
       function switchTab(tab){
@@ -12354,7 +12369,7 @@ app.get('/teacher', (c) => {
               : '';
             const __pName = resolveStudentName(p.loginId, p.studentName);
             const revBadge = (p.revisionCount && p.revisionCount > 0)
-              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold cursor-pointer" onclick="showRevisions('+p.id+',\\''+escH(__pName)+'\\')">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
+              ? '<span class="bg-orange-100 text-orange-700 text-xs px-1.5 rounded font-bold" title="修正の中身を見る画面は、まだありません">🔄 '+p.revisionCount+'回修正（自己調整）</span>'
               : '';
             let html = '<div class="flex items-center justify-between flex-wrap gap-1">'
               + '<div class="font-bold text-sm">'+escH(__pName)+' <span class="text-xs text-slate-400 font-normal">'+escH(p.grade+'年'+p.className)+'</span> '+approvedBadge+' '+revBadge+'</div>'
@@ -12434,26 +12449,9 @@ app.get('/teacher', (c) => {
         try{
           await api('/api/teacher/weekly-plan/'+planId+'/return-reflection', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({comment})});
           await loadStudentPlans();
-wrap.innerHTML = '';
-          for(const item of list){
-            const card = document.createElement('div');
-            card.className = 'border rounded-lg p-2 bg-white space-y-1';
-            let html = '<div class="font-bold text-sm text-slate-700">'+escH(item.name)+'</div>';
-            html += '<div class="space-y-0.5">';
-            for(const msg of item.messages){
-              html += '<div class="text-xs text-slate-600 bg-yellow-50 rounded p-1.5 border border-yellow-100">'+escH(msg)+'</div>';
-            }
-            html += '</div>';
-            // 編集可能なテキストエリア + 送信ボタン
-            html += '<div class="flex gap-1 items-end mt-1">';
-            html += '<textarea class="flex-1 border rounded p-1.5 text-xs" rows="2" id="fbMsg_'+item.userId+'" placeholder="コメントを編集...">'+escH(item.messages.join(' '))+'</textarea>';
-            html += '<button class="bg-emerald-600 text-white rounded px-2 py-1.5 text-[11px] font-bold hover:opacity-90 shrink-0" onclick="sendFeedback(\\''+item.userId+'\\',this)">💬 送信</button>';
-            html += '</div>';
-            card.innerHTML = html;
-            wrap.appendChild(card);
-          }
         }catch(e){
-          wrap.innerHTML='<p class="text-red-600">エラー: '+escH(String(e.message||e))+'</p>';
+          btn.disabled=false;
+          alert('エラー: '+String(e.message||e));
         }
       }
 
