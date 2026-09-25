@@ -1,0 +1,149 @@
+name: patch-trade-fix-v2
+
+# TRADE_FIX_V2 (2026-09-25) 友達交換の3点修正
+#   ① 失敗理由を子どもの画面に出す
+#      サーバは理由を返している（例 cannot_trade_special / 400）が、交換画面の catch が
+#      e を見ずに固定文「⚠️ エラーが発生しました」だけを出して理由を捨てていた。
+#      交換できない決まりのキャラ（夏フェス 935-939）を26人中13人が持っており、
+#      それを選んだ子は「わけがわからないまま失敗する」状態だった。
+#   ② キャラの絵が ❓ になるのを直す
+#      絵を m.emoji で読んでいるが、キャラ表は sprite で持っている。
+#      過去の交換記録90件すべてが "emoji":"❓"。渡す相手も中身も絵で分からなかった。
+#   ③ 成功しても「失敗しました」と出るのを直す
+#      成立後の loadData()/画面更新が同じ try の中にあり、そこで転ぶと失敗表示になっていた。
+#
+#   ④ 交換禁止リストの一元化は入れない（対象キャラの決定に先生の判断が要るため）。
+#
+# ⚠ 2026-09-25 朝の教師ダッシュボード事故の教訓を反映:
+#   - この修正は onclick を1つも追加しない（スクリプト内で 0 件を検証・fail-closed）
+#   - 「ソースが正しい」は「配信物が正しい」を意味しない。スクリプトは配信後の姿を作って
+#     その <script> を node --check にかけてから push する（fail-closed）
+#   - chain_before と実測チェーン数が違えば中止する（ほかの配信との競合検出）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (app.get(/) ~ app.get(/logout) no .replace( sousuu)'
+        required: true
+        default: '132'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa761SMbT8$j;7~poK3xD2h(bq-
+            BQwKy4>SE$m+hy=@aif<Hp(x6u+(tyFiahF1HVcH?kM$)NAVryExgUia?<1dxs?Ww7hc?`sr}o-;b)K3Z<+<uo0UKPDRKj-uUxlh-mcP8!X~AmUkNQ-
+            0EWJW42V{rWP^+M>3D-
+            kXSA^EOT{y2AV%bQ$hw|DZCJqfbv*uu7ykw02RwfTdH~c7APc=xm#B8OEccdpNTAv|&&gF|A}7}e!qPJoftgRrGI0$PQ(XwapTcC^XP_56WU!w!(BM;fF;FC}^((Xizv
+            zUl%>6T4II~vJthl!jRs6px-v1&pRH8muz-_(G6#rxtxny<su>JwmseFbtgu9rjK3}<~vwU7n1!tt>a}&!!1ri=3D<B-UU6(28W|-
+            WXd`NLtuK4P@CB!=nU^}arwRHRZIYtxCyE4$B_^N1?LGd6F>RzD`2MTHDjh#~S;ME$h<F8$|Ig9T_-
+            J7&F>GisiEr{Jl!J1_`7u(8*6%u~!BM1TMq@!4Nm7&>CW@vkD1X1H22k!@JaV3F_a)Fi5+rc+&)D$`PDO8;mT{}y*zcT%*3l6<E1EzM`{H0wQWgY!!$Q!5yptoA@O6*e
+            l!MajQTQv2AaY6FESsxm0%!ufsNPGGYP(qH=ngVC|lDE<~`m31<M%z?}V?($renuHtzx$waa*MyW_b!W%z}-sVPa+m2vra+;$}!}m-
+            jk!iB*ELp#$bk?Sx>C;uaL0793A-
+            mK05=tEft;LMCdTq5z~t<nXqFSe5CyCP9$<e*7FJdx&P8Q61x;A$4ArG5cD1;c1E%#CIeb7^v~%y<{xpP3b!KmHnvEw&SP(Bh5%;Tub)oW72KVC_y7F2EWQP2*ir0dP2
+            az|nuwADtDq|NNDXF`^Bv(U2`+tj5ahQ-2Sv7!Y8*U%$FH`G>S6ss?sNR-%8lnR7za(;_sg%ICINe+`>+ZoMT+aavC)?(VD4Qb;&SjF8*F4zis|WN6Wl)VF1x-
+            !C62v`QU?nv<@+SPPTmu`3WgeFyTGSmOGJm}lFvoo{`B0TjBtlyQO=G+xOCL8XhMoefg-
+            g+F5Oh1=HOEr)N9Gytkxpskbp#lO!dGcZSIo|X0NB#kH!EIV9hQLfI{NuJ*XvkA9uOjdP;vf1-
+            V0WVeA0%vPq2_3yuP)yy$66zeP}Fn@lO4a0at?nWq<E$!OG@|Gtv#zWsEiAq&a?zhRl&?KV1s_)G7ff&L-=3igPdrc<>sV-nSHZ2VjaIe5KEz$PQ~taAORk%oLvvv`my
+            Oa=g!J{KD|-KKbZJ055HCEhYQ7Voc>eH?J;9Ko`GLG5w9j>^>VJ;kDdD}!w!H-XFVGlLsJBQYUlAo}M4=j9AAjX|Sy8#-
+            qS2`OQkGzwj`@+ETYi$vYKZWXVp?7Fjrfx{C4uKc{ryYJDoa$kC56~|rBB-xBVu@RPudH#LgfpE3<6os9p-
+            j(Mq(Ui&lym0l)ixDZ#mvJinoeE>Y)=XAObC$Su3$6C7e-j&>=dQxQNE8k{3sk;YQ7P9>-n3)5)6FCKvJ|H<pH7<W5-
+            vzGD<N)P+|17dc39xP&0nJ4Ii63e^5N>xh_^y0SsTD?$Z?~Wt8R6(Dnb*m;5e$bxVR;8t;EK9K5rcBkbm24fiA%(i_1*A0I;l+CR>!w$5Ry-Pf7^t@^@b21yzI?>t&~D
+            Te=ePk-^c}1_3rO$GcF(L0vbny$W8O-jI=R)2JS);|zl{Nk3H`bGRWPIK#4jMNX!N9#M7_)-
+            Eb(^3ru^Ds>Dho<=#eY&j(^!XU3Qr9^L4&5}mXq@v*25<u~uddw79<B8T+_#DuFp)cWO<bwxgD(OEz+_~qL?bD`BB6?NV#GiiBy2&a7O}n$3O~lcU(yx&_+iBB{9v<lE
+            4{X{3{^FeEZajNP>j$8J8O4b1D+04y#Js{GwP2H#OT~`E>u3rzbMsA(4vdH|4i4R@nw`#&mMd7Ky7#!~7IAw&t7l6~CZ$utLq!S^RvbVeomjcf3rD=dak`1#$b*<rOU6
+            {f*Er5if1wf{l}oA!<tQ67i;X1`1m=8OWoI`43Yu$6tVSo)ZyIkVFVseavL^5?PGy{0laMyCZOIj?w3lc9oA;WqI^Kn|PeLh^?9q1@h&Ms$n>p0%PKPW#{&drH3x5yYZ
+            =sf)L9y<4<cJ%w$iFW|L!mv$c~vl|b64LxM!Qbstqg#gc@xw*sO_+53#dn<Q8}XDMP4}~Dngvn=*1;`+u#jZ^BRVOUnUbM8EJC(DDeL!tPCZBH-
+            K!D$Q#<viZnDLiiU793*u6XuttvS%C|z;CZG^e_Z^}&c;swU!9QGmzm<uD9#3z$Zl35DNG)DS)MCKTbTvy-
+            1BG_C>Y*=e&hrP=B8#jWQNhIA`d7S>8#p!J)7s{b0MmzMrN-+!Rfvk<@hWz&{C-07ySbl2{kSJ{xv|s#9JAgIyu0oY_bwMFAw+gfj!%FTDJ}}^69){1X7;IRn5-
+            h!@1DW8Y$0Pi6xU64C?&^Bs$j^)ttSN{igBc(4)!64hmZ@bNin}i6;r;)&4_!`JB>F?JU}Ow`{9(6n`8L!C|@4uk+-4`oY-
+            d7lD(al8fF>vsOJd3NDeR<gPb8ugu^l%UbEYR|2cnl2K|WeODg5(%CY{i^Q)R9+XA0UrOSI#cSf%-!XU??qSGfmfzEPF32b0doUt)$;nYw#VrUoBDaJEjdcXpk-wiG+V
+            3*ierSk`p>V5|@G1KEcU$Q~S7_(Btvy#@?Dzs|}Ip5pBAc%Zqz_95yRC+K!3P7Xnf5V|v%7h*YF2jEic?F^rN8ib^%)n7m`IU!Pf4Wk?RhACl{V`&MYNV|mW3qx-mcL=
+            t#$GzC=SI34_KSm#yxX+7go1k-QdY0xA6_V3Aeg@U!uuzW)+%n3-lS62-
+            jL4WM!^?O{q2FFH$E(jA4x@H37DL3DQFh8k*Lm#B&shKgXAhFZh;;yoVn{gY`rLc^(X>@&$_VpVV_Dpel-
+            T(lN5JFzl;ZwGa<xtJxZ2*N~Iz=zBKspkJP~TT7d23NeVlzA`39pNvnVM@GZ^~GttKdggFl5(IVur!fpOxF)svNZl9g@DFa|LHa3XS6WWi^P4ZN_(Hb*cVo8q@nedn+P
+            r1!z*UitEI)UPiqhyh8Z=4Y1z(hC_$A6(2!j%cp_)LZyu-bPCI5Ie*Mb9xSR3ENpZ|hFJhGEGfyOJCq(F7CG^Xk+ASDJ`xX|-$alDav|F77j@**#U00N<5};NqIT-
+            7RM{l~tu#@}9~wjlDfP=(?+GuFf)f#nnX07gQ@?^coV%sFS4xCS04#liAX@Qhz}2WSkm!(KVm=zD~Nrh1p`7+xK2Gx?jF4*NjWujIw~j!=a&MSourg@@`(IP~Js$ehD*
+            7fhDU%R`(&i$H4`!E_`{L(!a2$P?{aMH6R|1ux!r!FjAltAr-
+            RQ85ziRAzWXu3_yxmu6y2x=qqhVe}RJ5?VFvpqxcs$6uI-&Du0gh$Yn9W3)K<eX#+=m$u#3NpZ#tvy{nVap}xA<^OF{T@YAj-BWv1#Gp4(g;y0UGQ37k!z{2%w;D<9UE
+            +Mf)g`}gIcG)A1HBd>^aBmdPU9XRpS7%B?N*;IDO&Xo+7#i(JKbL4-
+            tD{H)nWS>kHu^KcmQ8&WksH;^y(ftk1wzHJNn>4dDLHa1Ry>_*l{;kN%Y|#D03W;S13B@4`AZbAol4o4u0==ND`E}hGuFBvkc?}`raYJrpM&L-
+            y{5@xis<trmGVkWw=+<D0}7}f_9NVTqN_=1coC%tU1PAvphY|1kLtGLjA~3Mx(1>1a{gWu7-|hs*@#T~oLZ^^OE_x<9Ckr&2-
+            *i&%`T98`fC6kp3CEtLkh;C=qvvqv)W@mA(4lLrcbV#$zj%Q0L<R<1F<eXIYh)<ytNHGhWi-U#0u=VtX`C+Mg@dY6k_`mvk|bVSE!~*%bRM;=jMYVtf-
+            ;8Cq)J&!2(sNW#KLWzl|mpwc+Ujh?JY7Mbu!%Qjh`?sAym-Gv_#zSo>-%45l+k;*Vco;Gj9fE2yq<KjMa2qX@CV&7!QDesvU-
+            ?Rl3AF1txnR!idoL6qvpYeM=gGS0=V0TBAQcU;sV673i&8}JtkFcThO%wmdvhV`*^<;{7eg(9?;&=zLr9QHhCWFUIxsT>v{;{;}c_z}ID`b2{K+`cpk+3Q}aJmPJjj);
+            -Es1e8B3>GS5&!+OaU#ggPL?gvo?nK(1QESO#IHSCOJ{v|R?UFZjclCt{|D-vwh&VHh9xW^Ctz*`hY@>4Z>FzfyxDAtw8SBDQjnd%Qn#R}<-
+            l!E8gWT%s%wvFbY4S;pt~z|Iw{Ft-
+            ^(!6eFJHFmnpIfJKuqsTa(ml%aBGLyt>7Cm0VVxMnaZYLY&v80deq#~?}~(%eVNqf|5Jt|=>LU=tK&!E+HC8_*nB1UgxJQM@YUDw-
+            M)Lj<L#=(%78#B@bTFP3hHsuZrIyzg=Goq?^j?OBixOlj}jnSxRiKymp7(6uL{OSO;L<0yc!itszg<uU=Ols)1{gRdD@4qtiDqBKbMA3&R~1PunlSwgt|)5k3>VWsB`4
+            <$KnV!u0mzUzZO2l4@Z6l6T$3{_9ba89N!u97+l=7u4h$=nzCo#`5@~fWQql*6d>KuSkZ#Sd^2%-{V2prD+QCra)aF>8LWA91JXZaW!7raTF8jaNsl!dy7%sm`<o-
+            UV=Oaac$m@I!b0@KM<RpOt$mIvvwt2#Nx!%3&<65svLHj&SJ{h5dG_y6MPq-Q5$KJ-a-
+            A0AFsNyt%;d7Nm1;lV^yj#A^6X8cmrKiUB*jayhc1%wy5KyLOyB=PBqCqWANAGuT+0i&%tcjV#e1NJw<f3(fAV=l<2|2o4q=YpHoRp9N11&Ky~}Ja@6#VSxZX@J>b5^T
+            T+B9-cr|UrK}2ZO5&*gFiWXe8NMPi^CX>^$bA7u43d0#6?oJ<wv{tieUtg*`WbVi5bxrK=lZ}gK`%f`DBCDHk(9=In7PQ!?k>s6~i+!OnC_&WZLy%|wNB@Au-E_mAzPA
+            MnptP(7(OQC2i%EDy^UMr&YECT*TD}QXj1f=aDnR+^5}!p#B07azZYv=l?Se40^MGG<U(SE;Xe7Ri=+nWWwCs_U&R&5l0=Q-
+            TOC#4i8M1U_qS?z&t)3;rC|r=uO4=un$c&1+0hM61SH2}=#Qql}f4@ZlPA@nG01*b%y7A7fQQ%`Prq!m2#x&e}p5Nht`wk~c7~}xbp(WCDc@9iX25hdSV=lvgC7eKUdQ
+            FUWr@|4quO}1gp$+nI2;q<gD()Nw*w?CsT%z;Jl!HCqt0ZQ(iwPVKclSB=9e7Au0p;U7louoG7^w*ozv1c>2A?#}n@Uoi62V7z%7iTismHZU3n7oV_*rpv&YEN0H5NUJ
+            E!`QnVH=ldOkLvw$A1y(R^q|ngEZrN*a>7MM`_$gB&5nGwuo&lx20?}It?C0l8_ts#Jd_(|H=}{8+~H7s-?H-
+            kdnM+W3np<@0Q9R%kR1kcy2~2VoPh1As;Q|r{N>0URQP2X}P_{h|*jd`~D8bA(2CY2jlWPS#${)4WgIQBJrSMfG}>87_%#*PEu^M<s30&vJr}8AEul%ff(oeYWiE?Pf&
+            LjGl#HLzqx(vn`q6V0hSsiV5v9hB<e4&y<J%fv)0_WMzx@rFz|T-ZAgLP@9>M8f7}e$NtqaiwJ~Quz-
+            M3VS7((s{{ue|F1aCwPh4P36k}Hca*{FVP(Ay|W9$0?KR&~3O1ZZ@Ofh1Csj2WJziUA9$Y9BOpurw{BfGs|d(mn6gYKS&=glBw5RIZIqa>)^m~Sk%q%(d1VAV+e+va*H
+            6^o{<+SS^>S6`muvms=qnYm>rF<{M7=y2R_&h%xzhFN(z{f;BE?}%Lvk^Q4skbV~$HnC^07CAzWR@Ducfc_`IV4dTY?s1MmhL<QhNFYjr9>#7J38JL^lA3w4kxRDMp*B
+            k)^?~14#stmQu|{3}LIQ>NssU_rBv>}gcYQoy)82ih-
+            HV-(aiyMF$weI@BFd(N`K^Vf1}$_i$MM>!5}SVQuBz%tmOU@%zE2y3NDhpDL$X>A9f3fbxj(qb<0;H^pZT2ZO3mWj*RRzXMFqYuSE#kqCI?*g{mifzJ>ushnG<dt-SFL
+            ?;M9^QAW~1q954*S9_YsD05j`Je!DLCx)OZ44-
+            ~h=Km6zssoTVNorOC{e0Q@v#?m_egI^TiNeIBU3F)Umnbwp){Q;k9amz!#4m0wwaFuH4&%OWj6#O+$SBWfonPFFUoz;gX9B0R<Z7W`Nopt^ea`$c(jy;!bEi?nt^(#$S
+            <<iZtl;(Sx&#S1&XfNUGBwD$gJT#4z2e(9Yud!X@ss9Q{)-
+            uQ{VQqVSy{_K1>VnhGg*VxpJA#4~=@If)rhd11a!2{_068xBsJr7kkc$SH<oDb97j@vhld99at4Dr=v80)jSwaeoQx%yUP6$!~Y|A!LTS>Jtfsm%1`P^|FVls2ZJ<idI
+            =o=jA*@bReR1gMk#^9-M8mtuxMLWs!Y9%Bqw#<sfj;|miCzyaZmuAdrU-n%@(JdGy6|&cnse<xM+-&Dl8jp)?${HquzVqB5#fEi+9=r-
+            $<^o(kMi#L{YIN19axC;3$K+A<!&L=tq*4eSzwvmtOhpTNTd9#@8=K9a@K`p9?rBS%6(Ldb{cgH;$pm3Il=%>wsqnG)(HCYB4#{BbP_S+TP}^iybv&F{ScyeR<`Uk(3J
+            gYswT5)nmxrPcA61RII`6?t&srI^(ZlAtdGvzoG>u3~HUh4;LtGePPRid8!#8G<0W#i6xP7pH&tx-nLu0_6s?eXu!;xcz=fW$Mnh@)MIR>!uV+#JYQyh26;*8xOY1___
+            (B<5k5L3}7L<%`|gGU*S<4h2AMd7b!)yf<(%%u5J;K!fiRWxQbYKC!DIN7%$-xS2c_QkrO2q+h7QvlNe#m#}^8r2ZnQ^-ZWn$|;#xdQ$9BR(_^E|&Z6trPVX6{Mk-
+            ;kepz8rC;>U=l;Z1V$`v<;sE3juD^LOD^(13nj&fz2`|BrV*Mtje<hgJjz6mf|msCOS=T1Y^+0{<L+M~oU|aL0!^A=#h20-x}6W+-
+            hNA8eb*%+GOZFJ*tA<`8C097tJM)+foh9qdyLr2P1xP!Z7Ov<$!9#fbTMtnU*V{i5@ow$s3Twoubnb9GDOgrmpW>>kt#=%*&4jqCEMPb6=6}zBH|v9b4W7i$!GPb@kz+
+            sk^q(V1G)`iOw`!%rAK`TU_P@}4>fB3NE4vI+M2>oFP(-
+            |TV(NK#K4MD`Y7ROiBuDhovO7AU{XY*F2=QiSc<?X9>^jD*>QxW{$@PKLKUDU1V$r;>iUu#)tt|!ux&vL(s5RY(v}6HO5=Hi1?3$Z$^?boVG6NtM*zB>duRt0b#=&%kY
+            -nPp_Y9P!`z?Qdk%zo!9}t)u3jM8Pfk?VgE<-hA66iMY4NcoJH5paaJz~=cBZ(yY4@^OH+}-
+            80g;FCEw$qK`eC=G1jTT!O88Z)ugHcvHWMeVlW`O4(VD_|trU;j{|4~cbP8xjpOmmFrruU?#bti>_mcLHv@2fiki|BI0*6NNqk1C+)B_Z8J{qx%zj++>vfTN8Sl>Au!w
+            5TX{X79fuJ!0kQ3L(sj5)vzlRlM0r)xMeP4uI9+&#YiwZ;>0N=4c;<+>VzVaR;eNXIVD0D!5<r#NUbk%j|2szp9*wfW1tVxl4>x@`7JU53f2u5#%~M4)EGj&KQQ$<57K
+            t_|LVQS#J3yI?^{@KIQ1hYHcZHX~Lz!B(}n>HZSq$c~4hix|W`eEN+c1z7=YgQ=8{QOotq_{lK$E~E`}WSf=Cd@Em9;54yox{g)wg@3S*7IWJ@5K<^WMd-
+            ;OeSK06aqQAn7*2EM!$ZexeFiGxdVaviZVS*_ZP8lu1L^d$e?Ta;UHU2c4c(ragTFK~HLD2JwtQw=Gty&cL{nmcR#C!ghkB7vHxj5+<#T|smD{4e8dN(q(}2;h@zEaIY
+            F$I84=91)jcP#DKJ)C1>{TI0E&u=k-BkUIr?f%P00G)Czn}pC|6!w4vBYQl0ssI200dcD
+        run: |
+          mkdir -p scripts
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('scripts/patch_trade_fix_v2.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          python3 scripts/patch_trade_fix_v2.py
+      - name: syntax check (source)
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: public/index.html は変えない
+        run: if ! git diff --quiet -- public/index.html; then echo "::error::html changed"; exit 1; fi
+      - name: src/index.tsx 以外を変えていない
+        run: |
+          CHANGED=$(git diff --name-only)
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "src/index.tsx" ]; then echo "::error::unexpected files changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_trade_fix_v2.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "TRADE_FIX_V2: 友達交換の3点修正（失敗理由を画面に出す／キャラの絵の❓／成功しても失敗と出る） (チェーン132->151)"
+          git push origin HEAD:main
