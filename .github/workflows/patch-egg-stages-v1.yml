@@ -1,0 +1,145 @@
+name: patch-egg-stages-v1
+
+# EGGSTAGE_V1 (2026-09-25)  タマゴバトル ステージ11〜15 を開通＋難易度調整
+#   ステージ11〜15 は敵・ボス・報酬キャラ(1411〜1415)がすでに用意されていて、
+#   STAGES に追加されていないために画面に出ていないだけ。壁の形を5面分追加すれば遊べる。
+#   新しいキャラIDは1つも作らない（ID衝突の心配がない）。
+#
+#   ❗ STAGES への追加は必ず末尾。記録(player.eggStageClears)は並び順の番号で
+#      保存されているので、途中に差し込むと全員の進捗がズレる。
+#   ❗ public/index.html は 1バイトも変えない（下のステップで確認）。
+#   ❗ progress（児童のデータ）には書き込まない。DDLもない。
+#   ❗ 2026-09-25 の事故対策：配信されるHTMLの <script> 全部を構文チェックする。
+#      このパッチは onclick を 1つも作らないが、それも点検する。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu'
+        required: true
+        default: '132'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            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
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b64decode(b)))"
+          python3 /tmp/p.py
+      - name: syntax check (src/index.tsx)
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: syntax check (haishin sareru HTML no script zenbu)
+        run: |
+          cat > /tmp/chk.js <<'JSEOF'
+          const fs=require('fs'), vm=require('vm');
+          const pairs=JSON.parse(fs.readFileSync('/tmp/egg_pairs.json','utf8'));
+          let t=fs.readFileSync('public/index.html','utf8');
+          for(const p of pairs){
+            if(t.indexOf(p.a)===-1){ console.log('::error::anchor missing '+p.tag); process.exit(1); }
+            t=t.replace(p.a, ()=>p.b);
+          }
+          const re=/<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+          let m,i=0,bad=0,checked=0;
+          while((m=re.exec(t))){
+            i++; const attrs=m[1]||'', body=m[2]||'';
+            if(/\bsrc\s*=/.test(attrs)) continue;
+            if(/type\s*=\s*["']?(application\/json|text\/template|text\/x-)/i.test(attrs)) continue;
+            if(!body.trim()) continue;
+            checked++;
+            try{ new vm.Script(body,{filename:'s'+i}); }
+            catch(e){ bad++; console.log('::error::script #'+i+' ('+body.length+' chars): '+String(e.message).split('\n')[0]); }
+          }
+          const n=(t.match(/name:"/g)||[]).length;
+          console.log('inline scripts checked='+checked+' syntax errors='+bad);
+          if(bad){ process.exit(1); }
+          const i2=t.indexOf('const STAGES = [');
+          let d=0,end=-1;
+          for(let k=t.indexOf('[',i2);k<t.length;k++){ const c=t[k]; if(c==='[')d++; else if(c===']'){d--; if(d===0){end=k;break;}} }
+          const names=(t.slice(i2,end+1).match(/name:"/g)||[]).length;
+          console.log('STAGES in served html = '+names);
+          if(names!==15){ console.log('::error::STAGES must be 15'); process.exit(1); }
+          console.log('OK');
+          JSEOF
+          sed -i 's/^          //' /tmp/chk.js
+          node /tmp/chk.js
+      - name: public/index.html wa kaenai
+        run: if ! git diff --quiet -- public/index.html; then echo "::error::html changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_egg_stages_v1.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "EGGSTAGE_V1: タマゴバトル ステージ11〜15を開通（壁5面追加・末尾）＋難易度調整（st1〜3を易化／st11〜15の敵Lv・城HP・タマゴ上限を頭打ち／st11〜15は1週目から妨害コア） (チェーン132->137)"
+          git push origin HEAD:main
