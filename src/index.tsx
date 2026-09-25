@@ -10640,7 +10640,8 @@ app.get('/teacher', (c) => {
       
 
       <!-- イベント管理 -->
-      <div class="bg-white rounded-xl shadow p-4">
+      <details class="bg-white rounded-xl shadow px-4 py-3"><summary class="cursor-pointer font-bold text-slate-700 select-none">🎉 イベント管理<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません（学校全体の設定です）</span></summary>
+          <div class="mt-3"><div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-bold mb-3">🎉 イベント管理</h2>
         <div class="flex flex-wrap gap-3" id="festToggles">
           <button id="festFractionBtn" onclick="toggleFest('fraction')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">🍰 分数フェス OFF</button>
@@ -10658,10 +10659,12 @@ app.get('/teacher', (c) => {
             <span id="unitFestStatus" class="text-xs text-fuchsia-700 font-bold"></span>
           </div>
         </div>
-      </div>
+      </div></div>
+        </details>
 
       <!-- 🏰 クラス基地防衛戦 -->
-      <div class="bg-white rounded-xl shadow p-4">
+      <details class="bg-white rounded-xl shadow px-4 py-3"><summary class="cursor-pointer font-bold text-slate-700 select-none">🏰 クラス基地防衛戦<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません（学校全体の設定です）</span></summary>
+          <div class="mt-3"><div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-bold mb-3">🏰 クラス基地防衛戦</h2>
         <p class="text-xs text-slate-400 mb-2">開始ONにして決戦時刻を決めると、児童が「防衛戦」でモンスター1体を出陣できます。決戦時刻を過ぎて誰かが開くと、自動で決着＋リプレイが作られます（クラス全員の1体 vs 敵軍団）。</p>
         <div class="flex flex-wrap gap-2 items-center">
@@ -10678,7 +10681,8 @@ app.get('/teacher', (c) => {
             <button id="defStartBtn" onclick="defTeacherStart()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-black hover:bg-rose-700 disabled:opacity-40">&#9876; 決戦をはじめる</button>
           </div>
         </div>
-      </div>
+      </div></div>
+        </details>
 
       <!-- クラス作成 -->
       <div class="bg-white rounded-xl shadow p-4">
@@ -10885,7 +10889,9 @@ app.get('/teacher', (c) => {
             <div id="analyticsContent"><p class="text-xs text-slate-400">クラスを選んで「分析を表示」を押してください</p></div>
           </div>
 
-          <div class="bg-teal-50 border border-teal-200 rounded-xl p-4"><div class="flex items-center justify-between flex-wrap gap-2 mb-3"><div class="font-bold text-sm text-teal-800">🎒 所持アイテム一覧（読み取り専用）</div><button onclick="loadItemInventory()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🎒 所持数を表示</button></div><p class="text-xs text-teal-600 mb-2">クラスの児童ごとに、コイン・かけら・やくそう・ボール・バトルチケット・強化チケットの所持数を表示します（上と同じクラス選択を使います）。</p><div id="itemInventoryContent"><p class="text-xs text-slate-400">クラスを選んで「所持数を表示」を押してください</p></div></div>
+          <details class="bg-white rounded-xl shadow px-4 py-3"><summary class="cursor-pointer font-bold text-slate-700 select-none">🎒 所持アイテム一覧<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません</span></summary>
+          <div class="mt-3"><div class="bg-teal-50 border border-teal-200 rounded-xl p-4"><div class="flex items-center justify-between flex-wrap gap-2 mb-3"><div class="font-bold text-sm text-teal-800">🎒 所持アイテム一覧（読み取り専用）</div><button onclick="loadItemInventory()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow hover:opacity-90">🎒 所持数を表示</button></div><p class="text-xs text-teal-600 mb-2">クラスの児童ごとに、コイン・かけら・やくそう・ボール・バトルチケット・強化チケットの所持数を表示します（上と同じクラス選択を使います）。</p><div id="itemInventoryContent"><p class="text-xs text-slate-400">クラスを選んで「所持数を表示」を押してください</p></div></div></div>
+        </details>
           <!-- 非アクティブ生徒の警告 -->
           <div id="inactiveStudentsCard" class="bg-orange-50 border border-orange-200 rounded-xl p-4 hidden">
             <h3 class="font-bold text-orange-600 mb-2">⚠️ しばらく学習していない生徒</h3>
