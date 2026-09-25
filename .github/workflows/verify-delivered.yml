@@ -1,0 +1,99 @@
+name: verify-delivered
+
+# TRADE_FIX_V2 の配信物検証（読むだけ・リポジトリには一切書きこまない）
+# ⚠ 2026-09-25 朝の事故の教訓:「ソースが正しい」は「配信物が正しい」を意味しない。
+#   本番に配信された実物のHTMLを取得し、中の <script> を全部 node --check にかける。
+#   児童ページ(/) だけでなく 教師ページ(/teacher) 等も見る（朝の事故は児童ページしか
+#   見ていなかったため発見が遅れた）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch and syntax-check delivered pages
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, time, urllib.request, tempfile, os
+          BASE = "https://learning-bm.pages.dev"
+          PAGES = ["/", "/teacher", "/login", "/admin", "/teacher-signup", "/signup", "/recover", "/teacher-recovery", "/himitsu"]
+
+          def get(path, tries=8):
+              for i in range(tries):
+                  try:
+                      req = urllib.request.Request(BASE+path, headers={"User-Agent":"verify-delivered"})
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          return r.status, r.read().decode("utf-8", "replace")
+                  except Exception as e:
+                      print(f"  retry {i+1}: {e}")
+                      time.sleep(15)
+              return None, None
+
+          # 1) まず / に TRADE_FIX_V2 が乗るまで待つ（Pages のデプロイ待ち）
+          print("== 配信待ち: / に __TRADE_FIX_V2__ が現れるまで ==")
+          html = None
+          for i in range(20):
+              st, h = get("/")
+              if h and "__TRADE_FIX_V2__" in h:
+                  html = h; print(f"  反映を確認（{i*20}秒後 / status={st} / {len(h)}バイト）"); break
+              print(f"  まだ … (status={st}, bytes={len(h) if h else 0})")
+              time.sleep(20)
+          if html is None:
+              print("::error::配信に TRADE_FIX_V2 が現れませんでした"); sys.exit(1)
+
+          def check(path, h):
+              blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', h)
+              bad = []
+              with tempfile.TemporaryDirectory() as d:
+                  f = os.path.join(d, "b.js")
+                  for j, b in enumerate(blocks):
+                      open(f, "w", encoding="utf-8").write(b)
+                      r = subprocess.run(["node","--check",f], capture_output=True, text=True)
+                      if r.returncode:
+                          tail = [x for x in r.stderr.strip().split("\n") if x.strip()]
+                          bad.append((j, len(b), tail[-1][:160] if tail else "?"))
+              print(f"  {path:22s} {len(h):>9,}バイト  <script> {len(blocks):>2}個  → " +
+                    ("エラーなし" if not bad else f"★エラー {len(bad)}件"))
+              for j, ln, e in bad:
+                  print(f"      ブロック{j} ({ln}文字): {e}")
+              return not bad
+
+          print("\n== 全ページの <script> 構文チェック ==")
+          ok = True
+          pages = {"/": html}
+          for p in PAGES:
+              if p not in pages:
+                  st, h = get(p)
+                  if h is None:
+                      print(f"  {p:22s} 取得できず（スキップ）"); continue
+                  pages[p] = h
+              ok &= check(p, pages[p])
+
+          print("\n== 交換の修正が配信物に入っているか（/） ==")
+          checks = [
+              ("_tradeErrJa の定義",        html.count("function _tradeErrJa"), 1),
+              ("_tradeErrJa の呼び出し",     html.count("_tradeErrJa(e)"), 8),
+              ("_tradeEmoji の定義",        html.count("function _tradeEmoji"), 1),
+              ("_tradeEmoji の呼び出し",     html.count("_tradeEmoji("), 14),
+              ("固定文『交換に失敗しました』が残っていない", html.count("⚠️ 交換に失敗しました"), 0),
+              ("固定文『コードが見つかりません』が残っていない", html.count("⚠️ コードが見つかりません"), 0),
+              ("成立後を内側 try で受けている", html.count("ここを過ぎたら交換はサーバで成立している"), 2),
+          ]
+          for name, got, want in checks:
+              mark = "OK " if got == want else "★NG"
+              print(f"  {mark} {name}: {got} (期待 {want})")
+              ok &= (got == want)
+
+          print("\n== 子どもに出る文言（実物から抜粋） ==")
+          m = re.search(r"cannot_trade_special: '([^']*)'", html)
+          print("  cannot_trade_special →", m.group(1) if m else "(見つからず)")
+
+          if not ok:
+              print("::error::配信物の検証に失敗しました"); sys.exit(1)
+          print("\n✅ 配信物の検証: すべて問題なし")
+          PY
