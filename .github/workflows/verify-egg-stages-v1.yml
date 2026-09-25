@@ -1,0 +1,147 @@
+name: verify-egg-stages-v1
+
+# EGGSTAGE_V1 の配信物検証（読むだけ・リポジトリにも progress にも一切書きこまない）
+# ⚠ 2026-09-25 朝の事故の教訓:「ソースが正しい」は「配信物が正しい」を意味しない。
+#   本番に配信された実物のHTMLを取得し、中の <script> を全部 node --check にかける。
+#   児童ページ(/) だけでなく 教師ページ(/teacher) 等も見る。
+#   （verify-delivered.yml と同じ作法。あちらは TRADE_FIX_V2 用）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch and syntax-check delivered pages
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, time, urllib.request, tempfile, os
+          BASE = "https://learning-bm.pages.dev"
+          PAGES = ["/", "/teacher", "/login", "/admin", "/teacher-signup", "/signup", "/recover", "/teacher-recovery", "/himitsu"]
+          MARK = "\U0001F3A8 山のアート工房"   # 🎨 山のアート工房 = ステージ11
+
+          def get(path, tries=8):
+              for i in range(tries):
+                  try:
+                      req = urllib.request.Request(BASE+path, headers={"User-Agent":"verify-egg-stages-v1"})
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          return r.status, r.read().decode("utf-8", "replace")
+                  except Exception as e:
+                      print(f"  retry {i+1}: {e}")
+                      time.sleep(15)
+              return None, None
+
+          print("== 配信待ち: / に ステージ11 の名前が現れるまで ==")
+          html = None
+          for i in range(20):
+              st, h = get("/")
+              if h and MARK in h:
+                  html = h; print(f"  反映を確認（{i*20}秒後 / status={st} / {len(h)}バイト）"); break
+              print(f"  まだ … (status={st}, bytes={len(h) if h else 0})")
+              time.sleep(20)
+          if html is None:
+              print("::error::配信に EGGSTAGE_V1 が現れませんでした"); sys.exit(1)
+
+          def check(path, h):
+              blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', h)
+              bad = []
+              with tempfile.TemporaryDirectory() as d:
+                  f = os.path.join(d, "b.js")
+                  for j, b in enumerate(blocks):
+                      if not b.strip():
+                          continue
+                      open(f, "w", encoding="utf-8").write(b)
+                      r = subprocess.run(["node","--check",f], capture_output=True, text=True)
+                      if r.returncode:
+                          tail = [x for x in r.stderr.strip().split("\n") if x.strip()]
+                          bad.append((j, len(b), tail[-1][:160] if tail else "?"))
+              print(f"  {path:22s} {len(h):>9,}バイト  <script> {len(blocks):>2}個  → " +
+                    ("エラーなし" if not bad else f"★エラー {len(bad)}件"))
+              for j, ln, e in bad:
+                  print(f"      ブロック{j} ({ln}文字): {e}")
+              return not bad
+
+          print("\n== 全ページの <script> 構文チェック ==")
+          ok = True
+          pages = {"/": html}
+          for p in PAGES:
+              if p not in pages:
+                  st, h = get(p)
+                  if h is None:
+                      print(f"  {p:22s} 取得できず（スキップ）"); continue
+                  pages[p] = h
+              ok &= check(p, pages[p])
+
+          print("\n== ステージが15面になっているか（配信物の STAGES を数える） ==")
+          i0 = html.index("const STAGES = [")
+          d = 0
+          end = -1
+          for k in range(html.index("[", i0), len(html)):
+              c = html[k]
+              if c == "[": d += 1
+              elif c == "]":
+                  d -= 1
+                  if d == 0:
+                      end = k; break
+          names = re.findall(r'name:"([^"]+)"', html[i0:end+1])
+          print(f"  STAGES = {len(names)} 面")
+          for n, nm in enumerate(names, 1):
+              print(f"    {n:>2}. {nm}")
+          if len(names) != 15:
+              print("::error::STAGES が15面ではありません"); ok = False
+
+          OLD10 = ["\U0001F35B", "\U0001F3CA", "\U0001F345", "⚾", "\U0001F3B5",
+                   "⚽", "\U0001F3A3", "⛺", "\U0001FA70", "\U0001F3C0"]
+          for n, emo in enumerate(OLD10):
+              if n >= len(names) or not names[n].startswith(emo):
+                  print(f"::error::既存ステージ{n+1}の順番が変わっています"); ok = False
+          if ok:
+              print("  既存10面の順番は変わっていない（＝児童のクリア記録はズレない）")
+
+          print("\n== 難易度の式が入れかわっているか ==")
+          want = [
+              ("敵レベル", "const EGG_STAGE_ENEMY_LV_FIXED = [2, 4, 6, 11, 14, 16, 18, 20, 22, 24, 26, 29, 33, 38, 44]", 1),
+              ("城HP", "const enemyBaseHP = (((this.stageIndex||0) <= 2) ? 210 : 235) + Math.min((this.stageIndex||0), 10)*42;", 1),
+              ("敵タマゴ上限", "eggsMax: Math.min(32, (DEFAULT_RES.eggsMax + 2 + (this.stageIndex||0)*2))", 1),
+              ("1週目コア", "if(this.stageLoop===2 || (this.stageIndex||0) >= 10){", 1),
+              ("コア個数", "if(this.stageLoop !== 2) n = (si >= 13) ? 3 : 2;", 1),
+          ]
+          for label, s, n in want:
+              c = html.count(s)
+              print(f"  {label:14s} {c}個 (期待 {n})")
+              if c != n:
+                  print(f"::error::{label} が配信物に入っていません"); ok = False
+
+          print("\n== 古い式が残っていないか ==")
+          gone = [
+              "const EGG_STAGE_ENEMY_LV_FIXED = [3, 5, 8, 11, 14, 16, 18, 20, 22, 24, 28, 32, 38, 44, 52]",
+              "const enemyBaseHP = 235 + (this.stageIndex||0)*42;",
+              "enemyRes: { eggs: 0, eggsMax: (DEFAULT_RES.eggsMax + 2 + (this.stageIndex||0)*2) },",
+          ]
+          for s in gone:
+              c = html.count(s)
+              print(f"  {c}個 : {s[:60]}")
+              if c:
+                  print("::error::古い式が残っています"); ok = False
+
+          print("\n== 報酬キャラ 1411〜1415 が図鑑に居るか ==")
+          for mid, nm in [(1411,"アートマスター"),(1412,"シャドーニンジャ"),(1413,"宇宙飛行士"),(1414,"ダイノキング"),(1415,"エッグレジェンド")]:
+              c = html.count(nm)
+              print(f"  {mid} {nm}: {c}回")
+              if c < 1:
+                  print(f"::error::{nm} が配信物に見あたりません"); ok = False
+
+          print("\n== 進捗まわりが壊れていないか（キー名が残っているか） ==")
+          for key in ["eggStageClears", "eggStageClears2", "eggStageBestScores", "eggStageBestScores2"]:
+              c = html.count(key)
+              print(f"  {key}: {c}回")
+              if c < 1:
+                  print(f"::error::{key} が消えています"); ok = False
+
+          print("\n" + ("RESULT: OK" if ok else "RESULT: NG"))
+          sys.exit(0 if ok else 1)
+          PY
