@@ -1,0 +1,120 @@
+name: verify-gcgid-fix-v1
+
+# GCGID_FIX_V1 の配信物検証（読むだけ・リポジトリにも progress にも一切書きこまない）
+# ⚠ 「ソースが正しい」は「配信物が正しい」を意味しない。
+#   本番に配信された実物のHTMLを取得し、中の <script> を全部 node --check にかける。
+#   児童ページ(/) だけでなく 教師ページ(/teacher) 等も見る。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch and syntax-check delivered pages
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, time, urllib.request, tempfile, os
+          BASE = "https://learning-bm.pages.dev"
+          PAGES = ["/", "/teacher", "/login", "/admin", "/teacher-signup", "/signup", "/recover", "/teacher-recovery", "/himitsu"]
+          MARK = "window._defRenderBattle=function(rep){try{_gcGid=null;"
+
+          def get(path, tries=8):
+              for i in range(tries):
+                  try:
+                      req = urllib.request.Request(BASE+path, headers={"User-Agent":"verify-gcgid-fix-v1"})
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          return r.status, r.read().decode("utf-8", "replace")
+                  except Exception as e:
+                      print(f"  retry {i+1}: {e}")
+                      time.sleep(15)
+              return None, None
+
+          print("== 配信待ち: / に GCGID_FIX_V1 が現れるまで ==")
+          html = None
+          for i in range(20):
+              st, h = get("/")
+              if h and MARK in h:
+                  html = h; print(f"  反映を確認（{i*20}秒後 / status={st} / {len(h)}バイト）"); break
+              print(f"  まだ … (status={st}, bytes={len(h) if h else 0})")
+              time.sleep(20)
+          if html is None:
+              print("::error::配信に GCGID_FIX_V1 が現れませんでした"); sys.exit(1)
+
+          def check(path, h):
+              blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', h)
+              bad = []
+              with tempfile.TemporaryDirectory() as d:
+                  f = os.path.join(d, "b.js")
+                  for j, b in enumerate(blocks):
+                      if not b.strip():
+                          continue
+                      open(f, "w", encoding="utf-8").write(b)
+                      r = subprocess.run(["node","--check",f], capture_output=True, text=True)
+                      if r.returncode:
+                          tail = [x for x in r.stderr.strip().split("\n") if x.strip()]
+                          bad.append((j, len(b), tail[-1][:160] if tail else "?"))
+              print(f"  {path:22s} {len(h):>9,}バイト  <script> {len(blocks):>2}個  → " +
+                    ("エラーなし" if not bad else f"★エラー {len(bad)}件"))
+              for j, ln, e in bad:
+                  print(f"      ブロック{j} ({ln}文字): {e}")
+              return not bad
+
+          print("\n== 全ページの <script> 構文チェック ==")
+          ok = True
+          pages = {"/": html}
+          for p in PAGES:
+              if p not in pages:
+                  st, h = get(p)
+                  if h is None:
+                      print(f"  {p:22s} 取得できず（スキップ）"); continue
+                  pages[p] = h
+              ok &= check(p, pages[p])
+
+          print("\n== 直っているか（3か所） ==")
+          want = [
+              ("P1 防衛戦リプレイで _gcGid=null", "window._defRenderBattle=function(rep){try{_gcGid=null;", 1),
+              ("P2 _gcReward の null ガード", "if(gymId===null||gymId===undefined) return 0;", 1),
+              ("P3 友達対戦でも _gcGid=null", "trySetMode('gymchallenge'); _gcGid=null; _gcReplay=autoBattleRT", 1),
+          ]
+          for label, s, n in want:
+              c = html.count(s)
+              print(f"  {label:34s} {c}個 (期待 {n})")
+              if c != n:
+                  print(f"::error::{label} が配信物に入っていません"); ok = False
+
+          print("\n== 古い形が残っていないか ==")
+          gone = [
+              ("修正前の _defRenderBattle", "window._defRenderBattle=function(rep){try{_gcReplay=rep;"),
+              ("ガード無しの _gcReward", "function _gcReward(gymId,win){ if(!win) return 0; if(!player.gymChallengeCleared)"),
+              ("退避して戻す形（やってはいけない）", "_gcGid=_sv"),
+          ]
+          for label, s in gone:
+              c = html.count(s)
+              print(f"  {label:34s} {c}個 (期待 0)")
+              if c:
+                  print(f"::error::{label} が残っています"); ok = False
+
+          # 配信物では4か所になる:
+          #   ① var _gcGid=null（宣言） ② _gcOpenGym の _gcGid=gid
+          #   ③ _gcPbLaunch の _gcGid=null（P3） ④ 注入された _defRenderBattle の _gcGid=null（P1）
+          print("\n== _gcGid への代入は4か所か（宣言・_gcOpenGym・_gcPbLaunch・_defRenderBattle） ==")
+          n = len(re.findall(r'_gcGid\s*=[^=]', html))
+          print(f"  {n}か所 (期待 4)")
+          if n != 4:
+              print("::error::_gcGid への代入の数がちがいます"); ok = False
+
+          print("\n== ジムまわりが壊れていないか（キー名が残っているか） ==")
+          for key in ["gymChallengeCleared", "gymBadges", "gymBadges2", "_gcOpenGym", "_gcFight", "_gcFinishReplay"]:
+              c = html.count(key)
+              print(f"  {key}: {c}回")
+              if c < 1:
+                  print(f"::error::{key} が消えています"); ok = False
+
+          print("\n" + ("RESULT: OK" if ok else "RESULT: NG"))
+          sys.exit(0 if ok else 1)
+          PY

@@ -1,0 +1,140 @@
+name: patch-gcgid-fix-v1
+
+# GCGID_FIX_V1 (2026-09-25)
+#   防衛戦のリプレイで勝つと、遊んでいないジムチャレンジが
+#   「クリア済み」として児童データに書きこまれるのを止める。
+#   証拠: gymChallengeCleared に "null" キーが 11人ぶん残っていた。
+#
+#   P1 _defRenderBattle で _gcGid = null（❗ 退避して戻す形にしない。
+#      _gcFinishReplay() は非同期なので、戻すと結局そこで拾われる）
+#   P2 _gcReward に null ガード（"null" キーを新しく作らない）
+#   P3 _gcPbLaunch（友達対戦のプログラム対戦）でも _gcGid = null
+#
+#   ❗ public/index.html は 1バイトも変えない
+#   ❗ progress（児童のデータ）には書きこまない。DDLも無し
+#   ❗ 既に入っている "null" キーの掃除は ここではやらない（先生の判断待ち）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu'
+        required: true
+        default: '156'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            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
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b64decode(b)))"
+          python3 /tmp/p.py
+      - name: syntax check (src/index.tsx)
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: syntax check (haishin sareru HTML no script zenbu)
+        run: |
+          cat > /tmp/chk.js <<'JSEOF'
+          const fs=require('fs'), vm=require('vm');
+          const pairs=JSON.parse(fs.readFileSync('/tmp/gcgid_pairs.json','utf8'));
+          let t=fs.readFileSync('public/index.html','utf8');
+          for(const p of pairs){ if(t.indexOf(p.a)===-1){ console.log('::error::anchor missing '+p.tag); process.exit(1);} t=t.replace(p.a,()=>p.b); }
+          const re=/<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+          let m,i=0,bad=0,checked=0;
+          while((m=re.exec(t))){ i++; const a=m[1]||'',b=m[2]||'';
+            if(/\bsrc\s*=/.test(a)||!b.trim()) continue;
+            if(/type\s*=\s*["']?(application\/json|text\/template|text\/x-)/i.test(a)) continue;
+            checked++;
+            try{ new vm.Script(b,{filename:'s'+i}); }catch(e){ bad++; console.log('::error::script #'+i+': '+String(e.message).split('\n')[0]); }
+          }
+          console.log('inline scripts checked='+checked+' syntax errors='+bad);
+          if(bad) process.exit(1);
+          const src=fs.readFileSync('src/index.tsx','utf8');
+          const need=[['P1 _defRenderBattle', src.split('window._defRenderBattle=function(rep){try{_gcGid=null;').length-1, 1],
+                      ['P2 _gcReward guard', t.split('if(gymId===null||gymId===undefined) return 0;').length-1, 1],
+                      ['P3 _gcPbLaunch', t.split("trySetMode('gymchallenge'); _gcGid=null; _gcReplay=autoBattleRT").length-1, 1]];
+          let ok=true;
+          for(const [k,got,want] of need){ console.log('  '+k+': '+got+' (expect '+want+')'); if(got!==want){ console.log('::error::'+k); ok=false; } }
+          const assigns=(t.match(/_gcGid\s*=[^=]/g)||[]).length;
+          console.log('  _gcGid assignments in html: '+assigns+' (expect 3)');
+          if(assigns!==3) ok=false;
+          if(/_gcGid\s*=\s*_sv/.test(src)){ console.log('::error::taihi-fukki no kata ga aru'); ok=false; }
+          console.log(ok?'OK':'NG');
+          process.exit(ok?0:1);
+          JSEOF
+          sed -i 's/^          //' /tmp/chk.js
+          node /tmp/chk.js
+      - name: public/index.html wa kaenai
+        run: if ! git diff --quiet -- public/index.html; then echo "::error::html changed"; exit 1; fi
+      - name: commit and push
+        run: |
+          git add src/index.tsx scripts/patch_gcgid_fix_v1.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "GCGID_FIX_V1: 防衛戦のリプレイがジムチャレンジのクリアを勝手に書きこむのを停止（_gcGidをnullに戻す・_gcRewardにnullガード・友達対戦も同様）"
+          git push origin HEAD:main
