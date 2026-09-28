@@ -5625,8 +5625,10 @@ app.get('/api/homework/my', async (c) => {
            teacher_comment as teacherComment, has_physical as hasPhysical,
            returned_at as returnedAt, reward_claimed as rewardClaimed,
            reward_kind as rewardKind, reward_coins as rewardCoins, reward_shards as rewardShards,
-           bonus_coins as bonusCoins, bonus_shards as bonusShards
-    FROM homework_submissions WHERE user_id=? ORDER BY submitted_at DESC LIMIT 30
+           bonus_coins as bonusCoins, bonus_shards as bonusShards,
+           minutes, end_weather as endWeather, todo,
+           weather_reason as weatherReason, next_improve as nextImprove
+    FROM homework_submissions WHERE user_id=? ORDER BY submitted_at DESC LIMIT 120
   `).bind(u.id).all<any>()
   return c.json({ ok: true, submissions: res.results })
 })

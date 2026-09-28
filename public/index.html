@@ -45244,11 +45244,59 @@ async function hsSubmitToDB(entry, reward, bonus) {
 }
 
 // 返却済みで未受取の報酬を確認してバッジ表示
+// 📌 2026-09-28 HS_RESYNC_V1: サーバの提出記録を、端末側の記録に足しもどす。
+//   ・端末側にすでにある日は、いっさい触らない（上書きしない）
+//   ・無い日だけ足す。足した日は ✅ 提出ずみとして出る
+//   ・1件も足すものが無ければ、保存もしない（むだに書かない）
+function hsResyncFromServer(subs) {
+  if (!Array.isArray(subs) || !subs.length) return 0;
+  hsEnsureState();
+  var logs = hsLogs();
+  var have = {};
+  for (var i = 0; i < logs.length; i++) {
+    if (logs[i] && logs[i].dayKey) have[String(logs[i].dayKey)] = true;
+  }
+  var added = 0;
+  for (var k = 0; k < subs.length; k++) {
+    var s = subs[k];
+    if (!s || !s.dayKey) continue;
+    var dk = String(s.dayKey);
+    if (have[dk]) continue;
+    logs.push({
+      dayKey: dk,
+      minutes: Number(s.minutes || 0),
+      endWeather: s.endWeather || '',
+      todo: s.todo || '',
+      weatherReason: s.weatherReason || '',
+      nextImprove: s.nextImprove || '',
+      restDay: !!s.restDay,
+      teacherComment: s.teacherComment || '',
+      dbSubmitted: true,
+      _restored: true
+    });
+    have[dk] = true;
+    added++;
+  }
+  if (!added) return 0;
+  // 新しい順にそろえる（画面は上から新しい順に出す）
+  logs.sort(function (a, b) { return String((b && b.dayKey) || '').localeCompare(String((a && a.dayKey) || '')); });
+  if (logs.length > 200) logs = logs.slice(0, 200);
+  player.homeStudy.logs = logs;
+  try { saveData(); } catch (e) {}
+  try { if (typeof hwRenderWeekView === 'function') hwRenderWeekView(); } catch (e) {}
+  console.log('[hs-resync] restored ' + added + ' day(s) from server');
+  return added;
+}
+
 async function hsCheckReturned() {
   try {
     // 教師・管理者はこのAPIを呼ばない（403になるため）
     if (window.__loggedInRole === 'teacher' || window.__loggedInRole === 'admin') return;
     const r = await apiJson('/api/homework/my');
+    // 📌 2026-09-28 HS_RESYNC_V1: サーバにあるのに端末側に無い提出を書きもどす。
+    //   子どもの画面は今まで端末側の記録だけを見ていたので、保存が届かなかった日は
+    //   「出していない」ままだった（本番で32人・214日ぶん）。サーバを正とする。
+    try { hsResyncFromServer(r.submissions || []); } catch (e) { console.warn('[hs-resync]', e); }
     const pending = (r.submissions || []).filter(s => s.returnedAt && !s.rewardClaimed);
     // teacherComment を受け取り時に使えるよう保持
     window.__hsPendingReturns = {};
