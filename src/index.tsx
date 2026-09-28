@@ -10394,14 +10394,17 @@ app.get('/admin', (c) => {
         // 実名マップを一度だけサーバーから取得（取得後に再描画）
         if(!window._serverNameLoaded){ window._serverNameLoaded = true; try{ await loadServerNameMap(); }catch(_e){} }
         try{
-          const d = await api('/api/admin/classes');
-          wrap.innerHTML='';
           /* 2026-09-29 整理(E-2): 「6年１組」(id bd8b4ede-…) は在籍1人・担任が別の先生で、
              この画面では使わないので既定で隠す。データは消していない。
-             下のチェックを入れればいつでも出る。 */
-          var _hideIds = ['bd8b4ede-0e2c-4f12-b76a-e28c0a62ce5a'];
+             下のチェックを入れればいつでも出る。
+             ★2026-09-29 あと直し: チェックの状態は「中身を消す前」に読むこと。
+               あとで読むと、読む時点でチェックごと消えていて いつも「隠す」になっていた。 */
           var _showAllEl = document.getElementById('admShowHiddenClasses');
-          var _showAll = _showAllEl ? !!_showAllEl.checked : false;
+          var _showAll = _showAllEl ? !!_showAllEl.checked : !!window._admShowHidden;
+          window._admShowHidden = _showAll;
+          var _hideIds = ['bd8b4ede-0e2c-4f12-b76a-e28c0a62ce5a'];
+          const d = await api('/api/admin/classes');
+          wrap.innerHTML='';
           var _all = d.classes || [];
           var _list = _showAll ? _all : _all.filter(function(x){ return _hideIds.indexOf(x.id) < 0; });
           var _hidden = _all.length - _list.length;
@@ -10428,7 +10431,7 @@ app.get('/admin', (c) => {
           _note.innerHTML = '<input type="checkbox" id="admShowHiddenClasses"' + (_showAll ? ' checked' : '') + '> 使っていないクラスも表示する'
             + (_showAll ? '' : (_hidden ? '（いま ' + _hidden + 'クラスを隠しています）' : ''));
           var _cb = _note.querySelector('input');
-          if(_cb) _cb.onchange = ()=>{ renderClassList(); };
+          if(_cb) _cb.onchange = ()=>{ window._admShowHidden = !!_cb.checked; renderClassList(); };
           wrap.appendChild(_note);
         }catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; }
       }
