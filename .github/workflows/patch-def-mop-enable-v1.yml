@@ -1,0 +1,153 @@
+name: 防衛戦 修正2（サーバ側エンジン再生成＋mopTicks=120 有効化）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: さわらないファイルの ハッシュを ひかえる
+        run: sha256sum public/index.html public/defense2.js src/index.tsx src/defmop_v1.ts src/def_stage.ts > /tmp/before.txt
+
+      - name: チェーンの本数を実測する（158 でなければ中止）
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain before =', n)
+          if n != 158:
+              print('NG: チェーンが 158 件でない'); sys.exit(1)
+          PYEOF
+
+      - name: 修正1 が本番に出ていること（出ていなければ中止）
+        run: |
+          curl -sS -m 180 https://learning-bm.pages.dev/ -o /tmp/prod.html
+          wc -c /tmp/prod.html
+          python3 - << 'PYEOF'
+          import io, sys
+          p = io.open('/tmp/prod.html', encoding='utf-8', errors='replace').read()
+          if len(p) < 3000000:
+              print('NG: 本番 HTML が短すぎる'); sys.exit(1)
+          for mark, want in [('__DEFMOP_V1__', 3), ('__DEFMOP_BASE_V1__', 1)]:
+              n = p.count(mark)
+              print(mark, '=', n)
+              if n != want:
+                  print('NG: %s が %d 件（期待 %d）。修正1 のデプロイが先。' % (mark, n, want)); sys.exit(1)
+          PYEOF
+
+      - name: 生成器を v2 に直す（チェーン実測＋再生成モード）
+        run: python3 scripts/patch_def_engine_gen_v2.py
+
+      - name: 冪等の確認（生成器）
+        run: python3 scripts/patch_def_engine_gen_v2.py
+
+      - name: サーバ側エンジンを本番 HTML から作りなおす
+        run: python3 scripts/patch_def_server_engine_v1.py --chain-before=158
+
+      - name: 冪等の確認（もう一度作りなおしても同じ）
+        run: |
+          sha256sum src/def_engine.ts > /tmp/eng1.txt
+          python3 scripts/patch_def_server_engine_v1.py --chain-before=158
+          sha256sum -c /tmp/eng1.txt
+
+      - name: mopTicks を 防衛戦の解決だけに入れる
+        run: python3 scripts/patch_def_mop_enable_v1.py
+
+      - name: 冪等の確認（mopTicks）
+        run: python3 scripts/patch_def_mop_enable_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          git diff --name-only
+          if git diff --name-only | grep -vFx -e 'scripts/patch_def_server_engine_v1.py' -e 'src/def_engine.ts' -e 'src/def_resolve.ts' | grep -q .; then
+            echo 'NG: 3つ以外のファイルが変わっている'; exit 1
+          fi
+          sha256sum -c /tmp/before.txt
+
+      - name: オフライン検証（reason が base になること）
+        run: node tests/def_mop_check.mjs engine src/def_engine.ts
+
+      - name: ビルドが通ること（dist は元に戻す）
+        run: |
+          npm install
+          npm run build
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          git status --porcelain
+
+      - name: 流したあとの検証
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          e = io.open('src/def_engine.ts', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          g = io.open('scripts/patch_def_server_engine_v1.py', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          chk('チェーン', s[i:j].count('.replace('), 158)
+          # --- 生成器 ---
+          chk('生成器の番兵', 1 if g.count('__DEF_SERVER_ENGINE_GEN_V2__') >= 5 else 0, 1)
+          chk('ハードコードが残っていない', g.count('EXPECT_CHAIN = 72'), 0)
+          chk('チェーン実測', g.count('EXPECT_CHAIN = chain'), 1)
+          chk('再生成モード', g.count('REGEN = True'), 1)
+          # --- 作りなおしたエンジン ---
+          chk('エンジンの掃討', e.count('__DEFMOP_V1__'), 3)
+          chk('エンジンの基地判定', e.count('__DEFMOP_BASE_V1__'), 1)
+          chk('エンジンの mopTicks', e.count('opts.mopTicks'), 2)
+          chk('エンジンの standStill（ずれの解消）', e.count("act==='standStill'"), 1)
+          chk('エンジンの autoBattleRT', e.count('function autoBattleRT('), 1)
+          chk('エンジンの入口', e.count('export function defAutoBattleRT(specsA, specsB, opts) {'), 1)
+          # --- 有効化はここ 1 行だけ ---
+          chk('mopTicks の有効化', v.count('mopTicks: 120'), 1)
+          chk('有効化の番兵', v.count('__DEF_MOP_ENABLE_V1__'), 1)
+          chk('index.tsx に mopTicks を書いていない', s.count('mopTicks: 120'), 0)
+          # --- 壊してはいけないもの ---
+          chk('__DEF_SERVER_ENGINE_V1__', s.count('__DEF_SERVER_ENGINE_V1__'), 1)
+          chk('_engine_check', s.count("'/api/defense/_engine_check'"), 1)
+          chk('基地HP 380', s.count('DEFENSE_BASE_HP = 380'), 1)
+          chk('ensureDefenseTables() の呼び出し', s.count('ensureDefenseTables()'), 0)
+          chk('defense_standing', s.count('defense_standing'), 4)
+          chk('defAutoAdvanceV1', s.count('defAutoAdvanceV1'), 3)
+          chk('defAutoBattleRT の呼び出し', v.count('const rep = defAutoBattleRT(specsA, specsB, {'), 1)
+          if not ok[0]:
+              sys.exit(1)
+          print('検証 OK')
+          PYEOF
+
+      - name: コミットして push
+        run: |
+          git add scripts/patch_def_server_engine_v1.py src/def_engine.ts src/def_resolve.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_MOP_ENABLE_V1: サーバ側エンジンを本番HTMLから作りなおし、防衛戦だけ掃討フェーズ(mopTicks=120)を有効化（チェーン158->158）'
+          git pull --rebase origin main
+          git push origin HEAD:main
