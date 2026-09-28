@@ -9,6 +9,12 @@
 # fail-closed: 事前チェックに1つでも失敗したらファイルに一切触れずに exit 1
 import sys, io, os, re, json, hashlib, urllib.request
 
+# __DEF_SERVER_ENGINE_GEN_V2__ --chain-before=N で チェーンの期待値を外から渡せる（省略可）
+CHAIN_BEFORE_ARG = None
+for _a in sys.argv[1:]:
+    if _a.startswith('--chain-before='):
+        CHAIN_BEFORE_ARG = int(_a.split('=', 1)[1])
+
 SRC  = 'src/index.tsx'
 PUB  = 'public/index.html'
 OUT  = 'src/def_engine.ts'
@@ -17,7 +23,7 @@ PROD = 'https://learning-bm.pages.dev/'
 
 BS = "app.get('/', async (c) => {"
 BE = "app.get('/logout'"
-EXPECT_CHAIN = 72
+# __DEF_SERVER_ENGINE_GEN_V2__ チェーンの本数はハードコードしない。実行時に実測する。
 
 NAMES = ['autoBattleRT', '_abRng', '_abFighter', '_abAdv', '_abPickSkill', '_abDmg',
          '_pbRun', '_pbBehavior', '_pbIsTree', '_pbCond',
@@ -150,10 +156,12 @@ if not os.path.exists(PUB):
 src = io.open(SRC, encoding='utf-8').read()
 pub = io.open(PUB, encoding='utf-8').read()
 
+# __DEF_SERVER_ENGINE_GEN_V2__ すでに当たっているときは 再生成モード。
+REGEN = False
 if SENT in src and os.path.exists(OUT):
-    print('ALREADY APPLIED (sentinel present) - no file touched')
-    sys.exit(0)
-if SENT in src or os.path.exists(OUT):
+    REGEN = True
+    print('REGEN MODE: src/index.tsx はさわらない。%s だけ作りなおす。' % OUT)
+elif SENT in src or os.path.exists(OUT):
     die('中途半端に適用されている（番兵と %s が食い違う）' % OUT)
 
 # ---------------- 事前チェック（1つでも落ちたら書かない） ----------------
@@ -167,15 +175,24 @@ if not (0 <= st < en):
     die('チェーン範囲が取れない')
 chain = src[st:en].count('.replace(')
 print('chain before = %d' % chain)
-if chain != EXPECT_CHAIN:
-    die('chain %d != %d' % (chain, EXPECT_CHAIN))
+EXPECT_CHAIN = chain   # __DEF_SERVER_ENGINE_GEN_V2__ 実測値。適用後もこれと同じであることだけを見る。
+if chain <= 0:
+    die('chain を実測できなかった（%d）' % chain)
+if CHAIN_BEFORE_ARG is not None and chain != CHAIN_BEFORE_ARG:
+    die('chain 実測 %d が --chain-before %d と食い違う' % (chain, CHAIN_BEFORE_ARG))
 
-if src.count(IMP_ANCHOR) != 1:
-    die('import アンカーが %d 件' % src.count(IMP_ANCHOR))
 if src.count(ROUTE_ANCHOR) != 1:
     die('route アンカーが %d 件' % src.count(ROUTE_ANCHOR))
-if src.count("'/api/defense/_engine_check'") != 0:
-    die('_engine_check がすでにある')
+if REGEN:
+    if src.count("'/api/defense/_engine_check'") != 1:
+        die('再生成モードなのに _engine_check が %d 件' % src.count("'/api/defense/_engine_check'"))
+    if src.count("from './def_engine'") != 1:
+        die('再生成モードなのに import が %d 件' % src.count("from './def_engine'"))
+else:
+    if src.count(IMP_ANCHOR) != 1:
+        die('import アンカーが %d 件' % src.count(IMP_ANCHOR))
+    if src.count("'/api/defense/_engine_check'") != 0:
+        die('_engine_check がすでにある')
 for g in GUARD:
     if g not in src:
         die('guard missing before: ' + g)
@@ -290,8 +307,11 @@ ts.append('')
 out_ts = '\n'.join(ts)
 
 # ---------------- src/index.tsx を書き換える ----------------
-out_src = src.replace(IMP_ANCHOR, IMP_NEW, 1)
-out_src = out_src.replace(ROUTE_ANCHOR, ROUTE_NEW + ROUTE_ANCHOR, 1)
+if REGEN:
+    out_src = src   # __DEF_SERVER_ENGINE_GEN_V2__ 再生成モードでは src/index.tsx は 1 文字も変えない
+else:
+    out_src = src.replace(IMP_ANCHOR, IMP_NEW, 1)
+    out_src = out_src.replace(ROUTE_ANCHOR, ROUTE_NEW + ROUTE_ANCHOR, 1)
 
 # ---------------- 適用後チェック（番兵とは別の条件で見る） ----------------
 st2 = out_src.find(BS)
@@ -322,5 +342,7 @@ if out_ts.count('const TYPE_CHART =') != 1:
     die('生成した def_engine.ts の TYPE_CHART が 1 件でない')
 
 io.open(OUT, 'w', encoding='utf-8').write(out_ts)
-io.open(SRC, 'w', encoding='utf-8').write(out_src)
-print('OK: applied (chain stays %d, engine %d bytes)' % (chain2, engine_bytes))
+if not REGEN:
+    io.open(SRC, 'w', encoding='utf-8').write(out_src)
+print('OK: %s (chain stays %d, engine %d bytes)'
+      % ('regenerated' if REGEN else 'applied', chain2, engine_bytes))

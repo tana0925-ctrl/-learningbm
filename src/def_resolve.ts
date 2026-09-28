@@ -323,7 +323,10 @@ export async function defServerResolve(env, st, classId, enemies) {
     const rep = defAutoBattleRT(specsA, specsB, {
       bases: true, lanes: true, laneCount: 3, seed: seed, program: true,
       programsA: programsA, programB: DEF_DEFAULT_PROG,
-      forts: false, tactics: true, contact: true, foeLaneMix: true
+      forts: false, tactics: true, contact: true, foeLaneMix: true,
+      // __DEF_MOP_ENABLE_V1__ 片方が全滅したあと、生き残りが相手の基地まで歩く時間（tick）。
+      // 0 だと歩く前に終わってしまい「基地に着いてないのに試合がおわる」になる。
+      mopTicks: 120
     })
     if (!rep || (rep.winner !== 'A' && rep.winner !== 'B')) return null
     if (rep.baseHpA == null || !Number.isFinite(Number(rep.baseHpA))) return null
