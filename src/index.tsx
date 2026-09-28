@@ -10390,8 +10390,17 @@ app.get('/admin', (c) => {
         try{
           const d = await api('/api/admin/classes');
           wrap.innerHTML='';
-          if(!d.classes.length){ wrap.textContent='クラスがまだありません'; return; }
-          for(const cls of d.classes){
+          /* 2026-09-29 整理(E-2): 「6年１組」(id bd8b4ede-…) は在籍1人・担任が別の先生で、
+             この画面では使わないので既定で隠す。データは消していない。
+             下のチェックを入れればいつでも出る。 */
+          var _hideIds = ['bd8b4ede-0e2c-4f12-b76a-e28c0a62ce5a'];
+          var _showAllEl = document.getElementById('admShowHiddenClasses');
+          var _showAll = _showAllEl ? !!_showAllEl.checked : false;
+          var _all = d.classes || [];
+          var _list = _showAll ? _all : _all.filter(function(x){ return _hideIds.indexOf(x.id) < 0; });
+          var _hidden = _all.length - _list.length;
+          if(!_list.length){ wrap.textContent='クラスがまだありません'; }
+          for(const cls of _list){
             const div = document.createElement('div');
             div.className='flex items-center justify-between border rounded p-2 hover:bg-indigo-50 cursor-pointer';
             const left = document.createElement('div');
@@ -10407,6 +10416,14 @@ app.get('/admin', (c) => {
             div.onclick = ()=>{ openClassDetail(cls.id, cls.name, cls.classCode, cls.teacherName); };
             wrap.appendChild(div);
           }
+          /* 隠しているクラスがあることは必ず画面に出す（黙って消さない） */
+          var _note = document.createElement('label');
+          _note.className = 'flex items-center gap-1 text-xs text-gray-400 mt-2 cursor-pointer';
+          _note.innerHTML = '<input type="checkbox" id="admShowHiddenClasses"' + (_showAll ? ' checked' : '') + '> 使っていないクラスも表示する'
+            + (_showAll ? '' : (_hidden ? '（いま ' + _hidden + 'クラスを隠しています）' : ''));
+          var _cb = _note.querySelector('input');
+          if(_cb) _cb.onchange = ()=>{ renderClassList(); };
+          wrap.appendChild(_note);
         }catch(e){ wrap.innerHTML='<p class="text-red-600">読み込みエラー</p>'; }
       }
 
@@ -10955,9 +10972,9 @@ app.get('/teacher', (c) => {
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div class="font-bold text-sm text-amber-800">👤 個人カルテ</div>
             </div>
-            <p class="text-xs text-amber-600">名前をクリックすると、その子の記録をまとめた画面が開きます。<button onclick="taiLoadRoster()" class="ml-1 bg-amber-500 text-white rounded px-2 py-0.5 text-[11px] font-bold hover:bg-amber-600">🔄 児童一覧を表示</button></p>
+            <p class="text-xs text-amber-600">名前をクリックすると、その子の記録をまとめた画面が開きます。<!-- 2026-09-29 整理(A-6): 「🔄 児童一覧を表示」を撤去。このタブを開いたときに自動で出る。 --></p>
             <div id="karteStudentList" class="flex flex-wrap gap-2">
-              <p class="text-xs text-slate-400">「児童一覧を表示」を押してください</p>
+              <p class="text-xs text-slate-400">上の「クラス」をえらぶと、児童の名前がここに出ます</p>
             </div>
           </div>
 
@@ -11009,7 +11026,7 @@ app.get('/teacher', (c) => {
               <div class="text-xs text-slate-500 mb-2">児童をえらんで入力。成果物（本文）・振り返り・評価はそれぞれ任意で、ある分だけでOK。日付・教科・単元も任意（日付は未指定なら今日）。</div>
               <div class="flex items-center gap-2 flex-wrap mb-2">
                 <select id="recDirStudent" class="border p-1.5 rounded text-xs bg-white"><option value="">（児童をえらぶ）</option></select>
-                <button onclick="recDirLoadRoster()" class="bg-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold hover:bg-slate-300">🔄 名簿を読み込む</button>
+                <!-- 2026-09-29 整理(A-6): 「🔄 名簿を読み込む」を撤去。このタブを開いたときに自動で読む。 -->
               </div>
               <input id="recDirTitle" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="タイトル（例：平安文化のキャッチフレーズ）">
               <textarea id="recDirBody" rows="3" class="w-full border rounded-lg p-2 text-xs mb-1" placeholder="本文・成果物（児童が作った文など。任意）"></textarea>
@@ -11051,17 +11068,13 @@ app.get('/teacher', (c) => {
             </div>
             <div id="cnoteList" class="mt-3 space-y-1"></div>
           </div>
+          <!-- 2026-09-29 整理(C-3): 「👤 児童ごとメモ」はここと、分析の個人パネル内「📝 先生の記録」の
+               2か所にあり、どちらも同じ場所（teacher_student_notes）に保存していた。見ている子に
+               そのまま書ける個人パネル側を残し、こちらを1つにまとめた。書いたメモは個人パネルの
+               中にそのまま一覧で出るので、読めなくなるものは無い。 -->
           <div class="bg-white rounded-xl shadow p-4">
-            <div class="font-bold text-slate-700 mb-1">👤 児童ごとメモ</div>
-            <div class="text-xs text-slate-500 mb-2">児童を選んで、授業中の様子をサッと一言。チェックを入れたメモだけ「子ども向けカルテPDF」に載ります（既定はオフ＝先生だけが見る）。</div>
-            <div class="flex flex-col gap-2">
-              <select id="snoteStudent" class="border rounded p-1.5 text-xs bg-white" onchange="loadStudentNotesTab()"></select>
-              <input id="snoteDate" type="date" class="border rounded p-1.5 text-xs w-40">
-              <input id="snoteBody" class="w-full border rounded-lg p-2 text-xs" placeholder="例：発表でしっかり説明できた">
-              <label class="flex items-center gap-1 text-xs text-slate-600"><input id="snoteKarte" type="checkbox"> カルテ（子ども向け）にも載せる</label>
-              <div class="flex items-center gap-2"><button onclick="saveStudentNoteTab()" class="bg-teal-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-teal-700">💾 児童メモを保存</button><span id="snoteStatus" class="text-xs text-teal-600 font-bold"></span></div>
-            </div>
-            <div id="snoteList" class="mt-3 space-y-1"></div>
+            <div class="font-bold text-slate-700 mb-1">👤 児童ひとりへのメモ</div>
+            <div class="text-xs text-slate-500">「1 クラス全体」で<b>児童の名前をクリック</b>すると開く画面の、<b>📝 先生の記録</b>から書けます。<br>保存される場所は前とまったく同じです（書いたメモもそのまま残っています）。</div>
           </div>
         </div>
 
@@ -11206,7 +11219,8 @@ app.get('/teacher', (c) => {
             <select id="hwMonthFilter" class="border p-2 rounded text-sm bg-white" onchange="loadHomework()" title="この月の提出だけを表示します">
               <option value="">すべての期間</option>
             </select>
-            <button onclick="loadHomework()" class="bg-slate-200 rounded px-3 py-1 text-sm" title="いまの条件でもう一度読み込みます">🔄 更新</button>
+            <!-- 2026-09-29 整理(A-6): 「🔄 更新」を撤去。上の3つの選ぶ欄すべてが onchange で読み直し、
+                 サブタブを開いたときにも自動で読み込むため、押す必要が無かった。 -->
             <button onclick="bulkReturnNoComment()" class="ml-auto bg-blue-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold shadow hover:opacity-90">✅ 未返却をまとめて返却（いま入っている文のまま）</button>
           </div>
           <!-- サマリーバー -->
@@ -11219,9 +11233,7 @@ app.get('/teacher', (c) => {
                開いたときに自動で読み込むので、毎回ボタンを押さなくてよい。 -->
           <details id="hwPlanBox" class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3" ontoggle="if(this.open) hwPlanOpened();">
             <summary class="cursor-pointer font-bold text-sm text-blue-800 select-none">📝 生徒の今週の計画 <span id="hwPlanCount" class="ml-1 text-[11px] font-normal text-slate-500"></span></summary>
-            <div class="mt-2 flex justify-end">
-              <button onclick="loadStudentPlans()" class="bg-blue-600 text-white rounded-lg px-3 py-1 text-xs font-bold shadow hover:opacity-90">🔄 読み込み直す</button>
-            </div>
+            <!-- 2026-09-29 整理(A-6): 「🔄 読み込み直す」を撤去。開いたときに毎回いちばん新しいものを読む。 -->
             <div id="studentPlansList" class="space-y-2 text-sm text-slate-700 mt-2">
               <p class="text-xs text-slate-400">開くと読み込みます</p>
             </div>
@@ -11253,6 +11265,10 @@ app.get('/teacher', (c) => {
 
       <!-- ミッションタブ -->
       <div id="tabPaneMissions" class="hidden space-y-3">
+        <!-- 2026-09-29 整理(B-3): ミッションは毎日は触らないので畳んだ。機能は1つも消していない。 -->
+        <details class="bg-white rounded-xl shadow px-4 py-3">
+          <summary class="cursor-pointer font-bold text-slate-700 select-none">🎯 ミッション・ひみつのQR<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません（使うときだけ開いてください）</span></summary>
+          <div class="mt-3 space-y-3">
         <div class="bg-white rounded-xl shadow p-4">
           <h3 class="font-bold mb-3">🎯 クラス共同ミッションを作る</h3>
           <p class="text-xs text-slate-500 mb-2">クラス全員の正解数を合計して目標に挑戦！達成すると全員がコイン＋かけらをもらえます。</p>
@@ -11286,6 +11302,8 @@ app.get('/teacher', (c) => {
           </p>
           <div id="qrHuntBox" class="text-sm text-slate-400">よみこみ中…</div>
         </div>
+          </div>
+        </details>
       </div>
 
       <!-- 連絡帳タブ -->
@@ -12054,6 +12072,14 @@ app.get('/teacher', (c) => {
         var colors = {overview:'indigo',subject:'purple',homework:'indigo',ai:'purple',tests:'rose',notes:'teal'};
         if(sub==='notes' && typeof initNotesTab==='function') initNotesTab();
         if(sub==='ai' && typeof loadAiSummary==='function'){ try{ loadAiSummary(); }catch(_e){} }
+        /* 2026-09-29 整理(A-6): 「\u{1F504} 児童一覧を表示」「\u{1F504} 名簿を読み込む」の2つのボタンを消したので、
+           タブを開いた時点で名簿を読む。クラスが選ばれていないときは何もしない（空の注意文を出さない）。 */
+        try{
+          var _laSel = document.getElementById('laClassSelect');
+          var _laCid = _laSel ? _laSel.value : '';
+          if(_laCid && sub==='ai' && typeof taiLoadRoster==='function'){ try{ taiLoadRoster(); }catch(_e2){} }
+          if(_laCid && sub==='tests' && typeof recDirLoadRoster==='function'){ try{ recDirLoadRoster(); }catch(_e3){} }
+        }catch(_e4){}
         tabs.forEach(function(t){
           var pane = document.getElementById('anPane_' + t);
           if(pane) pane.classList.toggle('hidden', sub !== t);
@@ -14976,8 +15002,8 @@ app.get('/teacher', (c) => {
       //   （読み直したいときは中の「🔄 読み込み直す」を押す）。
       window._hwPlanLoaded = false;
       function hwPlanOpened(){
-        if(window._hwPlanLoaded) return;
-        window._hwPlanLoaded = true;
+        /* 2026-09-29 整理(A-6): 「読み込み直す」ボタンを消したので、
+           開くたびに読み直す（前は初回だけで、古いまま見えることがあった）。 */
         try{ loadStudentPlans(); }catch(e){}
       }
 
