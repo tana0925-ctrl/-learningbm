@@ -1,0 +1,100 @@
+name: patch-hs-resync-v1
+
+# HS_RESYNC_V1 (2026-09-28)
+#   「出したのに出してない判定になる」を直す。
+#   子どもの週間ビューは提出の有無を端末側の記録だけで見ており、サーバの
+#   homework_submissions を一度も見ていなかった。端末側の保存が届かなかった日は
+#   先生の画面には出るのに、子どもの画面にだけ出ない状態になる。
+#   本番実測(2026-09-28): 32人・214日ぶんがこの状態。
+#   → 画面を開いたときにサーバの記録を見て、端末側に無い日を書きもどす（自己修復）。
+#     すでに取っている /api/homework/my の返事を使うので通信もクエリも増えない。
+#     端末側にある日は上書きしない。LIMIT は 30->120（6月に消えた日も救うため）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi)'
+        required: true
+        default: '158'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git checkout -- .
+      - name: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: apply (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+          B: |
+            {Wp48S^xk9=GL@E0stWa8~^|S5YJf5;3irQrd<Fun@VT6Qap3rY+a*KO12_|an3USGuFh8AzZ~Y2M27_R*M`JG|{^f)y=d_>=Svl6hdoofQ6yi
+            (`OG^l+fUXj@zcOqz9*oOXW_=O%rw_b?aT-5c{bUoTwy15L<{63r@(zvNHjZ6-k%kCb#>DD>O@pT!n&(oXc&b0Yn{s-L*bn^&WcX9xa)`1O2mP
+            KG2A#o+k0ksuEq~Vl&69f>FZvica%DW|)_j;=9kHgo=BRKBzn}rfYNR5&p?DQ3GJA>ShIA7Z@sY(}o+o9M`^RkO7qt(a|x_so1NMP`UrhUHcxY
+            FE4yrGbsYH_2oHZ%f->{cc1H(kf6slS>roimwtaFp=vi9YUwG(b_MCYhCBx0RPR^Fm?mv^2E6E7ro-y#S(-hul}=9OWkv=11;|Cgpo5`rJ@k;H
+            =aO#pb5_dL(|+jZ`78urwN@Wt!hN+bfLiM{fP(*x#G7!M>(?1dL_K^P4=x~P=pJZ4&oB2e_CKN0y--sP4z%FB{b(CNL)LB0rJCQ5lfCv!%)<)D
+            9)#YKm!hcKpxiIEWWRGLdhj6awtq2`CT+_{MCU9$gUdD09Ab#B(dDzvZbZtVAiqZHjneG-rsOVu1RwbS2BBuWvw!g;$Uc5fP~fKngfKBsNZ-}?
+            ?$Q#bTb&+Jkz5Nt3%{41ZLU6-R<Vl5@xprbfrY-vQH)_NJS3Nh3wH2*57N_yraC;(R_FBx|Frl^SNDxa0IVIZ;os(JL&KcdMClxqy{vAO;jI^-
+            5kLCPkTJIQIH(B)Ti1`X`#=<Nh{w)IJ>{?)x0<|T2t8>+&kXgFU*sXvL5zVP8w!7Scbqob40}SjzxYSA+0hZEZ>Ws;tJ;;dRT@^93rnstw+9ak
+            `FR@_?(?sXm8|#gFfgKEt!ZrW3Mb_OT+YLWi(gW;9gDoxBPUBX;wUm<dqIHMe&K_)!3ka!p7v}MbkHzwW(K98l;l@nWQw$N7Sa(;N8*9d?|H*B
+            !Bz>uP{JjsA2s7CzQ3cbs4~^Qrg?!TD#4nMikDf?pspIZ`(v1cQITM<2qq@~w;Kkl$ir7wweD*7>d-Am9~Rgs<gN(vk>+4qHBJUPvKvFtJLNgr
+            ;8=7<w8f>ccw*v!&nTGpHDCPDMROGXtKp98;&fn+gG-vQt@(=r<g4(lbGN6!JQ3$QPxm=wb^K7iij0N?bmu`d`swVEI+k7`;$c+WAqCEi(ga#K
+            BV)_byS&*aY0v}bAq|mvq2g?DMm3!ZC3Aq_&e51Pz7MDKUVG2jRYHSS#&o<I=L#(@{IMT>kal{*s)W3en4Hp&@h!^)UCAMEk^#uJ)b#>0z+uah
+            ECc;(RBTvXqFzkXvy3>)o9<p-42=tT=RgHOCW)<FG9xJ8gP3-!lN1(IP3`;Pip5P)sg{ro#9FXwL81j@5(v`tz&!4c&mpjS64}wN9`(N+V}@pz
+            H%nUuTj?NZs&T8}H>$MZp46`;DKk>C_TT2!3md=yD2U0x`b3b2c1kWKFZe-q!y7i$I%MtpNa!GF(Nx7MA+jB__1BK6OlPscVM|7Jt{LfYh`bro
+            gGpoS;+_0(=J$0o5g;>3{Hn_ul#2Z=&Z<q96av%}SE?%UhwAk)j#e*eS|y3-89{$Qc_7(~dobNhXZ&bJHM;eX-J;)p=P?>+D=?f;)lab+?ppx0
+            Kc2!x=qoR@ib7K$7h>4Ly=O>y%?!S!{ckGR2~uw}?t}o!CAReC4>@gZMqOY2^!PAG0h|)mSm8!a2|yNmcu({3kxQvLS_pjqd`M+G#I{+fafGkS
+            Z_3`+&|H4^eW&z4wUk#>UmKhgw@)I0`W501=sb&Fn>TF<8>I&|8&QU3tH)zR99~!1(m0m=yT}ez?hPafjwz;2YOKVocF$3Q!_&cdYb$iig~oju
+            l7B4`RZoFEmwJ(_WZ}8Eqs%XeWaRyQ6R>44T5C=3%R9@Y|F)KVEBMjxFVlAQ{Jef1^Q1Q7RPO|xdIiyLw8g-9maw3qd0Qzk=xcSoUL%H4AcRHq
+            ;HU1zgH;Q$)Am$@hqay!@|U*g$TC#D!iW()>K}^qA<9|;A$VYQbqg``G*f+UI)Or?Tf|D>qr3l!9YwkrV!UzGmm~_Hoad`KX;o+r{Fv8W?u=8&
+            N4@BX2jeB-+9ss!r5Z%ZLD#xkdF}dKGHyiJ%iDsQQTfre0;^8S_f8Eb0hg1Z{RpNg8|<~iTo2teO(Hychg$uz{I=p|U+J210O4w9_U1XrPj6$e
+            yDlqpDryIn4})xzq{P`-Yw;$j%r($rg@ooDHgzEkf+Q-;c|5fMa&3W;Xe&Up8y`5c!}cAVx<?ru&2t7*S^2W}&2b<45IVl@O)NTQD);{Mr#&1Y
+            JessL!k+Br(_BhIyjhpM&3{aHnF#CUmredmA#9))<Vn5&{)FiyJ>7*Lo@edsce?giMOXUz8A70>DtN}~S<I}p#Y3;ql9VHMCUgqTrm9Ya`O4+>
+            fz9CU#Ul9+r|-c*LZ5|!f~mdw-Rw(72|PzYlID(^Ve2$G7iTD#&AJZ2dj>j(#_A=yP=GFAW8n-!5utffSK|js1}q5xW!8Hr1MLVrX)xxj(=UOk
+            4_NcaZNl3lV3@~w1D3QiV1Bj)X&?bG;GU|N=6y$d)led>LZfIc!q*WO@uuiNnQMb=v$oe`;Y;X0V<#(S7M0=_aQ)%*Ya6XfVw#P7qqpD>IzH$@
+            I@R+4u}6<asU--*(louM2vq)Yh3oEq5su%FiB&%PDn%De7aY}kJZBoIHDQZN$fk>za<~XMmCL<AE@LV<qh6CW#qRZvLZFX6@hrK2MER|IWQY^K
+            -zv4QY2UEFX4NoB%sdlXjj=>GkK@nSNlG6Q=-S%ihQ{Q12zj_I?X=+8_J*P}e~HxEJyCXhMwQ5oQF_zX8cpI>9q4m(N5hQW`=L?YEtcQ_{%Am^
+            uJOe0@+c?RkQjwG&#r1m4RaCYCarQsU+G#)$qhNLn%;=6Xbzi%X*q#LJ<E96sWcCpos{`tfZ>KJF+n5gb5!hHceb4sU<H79H+a^S$YFC0;V>7&
+            ZhnU}wEYM3?f1#S>K~?vN&Pf!sN19>J_AKJ!kt0ID0ME|?*S?%nBgSebbh5qZtkwrh-IANTa?H63#<05VM`anJDDPRHPTAM|3G12^5_ng&t&=2
+            ucRu%=6#7}L?K@*{N(Us+quW`>T;$cw5~g_*0>tK-kUltMZ3;eRXAeVp%AtMAyEn9V<Bq9RIQ!u9eB3@_613LN!N<U!w4%FLM(&moTO~QxqGv@
+            5>4*jraXON=i)*&!AuLepP?#mZ6*sHv+EhZ665Kk{<u)>hpE9c1gG4t6kdMW48R*6+?ER%8rmBVplhz87UsNvbM8E=;P!g_RlSB=qLp=u!32HP
+            uU_U45&HP(H4n(2%aOry0s>2~Ay8yP9XO<Y8l6C;OQ{IO@hseITd&H)59EqdCH7WdnN{Kwed-{h8>jcI5W%zk%6s~nQUP>}Uz4&%7jaa`Gk*sk
+            g30?}Cgp5nS&+DC;)`W<?KzHLWHxGb3N$<PkxZ0_pmi&z(>OL$24IS;pDY_Fu4`27%Z9!|nGry8fU*{25&<jMyFisJv1}DSGD*OsafKqP5jfBW
+            `sMs`e>}XC&>6GH<>qL>@xP5^?+e_Cm*&%}hS5Lo%lbPYd?i$yZ8P2%V?l2b+Q8UjZz0_&xRiooUJZ!^1DtyPWB8)+8U5O{+lE*UJ^*3>ZqI<U
+            !K}k1^&)1H$+1}SxuHcII?2zLHiBCW<z#p3_CfwS7&jI{W3@bFj600p)U4uZ0Z0d1Por>626?S<1V{V1K9-HYDIBe%0QbCwV3h?Tis&gs0@)2b
+            g(*>C=O3sUrG4t0vmOYXIgy8NeM0l*M=9Ob`G{L^oCZ^+2Bq-Ww~ISN?F_Flm3x!j(?<89<2}Kv{fPQNClX?x^mRufUh_Vis1X#+jj;+^oGmtG
+            Ya+Pf8(YYrZ={*Y$xRSNe3$kirR0EF1z)n0M0v;<s!r$}IQCv5TrfK#)1Zj082KG%lmD!Ee@n{{atnfO$)u<XxXnHRJ{P}!v`HT)XdkIK+4W~Q
+            ;kUClr{$~&mDngrV712#-gl!0g64>3>a9ms()HTIKQ3-8Uf-o8XK#G<ki3_%@Fc|7!~uf6i|kLBSjKCc5;2ML;Vuxcg$tcd?H;@eF&^N0gKSw%
+            #P&+B6RmG|EHa7DC7Y?1Q}jQ&7n+dYJH5vBoDH9Wsv%`a29QR=5DfvCK$&h6XJ=+Oh`EFCtoI7A@T9X42vl&IP;FOXB}6czAX@NXTCkrZ+epEe
+            UGJA2^5Uv%`+7MBmOpmN7K*-E39bf{D9$W{n6FzxXk@qmcL_a3ly8~;Y`ggqk}?%}W9G7UEgy{~r3!0OJQ2{VoD@F057<mFuVF-(={h*F9+{<3
+            z#}hn9>BZJkPW|6DQjzlkn>DWPm(#Aoy7$vxR7_%ek!k(pqcqd2rZL+FeTk1s!Nv(@Id~|3P*sT$|9b~`SGI11vjViQab-sp5pg)%u2@EzC&f?
+            <7l<`K>NK)NPV1%Jvk$*{)I@Nu8)jHQKVT<KbmmHEVl$MKC{PPT<?JyyP_sU;s<+~Ah_{Ru2i*CL0+BnVe0MJKS!@@Ma*c=*OPA6<BPz1RuW&c
+            TG9JYWRo$t=!<j_1rfgd{;d5ee~)iAJ`1mcQ$Q2D@0lZ~B$sdcKlr2kc!{bZ0w{arYM=s`V`sLAVD3kEiD_aXx7{@XO69G?mPyQQ$>sv<UHY*`
+            _PHaE@4)n8_|5f|0w1NTL@(d)QUUpn!Z-p%NkMnYY^UB@q3WW?+^xmt#T6J!N5DsP_Q=5ZF6>ngh~N=SYMIr0djc}yB!2#Yo5^1f6v<a?6aWAK
+            IIc!{9yD#F00F`s+e`oeZF10$vBYQl0ssI200dcD
+        run: |
+          python3 -c "import base64,lzma,os,io,re;b=re.sub(r'\s','',os.environ['B']);io.open('/tmp/p.py','wb').write(lzma.decompress(base64.b85decode(b)))"
+          sha256sum /tmp/p.py
+          python3 /tmp/p.py
+      - name: build check
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/a.js --log-level=warning
+          node --check /tmp/a.js
+      - name: commit and push
+        run: |
+          git add src/index.tsx public/index.html scripts/patch_hs_resync_v1.py
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git --no-pager diff --cached --stat
+          git commit -m "HS_RESYNC_V1: 出したのに未提出に見える件を修正（サーバの提出記録を子どもの画面に書きもどす・32人214日ぶん） (チェーン158->158)"
+          git push origin HEAD:main
