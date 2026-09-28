@@ -10739,14 +10739,23 @@ app.get('/teacher', (c) => {
       </div>
 
       <!-- タブナビ -->
-      <div class="bg-white rounded-xl shadow p-1 flex gap-1">
-        <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('classes')">📚 クラス管理</button>
-        <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">📓 連絡帳</button>
-        <button id="tabAnnouncements" style="display:none" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
-        <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('homework')">📬 家庭学習</button>
-        <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">📊 分析</button>
-        <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">💬 質問チャット</button>
-        <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">🎯 ミッション</button>
+      <!-- 2026-09-29 整理(D): 機能ごとの並びを、先生の仕事の順番に並べ替えた。
+           左から「毎日」→「今週・月曜」→「ときどき」→「年度はじめ」。
+           タブの中身は1つも動かしていない（並び順と名前だけ）。 -->
+      <div class="space-y-1">
+        <div class="flex items-center text-[10px] font-bold text-slate-400 px-2">
+          <span>← 毎日つかうもの</span>
+          <span class="ml-auto">ときどき・年度はじめ →</span>
+        </div>
+        <div class="bg-white rounded-xl shadow p-1 flex gap-1">
+          <button id="tabHomework" class="flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white" onclick="switchTab('homework')">① 📬 家庭学習</button>
+          <button id="tabMail" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('mail')">② 💬 質問チャット</button>
+          <button id="tabContact" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('contact')">③ 📓 連絡帳</button>
+          <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">④ 📊 分析・カルテ</button>
+          <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">⑤ 🎯 ミッション</button>
+          <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('classes')">⑥ 📚 クラス・名簿</button>
+          <button id="tabAnnouncements" style="display:none" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
+        </div>
       </div>
 
       <!-- クラス一覧タブ -->
@@ -10808,10 +10817,10 @@ app.get('/teacher', (c) => {
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">3</span> 家庭学習
           </button>
           <button id="anSubTab_ai" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('ai')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> AIの結果
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">4</span> カルテ・AI<span class="ml-1 text-[9px] font-normal opacity-70">月曜に印刷</span>
           </button>
           <button id="anSubTab_tests" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('tests')">
-            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">5</span> テスト取り込み
+            <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">5</span> 取り込み<span class="ml-1 text-[9px] font-normal opacity-70">ときどき</span>
           </button>
           <button id="anSubTab_notes" class="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100" onclick="switchAnalyticsSubTab('notes')">
             <span class="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-xs font-black">6</span> 授業メモ
@@ -10969,7 +10978,7 @@ app.get('/teacher', (c) => {
           <!-- 通知表（先生用・観点別◎○△） -->
           <div class="bg-white border border-indigo-200 rounded-xl p-4 space-y-3 mb-4" id="reportCardPanel">
             <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="font-bold text-sm text-indigo-800">📋 通知表（先生用・観点別）</div>
+              <div class="font-bold text-sm text-indigo-800">📋 通知表（先生用・観点別）<span class="ml-1 text-[10px] font-normal text-indigo-500">学期末に使います</span></div>
               <div class="flex gap-2">
                 <button onclick="loadReportCard()" class="bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-indigo-700">📋 評価一覧</button>
                 <button onclick="loadRosterEditor()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-300">🔢 出席番号を編集</button>
@@ -15611,6 +15620,9 @@ app.get('/teacher', (c) => {
           if(annPane) annPane.style.display = 'none';
         }
         await renderClasses();
+        /* 2026-09-29 整理(D): ひらいた直後に出るタブを「① 家庭学習」にする。
+           クラス一覧の読み込みは上で済ませてあるので、あとから見ても中身は入っている。 */
+        try{ switchTab('homework'); }catch(_e){}
       })();
     </script>
     <script src="/drillpark.js?v=1"></script>
