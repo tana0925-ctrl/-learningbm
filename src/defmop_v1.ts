@@ -41,7 +41,7 @@ const B_DECL = `/* __DEFMOP_V1__ 片方が全滅したあとの「掃討」。op
 // ---- 2) 交戦中の全滅で 即 break しない -------------------------------------
 const A_HIT = "if(CONTACT){ _cAttack(f); if(!alive(A).length||!alive(B).length){ ended=true; break; }"
 
-const B_HIT = "if(CONTACT){ _cAttack(f); if(!alive(A).length||!alive(B).length){ /* __DEFMOP_V1__ */ if(!_mopOn()){ ended=true; break; } }"
+const B_HIT = "if(CONTACT){ _cAttack(f); /* __DEFMOP_BASE_V1__ 基地が落ちたら まず それを勝ちとして記録する。全滅の判定で上書きさせない。 */ if(baseHpA<=0){ baseHpA=0; winner='B'; reason='base'; ended=true; break; } if(baseHpB<=0){ baseHpB=0; winner='A'; reason='base'; ended=true; break; } if(!alive(A).length||!alive(B).length){ /* __DEFMOP_V1__ */ if(!_mopOn()){ ended=true; break; } }"
 
 // ---- 3) ループの末尾でも 即 break しない -----------------------------------
 const A_TAIL = "if(ended||!alive(A).length||!alive(B).length) break;"
