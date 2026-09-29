@@ -10,6 +10,55 @@ function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 var MONSTERS = window.MONSTERS || [];
 window.MONSTERS = MONSTERS;
 </script>
+<script src="/mon/list.js"></script>
+<script>/* MON_IMG_V1 キャラの絵の受け皿。絵があれば絵、無ければ絵文字。 */
+(function(){
+  var IDS = (window.MON_IMG_IDS && typeof window.MON_IMG_IDS === 'object') ? window.MON_IMG_IDS : {};
+  function has(id){ var n = Number(id); return !!(n && IDS[n]); }
+  function url(id){ return has(id) ? ('/mon/' + Number(id) + '.png') : null; }
+  function esc(s){
+    return String(s == null ? '' : s)
+      .split('&').join('&amp;')
+      .split('<').join('&lt;')
+      .split('>').join('&gt;')
+      .split('"').join('&quot;')
+      .split("'").join('&#39;');
+  }
+  window.monHasImg = has;
+  window.monImgUrl = url;
+  window.monEsc = esc;
+  /* HTMLに埋めるとき用。絵が無ければ、今までの絵文字をそのまま返す。 */
+  window.monSpriteHtml = function(id, sprite, extraClass){
+    var u = url(id);
+    if (!u) return esc(sprite);
+    return '<img src="' + u + '" alt="' + esc(sprite) + '" class="mon-img ' + esc(extraClass || '') + '" loading="lazy" decoding="async" draggable="false">';
+  };
+  /* canvas に描くとき用。まだ読めていなければ null（そのときは絵文字を描く）。 */
+  var cache = {};
+  window.monImgFor = function(id){
+    var u = url(id);
+    if (!u) return null;
+    var n = Number(id);
+    var im = cache[n];
+    if (im === undefined) {
+      im = new Image();
+      im.decoding = 'async';
+      im.onerror = function(){ cache[n] = null; };
+      im.src = u;
+      cache[n] = im;
+      return null;
+    }
+    if (!im) return null;
+    return (im.complete && im.naturalWidth > 0) ? im : null;
+  };
+  window.MON_IMG_READY = true;
+})();
+</script>
+<style>/* MON_IMG_V1 */
+.mon-img{ display:inline-block; width:1em; height:1em; object-fit:contain; vertical-align:-0.15em; }
+.mon-img-shadow{ filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45)); }
+</style>
+
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
 <meta name="description" content="授業・家庭学習向けの学習教材（ドリル）です。学習結果を記録し、教師が管理画面で確認できます。"/>
