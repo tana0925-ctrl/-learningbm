@@ -3443,6 +3443,32 @@ app.get('/api/teacher/class/:classId/activity', async (c) => {
 
 
 // 個人全期間分析API
+// 2026-09-29 CLEANUP_S11：「まとめてコピー」が取り置きの文を渡したあと、
+//   そのあと新しく出した子が何人いるかだけを数える。人数しか返さない。
+//   COUNT(DISTINCT ...) 1回きりで、提出の中身は読まない。
+app.get('/api/teacher/class/:classId/new-since', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const ts = Number(c.req.query('ts') || 0)
+  if (!ts || !isFinite(ts)) return c.json({ ok: true, count: 0 })
+  let n = 0
+  try {
+    const row = await c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT hs.user_id) as n
+       FROM homework_submissions hs
+       JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id = ?
+       WHERE hs.submitted_at > ?`
+    ).bind(classId, ts).first<any>()
+    n = Number((row && row.n) || 0)
+  } catch {}
+  return c.json({ ok: true, count: n })
+})
+
 app.get('/api/teacher/student-full-analysis', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -10877,7 +10903,11 @@ app.get('/teacher', (c) => {
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptReflect" class="accent-indigo-600"> 週の振り返りの返却</label>
               <label class="flex items-center gap-1"><input type="checkbox" id="taiOptSuggest" class="accent-indigo-600"> おすすめ計画</label>
             </div>
-            <button onclick="taiCopyAll()" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-emerald-700">📋 まとめてコピー</button><button onclick="taiCopyFresh()" class="ml-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg px-3 py-2 text-xs font-bold hover:bg-emerald-50">🔄 最新データで作り直す</button>
+            <!-- 2026-09-29 整理: 「🔄 最新データで作り直す」を画面から外した。
+                 2つのボタンの違いを先生に覚えてもらうのではなく、取り置きの文を渡したときに
+                 「いつ作った文か」と「そのあと何人が新しく出したか」をこの下に出し、
+                 必要なときだけ「作り直してコピー」ボタンが出るようにしてある。 -->
+            <button onclick="taiCopyAll()" title="同じ条件で今日2回目からは、1回目に作った文をそのまま渡します。新しい提出があるときは下に知らせます。" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-emerald-700">📋 まとめてコピー</button>
             <span id="taiStatus" class="text-xs font-bold text-indigo-700 ml-2"></span>
           </div>
 

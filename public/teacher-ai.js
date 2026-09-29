@@ -237,7 +237,14 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     var done = function () {
       var m = window.__taiLast || {};
       var warn = (m.blocks > 60 || m.chars > 90000) ? '　⚠ 量が多いので、AIの返事が途中で切れることがあります（項目を減らすと安全です）' : '';
-      var from = m.cached ? '（さっき作ったものを再利用：データベースは読んでいません）' : '';
+      // 2026-09-29: 取り置きを使ったなら、何時何分に作った文かをその場で出す。
+      var from = '';
+      if (m.cached) {
+        var _ct = m.cachedAt ? new Date(m.cachedAt) : null;
+        var _chm = _ct ? (('0' + _ct.getHours()).slice(-2) + ':' + ('0' + _ct.getMinutes()).slice(-2)) : '';
+        from = _chm ? ('（今日 ' + _chm + ' に作った文です。作り直してはいません）')
+                    : '（さっき作った文をそのまま渡しています）';
+      }
       // 「新しい取り込みなし」の子が何人いるかを出す。先生が
       //   「この子には何か足すか、別の観点で書かせるか」を判断できるように。
       var none = (m.noMaterial > 0) ? ('　📎新しい取り込みなし：' + m.noMaterial + '人') : '';
@@ -297,8 +304,11 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     if (!oneId && !window.__taiForceRefresh) {
       var hit = cacheGet(_ckey);
       if (hit && hit.text) {
-        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
+        // 2026-09-29: 取り置きの文を渡したときは「いつ作った文か」を必ず出し、
+        //   そのあと新しく出した子がいれば、その場で作り直せるようにする。
+        window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, cachedAt: hit.at || 0, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
         copyText(hit.text);
+        taiWarnIfStale(cid, hit.at || 0);
         return;
       }
     }
@@ -1073,7 +1083,33 @@ try {
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
   }
 
-  // 🔄 最新のデータで作り直す（キャッシュを捨ててから作る）
+  // 2026-09-29 CLEANUP_S11
+  //  取り置きの文を渡したあと、そのあと新しく出した子がいないかを1回だけ数える。
+  //  いたときだけ、赤い注意と「作り直してコピー」ボタンをその場に出す。
+  //  いなければ何も出さない（ふだんは静かなまま）。
+  async function taiWarnIfStale(cid, at) {
+    if (!cid || !at) return;
+    var el = $('taiStatus');
+    if (!el) return;
+    var n = 0;
+    try {
+      var r = await fetch('/api/teacher/class/' + encodeURIComponent(cid) + '/new-since?ts=' + encodeURIComponent(String(at)));
+      var j = await r.json();
+      n = (j && j.ok) ? Number(j.count || 0) : 0;
+    } catch (e) { return; }
+    if (!n) return;
+    var _t = new Date(at);
+    var _hm = ('0' + _t.getHours()).slice(-2) + ':' + ('0' + _t.getMinutes()).slice(-2);
+    el.innerHTML =
+      '<span style="color:#b91c1c;font-weight:800">⚠ いまコピーしたのは 今日 ' + _hm +
+      ' に作った文です。そのあと ' + n + '人が新しく出しています。</span>' +
+      ' <button type="button" onclick="taiCopyFresh()" ' +
+      'style="margin-left:6px;background:#dc2626;color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer">' +
+      'いまのデータで作り直してコピー</button>';
+  }
+
+  // 🔄 最新のデータで作り直す（取り置きを捨ててから作る）
+  //   ふだんはボタンを出していない。上の赤い注意から呼ばれる。
   async function taiCopyFresh() {
     cacheClear();
     window.__taiForceRefresh = true;
@@ -1707,6 +1743,7 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
   window.taiLoadRoster = taiLoadRoster;
   window.taiPrintKartes = taiPrintKartes;
   window.taiCopyFresh = taiCopyFresh;
+  window.taiWarnIfStale = taiWarnIfStale;
   window.taiOneOpen = taiOneOpen;
   window.taiOneCopy = taiOneCopy;
   window.taiOneImport = taiOneImport;
