@@ -1,0 +1,40 @@
+name: キャラの絵 第1便v3 受け皿だけ作る（見た目は変わらない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: /mon/ を そのまま配る側に入れる
+        run: python3 scripts/patch_mon_routes_v1.py
+      - name: 受け皿を入れる（チェーン158・あて先1件でなければ中止）
+        run: python3 scripts/patch_mon_receptacle_v1.py
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: /mon/ が そのまま配る側に入ったか確かめる
+        run: python3 scripts/check_mon_routes_v1.py
+      - name: 配信されるHTMLのJSを構文チェック
+        run: node scripts/render_check.mjs
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git add -f dist/_routes.json
+          git diff --staged --quiet && echo "No changes" || (git commit -m "キャラの絵 第1便 受け皿だけ（チェーン158->158・見た目は変わらない）" && git push)
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
