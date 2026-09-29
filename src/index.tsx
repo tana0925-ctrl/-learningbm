@@ -3446,6 +3446,26 @@ app.get('/api/teacher/class/:classId/activity', async (c) => {
 // 2026-09-29 CLEANUP_S11：「まとめてコピー」が取り置きの文を渡したあと、
 //   そのあと新しく出した子が何人いるかだけを数える。人数しか返さない。
 //   COUNT(DISTINCT ...) 1回きりで、提出の中身は読まない。
+// 2026-09-29 CLEANUP_S12：先生ご自身の表示名を入れ直す。自分の行だけを書きかえる。
+app.put('/api/teacher/my-name', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  const nm = String(body.name || '').trim().slice(0, 40)
+  if (!nm) return jsonError(c, 400, 'empty')
+  let done = false
+  try {
+    const t = await c.env.DB.prepare('SELECT id FROM teacher_accounts WHERE id=? LIMIT 1').bind(u.id).first<any>()
+    if (t) { await c.env.DB.prepare('UPDATE teacher_accounts SET name=? WHERE id=?').bind(nm, u.id).run(); done = true }
+  } catch {}
+  if (!done) {
+    try { await c.env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(nm, u.id).run(); done = true } catch {}
+  }
+  if (!done) return jsonError(c, 500, 'save_failed')
+  return c.json({ ok: true, name: nm })
+})
+
 app.get('/api/teacher/class/:classId/new-since', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -10710,7 +10730,11 @@ app.get('/teacher', (c) => {
       <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold">教師ダッシュボード</h1>
-          <p id="teacherInfo" class="text-sm text-slate-500"></p>
+          <p class="text-sm text-slate-500">
+            <span id="teacherInfo"></span>
+            <!-- 2026-09-29: 名前がまだ入っていないアカウントがあるため、その場で入れ直せるようにした。 -->
+            <button onclick="editTeacherName()" title="表示される名前を変える" class="ml-1 text-xs text-slate-400 hover:text-slate-700">✏️</button>
+          </p>
         </div>
         <div class="flex gap-2 items-center">
           <a href="/teacher-mi" class="text-sm px-3 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold transition">🧭 MIしらべ</a>
@@ -11952,6 +11976,23 @@ app.get('/teacher', (c) => {
           html += '</table><p class="text-slate-400 mt-1">※ 短い時間に全員がそろっていたら、写真が回った可能性があります。記録するだけで、罰は作っていません。</p>';
           box.innerHTML = html;
         }catch(e){ box.textContent = 'よみこみに失敗しました'; }
+      }
+
+      /* 2026-09-29: 左上の名前を先生ご自身で入れ直す。自分のアカウントの名前だけ。 */
+      async function editTeacherName(){
+        var cur = String(window._teacherName || '');
+        var v = window.prompt('画面の左上に出す、先生のお名前を入れてください（40文字まで）', cur);
+        if (v === null) return;
+        v = String(v).trim();
+        if (!v) { alert('空にはできません。'); return; }
+        try {
+          var r = await fetch('/api/teacher/my-name', { method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({ name: v }) });
+          var d = await r.json();
+          if (!d || !d.ok) { alert('保存できませんでした。'); return; }
+          window._teacherName = d.name;
+          var el = document.getElementById('teacherInfo');
+          if (el) el.textContent = d.name;
+        } catch (e) { alert('保存できませんでした: ' + (e && e.message ? e.message : e)); }
       }
 
       function switchTab(tab){
@@ -15670,6 +15711,7 @@ app.get('/teacher', (c) => {
         var _tNm = String((me.user && me.user.name) || '').trim() || String((me.user && me.user.loginId) || '').trim() || '先生';
         var _tSc = String((me.user && me.user.school) || '').trim();
         document.getElementById('teacherInfo').textContent = _tNm + (_tSc ? '（' + _tSc + '）' : '');
+        window._teacherName = _tNm;
         // おしらせタブは管理者(admin)のみ表示。既定は非表示（teacher役職には出さない・チラつき/フェイルオープン防止）
         if(me.user.role === 'admin'){
           var annTab = document.getElementById('tabAnnouncements');
