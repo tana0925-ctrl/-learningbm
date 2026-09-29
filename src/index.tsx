@@ -7960,6 +7960,65 @@ function khtStreak(days: any, todayKey: string, extra: any): number {
 }
 
 // 直近 n 登校日（今日をふくむ）に 1 回でも提出があるか。
+// ── 家庭学習の「何日連続」は、ここ1か所で数える ──────────────────
+// 先生が決めたルール:
+//   ・土日、祝日、学校独自の休みは「とばす」。出していなくても連続は切れない。
+//   ・その休みの日に出していたら、その分はちゃんと数える。
+//   ・今日はまだ出していなくても切らない（朝に見て全員0になるのを防ぐため）。
+// 休みの日の判定は khtIsRest ひとつだけを使う。数え方を2本に増やさないこと。
+// 日付はすべて khtParseDay / khtFmtDay（UTCそろえ）で扱う。日本時間とのずれを出さないため。
+// 「今日」は khtTodayKey（朝8時半で切りかわる。児童画面の hsGetDayKey830 と同じ）。
+function hwDayMap(dayKeys: any): any {
+  const m: any = {}
+  if (Array.isArray(dayKeys)) {
+    for (let i = 0; i < dayKeys.length; i++) {
+      const k = dayKeys[i]
+      if (k) m[String(k)] = 1
+    }
+  }
+  return m
+}
+
+function hwStreakCurrent(dayKeys: any, todayKey: string, extra: any): number {
+  const days = hwDayMap(dayKeys)
+  let k = String(todayKey)
+  let s = 0
+  if (!days[k] && !khtIsRest(k, extra)) k = khtAddDay(k, -1)
+  for (let i = 0; i < 400; i++) {
+    if (days[k]) { s++; k = khtAddDay(k, -1); continue }
+    if (khtIsRest(k, extra)) { k = khtAddDay(k, -1); continue }
+    break
+  }
+  return s
+}
+
+function hwStreakMax(dayKeys: any, extra: any): number {
+  const ds = (Array.isArray(dayKeys) ? dayKeys : []).filter(Boolean).map(String).sort()
+  let best = 0
+  let run = 0
+  let prev = ''
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i]
+    if (d === prev) continue
+    if (!prev) {
+      run = 1
+    } else {
+      let k = khtAddDay(prev, 1)
+      let ok = true
+      let guard = 0
+      while (k < d) {
+        if (guard++ > 400) { ok = false; break }
+        if (!khtIsRest(k, extra)) { ok = false; break }
+        k = khtAddDay(k, 1)
+      }
+      run = ok ? run + 1 : 1
+    }
+    if (run > best) best = run
+    prev = d
+  }
+  return best
+}
+
 function khtRecent(days: any, todayKey: string, extra: any, n: number): boolean {
   let k = todayKey
   let seen = 0
