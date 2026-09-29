@@ -580,9 +580,26 @@ app.post('/api/auth/logout', async (c) => {
 app.get('/api/auth/me', async (c) => {
   const u = c.get('user')
   if (!u) return c.json({ ok: true, user: null })
-  if (u.role === 'teacher') {
-    const row = await c.env.DB.prepare(`SELECT name, school FROM teacher_accounts WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
-    return c.json({ ok: true, user: { ...u, name: row?.name, school: row?.school, grade: null } })
+  // 2026-09-29: ここは role==='teacher' のときしか名前を引いていなかった。
+  //   この学校の先生は role==='admin' で入っているため素通りしてしまい、
+  //   教師ダッシュボードの左上が「undefined ()」と出ていた（本番で確認）。
+  //   admin も同じ道を通し、名前は teacher_accounts → users の順に探す。
+  //   どちらにも無ければログインIDを返す（空欄にはしない）。
+  if (u.role === 'teacher' || u.role === 'admin') {
+    let _nm = ''
+    let _sc = ''
+    try {
+      const row = await c.env.DB.prepare(`SELECT name, school FROM teacher_accounts WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+      if (row) { _nm = String(row.name || ''); _sc = String(row.school || '') }
+    } catch {}
+    if (!_nm) {
+      try {
+        const row2 = await c.env.DB.prepare(`SELECT name FROM users WHERE id = ? LIMIT 1`).bind(u.id).first<any>()
+        if (row2) _nm = String(row2.name || '')
+      } catch {}
+    }
+    if (!_nm) _nm = String(u.loginId || '')
+    return c.json({ ok: true, user: { ...u, name: _nm, school: _sc, grade: null } })
   }
   // grade は DB から取得 + 4月1日自動進級チェック
   let grade: number | null = null
@@ -2671,7 +2688,8 @@ app.get('/api/admin/classes', async (c) => {
   if (!u) return jsonError(c, 401, 'unauthorized')
   const res = await c.env.DB.prepare(
     `SELECT c.id, c.class_code as classCode, c.name, c.created_at as createdAt, COALESCE(t.name, u.name) as teacherName,
-     (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as memberCount
+     (SELECT COUNT(*) FROM class_members cm JOIN users su ON su.id = cm.user_id WHERE cm.class_id = c.id AND su.role = 'student') as memberCount,
+     (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = c.id) as rowCount
      FROM classes c LEFT JOIN teacher_accounts t ON t.id = c.teacher_id LEFT JOIN users u ON u.id = c.teacher_id ORDER BY c.created_at DESC`
   ).all<any>()
   return c.json({ ok: true, classes: res.results })
@@ -2941,7 +2959,7 @@ app.get('/api/teacher/classes', async (c) => {
   // 管理者は全クラスを閲覧可能
   const res = await c.env.DB.prepare(
         `SELECT id, class_code as classCode, name, ranking_enabled as rankingEnabled, homework_enabled as homeworkEnabled, contact_enabled as contactEnabled, menus_enabled as menusEnabled, sticker_enabled as stickerEnabled, created_at as createdAt,
-         (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id = classes.id) as memberCount
+         (SELECT COUNT(*) FROM class_members cm JOIN users su ON su.id = cm.user_id WHERE cm.class_id = classes.id AND su.role = 'student') as memberCount
          FROM classes WHERE teacher_id=? ORDER BY created_at DESC`
     ).bind(u.id).all<any>()
   return c.json({ ok: true, classes: res.results })
@@ -3376,7 +3394,7 @@ app.get('/api/teacher/class/:classId/activity', async (c) => {
   // クラスメンバー取得
   const members = await c.env.DB.prepare(
     `SELECT u.id, u.login_id as loginId, u.name, u.last_login_at as lastLoginAt
-     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ?`
+     FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ? AND u.role = 'student'`
   ).bind(classId).all<any>()
 
   // 今日の学習結果（UTC基準で当日）
@@ -4347,7 +4365,7 @@ app.post('/api/teacher/test-scores/parse', async (c) => {
     ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
     : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
-  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=?').bind(classId, 'student').all<any>()).results) || [])
   const idx: Record<string, string> = {}
   for (const m of roster as any[]) { if (m.name) idx[_tsNorm(m.name)] = m.id; if (m.loginId) idx[_tsNorm(m.loginId)] = m.id }
   // 📌 二重取り込みの下調べ。同じクラスで直近60日に取り込んだテスト名を集める（LIMIT つき）。
@@ -4471,7 +4489,7 @@ app.post('/api/teacher/records/parse', async (c) => {
     ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
     : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
-  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=?').bind(classId, 'student').all<any>()).results) || [])
   const idx: Record<string, string> = {}
   for (const m of roster as any[]) { if (m.name) idx[_recNorm(m.name)] = m.id; if (m.loginId) idx[_recNorm(m.loginId)] = m.id }
   // 📌 二重取り込みの下調べ。同じクラスの直近60日ぶんのタイトルだけを引く（LIMIT つき・軽い）。
@@ -4543,7 +4561,7 @@ app.get('/api/teacher/class-notes', async (c) => {
   if (!cls) return jsonError(c, 404, 'class_not_found')
   let notes: any[] = []
   try { const r = await c.env.DB.prepare("SELECT day_key, body FROM teacher_class_notes WHERE class_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC").bind(classId).all<any>(); notes = (((r && r.results) || []) as any[]).map((x: any) => ({ dayKey: x.day_key, body: x.body })) } catch {}
-  const roster = (((await c.env.DB.prepare('SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? ORDER BY u.name').bind(classId).all<any>()).results) || [])
+  const roster = (((await c.env.DB.prepare('SELECT u.id as userId, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=? ORDER BY u.name').bind(classId, 'student').all<any>()).results) || [])
   return c.json({ ok: true, notes, roster })
 })
 app.post('/api/teacher/class-notes', async (c) => {
@@ -5009,7 +5027,7 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     ? await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
     : await c.env.DB.prepare('SELECT id, name FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
   if (!cls) return jsonError(c, 404, 'class_not_found')
-  const members = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=?').bind(classId).all<any>()).results) || [])
+  const members = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=?').bind(classId, 'student').all<any>()).results) || [])
   const total = members.length
   const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
   const subs = (((await c.env.DB.prepare('SELECT user_id, day_key, minutes, end_weather, weather_reason, submitted_at FROM homework_submissions WHERE user_id IN ' + memQ + ' ORDER BY day_key').bind(classId).all<any>()).results) || [])
@@ -10415,7 +10433,13 @@ app.get('/admin', (c) => {
             const left = document.createElement('div');
             left.innerHTML = '<span class="font-bold">' + cls.name + '</span> <span class="text-gray-500">(' + cls.classCode + ')</span>' +
               ' <span class="text-xs text-gray-400">' + (cls.teacherName || '教師不明') + '</span>' +
-              ' <span class="bg-indigo-100 text-indigo-700 rounded px-2 py-0.5 text-xs ml-1">' + cls.memberCount + '人</span>';
+              ' <span class="bg-indigo-100 text-indigo-700 rounded px-2 py-0.5 text-xs ml-1">子ども ' + cls.memberCount + '人</span>' +
+              /* 2026-09-29: いままでは class_members の行数をそのまま出していたため、
+                 すでに消えた利用者の行や、先生ご自身のアカウントのぶんまで人数に入っていた。
+                 人数は「いまいる子ども」だけにし、食い違うぶんは小さく別に出す（黙って隠さない）。 */
+              ((cls.rowCount != null && cls.rowCount > cls.memberCount)
+                ? ' <span class="text-xs text-gray-400" title="すでに消えた利用者や先生のアカウントが、クラスの登録に残っています">＋ 使われていない登録 ' + (cls.rowCount - cls.memberCount) + '件</span>'
+                : '');
             div.appendChild(left);
             const btn = document.createElement('button');
             btn.className='bg-indigo-600 text-white rounded px-3 py-1 text-xs';
@@ -15611,7 +15635,11 @@ app.get('/teacher', (c) => {
       (async ()=>{
         const me = await fetch('/api/auth/me').then(r=>r.json()).catch(()=>({}));
         if(!me.user || (me.user.role !== 'teacher' && me.user.role !== 'admin')){ location.href='/login'; return; }
-        document.getElementById('teacherInfo').textContent = me.user.name + '（' + (me.user.school||'') + '）';
+        /* 2026-09-29: 名前が取れないときに「undefined ()」と出ていた。
+           名前 → ログインID の順に出す。学校名が空なら かっこ自体を出さない。 */
+        var _tNm = String((me.user && me.user.name) || '').trim() || String((me.user && me.user.loginId) || '').trim() || '先生';
+        var _tSc = String((me.user && me.user.school) || '').trim();
+        document.getElementById('teacherInfo').textContent = _tNm + (_tSc ? '（' + _tSc + '）' : '');
         // おしらせタブは管理者(admin)のみ表示。既定は非表示（teacher役職には出さない・チラつき/フェイルオープン防止）
         if(me.user.role === 'admin'){
           var annTab = document.getElementById('tabAnnouncements');
