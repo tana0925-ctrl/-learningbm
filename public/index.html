@@ -58,6 +58,10 @@ window.MONSTERS = MONSTERS;
 .mon-img{ display:inline-block; width:1em; height:1em; object-fit:contain; vertical-align:-0.15em; }
 .mon-img-shadow{ filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45)); }
 </style>
+<style>/* MON_DEX_V1 図鑑で 絵と絵文字の大きさをそろえる */
+.pdx-sprite .mon-img, .evo-sprite .mon-img{ flex:0 0 auto; }
+#detailSprite .mon-img{ width:1em; height:1em; }
+</style>
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
@@ -28823,7 +28827,8 @@ function renderPokedexListView(container, st) {
     });
 
     const badgeHtml = inParty ? '<div class="party-badge">PT</div>' : '';
-    const sprite = unlocked ? (m.sprite || '？') : '？';
+    /* MON_DEX_V1 図鑑の一覧: 絵があれば絵、無ければ絵文字 */
+    const sprite = unlocked ? ((typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, (m.sprite || '？')) : (m.sprite || '？')) : '？';
     const name = unlocked ? (m.name || '???') : '???';
 
     let badges = '';
@@ -29993,7 +29998,8 @@ try {
                     showDetail(id);
                 });
 const badge = inParty ? '<div class="party-badge">PT</div>' : '';
-                const sprite = unlocked ? (m.sprite || '？') : '？';
+                /* MON_DEX_V1 進化のならび */
+                const sprite = unlocked ? ((typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, (m.sprite || '？')) : (m.sprite || '？')) : '？';
                 const name = unlocked ? (m.name || '???') : '???';
 
                 node.innerHTML = `
@@ -30045,7 +30051,8 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 });
 
                 const badge = inParty ? '<div class="party-badge">PT</div>' : '';
-                const sprite = (m.sprite || '？');
+                /* MON_DEX_V1 進化のならび2 */
+                const sprite = ((typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, (m.sprite || '？')) : (m.sprite || '？'));
                 const name = (m.name || '???');
 
                 node.innerHTML = `
@@ -30150,7 +30157,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                     return;
                 }
             }
-            document.getElementById('detailSprite').innerText = m.sprite;
+            /* MON_DEX_V1 詳細の大きい絵 */ try { document.getElementById('detailSprite').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : String(m.sprite == null ? '' : m.sprite); } catch (e) { document.getElementById('detailSprite').innerText = m.sprite; }
             try { var _dsp = document.getElementById('detailSprite'); var _dsh = player.monsters && player.monsters[id] && player.monsters[id].shiny; if (_dsh) _dsp.classList.add('shiny-mon'); else _dsp.classList.remove('shiny-mon'); } catch(e){}
             document.getElementById('detailName').innerText = m.name;
             // Display type matchup information instead of buff type
