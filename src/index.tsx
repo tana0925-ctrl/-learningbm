@@ -7968,6 +7968,29 @@ function khtStreak(days: any, todayKey: string, extra: any): number {
 // 休みの日の判定は khtIsRest ひとつだけを使う。数え方を2本に増やさないこと。
 // 日付はすべて khtParseDay / khtFmtDay（UTCそろえ）で扱う。日本時間とのずれを出さないため。
 // 「今日」は khtTodayKey（朝8時半で切りかわる。児童画面の hsGetDayKey830 と同じ）。
+// 祝日表が切れたことを先生に知らせる。子どもの画面には出さない。
+// 表が切れたまま気づかないと、祝日が「学校のある日」として数えられ、
+// 家庭学習の連続日数がだまって切れてしまう。それを防ぐための見張り。
+// 2028-03-20 の春分の日だけは見込みで入れてある（国立天文台の正式発表は2027年2月）。
+// そのため 2027-02-01 からは、確かめてほしいという知らせを出す。
+function hwHolidayNotice(): string {
+  const today = khtTodayKey(Date.now())
+  let s = '<!-- 祝日表は ' + KHT_HOLIDAYS_UNTIL + ' まで入っています -->'
+  if (today > KHT_HOLIDAYS_UNTIL) {
+    s += '<div class="bg-amber-100 border border-amber-400 text-amber-900 rounded-xl p-3 text-sm">'
+      + '<b>祝日表が ' + KHT_HOLIDAYS_UNTIL + ' で切れています。</b>'
+      + 'このままでは祝日が「学校のある日」として数えられ、家庭学習の連続日数がだまって切れてしまいます。'
+      + '国立天文台の暦要項を見て、次の年度ぶんの祝日を足してください。'
+      + '</div>'
+  } else if (today >= '2027-02-01') {
+    s += '<div class="bg-sky-100 border border-sky-400 text-sky-900 rounded-xl p-3 text-sm">'
+      + '2028年3月20日の春分の日は見込みで入れてあります。'
+      + '国立天文台の暦要項（2027年2月発表）でお確かめください。ちがっていたら直してください。'
+      + '</div>'
+  }
+  return s
+}
+
 function hwDayMap(dayKeys: any): any {
   const m: any = {}
   if (Array.isArray(dayKeys)) {
@@ -10788,7 +10811,7 @@ app.get('/teacher', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>教師ダッシュボード</title><script src="https://cdn.tailwindcss.com"></script></head>
   <body class="min-h-screen bg-emerald-50 p-4">
-    <div class="max-w-4xl mx-auto space-y-4">
+    <div class="max-w-4xl mx-auto space-y-4">${hwHolidayNotice()}
       <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold">教師ダッシュボード</h1>
