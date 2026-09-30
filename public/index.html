@@ -13,7 +13,20 @@ window.MONSTERS = MONSTERS;
 <script src="/mon/list.js"></script>
 <script>/* MON_IMG_V1 キャラの絵の受け皿。絵があれば絵、無ければ絵文字。 */
 (function(){
-  var IDS = (window.MON_IMG_IDS && typeof window.MON_IMG_IDS === 'object') ? window.MON_IMG_IDS : {};
+  /* MON_IMG_V2 一覧は 配列 [1,2,3] でも 表 {1:1} でも受け取れる */
+  var RAW = window.MON_IMG_IDS;
+  var IDS = {};
+  if (Object.prototype.toString.call(RAW) === '[object Array]') {
+    for (var _i = 0; _i < RAW.length; _i++) { var _v = Number(RAW[_i]); if (_v > 0) IDS[_v] = 1; }
+  } else if (RAW && typeof RAW === 'object') {
+    for (var _k in RAW) {
+      if (Object.prototype.hasOwnProperty.call(RAW, _k) && RAW[_k]) {
+        var _n = Number(_k); if (_n > 0) IDS[_n] = 1;
+      }
+    }
+  }
+  window.MON_IMG_IDS_MAP = IDS;
+  window.MON_IMG_COUNT = 0; for (var _c in IDS) { window.MON_IMG_COUNT++; }
   function has(id){ var n = Number(id); return !!(n && IDS[n]); }
   function url(id){ return has(id) ? ('/mon/' + Number(id) + '.png') : null; }
   function esc(s){
