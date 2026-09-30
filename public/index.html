@@ -41,10 +41,23 @@ window.MONSTERS = MONSTERS;
   window.monImgUrl = url;
   window.monEsc = esc;
   /* HTMLに埋めるとき用。絵が無ければ、今までの絵文字をそのまま返す。 */
+  /* MON_IMG_V3 読み込みに失敗したときだけ、その場で絵文字に戻す */
   window.monSpriteHtml = function(id, sprite, extraClass){
     var u = url(id);
     if (!u) return esc(sprite);
-    return '<img src="' + u + '" alt="' + esc(sprite) + '" class="mon-img ' + esc(extraClass || '') + '" loading="lazy" decoding="async" draggable="false">';
+    return '<img src="' + u + '" alt="' + esc(sprite) + '" class="mon-img ' + esc(extraClass || '') + '" loading="lazy" decoding="async" draggable="false"'
+      + ' data-mon-id="' + Number(id) + '" data-mon-emoji="' + esc(sprite) + '" onerror="monImgFail(this)">';
+  };
+  window.monImgFail = function(el){
+    try {
+      var n = Number(el.getAttribute('data-mon-id'));
+      if (n > 0) { delete IDS[n]; }
+      var sp = document.createElement('span');
+      var cls = String(el.className || '').split('mon-img').join('').replace(/\s+/g, ' ').trim();
+      if (cls) { sp.className = cls; }
+      sp.textContent = el.getAttribute('data-mon-emoji') || '';
+      if (el.parentNode) { el.parentNode.replaceChild(sp, el); }
+    } catch (e) {}
   };
   /* canvas に描くとき用。まだ読めていなければ null（そのときは絵文字を描く）。 */
   var cache = {};
