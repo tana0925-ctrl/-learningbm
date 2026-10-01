@@ -1,0 +1,155 @@
+name: HWPLAN_TOP_V1 子どもの週の計画を家庭学習タブのいちばん上に出す
+
+# 先生:「家庭学習の計画とか子供のやつみえない！家庭学習は別格で大切」
+#
+# 計画は壊れていない。D1 にも入っている（2026-W40 は 23人中15人が記入ずみ）。
+# 置き場所が「毎日の振り返り」サブタブの奥の折りたたみで、
+# タブを開いた直後の画面に出ていなかっただけ。それを いちばん上に 出す。
+#
+# ⚠ この便は「計画を上に出す」だけ。ほかの3件（📝を押せるように／提出率の数字／
+#   週の振り返り0%）と サポーターのことば は 別の便にしてある。詰め込まない。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す直前に チェーンを 実測する（ほかの便と重なっていたら止める）
+        run: |
+          python3 - <<'PY'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          a = s.index("app.get('/'"); b = s.index("app.get('/logout'")
+          n = s[a:b].count('.replace(')
+          print('チェーン実測:', n)
+          if n != 158:
+              print('NG: チェーンが %d 件（期待 158）。ほかの便が流れています。中止します。' % n)
+              sys.exit(1)
+          print('OK: 158 件。重なりなし。')
+          PY
+
+      - name: パッチを適用（合わなければ何も書かずに落ちる）
+        run: python3 scripts/patch_hwplan_top_v1.py
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 配信物の構文チェック（既存の render_check.mjs に乗る）
+        run: node scripts/render_check.mjs
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_hwplan_top_v1.py
+          git diff --staged --quiet && echo "変更なし" || git commit -m "HWPLAN_TOP_V1: 子どもの週の計画を家庭学習タブのいちばん上に・最初から開いた状態で出す（チェーン158->158）"
+          git push
+
+      # bot のコミットは deploy.yml を発火させないので、ここで自分でデプロイする
+      - name: Cloudflare Pages へデプロイ
+        run: npx wrangler pages deploy dist --project-name=learning-bm --branch=main --commit-message="HWPLAN_TOP_V1 $(git rev-parse --short HEAD)"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+
+      - name: 配信された実物を確かめる（児童ページと教師ページの両方を node --check）
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, time, urllib.request, tempfile, os
+          BASE = "https://learning-bm.pages.dev"
+
+          def get(path, tries=8):
+              for i in range(tries):
+                  try:
+                      req = urllib.request.Request(BASE+path, headers={"User-Agent":"hwplan-top-v1"})
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          return r.status, r.read().decode("utf-8", "replace")
+                  except Exception as e:
+                      print("  retry %d: %s" % (i+1, e)); time.sleep(15)
+              return None, None
+
+          print("== 配信待ち: /teacher に HWPLAN_TOP_V1 が現れるまで ==")
+          teacher = None
+          for i in range(20):
+              st, h = get("/teacher")
+              if h and "HWPLAN_TOP_V1" in h:
+                  teacher = h; print("  反映を確認（%d秒後 / status=%s / %dバイト）" % (i*20, st, len(h))); break
+              print("  まだ … (status=%s, bytes=%s)" % (st, len(h) if h else 0))
+              time.sleep(20)
+          if teacher is None:
+              print("::error::配信に HWPLAN_TOP_V1 が現れませんでした"); sys.exit(1)
+
+          def check(path, h):
+              blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', h)
+              bad = []
+              with tempfile.TemporaryDirectory() as d:
+                  f = os.path.join(d, "b.js")
+                  for j, b in enumerate(blocks):
+                      open(f, "w", encoding="utf-8").write(b)
+                      r = subprocess.run(["node","--check",f], capture_output=True, text=True)
+                      if r.returncode:
+                          tail = [x for x in r.stderr.strip().split("\n") if x.strip()]
+                          bad.append((j, len(b), tail[-1][:160] if tail else "?"))
+              print("  %-12s %9d バイト  <script> %2d個  → %s" % (path, len(h), len(blocks), "エラーなし" if not bad else "★エラー %d件" % len(bad)))
+              for j, ln, e in bad: print("      ブロック%d (%d文字): %s" % (j, ln, e))
+              return not bad
+
+          print("\n== 児童ページと教師ページの <script> 構文チェック ==")
+          ok = True
+          ok &= check("/teacher", teacher)
+          st, home = get("/")
+          if home is None:
+              print("::error::児童ページ(/) が取得できませんでした"); sys.exit(1)
+          ok &= check("/", home)
+
+          print("\n== 置き場所が正しいか（配信物の中の並びで確かめる） ==")
+          i_nav   = teacher.find('id="hwSubTab_dashboard"')
+          i_box   = teacher.find('id="hwPlanBox"')
+          i_menu  = teacher.find('id="hwPane_menu"')
+          i_daily = teacher.find('id="hwPane_daily"')
+          i_dash  = teacher.find('id="hwPane_dashboard"')
+          checks = [
+              ("計画の箱が1つだけある",            teacher.count('id="hwPlanBox"'), 1),
+              ("折りたたみ(<details>)をやめている", teacher.count('<details id="hwPlanBox"'), 0),
+              ("中身の入れ物が1つだけある",        teacher.count('id="studentPlansList"'), 1),
+              ("タブを開いたときに読み込む",        teacher.count('try{ loadStudentPlans(); }catch(_e){}'), 1),
+          ]
+          for name, got, want in checks:
+              mark = "OK " if got == want else "★NG"
+              print("  %s %s: %s（期待 %s）" % (mark, name, got, want)); ok &= (got == want)
+          for name, cond in [
+              ("サブタブの並びより下にある", i_nav < i_box),
+              ("「先生メニュー」より上にある", i_box < i_menu),
+              ("「毎日の振り返り」より上にある", i_box < i_daily),
+              ("「提出状況」より上にある", i_box < i_dash),
+          ]:
+              mark = "OK " if cond else "★NG"
+              print("  %s %s" % (mark, name)); ok &= cond
+
+          print("\n== 詰めたり畳んだりしていないか ==")
+          m = re.search(r'id="hwPlanBox"[^>]*class="([^"]*)"', teacher)
+          cls = m.group(1) if m else "(取れず)"
+          print("  計画の箱の見た目:", cls)
+          for ng in ["max-h", "overflow-hidden", "line-clamp", "truncate", "hidden"]:
+              if ng in cls:
+                  print("  ★NG 高さを詰める指定が入っています:", ng); ok = False
+          print("  OK 高さを詰める指定はありません" if ok else "")
+
+          if not ok:
+              print("::error::配信物の検証に失敗しました"); sys.exit(1)
+          print("\n✅ 配信物の検証: すべて問題なし")
+          PY
