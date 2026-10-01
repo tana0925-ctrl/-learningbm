@@ -1,0 +1,22 @@
+name: 配信HTMLの構文チェックだけ（確かめ用・何も変えない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: 教師画面など
+        run: node scripts/render_check.mjs
+      - name: 児童ページ
+        run: node scripts/render_check_child.mjs
