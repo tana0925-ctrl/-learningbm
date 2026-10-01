@@ -3572,6 +3572,11 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     const daysSinceLast = Math.round((Date.now() - new Date(dayKeys[dayKeys.length - 1]).getTime()) / 86400000)
     if (daysSinceLast <= 1) currentStreak = streaksList[streaksList.length - 1].length
   }
+  // 2026-09-30: 連続日数の数え方を1本に統一した。
+  //   土日・祝日・学校独自の休みはとばす／その日に出していたら数える／今日はまだ数えない。
+  //   上にある『これまでの連続の一覧』は今までどおりのまま残してある。
+  currentStreak = hwStreakCurrent(dayKeys, khtTodayKey(Date.now()), {})
+  maxStreak = hwStreakMax(dayKeys, {})
 
   // 月別トレンド
   const mMap: Record<string, { count: number, totalMin: number, sun: number, weatherTotal: number }> = {}
@@ -5012,7 +5017,7 @@ app.get('/api/teacher/factor-analysis', async (c) => {
       f.subRate = exp > 0 ? Math.min(100, Math.round(days.length / exp * 100)) : null
       let maxStreak = 0, run = 0, prev = ''
       for (const dk of days) { if (prev && Math.round((dms(dk) - dms(prev)) / DAY) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
-      f.streak = maxStreak
+      f.streak = hwStreakMax(days, {})
       const totMin = subs.reduce((a: number, s: any) => a + Number(s.minutes || 0), 0)
       f.totMin = totMin; f.avgMin = subs.length ? Math.round(totMin / subs.length) : null
       let sun = 0, wt = 0; for (const s of subs) { if (s.end_weather) { wt++; if (s.end_weather === 'sun') sun++ } }
@@ -5099,6 +5104,9 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     const recent7 = days.filter(dk => (todayMs - dkMs(dk)) <= 7 * dayMs).length
     const prev7 = days.filter(dk => { const a = todayMs - dkMs(dk); return a > 7 * dayMs && a <= 14 * dayMs }).length
     const dropping = (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) || (prev7 >= 3 && recent7 === 0)
+    // 2026-09-30: 連続日数の数え方を1本に統一した（カルテと同じ）。
+    currentStreak = hwStreakCurrent(days, khtTodayKey(Date.now()), {})
+    maxStreak = hwStreakMax(days, {})
     return { userId: m.id, name: m.name, loginId: m.loginId, submissions: days.length, currentStreak, maxStreak, recent7, prev7, dropping }
   })
   const droppingStudents = perStudent.filter((p: any) => p.dropping).map((p: any) => ({ userId: p.userId, name: p.name, loginId: p.loginId, recent7: p.recent7, prev7: p.prev7 }))
