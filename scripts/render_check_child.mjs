@@ -4,7 +4,7 @@
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 
-const mod = await import(process.cwd() + '/dist/worker.js');
+const mod = await import(process.cwd() + '/dist/_worker.js');
 const env = { ASSETS: { fetch: async () => new Response('', { status: 404 }) } };
 let bad = 0;
 
