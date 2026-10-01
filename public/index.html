@@ -4771,6 +4771,8 @@ window.claimClassMission=async function(){
                 <span id="hsNextMilestone" class="text-orange-500 font-bold"></span>
                 <span id="hsTimer" class="text-slate-600">-</span>
               </div>
+              <div id="hsFixNotice2026" class="text-[11px] text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 mt-1">🔧 かぞえ方を直しました。土日やお休みの日はとばして数えるので、前と日数がちがって見えることがあります。</div>
+              <script>try{ if (new Date() > new Date(2026, 9, 10)) { var e = document.getElementById("hsFixNotice2026"); if (e) e.style.display = "none"; } }catch(e){}</script>
               <div id="hsTodayInfo" class="text-[11px] text-slate-400 mt-1"></div>
             </div>
           </div>
@@ -43050,7 +43052,7 @@ async function hwRenderWeekView(){
         todaySt.innerHTML = '🛌 今日は<b>土日</b>です。曜日カードをタップして振り返りや計画の確認ができます！';
       } else {
         const todayEntry = hsGetEntryForDay(logs, realTodayKey);
-        const streak = hsCalcRequiredStreak(logs, realTodayKey);
+        const streak = hsCalcStreakShown(logs, realTodayKey);
         if(todayEntry){
           todaySt.innerHTML = `✅ 今日は<b>提出済み</b>です。連続：<b>${streak}日</b>`;
         } else {
@@ -43494,6 +43496,23 @@ function hsCalcRequiredStreak(logs, upToDayKey){
       key = hsAddDays(key, -1);
       continue;
     }
+    break;
+  }
+  return streak;
+}
+
+// 2026-10-02: 画面に見せる用の連続日数。
+//   今日はまだ出していなくても、連続を 0 にしない。
+//   （朝8時半をすぎると、その日に出すまで 0 に見えてしまうのを直すため）
+//   ごほうび（コイン・かけら）の計算には使わない。そちらは hsCalcRequiredStreak のまま。
+//   サーバ側の hwStreakCurrent（カルテ・教師一覧・カフート券）とまったく同じ数え方。
+function hsCalcStreakShown(logs, todayKey){
+  var key = todayKey;
+  if (!hsHasLogForDay(logs, key) && !hsIsRestDay(key)) key = hsAddDays(key, -1);
+  var streak = 0;
+  for (var i = 0; i < 400; i++){
+    if (hsHasLogForDay(logs, key)){ streak += 1; key = hsAddDays(key, -1); continue; }
+    if (hsIsRestDay(key)){ key = hsAddDays(key, -1); continue; }
     break;
   }
   return streak;
@@ -44090,7 +44109,7 @@ function hsRender(light){
     const sess = submitted ? null : (hsEnsureSessionForToday() || hsGetSession());
     const dayKeyForView = submitted ? todayKey : (sess ? sess.dayKey : todayKey);
 
-    const streak = hsCalcRequiredStreak(logs, todayKey);
+    const streak = hsCalcStreakShown(logs, todayKey);
     // 次のマイルストーンを計算
     const _msDays = [3, 5, 7, 10, 14, 21, 30];
     const _nextMs = _msDays.find(d => d > streak);
