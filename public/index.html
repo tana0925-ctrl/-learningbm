@@ -6869,8 +6869,9 @@ MONSTERS.push({
         });
 
         // Bread Monsters (Shop Exclusive)
+        /* MON_BREAD_EVO_V1 パンの3体を本物の進化にした（323/324/325と同じ形）。表示ではなくデータの修正。 */
         MONSTERS.push({
-            id: 300, name: 'コパン', sprite: '🥯', hp: 60, atk: 12, def: 10, spd: 10, buff: 'lucky', evoLevel: null, nextId: null, stage: 1,
+            id: 300, name: 'コパン', sprite: '🥯', hp: 60, atk: 12, def: 10, spd: 10, buff: 'lucky', evoLevel: 18, nextId: 301, stage: 1,
             skills: [
                 { name: '投げる', type: 'normal', pow: 10, acc: 1.0, desc: '' },
                 { name: '体当たり', type: 'heavy', pow: 20, acc: 0.7, desc: '' },
@@ -6879,7 +6880,7 @@ MONSTERS.push({
             desc: '謎のパン屋さんで売られているパン。ある４年生の女の子に食べられないように気を付けている。食べると運が良くなるらしい。'
         });
         MONSTERS.push({
-            id: 301, name: 'クロワッサン', sprite: '🥐', hp: 130, atk: 30, def: 25, spd: 25, buff: 'lucky', evoLevel: null, nextId: null, stage: 1,
+            id: 301, name: 'クロワッサン', sprite: '🥐', hp: 130, atk: 30, def: 25, spd: 25, buff: 'lucky', evoLevel: 33, nextId: 302, stage: 2,
             skills: [
                 { name: 'カッター', type: 'normal', pow: 12, acc: 1.0, desc: '' },
                 { name: '回転アタック', type: 'heavy', pow: 24, acc: 0.7, desc: '' },
@@ -6888,7 +6889,7 @@ MONSTERS.push({
             desc: 'サクサクの食感がたまらない。バターの香りで敵を油断させる。'
         });
         MONSTERS.push({
-            id: 302, name: 'キングパン', sprite: '🍞', hp: 300, atk: 70, def: 60, spd: 60, buff: 'lucky', evoLevel: null, nextId: null, stage: 1,
+            id: 302, name: 'キングパン', sprite: '🍞', hp: 300, atk: 70, def: 60, spd: 60, buff: 'lucky', evoLevel: null, nextId: null, stage: 3,
             skills: [
                 { name: '王の平手打ち', type: 'normal', pow: 15, acc: 1.0, desc: '' },
                 { name: '激熱トースト', type: 'heavy', pow: 30, acc: 0.65, element: 'fire', desc: '' },
