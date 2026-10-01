@@ -7955,16 +7955,12 @@ async function khtDays(env: any, userId: string, fromKey: string, toKey: string)
   return m
 }
 
-// public/index.html の hsCalcRequiredStreak と同じ数え方。
+// 2026-10-01: 数え方は hwStreakCurrent ただ1本（カルテ・教師一覧と共通）。
+//   ・今日はまだ出していなくても切らない
+//   ・休みの日に出していたら、その分も数える
+//   どちらも連続を増やす向きにしか働かないので、券の値段が上がることはない。
 function khtStreak(days: any, todayKey: string, extra: any): number {
-  let k = todayKey
-  let s = 0
-  for (let i = 0; i < 400; i++) {
-    if (khtIsRest(k, extra)) { k = khtAddDay(k, -1); continue }
-    if (days[k]) { s++; k = khtAddDay(k, -1); continue }
-    break
-  }
-  return s
+  return hwStreakCurrent(Object.keys(days || {}), todayKey, extra)
 }
 
 // 直近 n 登校日（今日をふくむ）に 1 回でも提出があるか。
