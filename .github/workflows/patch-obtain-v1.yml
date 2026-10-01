@@ -1,0 +1,37 @@
+name: 第9便 図鑑の入手方法を直す（表示だけ）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: パッチを適用（チェーン158・7行・1か所でなければ中止）
+        run: python3 scripts/patch_obtain_v1.py
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: /mon/ が そのまま配る側に入ったままか確かめる
+        run: python3 scripts/check_mon_routes_v1.py
+      - name: 配信されるHTMLのJSを構文チェック
+        run: node scripts/render_check.mjs
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "第9便 図鑑の入手方法を直す（チェーン158->158・表示だけ）" && git push)
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
