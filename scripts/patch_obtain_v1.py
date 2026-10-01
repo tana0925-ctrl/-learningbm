@@ -88,16 +88,8 @@ if MARK in html:
 if html.count('function getObtainMethod') != 1:
     die('getObtainMethod が ' + str(html.count('function getObtainMethod')) + ' 個。1個のはず。')
 
-i = html.find('function getObtainMethod')
-j = html.find(chr(10) + '        }', i)
-if j < 0:
-    die('getObtainMethod の終わりが見つからない')
-j = j + 10
-fn = html[i:j]
-if 'var ob=(m.obtain' not in fn or 'WILD_AREA_POOLS' not in fn:
-    die('取り出した関数の中身が想定とちがう')
-
-lines = fn.split(chr(10))
+# ファイル全体を行で見る（関数を切り出さない。切り出しは終わりの目印がぶれて危ないため）
+lines = html.split(chr(10))
 
 pat = re.compile(r'^\s*if\(id===(95[789]|96[0-3])\)\s*return\s')
 hits = [k for k, l in enumerate(lines) if pat.match(l)]
@@ -108,6 +100,13 @@ if hits != list(range(hits[0], hits[0] + 7)):
 ids_found = sorted([int(pat.match(lines[k]).group(1)) for k in hits])
 if ids_found != [957, 958, 959, 960, 961, 962, 963]:
     die('消す対象の id が想定とちがう: ' + str(ids_found))
+
+fn_at = [k for k, l in enumerate(lines) if 'function getObtainMethod' in l]
+if len(fn_at) != 1:
+    die('getObtainMethod の行が ' + str(len(fn_at)) + ' 行')
+if not (fn_at[0] < hits[0] < fn_at[0] + 60):
+    die('消す7行が getObtainMethod の中に無い')
+
 del lines[hits[0]:hits[0] + 7]
 print('夏フェスの古い7行を消した: ' + str(ids_found))
 
@@ -115,13 +114,14 @@ obs = [k for k, l in enumerate(lines) if 'var ob=(m.obtain' in l]
 if len(obs) != 1:
     die('入れる場所が ' + str(len(obs)) + ' か所。1か所のはず。')
 k = obs[0]
+if not (fn_at[0] < k < fn_at[0] + 60):
+    die('入れる場所が getObtainMethod の中に無い')
 if lines[k - 1].strip() != '}catch(e){}':
     die('入れる場所の直前が想定とちがう: ' + repr(lines[k - 1]))
 lines[k:k] = BLOCK
 print('新しい説明を入れた: ' + str(len(BLOCK)) + ' 行')
 
-new_fn = chr(10).join(lines)
-html = html[:i] + new_fn + html[j:]
+html = chr(10).join(lines)
 
 if html.count(MARK) != 1:
     die('入れた印が ' + str(html.count(MARK)) + ' 個。1個のはず。')
