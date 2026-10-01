@@ -29405,7 +29405,8 @@ try {
                 node.innerHTML = `
                     ${badgeHtml}
                     ${crownHtml}
-                    <div class="text-2xl">${unlocked ? m.sprite : "❓"}</div>
+                    <!-- MON_DEX_V2 ジムリーダー欄 絵があれば絵、無ければ絵文字 -->
+                    <div class="text-2xl">${unlocked ? ((typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : m.sprite) : "❓"}</div>
                     <div class="text-[10px] font-bold mt-1">${unlocked ? m.name : "???"}</div>
                     <div class="text-[9px] text-gray-500">No.${m.id}</div>
                 `;
