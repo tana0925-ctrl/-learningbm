@@ -11309,6 +11309,19 @@ app.get('/teacher', (c) => {
           </button>
         </div>
 
+        <!-- 📌 2026-10-01 HWPLAN_TOP_V1
+             家庭学習でいちばん大切な「子どもが立てた週の計画」を、
+             タブを開いた直後のいちばん上に、最初から開いた状態で出す。
+             前は「毎日の振り返り」の奥の折りたたみの中にあり、
+             3回クリックとスクロールがいった（→先生の目に入っていなかった）。
+             高さは詰めない。畭まない。縦に長くなってよい。 -->
+        <div id="hwPlanBox" class="bg-blue-50 border-2 border-blue-300 rounded-xl p-3 shadow-sm">
+          <div class="font-bold text-sm text-blue-800">📝 生徒の今週の計画 <span id="hwPlanCount" class="ml-1 text-[11px] font-normal text-slate-500"></span></div>
+          <div id="studentPlansList" class="space-y-2 text-sm text-slate-700 mt-2">
+            <p class="text-xs text-slate-400">読み込み中...</p>
+          </div>
+        </div>
+
         <!-- サブタブ: 提出状況ダッシュボード -->
         <div id="hwPane_dashboard" class="hidden space-y-3">
           <div class="bg-white rounded-xl shadow p-4">
@@ -11423,15 +11436,8 @@ app.get('/teacher', (c) => {
           <div id="hwUnsubmittedList" class="hidden mb-3 p-3 bg-orange-50 rounded-lg border border-orange-200 text-sm"></div>
           <!-- 日付タブ -->
           <div id="hwDateTabs" class="flex gap-1 mb-3 flex-wrap hidden"></div>
-          <!-- 📌 2026-09 整理: 「2 今週の計画」をここへ畳んだ。
-               開いたときに自動で読み込むので、毎回ボタンを押さなくてよい。 -->
-          <details id="hwPlanBox" class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3" ontoggle="if(this.open) hwPlanOpened();">
-            <summary class="cursor-pointer font-bold text-sm text-blue-800 select-none">📝 生徒の今週の計画 <span id="hwPlanCount" class="ml-1 text-[11px] font-normal text-slate-500"></span></summary>
-            <!-- 2026-09-29 整理(A-6): 「🔄 読み込み直す」を撤去。開いたときに毎回いちばん新しいものを読む。 -->
-            <div id="studentPlansList" class="space-y-2 text-sm text-slate-700 mt-2">
-              <p class="text-xs text-slate-400">開くと読み込みます</p>
-            </div>
-          </details>
+          <!-- 📌 2026-10-01 HWPLAN_TOP_V1: 計画はこのタブのいちばん上へ移した。 -->
+          <p class="text-xs text-slate-500 mb-3">📝 生徒の今週の計画は、<b>このタブのいちばん上</b>に出ています。</p>
           <style>
             /* 2026-09-20: 45人ぶんを上から返していく画面なので、1人の高さを抑える。
                子どものことばもサポーターのことばも、長いときだけ3行で畳む。 */
@@ -12097,7 +12103,9 @@ app.get('/teacher', (c) => {
             ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white'
             : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100';
         });
-        if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); }
+        /* 2026-10-01 HWPLAN_TOP_V1: 計画は折りたたみをやめたので、
+           タブを開いたときに読み込む（renderClasses はこの前に終わっている）。 */
+        if(tab === 'homework') { loadWeeklyMenu(); switchHomeworkSubTab('menu'); try{ loadStudentPlans(); }catch(_e){} }
         if(tab === 'analytics') { initAnalyticsFilters(); initLearnAnalytics(); switchAnalyticsSubTab('overview'); }
         if(tab === 'announcements') loadAnnouncements();
         if(tab === 'contact') loadContactNotes();
