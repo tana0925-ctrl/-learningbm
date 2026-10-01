@@ -30135,6 +30135,25 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
             if (id===1507) return '夏フェス期間中に合計300問正解すると仲間になる（夏限定）';
             if (id===300) return '野生バトルに勝ったあと、まれに出る「謎のパン屋さん」から手に入る';
             if (id===323) return '野生バトルに勝ったあと、まれに出る「あやしいスイーツショップ」で手に入る';
+            /* MON_OBT_V2 防衛戦・世界編（どちらもサーバが配るので、ここで文を作る） */
+            if (id>=1601 && id<=1614) {
+              var _dfm = String(m.desc||'').match(/防衛戦\s*ステージ\s*(\d+)/);
+              var _dfs = _dfm ? _dfm[1] : ({1611:'12',1612:'15',1613:'18',1614:'21'})[id];
+              if (_dfs) return '防衛戦のステージ' + _dfs + 'を クラスが はじめてクリアすると、クラス全員がもらえる';
+            }
+            if (id>=2101 && id<=2199) {
+              var _wr = (typeof window!=='undefined' && window.WORLD_REWARD_BY_STAGE) ? window.WORLD_REWARD_BY_STAGE : null;
+              var _wss = (typeof window!=='undefined' && window.WORLD_STAGES) ? window.WORLD_STAGES : null;
+              if (_wr) {
+                for (var _wk in _wr) {
+                  if (Number(_wr[_wk]) === id) {
+                    var _w1 = _wss ? _wss[Number(_wk)] : null;
+                    if (_w1 && _w1.city) return '世界編の「' + _w1.flag + ' ' + _w1.city + '」をクリアするともらえる';
+                    return '世界編のステージをクリアするともらえる';
+                  }
+                }
+              }
+            }
           }catch(e){}
           var ob=(m.obtain||m.source||'');
           if(ob==='egg'||ob==='eggBattle'||m.eggReward) return 'タマゴバトルのごほうび';
