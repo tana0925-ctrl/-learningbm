@@ -1,0 +1,37 @@
+name: 連続日数 第6便 児童画面の日数とお知らせ
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: パッチを適用（チェーン158・あて先4か所が各1件でなければ中止）
+        run: python3 scripts/patch_streak_h6.py
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: 教師画面などの構文チェック
+        run: node scripts/render_check.mjs
+      - name: 児童ページの構文チェック
+        run: node scripts/render_check_child.mjs
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git diff --staged --quiet && echo "No changes" || (git commit -m "連続日数 第6便 児童画面の日数表示とお知らせ（ごほうびの計算は未変更）" && git push)
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
