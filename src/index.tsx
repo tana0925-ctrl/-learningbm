@@ -13453,9 +13453,23 @@ app.get('/teacher', (c) => {
           const totalActual = daily.filter(function(d){ return activeDayDates.indexOf(d.day_key) >= 0; }).length;
           const weekDailyRate = totalPossible > 0 ? Math.round(totalActual / totalPossible * 100) : 0;
           // 計画提出率
-          const planCount = plans.length;
+          /* 2026-10-02 PLANRATE_V1: 「行がある」ではなく「中身が書いてある」で数える。
+             前は空っぽの子も「提出」に数えていて、同じ画面の計画の箱が
+             「15人が提出」と出しているのにここだけ 100% と出ていた。 */
+          function _planHasText(p){
+            if(!p) return false;
+            var o = {}; try{ o = JSON.parse(p.plans_json||'{}'); }catch(_e){ return false; }
+            var ks = Object.keys(o).filter(function(k){ return k !== '_modified'; });
+            for(var i=0;i<ks.length;i++){
+              var v = o[ks[i]];
+              var t = (v && typeof v === 'object') ? (v.free||'') : (v||'');
+              if(String(t).trim()) return true;
+            }
+            return false;
+          }
+          const planCount = plans.filter(_planHasText).length;
           const planRate = members.length > 0 ? Math.round(planCount / members.length * 100) : 0;
-          const planMissing = members.filter(function(m){ return !planByUser[m.id]; });
+          const planMissing = members.filter(function(m){ return !_planHasText(planByUser[m.id]); });
           // 振り返り提出率
           const refCount = reflections.length;
           const refRate = members.length > 0 ? Math.round(refCount / members.length * 100) : 0;
