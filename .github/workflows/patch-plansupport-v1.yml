@@ -1,0 +1,137 @@
+name: PLANSUPPORT_V1 計画のとなりにサポーターからのことばを並べる（第4便）
+
+# 先生「計画、サポーターからのコメントもみたい！」
+# 計画と同じ場所で、その週に届いたサポーターのことばを全部読めるようにする。
+# 2026-09 に3行へ詰めて65枚全部で隠した失敗を繰り返さない。切らない。
+#
+# ⚠ 本番に流す便。先生の指示で「子どもが使い終わった23時以降」に流すこと。
+# ⚠ 1便ずつ。流したら本番を確かめてから次の便へ。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す直前に チェーンを 実測する（ほかの便と重なっていたら止める）
+        run: |
+          python3 - <<'PY'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          a = s.index("app.get('/'"); b = s.index("app.get('/logout'")
+          n = s[a:b].count('.replace(')
+          print('チェーン実測:', n)
+          if n != 158:
+              print('NG: チェーンが %d 件（期待 158）。ほかの便が流れています。中止します。' % n)
+              sys.exit(1)
+          print('OK: 158 件。重なりなし。')
+          PY
+
+      - name: パッチを適用（合わなければ何も書かずに落ちる）
+        run: python3 scripts/patch_plansupport_v1.py
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 配信物の構文チェック（既存の render_check.mjs に乗る）
+        run: node scripts/render_check.mjs
+
+      - name: コミットして push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx scripts/patch_plansupport_v1.py
+          git diff --staged --quiet && echo "変更なし" || git commit -m "PLANSUPPORT_V1: 計画のカードにその週のサポーターのことばを全部ならべる（チェーン158->158）"
+          git push
+
+      # bot のコミットは deploy.yml を発火させないので、ここで自分でデプロイする
+      - name: Cloudflare Pages へデプロイ
+        run: npx wrangler pages deploy dist --project-name=learning-bm --branch=main --commit-message="PLANSUPPORT_V1 $(git rev-parse --short HEAD)"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a3ece7c244b6c0eb931836cddc4744b2
+
+      - name: 配信された実物を確かめる（児童ページと教師ページの両方を node --check）
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, sys, time, urllib.request, tempfile, os
+          BASE = "https://learning-bm.pages.dev"
+          MARKER = "PLANSUPPORT_V1"
+
+          def get(path, tries=8):
+              for i in range(tries):
+                  try:
+                      req = urllib.request.Request(BASE+path, headers={"User-Agent":"verify"})
+                      with urllib.request.urlopen(req, timeout=120) as r:
+                          return r.status, r.read().decode("utf-8", "replace")
+                  except Exception as e:
+                      print("  retry %d: %s" % (i+1, e)); time.sleep(15)
+              return None, None
+
+          print("== 配信待ち: /teacher に %s が現れるまで ==" % MARKER)
+          teacher = None
+          for i in range(20):
+              st, h = get("/teacher")
+              if h and MARKER in h:
+                  teacher = h; print("  反映を確認（%d秒後 / status=%s / %dバイト）" % (i*20, st, len(h))); break
+              print("  まだ … (status=%s, bytes=%s)" % (st, len(h) if h else 0))
+              time.sleep(20)
+          if teacher is None:
+              print("::error::配信に %s が現れませんでした" % MARKER); sys.exit(1)
+
+          def check(path, h):
+              blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', h)
+              bad = []
+              with tempfile.TemporaryDirectory() as d:
+                  f = os.path.join(d, "b.js")
+                  for j, b in enumerate(blocks):
+                      open(f, "w", encoding="utf-8").write(b)
+                      r = subprocess.run(["node","--check",f], capture_output=True, text=True)
+                      if r.returncode:
+                          tail = [x for x in r.stderr.strip().split("\n") if x.strip()]
+                          bad.append((j, len(b), tail[-1][:160] if tail else "?"))
+              print("  %-10s %9d バイト  <script> %2d個  → %s" % (path, len(h), len(blocks), "エラーなし" if not bad else "★エラー %d件" % len(bad)))
+              for j, ln, e in bad: print("      ブロック%d (%d文字): %s" % (j, ln, e))
+              return not bad
+
+          print("\n== 児童ページと教師ページの <script> 構文チェック ==")
+          ok = True
+          ok &= check("/teacher", teacher)
+          st, home = get("/")
+          if home is None:
+              print("::error::児童ページ(/) が取得できませんでした"); sys.exit(1)
+          ok &= check("/", home)
+
+          print("\n== この便の中身が配信物に入っているか ==")
+          checks = [("子ごとに分けている", "var _supByUser = {};", 1), ("カードの中に出している", "サポーターからのことば（この週", 1)]
+          for name, got, want in [(n, teacher.count(s), w) for n, s, w in checks]:
+              mark = "OK " if got == want else "★NG"
+              print("  %s %s: %s（期待 %s）" % (mark, name, got, want)); ok &= (got == want)
+
+          print("\n== 詰めたり畳んだりしていないか ==")
+          i = teacher.find("bg-pink-50 rounded border border-pink-200 space-y-1")
+          box = teacher[i-200:i+1200] if i >= 0 else ""
+          if not box:
+              print("  ★NG サポーターの箱が見つかりません"); ok = False
+          for ng in ["max-h", "line-clamp", "truncate", "overflow-hidden", "もっと見る"]:
+              if ng in box:
+                  print("  ★NG サポーターの箱に %s が入っています" % ng); ok = False
+          print("  OK サポーターの箱を切る指定はありません（届いたものは全部出ます）")
+
+
+          if not ok:
+              print("::error::配信物の検証に失敗しました"); sys.exit(1)
+          print("\n✅ 配信物の検証: すべて問題なし")
+          PY
