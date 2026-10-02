@@ -6574,7 +6574,7 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
   let plans: any = { results: [] }
   try {
     plans = await c.env.DB.prepare(`
-      SELECT user_id, revision_count, plan_approved, updated_at
+      SELECT user_id, revision_count, plan_approved, updated_at, plans_json
       FROM student_weekly_plans
       WHERE week_key=? AND user_id IN (SELECT user_id FROM class_members WHERE class_id=?)
     `).bind(weekKey, classId).all<any>()
@@ -13390,6 +13390,14 @@ app.get('/teacher', (c) => {
         ov.appendChild(im); ov.appendChild(cap); document.body.appendChild(ov);
       }
 
+      /* 2026-10-02 PLANCELL_V1: 「計画」のマスを押したときの開閉。 */
+      function dashTogglePlan(uid, btn){
+        var row = document.getElementById('dashPlanRow_'+uid);
+        if(!row) return;
+        var nowHidden = row.classList.toggle('hidden');
+        try{ var lbl = btn.querySelector('div'); if(lbl) lbl.textContent = nowHidden ? '見る' : 'とじる'; }catch(_e){}
+      }
+
       async function loadSubmissionDashboard(selectedWeek){
         const wrap = document.getElementById('dashboardContent');
         if(!wrap) return;
@@ -13584,10 +13592,40 @@ app.get('/teacher', (c) => {
             }
             // 計画
             var plan = planByUser[m.id];
+            var __planRow = '';
             if(plan){
               var approvedBadge = plan.plan_approved ? '✅' : '📝';
               var revBadge = plan.revision_count > 0 ? '<div class="text-[8px] text-orange-500">修正'+plan.revision_count+'回</div>' : '';
-              html += '<td class="p-1.5 text-center border-b bg-blue-50">'+approvedBadge+revBadge+'</td>';
+              /* 2026-10-02 PLANCELL_V1: ここは今まで押せない飾りだった。
+                 先生「計画の列はあるのに何も見られない」——押したら下に開くようにする。 */
+              html += '<td class="p-1.5 text-center border-b bg-blue-50">'
+                + '<button type="button" class="leading-tight w-full" onclick="dashTogglePlan(&#39;'+escH(m.id)+'&#39;,this)">'
+                + approvedBadge
+                + '<div class="text-[9px] text-indigo-600 underline font-bold">見る</div>'
+                + revBadge
+                + '</button></td>';
+              var __pj = {}; try{ __pj = JSON.parse(plan.plans_json||'{}'); }catch(_e){ __pj = {}; }
+              var __dl = ['月','火','水','木','金'];
+              var __ks = Object.keys(__pj).filter(function(k){ return k !== '_modified'; });
+              var __body = '', __any = false;
+              for(var __i=0;__i<5;__i++){
+                var __v = __ks[__i] ? __pj[__ks[__i]] : '';
+                var __t = (__v && typeof __v === 'object' && __v) ? (__v.free||'') : (__v||'');
+                var __has = !!String(__t).trim();
+                if(__has) __any = true;
+                __body += '<div class="flex gap-2 py-0.5"><span class="font-bold text-slate-500 w-6 shrink-0">'+__dl[__i]+'</span>'
+                  + '<span class="text-slate-700 break-words">'+(__has ? escH(__t) : '<span class="text-slate-300">—</span>')+'</span></div>';
+              }
+              var __mv = __ks[0] ? __pj[__ks[0]] : '';
+              var __rep = (__mv && typeof __mv === 'object' && __mv) ? (__mv.reply||'') : '';
+              if(String(__rep).trim()) __body += '<div class="mt-1 p-1.5 bg-sky-50 rounded border border-sky-200"><span class="font-bold text-sky-700">✍️ 本人からの返事：</span>'+escH(__rep)+'</div>';
+              var __fv = __ks[4] ? __pj[__ks[4]] : '';
+              var __ref2 = (__fv && typeof __fv === 'object' && __fv) ? (__fv.reflection||'') : '';
+              if(String(__ref2).trim()) __body += '<div class="mt-1 p-1.5 bg-orange-50 rounded border border-orange-200"><span class="font-bold text-orange-700">🔄 振り返り：</span>'+escH(__ref2)+'</div>';
+              if(!__any) __body = '<div class="text-slate-400 mb-1">まだ何も書いていません</div>' + __body;
+              /* 切らない。畭まない。高さの上限をつけない。 */
+              __planRow = '<tr id="dashPlanRow_'+escH(m.id)+'" class="hidden"><td colspan="'+(weekDays.length+4)+'" class="p-2 border-b bg-blue-50">'
+                + '<div class="text-xs">'+__body+'</div></td></tr>';
             } else {
               html += '<td class="p-1.5 text-center border-b bg-red-50"><span class="text-red-400 font-bold">✗</span></td>';
             }
@@ -13604,6 +13642,7 @@ app.get('/teacher', (c) => {
             var submitColor = submitBarW >= 80 ? 'bg-emerald-400' : submitBarW >= 50 ? 'bg-yellow-400' : 'bg-red-400';
             html += '<td class="p-1.5 border-b"><div class="flex items-center gap-1"><div class="w-12 bg-slate-100 rounded-full h-3 overflow-hidden"><div class="'+submitColor+' h-full rounded-full" style="width:'+submitBarW+'%"></div></div><span class="text-[10px] font-bold text-slate-600">'+userSubmitCount+'/'+activeDayDates.length+'</span></div></td>';
             html += '</tr>';
+            html += __planRow; /* PLANCELL_V1: 押したときだけ見える行 */
           }
           html += '</tbody></table></div>';
 
