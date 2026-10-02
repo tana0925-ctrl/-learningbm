@@ -6764,7 +6764,32 @@ app.get('/api/teacher/weekly-plans', async (c) => {
   sql += ` ORDER BY u.grade, u.class_name, u.name`
 
   const res = await c.env.DB.prepare(sql).bind(...binds).all<any>()
-  return c.json({ ok: true, plans: res.results, weekKey })
+
+  // 2026-10-02 PLANSUPPORT_V1: 先生「計画、サポーターからのコメントもみたい！」
+  //   その週に届いたサポーターのことばを、計画と同じ返事で返す。
+  //   (user_id, day_key) の索引が効く読み方。全件スキャンにはならない。
+  let parentComments: any[] = []
+  try {
+    const _mon = getMondayFromWeekKey(weekKey)
+    const _sun = new Date(_mon)
+    _sun.setUTCDate(_mon.getUTCDate() + 6)
+    const _monStr = _mon.toISOString().split('T')[0]
+    const _sunStr = _sun.toISOString().split('T')[0]
+    let psql = `
+      SELECT hs.user_id as userId, hs.day_key as dayKey, hs.parent_comment as parentComment
+      FROM homework_submissions hs
+      JOIN class_members cm ON cm.user_id = hs.user_id
+      JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ?
+      WHERE hs.day_key >= ? AND hs.day_key <= ? AND hs.parent_comment IS NOT NULL AND hs.parent_comment <> ''
+    `
+    const pbinds: any[] = [u.id, _monStr, _sunStr]
+    if (classId) { psql += ` AND cl.id = ?`; pbinds.push(classId) }
+    psql += ` ORDER BY hs.day_key`
+    const pres = await c.env.DB.prepare(psql).bind(...pbinds).all<any>()
+    parentComments = (pres && pres.results) || []
+  } catch (_e) { parentComments = [] }
+
+  return c.json({ ok: true, plans: res.results, weekKey, parentComments })
 })
 
 app.get('/api/teacher/student-reflection-history', async (c) => {
@@ -13018,6 +13043,17 @@ app.get('/teacher', (c) => {
         try{
           const data = await api('/api/teacher/weekly-plans'+qs);
           const plans = data.plans || [];
+          /* 2026-10-02 PLANSUPPORT_V1: その週のサポーターのことばを子ごとに分ける。 */
+          var _supByUser = {};
+          try{
+            var _pcs = data.parentComments || [];
+            for(var _pi=0;_pi<_pcs.length;_pi++){
+              var _pc = _pcs[_pi];
+              if(!_pc || !String(_pc.parentComment||'').trim()) continue;
+              if(!_supByUser[_pc.userId]) _supByUser[_pc.userId] = [];
+              _supByUser[_pc.userId].push(_pc);
+            }
+          }catch(_e){ _supByUser = {}; }
           if(!plans.length){ wrap.innerHTML='<p class="text-slate-400">まだ計画が提出されていません</p>'; return; }
           const dayLabels = ['月','火','水','木','金'];
           wrap.innerHTML = '';
@@ -13057,6 +13093,23 @@ app.get('/teacher', (c) => {
                 + '</div>';
             }
             html += '</div>';
+
+            /* 2026-10-02 PLANSUPPORT_V1: その週のサポーターからのことば。
+               切らない。畭まない。高さの上限をつけない。届いているものは全部出す。
+               （2026-09 に3行へ詰めて 65枚全部で隠れた。同じことをしない） */
+            try{
+              var _sups = _supByUser[p.userId] || [];
+              if(_sups.length){
+                html += '<div class="mt-1 p-2 bg-pink-50 rounded border border-pink-200 space-y-1">'
+                  + '<div class="font-bold text-pink-700 text-xs">🏠 サポーターからのことば（この週 '+_sups.length+'件）</div>';
+                for(var _si=0;_si<_sups.length;_si++){
+                  html += '<div class="text-xs text-slate-700 break-words">'
+                    + '<span class="text-[10px] text-pink-500 font-bold mr-1">'+escH(String(_sups[_si].dayKey||'').slice(5))+'</span>'
+                    + escH(_sups[_si].parentComment) + '</div>';
+                }
+                html += '</div>';
+              }
+            }catch(_e){}
 
             // 計画承認ボタン（未承認の場合のみ）
             if(!p.planApproved){
