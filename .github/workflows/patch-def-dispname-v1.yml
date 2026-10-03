@@ -1,0 +1,115 @@
+name: 防衛戦 表示名（DEF_DISPNAME_V1・ログイン名を画面から外す）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 流す前にチェーンとアンカーを実測する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          applied = 'defDisplayName' in v
+          print('chain before =', n, 'applied =', applied)
+          if n != 158:
+              print('NG: 流す前のチェーンが 158 件でない'); sys.exit(1)
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s = %d (want %d)' % (label, got, want)); ok[0] = False
+          if not applied:
+              chk('児童side SQL index', s.count('u.name as nm'), 2)
+              chk('教師dry-run SQL index', s.count('u.name AS nm'), 1)
+              chk('児童side SQL resolve', v.count('u.name AS nm'), 1)
+              chk('index に defDisplayName が無い', s.count('defDisplayName'), 0)
+              chk('resolve に ななし が無い', v.count('ななし'), 0)
+              chk('index の既存 LEFT JOIN ranking_stats', s.count('LEFT JOIN ranking_stats'), 2)
+          if not ok[0]:
+              sys.exit(1)
+          print('事前チェック OK')
+          PYEOF
+
+      - name: パッチを当てる
+        run: python3 scripts/patch_def_dispname_v1.py
+
+      - name: 流したあとを検証する
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          v = io.open('src/def_resolve.ts', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain after =', n)
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s = %d (want %d)' % (label, got, want)); ok[0] = False
+          if n != 158:
+              print('NG: 流したあとのチェーンが 158 件でない'); ok[0] = False
+          chk('目印', v.count('__DEF_DISPNAME_V1__'), 1)
+          chk('ヘルパーの定義', v.count('export function defDisplayName('), 1)
+          chk('ななしを返す枝', v.count("return 'ななし'"), 1)
+          chk('resolve の呼び出し', v.count('nm: defDisplayName(r)'), 1)
+          chk('resolve の古い nm', v.count("nm: String(r.nm || '')"), 0)
+          chk('resolve の LEFT JOIN', v.count('LEFT JOIN ranking_stats'), 1)
+          chk('index の import', s.count('defLogFit, defDisplayName }'), 1)
+          chk('index status の呼び出し', s.count('name: defDisplayName(r)'), 1)
+          chk('index verify の呼び出し', s.count('defDisplayName(_r)'), 1)
+          chk('index の user_id 送出', s.count('user_id: r.uid'), 0)
+          chk('index の LEFT JOIN（既存2＋新規2）', s.count('LEFT JOIN ranking_stats'), 4)
+          chk('教師dry-run は無変更', s.count('u.name AS nm'), 1)
+          if 'r.lid' not in v:
+              print('NG: login_id を読む行が無い'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('事後チェック OK')
+          PYEOF
+
+      - name: ビルドと構文チェック（dist は元に戻す）
+        run: |
+          npm install
+          npm run build
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- build 後の差分 ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git add src/index.tsx src/def_resolve.ts
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'; exit 0
+          fi
+          git commit -m 'DEF_DISPNAME_V1: 防衛戦の名前を ゲーム内の名前→出席番号→ななし にする。ログインIDは返さない。entries から user_id も外す（チェーン158->158）'
+          git pull --rebase origin main
+          git push origin HEAD:main
