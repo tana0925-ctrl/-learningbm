@@ -7,7 +7,7 @@ import { registerDefTeacherStart } from './def_teacher_start'
 // __DEF_AUTO_RESOLVE_V1__ 先生が 画面を ひらいていなくても 12:30 に 決戦が おきるようにする
 import { registerDefAutoResolve, defAutoResolveHook } from './def_auto_resolve'
 import { defAutoBattleRT, defTestRoster, DEF_ENGINE_SIG, DEF_ENGINE_BYTES } from './def_engine'
-import { defServerResolve, defEntryOk, defLogFit } from './def_resolve'
+import { defServerResolve, defEntryOk, defLogFit, defDisplayName } from './def_resolve'
 import { defDexEntry } from './def_dex'
 // __WORLD_V1__ 3周目「世界編」第1段。当てる中身は src/world_v1.ts。
 import { WORLD_V1_PATCHES } from './world_v1'
@@ -2374,8 +2374,8 @@ app.get('/api/defense/status', async (c) => {
         // 2分に 1台だけ 通す（defense_carry_lock の にせ鍵）ので、
         // 22台で 戦闘計算が 走ることは ない。しくじっても 児童の画面は 止めない。
         try { await defAutoResolveHook(c.env, st, classId) } catch (_e) {}
-        const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
-        out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { user_id: r.uid, name: r.nm, monster: m, strategy: r.strat } })
+        const es = await c.env.DB.prepare("SELECT de.monster_json as mj, de.strategy as strat, de.user_id as uid, u.name as nm, u.login_id as lid, u.roster_no as rno, rs.display_name as dn FROM defense_entries de JOIN users u ON u.id=de.user_id LEFT JOIN ranking_stats rs ON rs.user_id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
+        out.entries = ((es && es.results) || []).map((r: any) => { let m: any = null; try { m = JSON.parse(r.mj) } catch (_e) {} return { name: defDisplayName(r), monster: m, strategy: r.strat } })
       } catch (_e) {}
     }
   }
@@ -2608,9 +2608,9 @@ app.post('/api/defense/resolve', async (c) => {
     }
     // 4) エントリーの件数と順序。持ち越しの materialize はクラスの1人目が引き金なので、
     //    人数が違うのは正常。ここで 400 にすると全員はじかれてクラスに結果が出ないため retry を返す。
-    const _dvEs = await c.env.DB.prepare("SELECT de.monster_json as mj, u.name as nm FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
+    const _dvEs = await c.env.DB.prepare("SELECT de.monster_json as mj, u.name as nm, u.login_id as lid, u.roster_no as rno, rs.display_name as dn FROM defense_entries de JOIN users u ON u.id=de.user_id LEFT JOIN ranking_stats rs ON rs.user_id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC").bind(st.eventKey, classId).all<any>()
     const _dvWant: string[] = []
-    for (const _r of ((_dvEs && _dvEs.results) || [])) { let _m: any = null; try { _m = JSON.parse(_r.mj) } catch (_e) {} if (_m && _m.id) _dvWant.push(String(_r.nm)) }
+    for (const _r of ((_dvEs && _dvEs.results) || [])) { let _m: any = null; try { _m = JSON.parse(_r.mj) } catch (_e) {} if (_m && _m.id) _dvWant.push(defDisplayName(_r)) }
     const _dvGot: string[] = (Array.isArray(_dvLog.entrants) ? _dvLog.entrants : []).map((e: any) => String((e && e.name) || ''))
     if (_dvWant.length !== _dvGot.length) return c.json({ ok: true, retry: true })
     for (let _i = 0; _i < _dvWant.length; _i++) { if (_dvWant[_i] !== _dvGot[_i]) return c.json({ ok: true, retry: true }) }

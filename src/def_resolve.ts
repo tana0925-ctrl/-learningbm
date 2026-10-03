@@ -282,12 +282,28 @@ export function defLogFit(log) {
   return null
 }
 
+/* __DEF_DISPNAME_V1__ 防衛戦に出す名前。
+   この欄は クラス全員の画面に出る。だから ログインIDは ぜったいに 返さない。
+   ①ゲーム内の名前（ranking_stats.display_name）→ ②出席番号 → ③ななし の順。
+   ①が ログインIDと同じときだけ 使わない（自分で ログインIDを 名前にした子のため）。
+   12文字で丸めるときは 絵文字を 半分に割らない。 */
+export function defDisplayName(r: any): string {
+  const lid = String((r && r.lid) || '')
+  const dn = String((r && r.dn) || '').trim()
+  if (dn && dn !== lid) {
+    const cp = Array.from(dn)
+    return cp.length > 12 ? cp.slice(0, 12).join('') : dn
+  }
+  const rno = Number(r && r.rno)
+  if (Number.isFinite(rno) && rno > 0) return String(rno) + '番'
+  return 'ななし'
+}
 export async function defServerResolve(env, st, classId, enemies) {
   try {
     if (!st || !st.eventKey || !classId) return null
     if (!Array.isArray(enemies) || !enemies.length) return null
     const rows = await env.DB.prepare(
-      "SELECT de.monster_json AS mj, de.strategy AS sg, u.name AS nm, de.user_id AS uid FROM defense_entries de JOIN users u ON u.id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC LIMIT 200"
+      "SELECT de.monster_json AS mj, de.strategy AS sg, u.name AS nm, u.login_id AS lid, u.roster_no AS rno, rs.display_name AS dn, de.user_id AS uid FROM defense_entries de JOIN users u ON u.id=de.user_id LEFT JOIN ranking_stats rs ON rs.user_id=de.user_id WHERE de.event_key=? AND de.class_id=? ORDER BY de.created_at ASC, de.user_id ASC LIMIT 200"
     ).bind(String(st.eventKey), String(classId)).all()
     const list = (rows && rows.results) || []
     if (!list.length) return null
@@ -296,7 +312,7 @@ export async function defServerResolve(env, st, classId, enemies) {
       let m = null
       try { m = JSON.parse(String(r.mj)) } catch (_e) { return null }
       if (!defEntryOk(m)) return null
-      ents.push({ m: m, nm: String(r.nm || ''), sg: String(r.sg || ''), uid: String(r.uid || ''), auto: (Number(m.auto) === 1) })
+      ents.push({ m: m, nm: defDisplayName(r), sg: String(r.sg || ''), uid: String(r.uid || ''), auto: (Number(m.auto) === 1) })
     }
     const specsA = ents.map(function (e) {
       return {
