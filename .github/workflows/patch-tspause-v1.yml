@@ -1,0 +1,53 @@
+name: TSPAUSE_V1 もどったときに ことばがドサッと降るのを直す
+
+# ほかの アプリ／タブを 見ている あいだ、えは 止まるのに
+# ことばを 出す タイマーは 止まらないので、もどると まとめて 落ちてくる。
+# 画面を 見ていない あいだは ことばを 出さない ようにする。
+#
+# 第1便（TSKEY_V1）が 入っている ことが 前提。
+# めじるし・チェーン数が 合わなければ patch が 止まる（1文字も 書かない）。
+# ビルドと 構文チェックが とおってから はじめて commit / push する。
+#
+# ※ push は github-actions の token なので Deploy は 自動で 走らない。
+#   このあと「Deploy to Cloudflare Pages」を 手で 流すこと。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: パッチを あてる（めじるし・チェーン数が 合わなければ ここで 止まる）
+        run: python3 scripts/patch_tspause_v1.py
+
+      - name: 変わった ところを 見る
+        run: git --no-pager diff --stat
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 教師画面など の 構文チェック
+        run: node scripts/render_check.mjs
+
+      - name: 児童ページ の 構文チェック
+        run: node scripts/render_check_child.mjs
+
+      - name: コミットして おくる
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx public/typeshoot.js
+          git diff --staged --quiet && echo "No changes" || (git commit -m "TSPAUSE_V1: 画面を見ていないあいだは ことばを出さない" && git push)
