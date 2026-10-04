@@ -325,7 +325,7 @@
     f.appendChild(box);
     S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats, inEff: eff.f, atkEl: atkEl });
   }
-  function cpuFire() { if (!S.open || S.ended || !S.ready) return; spawnEnemyWord(); rotateEnemy(); }
+  function cpuFire() { if (!S.open || S.ended || !S.ready) return; if (document.hidden) return; /* TSPAUSE_V1 ほかの アプリを 見ている あいだは ことばを 出さない（もどった ときに ドサッと 降ってこないように） */ spawnEnemyWord(); rotateEnemy(); }
 
   function onKey(e) {
     if (!S.open || S.ended || !S.ready) return;
