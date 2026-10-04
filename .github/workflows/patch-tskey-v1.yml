@@ -1,0 +1,49 @@
+name: TSKEY_V1 タイプシュートのスペースを直す
+
+# タマゴ2人対戦が スペース・e・f・矢印キーを 横取りしたまま ページに のこるので、
+# そのあと タイプシュートを はじめても こうげき⇄ぼうぎょが きりかわらない。
+# あわせて タイプシュート側の「打ちかけの 文字が 消えない」も 直す。
+#
+# めじるしが 1件で なければ patch が 止まる（ファイルには 1文字も 書かない）。
+# ビルドと 構文チェックが とおってから はじめて commit / push する。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: パッチを あてる（めじるし・チェーン数が 合わなければ ここで 止まる）
+        run: python3 scripts/patch_tskey_v1.py
+
+      - name: 変わった ところを 見る
+        run: git --no-pager diff --stat
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 教師画面など の 構文チェック
+        run: node scripts/render_check.mjs
+
+      - name: 児童ページ の 構文チェック
+        run: node scripts/render_check_child.mjs
+
+      - name: コミットして おくる
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx public/typeshoot.js
+          git diff --staged --quiet && echo "No changes" || (git commit -m "TSKEY_V1: タマゴ対戦のキー横取りをやめ、タイプシュートの打ちかけを消す" && git push)
