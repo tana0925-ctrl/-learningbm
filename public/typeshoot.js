@@ -187,6 +187,7 @@
 
   function setMode(m) {
     S.mode = m;
+    S.typed = ''; renderTyped(); /* TSKEY_V1 こうげき⇄ぼうぎょを かえたら 打ちかけの 文字を 消す */
     var a = el('tsAtkBtn'), d = el('tsDefBtn');
     if (a && d) {
       a.style.background = m === 'attack' ? '#ef4444' : '#1e293b';
@@ -355,6 +356,7 @@
           if (done) { var dx = parseFloat(done.node.style.left) || 0; var dyy = done.y || 0; var di = S.missiles.indexOf(done); if (di >= 0) rm(di, done); fxBurst(dx, dyy, '💥'); fxFloat(dx, dyy, 'ナイス！', '#93c5fd'); S.score = (S.score || 0) + 15 + (S.combo || 0); updateScore(); S.combo++; if (el('tsCombo')) el('tsCombo').textContent = S.combo >= 2 ? ('コンボ ×' + S.combo + '！') : ''; S.typed = ''; renderTyped(); }
         } else {
           S.combo = 0; if (el('tsCombo')) el('tsCombo').textContent = '';
+          S.typed = ''; renderTyped(); /* TSKEY_V1 あてはまらない ときは 打ちかけを 消す（ともだち対戦と 同じ） */
           var tw2 = el('tsTyped'); if (tw2) { tw2.style.color = '#ef4444'; setTimeout(function () { if (tw2) tw2.style.color = '#a78bfa'; }, 200); }
         }
       }
@@ -403,7 +405,7 @@
       '<div style="font-size:13px;color:#94a3b8;margin-top:2px">' + (isNewBest ? '🎉 ベスト更新！' : 'ベスト ' + best) + '</div>' +
       '<div style="font-size:14px;color:#94a3b8;margin-top:6px">よく がんばったね！</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
-        '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
+        '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど（🎫1まい）</button>' +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
       '</div>';
     r.style.display = 'flex';
@@ -478,6 +480,7 @@
   }
   function vSetMode(m) {
     V.mode = m;
+    V.typed = ''; vRenderTyped(); /* TSKEY_V1 */
     var a = el('tsvAtkBtn'), d = el('tsvDefBtn');
     if (a && d) {
       a.style.background = m === 'attack' ? '#ef4444' : '#1e293b'; a.style.color = m === 'attack' ? '#fff' : '#94a3b8'; a.style.outline = m === 'attack' ? '3px solid #fca5a5' : 'none';
