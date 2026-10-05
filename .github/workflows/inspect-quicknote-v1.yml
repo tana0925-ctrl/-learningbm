@@ -1,0 +1,66 @@
+name: QUICKNOTE 下調べ（読むだけ・1バイトも書かない）
+
+# QUICKNOTE_V1 の下調べ。
+#   src/index.tsx は 1.25MB あり、GitHub の画面では中身が表示できず
+#   （「16844 lines · 1.25 MB / Raw」としか出ない）、リポジトリのコード検索の
+#   索引にも入らない。アンカー文字列を推測で書かないために、Actions の中で
+#   必要な場所だけを repr() で取り出して表示する。
+#
+#   このワークフローは 1バイトも書かない。commit も push もしない。
+#   最後に git diff --quiet で無変更であることを確かめる。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 必要な場所だけ取り出す
+        run: |
+          python3 - <<'PYEOF'
+          tsx = open('src/index.tsx', encoding='utf-8').read()
+          tai = open('public/teacher-ai.js', encoding='utf-8').read()
+
+          a = tsx.index("app.get('/', async (c) => {")
+          b = tsx.index("app.get('/logout'", a)
+          print('CHAIN              =', tsx[a:b].count('.replace('))
+          print('tsx chars / bytes  =', len(tsx), '/', len(tsx.encode('utf-8')))
+          print('tai chars / bytes  =', len(tai), '/', len(tai.encode('utf-8')))
+          print('CR in tsx / tai    =', tsx.count('\r'), '/', tai.count('\r'))
+
+          def dump(label, src, needle, before, after):
+              print('')
+              print('=' * 72)
+              print('### ' + label + '   needle count = %d' % src.count(needle))
+              i = -1
+              n = 0
+              while True:
+                  i = src.find(needle, i + 1)
+                  if i < 0:
+                      break
+                  n += 1
+                  print('--- occurrence %d  at char %d ---' % (n, i))
+                  print(repr(src[max(0, i - before): i + after]))
+
+          dump('A PICK ENDPOINT',       tsx, "app.post('/api/teacher/karte-materials/pick'", 0, 4400)
+          dump('B NOTES SELECT',        tsx, 'SELECT day_key, body, show_in_karte FROM teacher_student_notes', 430, 830)
+          dump('C POST showK + INSERT', tsx, 'const showK = (body.showInKarte', 0, 900)
+          dump('D PROMPT BUILDERS',     tsx, '【先生の観察メモ（授業中の様子・教師向け）】', 190, 800)
+          dump('E PLACEHOLDER CARD',    tsx, '\U0001f464 児童ひとりへのメモ', 820, 720)
+          dump('F TEACHER-AI VERSION',  tsx, 'teacher-ai.js?v=', 100, 60)
+          dump('G anPane_notes',        tsx, 'id="anPane_notes"', 70, 130)
+          dump('H TAI MATERIALS',       tai, '_pk.materials.forEach', 950, 1600)
+          dump('I TAI HEADING PREFIX',  tai, '【先生の観察メモ', 220, 220)
+          PYEOF
+
+      - name: 何も変えていないことの確認
+        run: |
+          git diff --quiet
+          git status --porcelain
+          echo '読むだけ: 変更なし OK'
