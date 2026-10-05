@@ -14385,11 +14385,25 @@ function _faKarteGraphs(d){
         var _dd=Number(doneDays); if(!(_dd>=0)) _dd=0;
         var times = _dd>=4?3 : _dd>=2?2 : 1;
         /* (3) 1問あたり何回解いたか … 周回ぎみなら「新しい問題へ」、初見なら「まちがい直しから」。 */
-        var styleFor=function(p){
+        /* KARTE_STYLE_V1 反復回数だけで選んでいたので、3単元が同じ帯に入ると
+           3行とも一字一句おなじ文になっていた（別セッションが2026-09-25に見つけたもの）。
+           同じ文がくり返される、という今回ずっと直してきたのと同じ種類の不具合。
+           単元の位置（1番目＝いま効く／2番目＝つぎ／3番目＝ならし）でも言い方を変える。 */
+        var styleFor=function(p, i){
           var r=Number(p.repeatPer);
-          if(r&&r>=5) return '同じ問題をなん回も解いとる単元やから、答えを覚えてるだけかもしれん。新しい問題のほうに行ってみよう';
-          if(r&&r>0&&r<2) return 'まだ1問を1回ずつ。出会ったばかりやから、まちがえた問題をその場でもう一度だけ解き直すところから';
-          return 'まちがえた問題に印をつけて、次の日にもう一度だけ解き直す';
+          if(r&&r>=5){
+            if(i===0) return '同じ問題をなん回も解いとるな。答えを覚えてるだけかもしれんから、新しい問題に当たってみよう';
+            if(i===1) return 'ここも回数が多い。数をこなすより、1問をていねいに見るほうが効くと思うで';
+            return '回数は十分や。たまに別の問題で試して、ほんまに分かってるか確かめてみ';
+          }
+          if(r&&r>0&&r<2){
+            if(i===0) return 'まだ1問を1回ずつ。出会ったばかりやから、まちがえた1問をその場で解き直すところから';
+            if(i===1) return 'ここも始めたばかり。答えを見てからでええから、もう一度自分で書いてみよう';
+            return 'まだ数が少ない単元や。今週は1問でも当たれたら上出来やで';
+          }
+          if(i===0) return 'まちがえた問題に印をつけて、次の日にもう一度だけ解き直す';
+          if(i===1) return '前にまちがえた問題だけ、さっと見直す';
+          return '思い出せるかどうかだけ、ためしてみる';
         };
         /* (4) 間隔 … 弱い順に「集中」「間をあける」「思い出すだけ」と変える。
                3つとも同じ書き方にしない。 */
@@ -14413,7 +14427,7 @@ function _faKarteGraphs(d){
           var kindsTxt = (p.kinds&&p.repeatPer!=null) ? ('・'+p.kinds+'種類を1問'+p.repeatPer+'回') : '';
           revList.push('<li style="margin:5px 0"><b>'+esc(uL(p))+'</b>（'+p.rate+'%'+esc(kindsTxt)+'）<br>'
             + '<span style="color:#0369a1">'+esc(planFor(i))+'</span>。'+esc(methodFor(p.unit))+'。<br>'
-            + '<span style="font-size:11px;color:#475569">'+esc(styleFor(p))+'</span></li>');
+            + '<span style="font-size:11px;color:#475569">'+esc(styleFor(p, i))+'</span></li>');
         }
 
         var voices=[];
