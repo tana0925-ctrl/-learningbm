@@ -17496,13 +17496,13 @@ return;
             } else {
                 const monster = result.data;
                 const level = result.level;
-                result.levelUpCount = 0;
+                result.levelUpCount = 0; result.shiny = !!(window.__shinyGachaRoll && window.__shinyGachaRoll());
                 result.gainedExp = 0;
                 if (!player.monsters[monster.id]) {
                     player.monsters[monster.id] = { level: level, exp: 0, nextExp: calculateNextExp(level), stars: 0 };
                     result.isNew = true;
                     if (!player.pokedex.includes(monster.id)) player.pokedex.push(monster.id);
-                    try { createBoxEntry(monster.id, level, 'gacha'); } catch(e) {}
+                    try { var _ge = createBoxEntry(monster.id, level, 'gacha'); if (result.shiny) { if (_ge) _ge.shiny = true; if (player.monsters[monster.id]) player.monsters[monster.id].shiny = true; if (window._shinyCaught) window._shinyCaught(monster.name); } } catch(e) {}
                     try{ logAcquire('ガチャ', monster.id, {isNew:true, note:'Lv.'+level}); }catch(e){}
                 } else {
                     const mData = player.monsters[monster.id];
@@ -17521,7 +17521,7 @@ return;
                     if (!player.medals || typeof player.medals !== 'object') player.medals = {};
                     player.medals[monster.id] = (player.medals[monster.id] || 0) + medalGain;
                     result.gainedMedal = medalGain;
-                    try{ logAcquire('ガチャ', monster.id, {isNew:false, note:'重複→EXP+'+gainExp}); }catch(e){}
+                    try{ logAcquire('ガチャ', monster.id, {isNew:false, note:'重複→EXP+'+gainExp}); }catch(e){} try { if (result.shiny) { var _gd = createBoxEntry(monster.id, level, 'gacha'); if (_gd) _gd.shiny = true; if (player.monsters[monster.id]) player.monsters[monster.id].shiny = true; if (window._shinyCaught) window._shinyCaught(monster.name); } } catch(e){}
                     while (mData.level < 100 && mData.exp >= mData.nextExp) {
                         mData.level++;
                         mData.exp -= mData.nextExp;
@@ -55592,6 +55592,55 @@ async function _checkContactBadge(){
       window.__lastThrowTs = now;
     } catch (err) {}
     if (typeof throwBall === 'function') throwBall();
+  };
+})();
+</script>
+<script>/* SHINY_RATE_V2 */
+(function(){
+  /* 野生: 1日1回だけ。ガチャ: 1回ごと。ここだけ変えれば先生が調整できます。 */
+  var WILD_RATE  = 1/120;
+  var GACHA_RATE = 1/50;
+  window.SHINY_WILD_RATE = WILD_RATE;
+  window.SHINY_GACHA_RATE = GACHA_RATE;
+
+  function dayKey(){
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+  }
+
+  /* 野生: その日の 1〜3戦目のどれか 1回だけ引く。
+     当たっても外れても その日はそれで終わり。遊ぶ量で差がつかないようにするため。 */
+  window.__shinyWildRoll = function(){
+    try {
+      if (typeof player === 'undefined' || !player) return false;
+      var k = dayKey();
+      var st = player.shinyDaily;
+      if (!st || st.key !== k) {
+        st = { key: k, at: 1 + Math.floor(Math.random()*3), n: 0, done: false };
+        player.shinyDaily = st;
+      }
+      if (st.done) return false;
+      st.n = (st.n || 0) + 1;
+      if (st.n < st.at) return false;
+      st.done = true;
+      var hit = Math.random() < WILD_RATE;
+      try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+      return hit;
+    } catch (e) { return false; }
+  };
+
+  /* ガチャ: 1回ごとに判定。上限なし。限定キャラも同じ確率。 */
+  window.__shinyGachaRoll = function(){
+    var hit = false;
+    try { hit = Math.random() < GACHA_RATE; } catch (e) { hit = false; }
+    try {
+      setTimeout(function(){
+        var el = document.getElementById('gachaResultSprite');
+        if (!el) return;
+        if (hit) el.classList.add('shiny-mon'); else el.classList.remove('shiny-mon');
+      }, 0);
+    } catch (e) {}
+    return hit;
   };
 })();
 </script>
