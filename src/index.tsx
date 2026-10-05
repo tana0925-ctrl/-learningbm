@@ -3874,13 +3874,29 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
     notes = ((r && r.results) || []) as any[]
   } catch (e) { notes = [] }
 
-  // 前に渡したカルテ（同じことを書かせないための参考）。クラスで1本・約200行。
+  // 前に渡したカルテ。クラスで1本。
+  // KARTE_VARY_V1 週ごとに1本・直近4週・全文・週キーつき。
+  //   ねらいは2つ。(1)くり返しを避ける (2)前に言ったことを踏まえて書けるようにする。
+  //   これまでは published_at の新しい順に2本だった。先生は同じ週に何度も作り直されるので
+  //   （実測：2026-W40 は62本）、2本とも同じ週のものになり、外部AIには「先週」しか
+  //   見えていなかった。4週つづけて同じ長期傾向を書いていても気づけない。
+  //   同じ週に何本もあるときは、いちばん新しい1本だけを残す。
+  //   全文にするのは、カルテの最後の問いかけが260字で切れていたため。
+  //   次の週に「あれ、どうなった？」と書くには、その問いかけが要る。
+  //   300字で切るのは念のため（本文の上限は280字なので実質は全文）。
   try {
-    const r = await c.env.DB.prepare(`SELECT target_id, body, published_at FROM ai_review_drafts WHERE class_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 200`).bind(classId).all<any>()
+    const r = await c.env.DB.prepare(`SELECT target_id, week_key, body, published_at FROM ai_review_drafts WHERE class_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 600`).bind(classId).all<any>()
+    const seenWeek: Record<string, number> = {}
     for (const d of (((r && r.results) || []) as any[])) {
-      const o = out[String(d.target_id || '')]
-      if (!o || o.pastKartes.length >= 2) continue
-      o.pastKartes.push({ on: String(d.published_at || '').slice(0, 10), text: String(d.body || '').slice(0, 260) })
+      const uid = String(d.target_id || '')
+      const o = out[uid]
+      if (!o) continue
+      const wkk = String(d.week_key || '')
+      const seenKey = uid + '|' + wkk
+      if (seenWeek[seenKey]) continue          // 同じ週は いちばん新しい1本だけ
+      seenWeek[seenKey] = 1
+      if (o.pastKartes.length >= 4) continue   // 直近4週ぶん
+      o.pastKartes.push({ on: String(d.published_at || '').slice(0, 10), week: wkk, text: String(d.body || '').slice(0, 300) })
     }
   } catch (e) {}
 
@@ -15940,7 +15956,7 @@ app.get('/teacher', (c) => {
       })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=10"></script>
+    <script src="/teacher-ai.js?v=11"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
