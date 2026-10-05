@@ -38769,7 +38769,7 @@ window.showWarEnemyPreview = function(stageIndex) {
       const enemyItem = document.createElement('div');
       enemyItem.className = 'flex items-center gap-3 bg-white rounded-lg p-2 shadow-sm border border-gray-200';
       enemyItem.innerHTML = `
-        <div class="text-3xl">${monster.sprite || '❓'}</div>
+        <div class="text-3xl">${/*DEFIMG_V1*/ (typeof monSpriteHtml === 'function') ? monSpriteHtml(monster.id, (monster.sprite || '❓')) : (monster.sprite || '❓')}</div>
         <div class="flex-1">
           <div class="font-bold text-gray-800">${elementEmoji} ${escapeHtml(monster.name || 'モンスター')}</div>
           <div class="text-xs text-gray-600">${stageText}</div>
@@ -38788,7 +38788,7 @@ window.showWarEnemyPreview = function(stageIndex) {
       const elementEmoji = getElementEmoji(bossMon.elementType || 'normal');
       bossContent.innerHTML = `
         <div class="flex items-center gap-3">
-          <div class="text-4xl">${bossMon.sprite || '👑'}</div>
+          <div class="text-4xl">${/*DEFIMG_V1*/ (typeof monSpriteHtml === 'function') ? monSpriteHtml(bossMon.id, (bossMon.sprite || '👑')) : (bossMon.sprite || '👑')}</div>
           <div class="flex-1">
             <div class="font-black text-lg text-red-900">${elementEmoji} ${escapeHtml(bossMon.name || 'ボス')}</div>
             <div class="text-xs text-gray-700">特定の条件で出現する強敵！</div>
