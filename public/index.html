@@ -33498,7 +33498,7 @@ goFirst: function () {
                             const m = getMonster(id);
                             const isLeader = id === g.leaderMonsterId;
                             const crown = isLeader ? '<span class="absolute -top-1 -right-1 text-[8px]">👑</span>' : '';
-                            return m ? `<div class="relative text-lg filter drop-shadow-sm cursor-help hover:scale-125 transition" title="${m.name}">${m.sprite}${crown}</div>` : '';
+                            return m ? `<div class="relative text-lg filter drop-shadow-sm cursor-help hover:scale-125 transition" title="${m.name}">${/*GYMIMG_V1*/ (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : m.sprite}${crown}</div>` : '';
                         }).join('');
                     })()}
                   </div>
@@ -33532,7 +33532,7 @@ goFirst: function () {
                             const m = getMonster(id);
                             const isLeader = id === g.leaderMonsterId;
                             const crown = isLeader ? '<span class="absolute -top-1 -right-1 text-[8px]">👑</span>' : '';
-                            return m ? `<div class="relative text-lg filter drop-shadow-sm cursor-help hover:scale-125 transition" title="${m.name}">${m.sprite}${crown}</div>` : '';
+                            return m ? `<div class="relative text-lg filter drop-shadow-sm cursor-help hover:scale-125 transition" title="${m.name}">${/*GYMIMG_V1*/ (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : m.sprite}${crown}</div>` : '';
                         }).join('');
                     })()}
                   </div>
