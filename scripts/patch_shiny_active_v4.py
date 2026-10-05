@@ -162,8 +162,10 @@ if html.count('</body>') != 1:
     fail('</body> が %d 個（1個のはず）' % html.count('</body>'))
 if html.count('shiny-card') != 2:
     fail('shiny-card が %d 個（CSSと札で2個のはず）' % html.count('shiny-card'))
-if Q1 in html or B1 in html or B2 in html:
+if Q1 in html or B2 in html:
     fail('置換しきれていないアンカーがある')
+if "__sh'; } if (!summary[key]) {" not in html:
+    fail('10連のまとめの差し替えが入っていない')
 
 io.open(HTML, 'w', encoding='utf-8', newline='').write(html)
 
