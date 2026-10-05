@@ -464,7 +464,7 @@
           '<div id="tbTurn" style="position:absolute;top:4px;left:8px;color:#fff;font-weight:800;font-size:12px;text-shadow:0 1px 3px #000"></div>' +
         '</div>' +
         '<div id="tbMsg" class="px-2 py-1 text-sm font-bold text-slate-700" style="min-height:2.6em"></div>' +
-        '<div id="tbCmd" class="battle-choice-grid px-2 pb-2"></div>' +
+        '<div id="tbCmd" class="battle-choice-grid px-2 pb-2" style="flex:0 0 auto;align-content:start;max-height:46%"></div>' +
       '</div>' +
       '<div id="tbResult" class="hidden flex-1 overflow-y-auto px-3 py-2"></div>';
     host().appendChild(d);
@@ -706,7 +706,7 @@
     for (var i = 0; i < me.sk.length; i++) {
       var s = me.sk[i], m = mult(s.el, fo.el), lab = multLabel(m);
       var note = s.pow ? ('いりょく ' + s.pow) : 'こうかわざ';
-      h += '<button class="battle-choice-btn tb-sk" data-i="' + i + '" style="position:relative;border-radius:10px;border:2px solid #cbd5e1;background:#fff;text-align:left;padding:4px 8px">' +
+      h += '<button class="battle-choice-btn tb-sk" data-i="' + i + '" style="position:relative;border-radius:10px;border:2px solid #cbd5e1;background:#fff;color:#1f2937;text-align:left;padding:4px 8px">' +
         '<div style="font-weight:800;font-size:13px">' + esc(s.name) + '</div>' +
         '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">' + badge(s.el) +
         '<span style="font-size:10px;color:#64748b">' + note + '</span>' +
@@ -715,7 +715,7 @@
     }
     var others = [];
     for (var j = 0; j < S.mine.length; j++) if (j !== S.mi && S.mine[j].alive) others.push(j);
-    h += '<button class="battle-choice-btn tb-sw" style="border-radius:10px;border:2px solid #cbd5e1;background:#f8fafc;font-weight:800;font-size:13px"' +
+    h += '<button class="battle-choice-btn tb-sw" style="border-radius:10px;border:2px solid #cbd5e1;background:#f8fafc;color:#1f2937;font-weight:800;font-size:13px"' +
       (others.length ? '' : ' disabled') + '>こうたい' + (others.length ? '' : '（できない）') + '</button>';
     EL.cmd.innerHTML = h;
     var sks = EL.cmd.querySelectorAll('.tb-sk');
@@ -735,14 +735,14 @@
     h += '<div style="grid-column:1/-1" class="text-xs font-bold text-slate-600">だれと こうたいする？（1ターン つかいます）</div>';
     for (var i = 0; i < others.length; i++) {
       var u = S.mine[others[i]], m = mult(u.el, fo.el), lab = multLabel(m);
-      h += '<button class="battle-choice-btn tb-do" data-j="' + others[i] + '" style="border-radius:10px;border:2px solid #cbd5e1;background:#fff">' +
+      h += '<button class="battle-choice-btn tb-do" data-j="' + others[i] + '" style="border-radius:10px;border:2px solid #cbd5e1;background:#fff;color:#1f2937">' +
         '<div style="font-weight:800;font-size:13px">' + esc(u.name) + '</div>' +
         '<div style="display:flex;gap:4px;align-items:center">' + badge(u.el) +
         '<span style="font-size:10px">HP ' + u.hp + '</span>' +
         (lab ? '<span style="font-size:10px;font-weight:800;color:' + (m > 1 ? '#dc2626' : '#2563eb') + '">' + lab + '</span>' : '') +
         '</div></button>';
     }
-    h += '<button class="battle-choice-btn tb-cancel" style="border-radius:10px;border:2px solid #cbd5e1;background:#f1f5f9;font-weight:800">やめる</button>';
+    h += '<button class="battle-choice-btn tb-cancel" style="border-radius:10px;border:2px solid #cbd5e1;background:#f1f5f9;color:#1f2937;font-weight:800">やめる</button>';
     EL.cmd.innerHTML = h;
     var ds = EL.cmd.querySelectorAll('.tb-do');
     for (var k = 0; k < ds.length; k++) {
