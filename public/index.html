@@ -17190,7 +17190,8 @@ function updateTrainingMenu() {
                     } else if (r.type === 'monster' && r.data) {
                         // モンスターの場合、dataからspriteとnameを取得
                         key = r.data.name + '_Lv' + r.level;
-                        sprite = r.data.sprite || '❓';
+                        /* GACHAIMG_V1 10連のまとめ: 絵があれば絵、無ければ絵文字 */
+                        sprite = ((typeof monSpriteHtml === 'function') ? monSpriteHtml(r.data.id, (r.data.sprite || '❓')) : (r.data.sprite || '❓'));
                         name = r.data.name + ' Lv' + r.level;
                     } else {
                         key = 'unknown';
@@ -17563,7 +17564,12 @@ return;
                 document.getElementById('gachaResultMsg').innerText = `冒険に役立つ${result.name} を手に入れた！`;
             } else {
                 const monster = result.data;
-                document.getElementById('gachaResultSprite').innerText = monster.sprite;
+                /* GACHAIMG_V1 1連の結果: 絵があれば絵、無ければ絵文字 */
+                try {
+                    document.getElementById('gachaResultSprite').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(monster.id, monster.sprite) : String(monster.sprite == null ? '' : monster.sprite);
+                } catch (e) {
+                    document.getElementById('gachaResultSprite').innerText = monster.sprite;
+                }
                 let rarityStr = "★".repeat(monster.stage || 1);
                 if (monster.id > 150) rarityStr = "★★★★★★ (激レア)";
                 document.getElementById('gachaResultRarity').innerText = rarityStr;
