@@ -1,0 +1,166 @@
+name: KARTE_WEEKLY_V2 見える化を 子どもの紙から先生の画面へ移す
+
+# 先生のことば:
+#   「そうだよねー。このレーダーはじめ毎週かわらないのもあるよね」
+#   「外した欄は消すのではなく、置き場所を変えるだけにしてください」
+#
+# 第1便で年度累計の欄を紙から外した。残っていた 📊 今年度の学習の見える化
+# （レーダー＋月ごとの提出回数）も年度累計なので、毎週渡す紙では動かない。
+#   実測: 児童Aのレーダーは5週とも小数第1位まで同じ。月ごとの棒は月に1回しか動かない。
+#         先週アプリをやったのは23人中10人。残り13人は前週と文字単位で同一。
+# → 紙からは外し、同じ3つのグラフ（レーダー／月ごとの提出回数／きもちの割合）を
+#   先生の「📊 個人分析」に出す。消すのではなく置き場所を変えるだけ。
+#
+# 「🌱 今週かわったこと」は第2便に回す。顔ぶれの変化を言うには『先週その単元をやったか』が
+#   要るが、いまカルテに渡っているのは年度累計と前期/後期（2か月幅）だけ。
+#   先に入れると、いま直そうとしている「幅の広い期間で“今週”と言う」不具合を作り直すことになる。
+#
+# さわるのは src/index.tsx だけ。
+#   teacher-ai.js / student-karte.js / index.html / 防衛戦 / 別セッションの slim には触らない。
+#   .replace( チェーンは1本も増やさない。D1には書き込まない。渡すデータも増やさない。
+#   カルテの組み立ては app.get('/teacher') が返すHTMLの中なので ?v= を上げる対象はない。
+#
+# 数えるときは grep -c を使わない（src/index.tsx は巨大な1行で、行数では数えられない）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: "流す直前に実測したチェーン件数（src/index.tsx の app.get('/') 〜 app.get('/logout') の .replace( の数）。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          sha256sum src/index.tsx public/index.html public/student-karte.js public/teacher-ai.js
+          echo -n '既適用マーカー: '; grep -o 'KARTE_WEEKLY_V2' src/index.tsx | wc -l
+
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_weekly_v2.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- public/student-karte.js
+          git diff --quiet -- public/teacher-ai.js
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- scripts/patch_karte_slim_v1.py
+          echo '無変更 OK'
+          echo -n '変更のあったファイル: '; git --no-pager diff --name-only | tr '\n' ' '; echo
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -o 'KARTE_WEEKLY_V2' src/index.tsx | wc -l) -ge 3
+          test $(grep -o 'KARTE_WEEKLY_V1' src/index.tsx | wc -l) -ge 5
+          grep -q 'function _faKarteGraphs(d){' src/index.tsx
+          grep -q 'html += _faKarteGraphs(data);' src/index.tsx
+          grep -q 'function _kRadar(vals){' src/index.tsx
+          ! grep -q '<h2>📊 今年度の学習の見える化</h2>' src/index.tsx
+          grep -q '/teacher-ai.js?v=12' src/index.tsx
+          grep -q '/student-karte.js?v=3' src/index.tsx
+          test $(grep -o "INSERT OR IGNORE INTO karte_material_uses" src/index.tsx | wc -l) -eq 1
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+
+      - name: カルテと先生画面を実際に組み立てて確かめる
+        run: |
+          set -e
+          python3 - <<'PY'
+          import io
+          s=io.open('src/index.tsx',encoding='utf-8').read()
+          names=['_kRadar','_kBars','_kDonut','_kHowToLearn','_gradeClass','_unitGrade','_unitJa','_subjectArea','_gradeLabel','_faKarteGraphs','_buildKarteHtml']
+          out=[]
+          for n in names:
+              key='function '+n+'('
+              i=s.index(key); j=s.index('{', i); depth=0; k=j
+              while True:
+                  c=s[k]
+                  if c=='{': depth+=1
+                  elif c=='}':
+                      depth-=1
+                      if depth==0: break
+                  k+=1
+              out.append(s[i:k+1])
+          io.open('/tmp/karte_fns.js','w',encoding='utf-8').write('\n\n'.join(out))
+          print('関数を', len(out), '個 取り出しました')
+          PY
+          node - <<'JS'
+          global.window = { _faName: 'テスト児童', _faKarteBaseDate: '2026-10-05' };
+          const fs = require('fs');
+          eval(fs.readFileSync('/tmp/karte_fns.js','utf8'));
+          const base = { student:{grade:6},
+            overview:{totalSubmissions:72,totalMinutes:3832,avgMinutes:53,maxStreak:6,sunRate:83,sunCount:60,cloudCount:9,rainCount:3,firstDate:'2026-04-08',lastDate:'2026-10-02'},
+            subjects:[{unit:'j6-kanji',rate:91,total:196,correct:178,kinds:40,repeatPer:4.9},{unit:'m6-frac-div',rate:42,total:253,correct:106,kinds:220,repeatPer:1.1},{unit:'s6-world',rate:97,total:525,correct:509,kinds:7,repeatPer:14.7},{unit:'r6-combust',rate:88,total:150,correct:132,kinds:30,repeatPer:5}],
+            monthlyTrends:[{month:'2026-09',count:14,avgMin:51,sunRate:85}],
+            recentSubmissions:[{day_key:'2026-09-28',end_weather:'sun',minutes:50,todo:'漢字',weather_reason:'思い出せた'}],
+            reflections:[], teacherNotes:[{dayKey:'2026-09-15',body:'メモ',showInKarte:true}],
+            aiComment:'先週は漢字がんばったな。今週はどうする？',
+            aiCommentMeta:{updatedAt:'2026-10-05',weekStart:'2026-09-28',weekGuessed:0} };
+          window._faData = JSON.parse(JSON.stringify(base));
+          const h = _buildKarteHtml();
+          const secs = [...h.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map(m=>m[1].trim());
+          console.log('カルテの見出し:', JSON.stringify(secs));
+          if (h.indexOf('<svg') >= 0) { console.error('NG: カルテにグラフが残っている'); process.exit(1); }
+          if (secs.length !== 3) { console.error('NG: カルテの欄が3つでない'); process.exit(1); }
+          if (secs[0].indexOf('のようす') < 0 || secs[1].indexOf('阪神マン') < 0) { console.error('NG: 並び順'); process.exit(1); }
+          const g = _faKarteGraphs(JSON.parse(JSON.stringify(base)));
+          const n = (g.match(/<svg/g) || []).length;
+          console.log('先生画面のグラフ: svg ' + n + ' 個');
+          if (n !== 3) { console.error('NG: 先生画面のグラフが3つでない'); process.exit(1); }
+          if (_faKarteGraphs({}) !== '') { console.error('NG: データなしで何か出ている'); process.exit(1); }
+          console.log('OK（カルテ ' + h.length + ' バイト / 先生画面 ' + g.length + ' バイト）');
+          JS
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 既存のレンダリング確認（そのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: コミット&プッシュ
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "::error::変更なし"; exit 1; fi
+          if git diff --cached --name-only | grep -qvx 'src/index.tsx'; then echo "::error::src/index.tsx 以外が入っている"; exit 1; fi
+          git commit -m "KARTE_WEEKLY_V2: 毎週渡すカルテから 📊今年度の学習の見える化 を外し、同じ3つのグラフ（レーダー／月ごとの提出回数／きもちの割合）を先生の個人分析画面に出す。消さずに置き場所を変えるだけ（チェーン ${{ inputs.chain_before }} のまま）"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: 次の手順
+        run: echo 'このpushでは Deploy は起動しません。Deploy to Cloudflare Pages を手動で dispatch してください。'
