@@ -14751,7 +14751,12 @@ function grantOcha(){
             document.getElementById('playerNameDisplay').innerText = myMon.name;
             document.getElementById('playerLevelDisplay').innerText = `Lv.${lvlDisplay}`;
             document.getElementById('playerHpText').innerText = myMon.hp;
-            document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
+            /* WILDIMG_V1 野生バトル・自分: 絵があれば絵、無ければ絵文字（色違いのクラスはこのすぐ下で付けます） */
+            try {
+                document.getElementById('playerSpriteDisplay').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(myMon.id, myMon.sprite) : String(myMon.sprite == null ? '' : myMon.sprite);
+            } catch (e) {
+                document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
+            }
             try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = window.__activeShiny ? window.__activeShiny(_pmid) : (_pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny); if (window.monShinySet) window.monShinySet(_psd, _pmid, !!_psh); else { if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } } catch(e){}
             const hpPct = Math.max(0, (myMon.hp / myMon.maxHp) * 100);
             document.getElementById('playerHpBar').style.width = `${hpPct}%`;
@@ -14760,7 +14765,12 @@ function grantOcha(){
             if (enemyMon) {
                 document.getElementById('enemyNameDisplay').innerText = `${enemyMon.name} Lv.${enemyMon.level}`;
 
-                document.getElementById('enemySpriteDisplay').innerText = enemyMon.sprite;
+                /* WILDIMG_V1 野生バトル・相手: 絵があれば絵、無ければ絵文字（色違いのクラスはこのすぐ下で付けます） */
+                try {
+                    document.getElementById('enemySpriteDisplay').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(enemyMon.id, enemyMon.sprite) : String(enemyMon.sprite == null ? '' : enemyMon.sprite);
+                } catch (e) {
+                    document.getElementById('enemySpriteDisplay').innerText = enemyMon.sprite;
+                }
                 try { var _esd = document.getElementById('enemySpriteDisplay'); var _esh = !!(battle.enemyShiny || (enemyMon && enemyMon.shiny)); if (window.monShinySet) window.monShinySet(_esd, enemyMon && enemyMon.id, _esh); else { if (_esh) _esd.classList.add('shiny-mon'); else _esd.classList.remove('shiny-mon'); } } catch(e){}
                 const eHpPct = Math.max(0, (enemyMon.hp / enemyMon.maxHp) * 100);
                 document.getElementById('enemyHpBar').style.width = `${eHpPct}%`;
