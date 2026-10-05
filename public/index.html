@@ -229,6 +229,13 @@ function formatYMD(d){
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
         .shiny-mon{filter:hue-rotate(150deg) saturate(2.2) brightness(1.05);position:relative;display:inline-block;}
+        /* SHINY_BOX_DEX_V1 ここから */
+        #boxGrid > div{position:relative;}
+        .shiny-ring{position:absolute;top:-2px;right:-2px;bottom:-2px;left:-2px;border:2px solid #f59e0b;border-radius:0.6rem;pointer-events:none;box-shadow:0 0 6px rgba(245,158,11,0.55);}
+        #dexShinyToggle{margin:-4px 0 8px;text-align:center;}
+        #dexShinyToggle button{font-size:11px;font-weight:800;padding:3px 12px;border-radius:999px;border:2px solid #e879f9;background:#fdf4ff;color:#a21caf;cursor:pointer;}
+        #dexShinyToggle button.on{background:#a21caf;border-color:#a21caf;color:#fff;}
+        /* SHINY_BOX_DEX_V1 ここまで */
         .shiny-mon::after{content:'✨';position:absolute;top:-0.35em;right:-0.5em;font-size:0.5em;filter:none;pointer-events:none;line-height:1;}
         :root {
             --rpg-font: 'DotGothic16', sans-serif;
@@ -3572,7 +3579,7 @@ function formatYMD(d){
 <div>💊 かいふく<br/><span class="text-[10px]">残り: <span id="battleHerbCount">0</span></span>
 </div>
 </button>
-<button class="action-btn capture-ball" onclick="throwBall()" id="btnThrowBall">
+<button class="action-btn capture-ball" onclick="__throwBallOnce()" id="btnThrowBall">
 <div>🔴 ボール<br/><span class="text-[10px]">残り: <span id="battleBallCount">0</span></span></div>
 </button>
 <button class="action-btn swap" onclick="openSwapMenu()">🔄 いれかえ</button>
@@ -29466,7 +29473,7 @@ try {
                         entry.isActive ? 'border-cyan-400 bg-cyan-50' :
                         'border-gray-200 bg-white'
                     }`;
-                    slot.innerHTML = `<div class="text-lg leading-none">${m.sprite}</div><div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
+                    slot.innerHTML = `<div class="text-lg leading-none">${entry.shiny ? '<span class="shiny-mon">' + m.sprite + '</span>' : m.sprite}</div>${entry.shiny ? '<span class="shiny-ring"></span>' : ''}<div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
                     slot.onclick = () => {
                         if (window.__boxMoveUid) {
                             // Swap with move target
@@ -30192,7 +30199,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                     try {
                         const __sp = document.getElementById('detailSprite');
                         __sp.innerText = '？';
-                        try { __sp.classList.remove('shiny-mon'); } catch(e) {}
+                        try { __sp.classList.remove('shiny-mon'); if (window.__dexShinyToggle) window.__dexShinyToggle(0, __sp); } catch(e) {}
                         document.getElementById('detailName').innerText = '？？？';
                         document.getElementById('detailBuffName').innerHTML = '<div class="text-xs text-gray-400">まだ出会っていないモンスター。<br>タイプや相性はナイショ！</div>';
                         document.getElementById('detailBuffIcon').innerText = '';
@@ -30222,7 +30229,7 @@ const badge = inParty ? '<div class="party-badge">PT</div>' : '';
                 }
             }
             /* MON_DEX_V1 詳細の大きい絵 */ try { document.getElementById('detailSprite').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : String(m.sprite == null ? '' : m.sprite); } catch (e) { document.getElementById('detailSprite').innerText = m.sprite; }
-            try { var _dsp = document.getElementById('detailSprite'); var _dsh = player.monsters && player.monsters[id] && player.monsters[id].shiny; if (_dsh) _dsp.classList.add('shiny-mon'); else _dsp.classList.remove('shiny-mon'); } catch(e){}
+            try { var _dsp = document.getElementById('detailSprite'); _dsp.classList.remove('shiny-mon'); if (window.__dexShinyToggle) window.__dexShinyToggle(id, _dsp); } catch(e){}
             document.getElementById('detailName').innerText = m.name;
             // Display type matchup information instead of buff type
             const elemType = Array.isArray(m.elementType) ? m.elementType[0] : (m.elementType || 'normal');
@@ -55527,5 +55534,66 @@ async function _checkContactBadge(){
 })();
 
 </script>
-<script src="/rt-battle.js"></script><script src="/typeshoot.js"></script></body>
+<script src="/rt-battle.js"></script><script src="/typeshoot.js"></script><script>/* SHINY_BOX_DEX_V1 */
+(function(){
+  /* その種族の色違いの個体を、自分のボックスに持っているか（個体単位で見る） */
+  function hasShinyOf(id){
+    try {
+      if (typeof getAllBoxEntries !== 'function') return false;
+      var es = getAllBoxEntries() || [];
+      for (var i = 0; i < es.length; i++) {
+        var e = es[i];
+        if (e && e.shiny && Number(e.monsterId) === Number(id)) return true;
+      }
+    } catch (err) {}
+    return false;
+  }
+  window.__hasShinyOf = hasShinyOf;
+
+  /* 図鑑の詳細: ノーマルを既定にして、持っている子だけに切り替えボタンを出す */
+  window.__dexShinyToggle = function(id, spriteEl){
+    try {
+      var box = document.getElementById('dexShinyToggle');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'dexShinyToggle';
+      }
+      var nameEl = document.getElementById('detailName');
+      var anchor = nameEl || spriteEl;
+      if (!anchor || !anchor.parentNode) return;
+      if (box.parentNode !== anchor.parentNode || box.previousSibling !== anchor) {
+        anchor.parentNode.insertBefore(box, anchor.nextSibling);
+      }
+      if (!id || !spriteEl || !hasShinyOf(id)) {
+        box.innerHTML = '';
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = '';
+      box.innerHTML = '<button type="button">✨ 色ちがいを見る</button>';
+      var btn = box.getElementsByTagName('button')[0];
+      if (!btn) return;
+      btn.onclick = function(){
+        var on = spriteEl.classList.toggle('shiny-mon');
+        btn.className = on ? 'on' : '';
+        btn.innerHTML = on
+          ? 'ノーマルを見る'
+          : '✨ 色ちがいを見る';
+      };
+    } catch (err) {}
+  };
+
+  /* ボールの連打どめ。1.2秒いないの2回目以降は捨てる。
+     （実測: 同じモンスターが1秒いないに3体ボックスに入っていた） */
+  window.__throwBallOnce = function(){
+    try {
+      var now = Date.now();
+      if (window.__lastThrowTs && (now - window.__lastThrowTs) < 1200) return;
+      window.__lastThrowTs = now;
+    } catch (err) {}
+    if (typeof throwBall === 'function') throwBall();
+  };
+})();
+</script>
+</body>
 </html>
