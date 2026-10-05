@@ -1,0 +1,62 @@
+name: QUICKNOTE 下調べ 第2便（読むだけ・1バイトも書かない）
+
+# pick の後半（take と2つのループ）と、教師ページの末尾を取り出す。
+#   出力先はジョブサマリー。ログ画面は仮想スクロールで全部読めないため。
+#   1バイトも書かない。commit も push もしない。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 必要な場所だけ取り出す
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          tsx = open('src/index.tsx', encoding='utf-8').read()
+
+          a = tsx.index("app.get('/', async (c) => {")
+          b = tsx.index("app.get('/logout'", a)
+
+          out = []
+          out.append('CHAIN              = %d' % tsx[a:b].count('.replace('))
+          out.append('tsx chars / bytes  = %d / %d' % (len(tsx), len(tsx.encode('utf-8'))))
+
+          def dump(key, label, src, needle, before, after):
+              out.append('')
+              out.append('=' * 72)
+              out.append('### %s %s   needle count = %d' % (key, label, src.count(needle)))
+              i = -1
+              n = 0
+              while True:
+                  i = src.find(needle, i + 1)
+                  if i < 0:
+                      break
+                  n += 1
+                  out.append('--- occurrence %d  at char %d ---' % (n, i))
+                  out.append(repr(src[max(0, i - before): i + after]))
+
+          dump('J', 'RESERVE + LOOPS', tsx, 'const reserve: any[] = []', 0, 3600)
+          dump('K', 'PICK RETURN',     tsx, 'exhaustedCount, total: Object.keys(out).length', 800, 320)
+          dump('L', 'SCRIPT TAIL',     tsx, 'drillpark.js?v=1', 320, 320)
+
+          body = '\n'.join(out)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write('<pre>\n')
+              f.write(body.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+              f.write('\n</pre>\n')
+          print('summary chars =', len(body))
+          PYEOF
+
+      - name: 何も変えていないことの確認
+        run: |
+          git diff --quiet
+          git status --porcelain
+          echo '読むだけ: 変更なし OK'
