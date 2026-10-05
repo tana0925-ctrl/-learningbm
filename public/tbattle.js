@@ -14,6 +14,9 @@
  *      type 'heavy'   → そのキャラの属性（相性が乗る）
  *      type 'unique'  → そのキャラの属性・低威力・効果が主役
  *    さらに tbsub.js の表があれば、その技だけ属性を差し替える。
+ *  - じょうたい（やけど・どく・しびれ）は、つよい技が当たったときだけ 20% でかかる。
+ *    ふつうの技では ぜったいに かからない。1体に1つ、なおったあと3ターンは かからない。
+ *    「動けなくなる」効果は入れていない（運だけが増えて、読み合いにならなかったため）。
  *  - 技の効果は window.__zwarNormEffect で正規化してから使う。
  *    正規化が空文字を返すもの（instant_kill / revive / stun / counter /
  *    reflect / evade / shield）は通常攻撃として処理する＝勝ち確定を作らない。
@@ -62,8 +65,30 @@
   var HEALCAP = 2;  // 1体が回復できるのは2回まで（回復で粘って時間切れにしない）
   var MAXSTACK = 2; // 強化はこうげき＋ぼうぎょ合わせて2段まで
   var CAP = 20;     // 20ターンで打ち切り、残りHPの割合が多いほうの勝ち
-  var BLEND = 0.45; // リーダーの強さを、その子の手持ちに45%だけ合わせる
+  var BLEND = 0.58; // リーダーの強さを、その子の手持ちに58%だけ合わせる
   var POW = { normal: 14, heavy: 30, unique: 12 };
+
+  /* ----- じょうたい（やけど・どく・しびれ）TB_V2 -----
+     ・つよい技（強撃技）だけが STRATE の確率でかける。ふつうの技では ぜったいに かからない。
+     ・1体に1つだけ。なおったあと ST_IMM ターンは 同じ子に かからない（止め続けられないように）。
+     ・行動できなくなる効果は 入れていない。
+       「2ターンだけ 25%で 動けない」を入れて測ったが、勝率はほとんど動かず、運だけが増えたため。
+     ・自分と同じ系統には かからない（ほのおは やけどしない、など）。 */
+  var STRATE = 0.20;
+  var ST_IMM = 3;
+  var ST = {
+    burn:   { label: 'やけど', icon: '🔥', turns: 3, dot: 0.06, atk: 0.85, spd: 1,
+              from: ['fire'], immune: ['fire'] },
+    poison: { label: 'どく',   icon: '☠',  turns: 3, dot: 0.08, atk: 1,    spd: 1,
+              from: ['grass', 'poison', 'bug'], immune: ['grass', 'poison', 'bug', 'steel'] },
+    para:   { label: 'しびれ', icon: '⚡', turns: 2, dot: 0,    atk: 1,    spd: 0.5,
+              from: ['electric', 'ice'], immune: ['electric', 'ice'] }
+  };
+  var ST_BY_EL = (function () {
+    var m = {}, k, i;
+    for (k in ST) for (i = 0; i < ST[k].from.length; i++) m[ST[k].from[i]] = k;
+    return m;
+  })();
 
   var BAND = { hp: [1012, 1138], atk: [110, 130], def: [100, 116], spd: [104, 122] };
 
@@ -284,7 +309,7 @@
       id: Number(id), side: side, name: m.name || ('No.' + id), el: own,
       hp: fromPct('hp', pr.hp), maxHp: fromPct('hp', pr.hp),
       atk: fromPct('atk', pr.atk), def: fromPct('def', pr.def), spd: fromPct('spd', pr.spd),
-      ab: 0, db: 0, heals: 0, alive: true, sk: []
+      ab: 0, db: 0, heals: 0, st: null, stT: 0, stImm: 0, alive: true, sk: []
     };
     var src = (m.skills || []).slice(0, 4);
     for (var i = 0; i < src.length; i++) {
@@ -295,7 +320,7 @@
       var sub = subElFor(id, s.name);
       if (sub) el = sub;
       u.sk.push({
-        name: s.name || 'こうげき', pow: pow, el: el,
+        name: s.name || 'こうげき', pow: pow, el: el, ty: ty,
         acc: (s.acc == null ? 0.95 : Number(s.acc)),
         eff: normEffect(s.effect), desc: s.desc || ''
       });
@@ -326,13 +351,50 @@
     if (!s.pow) return { dmg: 0, m: 1, miss: false };
     if (Math.random() > s.acc) return { dmg: 0, m: mult(s.el, d.el), miss: true };
     var m = mult(s.el, d.el);
-    var atk = a.atk * (1 + BUFF * a.ab);
+    var atk = a.atk * (1 + BUFF * a.ab) * stAtkRate(a);
     var def = d.def * (1 + BUFF * d.db);
     var x = Math.max(1, Math.round(s.pow * K * (atk / def) * m * (0.94 + 0.12 * Math.random())));
     d.hp = Math.max(0, d.hp - x);
     if (d.hp === 0) d.alive = false;
-    return { dmg: x, m: m, miss: false };
+    var st = (d.alive && s.ty === 'heavy') ? stTryInflict(d, s.el) : '';
+    return { dmg: x, m: m, miss: false, st: st };
   }
+  function stOf(u) { return (u && u.st && ST[u.st]) ? ST[u.st] : null; }
+  function stAtkRate(u) { var c = stOf(u); return c ? c.atk : 1; }
+  function effSpd(u) { var c = stOf(u); return u.spd * (c ? c.spd : 1); }
+  function stLabel(u) { var c = stOf(u); return c ? (c.icon + c.label) : ''; }
+
+  // 強撃技が当たったときだけ、その技の属性に応じて かかる
+  function stTryInflict(d, el) {
+    var kind = ST_BY_EL[el];
+    if (!kind) return '';
+    if (d.st) return '';          // すでに かかっている
+    if (d.stImm > 0) return '';   // なおった直後は かからない
+    var c = ST[kind];
+    if (c.immune.indexOf(d.el) >= 0) return '';
+    if (Math.random() >= STRATE) return '';
+    d.st = kind; d.stT = c.turns;
+    return d.name + ' は ' + c.icon + c.label + ' に なった！';
+  }
+
+  // ターンの おわりに ダメージ・ターン数・なおり を処理する
+  function stTick(u, lines) {
+    if (!u || !u.alive) return;
+    var c = stOf(u);
+    if (c) {
+      if (c.dot > 0) {
+        var dmg = Math.max(1, Math.round(u.maxHp * c.dot));
+        u.hp = Math.max(0, u.hp - dmg);
+        lines.push(u.name + ' は ' + c.icon + c.label + ' で ' + dmg + ' の ダメージ！');
+        if (u.hp === 0) { u.alive = false; lines.push(u.name + ' は たおれた！'); }
+      }
+      u.stT--;
+      if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; lines.push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
+    } else if (u.stImm > 0) {
+      u.stImm--;
+    }
+  }
+
   function applyEffect(a, d, eff, dealt) {
     if (!eff) return '';
     var msg = '';
@@ -538,6 +600,7 @@
     var h = '';
     h += '<div class="text-xs text-slate-500 mb-1">こたえなくていい バトルです。わざを えらんで たたかいます。チケット1まい つかいます。</div>';
     h += '<div class="text-xs text-slate-400 mb-2">みんな レベル50・つよさも そろえて たたかいます。あいしょうと わざの えらびかたで きまります。リーダーの つよさは きみの てもちに すこし あわせます。</div>';
+    h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。</div>';
 
     // バッジ
     h += '<div class="flex flex-wrap gap-1 mb-2">';
@@ -691,8 +754,23 @@
     var r = u.hp / u.maxHp;
     return r > 0.5 ? '#22c55e' : (r > 0.2 ? '#f59e0b' : '#ef4444');
   }
+  // この技が じょうたいを かけられるか（かからない相手なら出さない）
+  function skillStHint(s, foe) {
+    if (!s || s.ty !== 'heavy') return '';
+    var kind = ST_BY_EL[s.el];
+    if (!kind) return '';
+    var c = ST[kind];
+    if (!foe || c.immune.indexOf(foe.el) >= 0) return '';
+    if (foe.st || foe.stImm > 0) return '';
+    return c.icon + c.label + 'に することがある';
+  }
+
   function statArrows(u) {
     var s = '';
+    if (u.st && ST[u.st]) {
+      s += '<span style="display:inline-block;padding:0 4px;border-radius:999px;background:#fff;color:#7c2d12;font-size:10px;font-weight:800">' +
+        ST[u.st].icon + ST[u.st].label + ' のこり' + Math.max(0, u.stT) + '</span> ';
+    }
     if (u.ab > 0) s += '<span style="color:#fca5a5;font-size:10px">こう↑' + u.ab + '</span>';
     if (u.ab < 0) s += '<span style="color:#93c5fd;font-size:10px">こう↓' + (-u.ab) + '</span>';
     if (u.db > 0) s += '<span style="color:#fcd34d;font-size:10px">ぼう↑' + u.db + '</span>';
@@ -711,6 +789,7 @@
         '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">' + badge(s.el) +
         '<span style="font-size:10px;color:#64748b">' + note + '</span>' +
         (lab ? '<span style="font-size:10px;font-weight:800;color:' + (m > 1 ? '#dc2626' : '#2563eb') + '">' + lab + '</span>' : '') +
+        (skillStHint(s, fo) ? '<span style="font-size:10px;font-weight:800;color:#9333ea">' + skillStHint(s, fo) + '</span>' : '') +
         '</div></button>';
     }
     var others = [];
@@ -790,6 +869,7 @@
     var bi = 0, bv = -1;
     for (var i = 0; i < a.sk.length; i++) {
       var v2 = expDmg(a, f, a.sk[i]) * (sloppy ? (0.6 + Math.random() * 0.8) : 1);
+      if (!sloppy && skillStHint(a.sk[i], f)) v2 *= 1.15;
       if (v2 > bv) { bv = v2; bi = i; }
     }
     return { kind: 'skill', i: bi };
@@ -810,7 +890,7 @@
     S.stat.spdN++;
     if (me.spd < fo.spd) S.stat.spdLoss++;
 
-    var meFirst = me.spd >= fo.spd;
+    var meFirst = effSpd(me) >= effSpd(fo);
     var lines = [];
 
     function actMe() {
@@ -827,6 +907,7 @@
         var lab = multLabel(r.m);
         lines.push(u.name + ' の ' + s.name + '！ ' + (lab ? lab + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
       } else lines.push(u.name + ' の ' + s.name + '！');
+      if (r.st) lines.push(r.st);
       var em = applyEffect(u, v, s.eff, r.dmg);
       if (em) lines.push(em);
       if (!v.alive) lines.push(v.name + ' は たおれた！');
@@ -845,6 +926,7 @@
         var lab2 = multLabel(r.m);
         lines.push(u.name + ' の ' + s.name + '！ ' + (lab2 ? lab2 + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
       } else lines.push(u.name + ' の ' + s.name + '！');
+      if (r.st) lines.push(r.st);
       var em2 = applyEffect(u, v, s.eff, r.dmg);
       if (em2) lines.push(em2);
       if (!v.alive) lines.push(v.name + ' は たおれた！');
@@ -852,6 +934,10 @@
 
     if (meFirst) { actMe(); if (cur('me').alive) actFoe(); }
     else { actFoe(); if (cur('foe').alive) actMe(); }
+
+    // ターンの おわり：やけど・どくの ダメージと、ターン数の へらし
+    stTick(cur('me'), lines);
+    stTick(cur('foe'), lines);
 
     // たおれたら次を出す
     if (!cur('me').alive) {
@@ -959,11 +1045,13 @@
       hookHomestudy();
       window.tbOpen = open;
       window.TB = {
-        ver: 'TB_V1', open: open, leaders: LEADERS, chart: CHART,
+        ver: 'TB_V2', open: open, leaders: LEADERS, chart: CHART,
         param: {
           SE: SE, RES: RES, IMM: IMM, K: K, BUFF: BUFF, HEAL: HEAL, HEALCAP: HEALCAP,
-          MAXSTACK: MAXSTACK, CAP: CAP, BLEND: BLEND, BAND: BAND, POW: POW
+          MAXSTACK: MAXSTACK, CAP: CAP, BLEND: BLEND, BAND: BAND, POW: POW,
+          STRATE: STRATE, ST_IMM: ST_IMM
         },
+        ST: ST, ST_BY_EL: ST_BY_EL,
         avgPctOf: avgPctOf,
         buildUnit: buildUnit, mult: mult, grantTicket: grantTicket
       };
