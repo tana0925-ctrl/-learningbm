@@ -1,0 +1,194 @@
+name: KARTE_ADD_V1b 毎週の紙に「その週にしかないもの」を足す（確認を1つ直した版）
+
+# patch-karte-add-v1.yml の確認が1行まちがっていたので、こちらを使う。
+# まちがい: grep -q '_kRadar(_radarShow)' … 第3便でカルテ側の _radarShow は消え、
+#   先生画面の radarShow に移っているので、この確認は通らない。
+# あちらは放置で安全（フェイルクローズで止まるだけ）。流すのはこちら。
+
+# 第1便で年度累計の欄を外し、第3便でグラフを先生の画面へ移した。
+# 残ったのは「先週のようす」「阪神マン」「先生からの記録」。実測 412.5mm -> 255.2mm -> 約181mm。
+# A4の裏表（使える高さ273mm×2面）に対して余りが大きいので、ここで足す。
+# 足すのは「その週にしかないもの」だけ。毎週変わらないものは足さない。
+#
+# サーバ側（student-full-analysis に足す）:
+#   lastWeek        … 先週アプリで解いた問題（単元ごと・日数・のべ問題数・はじめて出会ったか）
+#                     実測：ある子は先週5日・7単元・602問やっていたのに紙のどこにも出ていなかった
+#   lastWeekSpecial … 先週の図鑑・タイプシュート・野生（該当者が週1〜2人なので、あった子だけ紙に出す）
+#   prevAsk         … 前回のカルテの最後の問いかけ
+#   reflections.freeText … 児童が実際に書いているのはここだけ（good/improve/next は全週ゼロ件）
+#   日付は answered_at の範囲でしぼる（substr だと user_id+answered_at の索引が使えないため）
+#
+# カルテ側:
+#   🗣 自分のことば を50字で切るのをやめて全文に
+#   📝 この週のふりかえり に freeText
+#   🐯 阪神マンの下に「先週きかれたこと」
+#   ✨ 先週のひろがり（アプリの問題数・日数・単元名・はじめて出会った単元・今週のとくべつ）
+#   🌱 今週かわったこと（先週やった単元で週の正答率が年度と15pt以上ちがうもの・10問以上）
+#      変わった単元が無い週は、欄ごと出さない
+#
+# さわるのは src/index.tsx だけ。
+#   teacher-ai.js / student-karte.js / index.html / 防衛戦 / 別セッションの slim には触らない。
+#   .replace( チェーンは1本も増やさない。D1には書き込まない（読み取りを3本足す）。
+#   カルテの組み立ては app.get('/teacher') が返すHTMLの中なので ?v= を上げる対象はない。
+# 数えるときは grep -c を使わない（src/index.tsx は巨大な1行）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: "流す直前に実測したチェーン件数（src/index.tsx の app.get('/') 〜 app.get('/logout') の .replace( の数）。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          sha256sum src/index.tsx public/index.html public/student-karte.js public/teacher-ai.js
+          echo -n '既適用マーカー: '; grep -o 'KARTE_ADD_V1' src/index.tsx | wc -l
+
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_add_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- public/student-karte.js
+          git diff --quiet -- public/teacher-ai.js
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- scripts/patch_karte_slim_v1.py
+          echo '無変更 OK'
+          echo -n '変更のあったファイル: '; git --no-pager diff --name-only | tr '\n' ' '; echo
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -o 'KARTE_ADD_V1' src/index.tsx | wc -l) -ge 7
+          grep -q 'lastWeek, lastWeekSpecial, prevAsk,' src/index.tsx
+          grep -q 'freeText: r.free_text' src/index.tsx
+          grep -q '✨ 先週のひろがり' src/index.tsx
+          grep -q '🌱 今週かわったこと' src/index.tsx
+          grep -q '先週きかれたこと' src/index.tsx
+          grep -q '_kRef.freeText' src/index.tsx
+          ! grep -q 'if(_vt.length>50)' src/index.tsx
+          # 索引が使える形であること（substr でしぼっていないこと）
+          grep -q "answered_at >= ? AND answered_at < ?" src/index.tsx
+          # 前の便を壊していない
+          grep -q 'function _faKarteGraphs(d){' src/index.tsx
+          grep -q '_kRadar(radarShow)' src/index.tsx   # 第3便でカルテ側の _radarShow は消え、先生画面の radarShow に移った
+          grep -q '/teacher-ai.js?v=12' src/index.tsx
+          grep -q '/student-karte.js?v=3' src/index.tsx
+          # D1への書き込みは増やしていない
+          test $(grep -o "INSERT OR IGNORE INTO karte_material_uses" src/index.tsx | wc -l) -eq 1
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+
+      - name: カルテを実際に組み立てて確かめる
+        run: |
+          set -e
+          python3 - <<'PY'
+          import io
+          s=io.open('src/index.tsx',encoding='utf-8').read()
+          names=['_kRadar','_kBars','_kDonut','_kHowToLearn','_gradeClass','_unitGrade','_unitJa','_subjectArea','_gradeLabel','_faKarteGraphs','_buildKarteHtml']
+          out=[]
+          for n in names:
+              key='function '+n+'('
+              i=s.index(key); j=s.index('{', i); depth=0; k=j
+              while True:
+                  c=s[k]
+                  if c=='{': depth+=1
+                  elif c=='}':
+                      depth-=1
+                      if depth==0: break
+                  k+=1
+              out.append(s[i:k+1])
+          io.open('/tmp/karte_fns.js','w',encoding='utf-8').write('\n\n'.join(out))
+          print('関数を', len(out), '個 取り出しました')
+          PY
+          node - <<'JS'
+          global.window = { _faName: 'テスト児童', _faKarteBaseDate: '2026-10-05' };
+          const fs = require('fs');
+          eval(fs.readFileSync('/tmp/karte_fns.js','utf8'));
+          const base = { student:{grade:6},
+            overview:{totalSubmissions:72,totalMinutes:3832,avgMinutes:53,maxStreak:6,sunRate:83,sunCount:60,cloudCount:9,rainCount:3,firstDate:'2026-04-08',lastDate:'2026-10-02'},
+            subjects:[{unit:'j6-kanji',rate:91,total:196,correct:178,kinds:40,repeatPer:4.9},{unit:'m6-circle',rate:55,total:444,correct:245,kinds:100,repeatPer:4.4}],
+            monthlyTrends:[{month:'2026-09',count:14,avgMin:51,sunRate:85}],
+            recentSubmissions:[{day_key:'2026-09-28',end_weather:'sun',minutes:50,todo:'漢字',weather_reason:'退くなどスゲェー悩んで思い出せた。あとは航空会社の航も思い出した。やっぱり書いて覚えるのが自分には合ってる気がする。'}],
+            reflections:[{weekKey:'2026-W40',goodPoint:'',improvePoint:'',nextAction:'',freeText:'今週は漢字を毎日やれた。来週は計算もやりたい。'}],
+            teacherNotes:[{dayKey:'2026-09-15',body:'メモ',showInKarte:true}],
+            aiComment:'先週は漢字がんばったな。今週はどうする？',
+            aiCommentMeta:{updatedAt:'2026-10-05',weekStart:'2026-09-28',weekGuessed:0},
+            prevAsk:'立て直すなら、どっちからいく？',
+            lastWeek:{from:'2026-09-28',days:5,total:602,correct:336,units:[
+              {unit:'m6-circle',total:444,correct:245,rate:55,yearRate:55,firstEver:true},
+              {unit:'j6-kanji',total:120,correct:110,rate:92,yearRate:91,firstEver:false},
+              {unit:'s6-hist-u7',total:38,correct:15,rate:39,yearRate:70,firstEver:false}]},
+            lastWeekSpecial:{pokedex:3,typeshoot:0,wild:1} };
+          const run = d => { window._faData = d; return _buildKarteHtml(); };
+          const h = run(JSON.parse(JSON.stringify(base)));
+          const secs = [...h.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map(m=>m[1].trim());
+          console.log('見出し:', JSON.stringify(secs));
+          for (const k of ['先週きかれたこと','アプリで 602問','はじめて出会った単元','今週のとくべつ','てこずっとった','今週は漢字を毎日やれた','書いて覚えるのが自分には合ってる気がする']) {
+            if (h.indexOf(k) < 0) { console.error('NG: ' + k + ' が出ていない'); process.exit(1); }
+          }
+          if (h.indexOf('<svg') >= 0) { console.error('NG: グラフが戻っている'); process.exit(1); }
+          const d2 = JSON.parse(JSON.stringify(base));
+          d2.prevAsk=''; d2.lastWeek={from:'x',days:0,total:0,correct:0,units:[]}; d2.lastWeekSpecial=null; d2.reflections=[];
+          const h2 = run(d2);
+          if (h2.indexOf('先週のひろがり') >= 0 || h2.indexOf('今週かわったこと') >= 0) { console.error('NG: 材料が無いのに欄が出ている'); process.exit(1); }
+          const d3 = JSON.parse(JSON.stringify(base));
+          delete d3.lastWeek; delete d3.lastWeekSpecial; delete d3.prevAsk;
+          if (run(d3).length < 500) { console.error('NG: 古いAPIで組み立てられない'); process.exit(1); }
+          console.log('OK（' + h.length + ' バイト）');
+          JS
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 既存のレンダリング確認（そのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: コミット&プッシュ
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "::error::変更なし"; exit 1; fi
+          if git diff --cached --name-only | grep -qvx 'src/index.tsx'; then echo "::error::src/index.tsx 以外が入っている"; exit 1; fi
+          git commit -m "KARTE_ADD_V1: 毎週渡すカルテに その週にしかないものを足す（先週アプリで解いた数・日数・単元・はじめて出会った単元・今週のとくべつ・週の振り返りのfreeText・先週きかれたこと・今週かわったこと）。自分のことばは全文に。材料が無い週は欄ごと出さない（チェーン ${{ inputs.chain_before }} のまま）"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: 次の手順
+        run: echo 'このpushでは Deploy は起動しません。Deploy to Cloudflare Pages を手動で dispatch してください。'
