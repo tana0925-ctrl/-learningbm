@@ -38948,9 +38948,17 @@ function getElementEmoji(elementType) {
     
 try{
   if (typeof isDailyFatigued === 'function' && isDailyFatigued(id)) {
-    const m3 = (mon && Array.isArray(mon.moves) && mon.moves[2]) ? mon.moves[2] : null;
+    // __ZWAR_SELF_V1__ 児童のキャラは moves を持たず skills を持っている。moves が無いときだけ skills を見る。
+    const m3 = (function(){
+      try{
+        var _mv = (mon && Array.isArray(mon.moves) && mon.moves.length) ? mon.moves : null;
+        var _sk = (!_mv && mon && Array.isArray(mon.skills) && mon.skills.length) ? mon.skills : null;
+        var _a = _mv || _sk;
+        return (_a && _a[2]) ? _a[2] : null;
+      }catch(e){ return null; }
+    })();
     const skill3Name = m3 ? (m3.name||'') : '';
-    const skill3Effect = m3 ? (m3.effect||'') : '';
+    const skill3Effect = m3 ? ((typeof __zwarNormEffect === 'function') ? __zwarNormEffect(m3.effect) : '') : '';
     const spd = 1;
     const hp = 1, atk = 1, def = 1;
     const move = 9 + clamp(spd,5,200)/10;
@@ -38987,9 +38995,17 @@ let lv = 1;
         spd = Math.round(spd * mul);
       }
     }catch(e){}
-    const m3 = (mon && Array.isArray(mon.moves) && mon.moves[2]) ? mon.moves[2] : null;
+    // __ZWAR_SELF_V1__ 児童のキャラは moves を持たず skills を持っている。moves が無いときだけ skills を見る。
+    const m3 = (function(){
+      try{
+        var _mv = (mon && Array.isArray(mon.moves) && mon.moves.length) ? mon.moves : null;
+        var _sk = (!_mv && mon && Array.isArray(mon.skills) && mon.skills.length) ? mon.skills : null;
+        var _a = _mv || _sk;
+        return (_a && _a[2]) ? _a[2] : null;
+      }catch(e){ return null; }
+    })();
     const skill3Name = m3 ? (m3.name||'') : '';
-    const skill3Effect = m3 ? (m3.effect||'') : '';
+    const skill3Effect = m3 ? ((typeof __zwarNormEffect === 'function') ? __zwarNormEffect(m3.effect) : '') : '';
     const move = 5 + clamp(spd,5,200)/14;  // ゆっくり行軍（にゃんこ風の「間」）
     const cost = clamp(Math.round((hp*0.55 + atk*4 + def*0.8 + spd*0.5)/6), 30, 160);
     const atkInterval = clamp(1000 - spd*4, 380, 1000);
@@ -40253,6 +40269,30 @@ function warHeal(u, amount){
 function warTeamUnits(team){
   return (warState && Array.isArray(warState.units)) ? warState.units.filter(x=>x.team===team && x.hp>0) : [];
 }
+// __ZWAR_SELF_V1__ わざの効果キーの ゆれ を ゾンビ襲来の言い方に そろえる。
+// ・*_self（自分を強くする技・93個）は buff_atk / buff_def / buff_spd で受ける。
+// ・buff_speed と buff_spd の表記ゆれは buff_spd に そろえる。
+// ・勝ち確定になる技は わざと 受けつけない（空にして捨てる）。先生の指示。
+//   instant_kill / revive / stun / counter / reflect / evade / shield
+// ・ここに無いキーは そのまま返す。warMaybeProcSkill3 が知らないキーは何もしない。
+function __zwarNormEffect(e){
+  var s = String(e == null ? '' : e);
+  var has = function(o, k){ return Object.prototype.hasOwnProperty.call(o, k); };
+  var ng = { instant_kill:1, revive:1, stun:1, counter:1, reflect:1, evade:1, shield:1 };
+  if (has(ng, s)) return '';
+  var conv = {
+    buff_atk_self: 'buff_atk',
+    buff_def_self: 'buff_def',
+    buff_spd_self: 'buff_spd',
+    buff_speed_self: 'buff_spd',
+    buff_speed: 'buff_spd',
+    speed: 'buff_spd',
+    attack: 'buff_atk',
+    guard: 'buff_def'
+  };
+  return has(conv, s) ? conv[s] : s;
+}
+try{ window.__zwarNormEffect = __zwarNormEffect; }catch(e){}
 function warMaybeProcSkill3(att, target){
   if(!att || !att.skill3Effect) return;
   const now = warNow();
@@ -40292,6 +40332,13 @@ function warMaybeProcSkill3(att, target){
       return;
     }
     if(e==='heal_party'){
+      // __ZWAR_SELF_V1__ みんな回復は 陣営ごとに 10秒に1回まで（重ねがけで固くなりすぎるのを防ぐ）。
+      try{
+        if(!window.__zwarHealPartyUntil) window.__zwarHealPartyUntil = {};
+        var __hk = (att && att.team) ? String(att.team) : 'player';
+        if(window.__zwarHealPartyUntil[__hk] && now < window.__zwarHealPartyUntil[__hk]) return;
+        window.__zwarHealPartyUntil[__hk] = now + 10000;
+      }catch(__he){}
       const __ratio = ((att && att.id === 934) || (att && att.skill3Name === 'みんな回復タイム')) ? 0.20 : 0.14;
       warTeamUnits(att.team).forEach(u=>warHeal(u, u.hpMax*__ratio));
       warFloatText(fxX, fxB, `✨${name}（みんな回復）`);
