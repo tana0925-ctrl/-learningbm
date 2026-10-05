@@ -66,8 +66,6 @@ jobs:
           cp /tmp/patched_index.html public/index.html
           cp /tmp/patched_index.tsx src/index.tsx
           sha256sum src/index.tsx public/index.html
-      - name: chain count after
-        run: python3 -c "import io;t=io.open('src/index.tsx',encoding='utf-8',newline='').read();a=t.index(\"app.get('/', async (c) => {\");b=t.index(\"app.get('/logout'\",a);print('chain:',t[a:b].count('.replace('))"
       - name: record diff
         run: |
           git --no-pager diff --stat
