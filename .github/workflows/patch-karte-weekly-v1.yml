@@ -67,7 +67,7 @@ jobs:
           git rev-parse HEAD
           echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
           sha256sum src/index.tsx public/index.html public/student-karte.js public/teacher-ai.js
-          echo -n '既適用マーカー: '; grep -c 'KARTE_WEEKLY_V1' src/index.tsx || true
+          echo -n '既適用マーカー: '; grep -o 'KARTE_WEEKLY_V1' src/index.tsx | wc -l
 
       - name: パッチ適用（フェイルクローズ）
         env:
@@ -91,7 +91,7 @@ jobs:
       - name: 適用後の内容検証
         run: |
           set -e
-          test $(grep -c 'KARTE_WEEKLY_V1' src/index.tsx) -ge 7
+          test $(grep -o 'KARTE_WEEKLY_V1' src/index.tsx | wc -l) -ge 7   # src/index.tsx は巨大な1行なので grep -c（行数）では数えられない
           # 外れたこと
           ! grep -q '🌟 今年度の積み上げ</b>' src/index.tsx
           ! grep -q '_kDonut(ov\.' src/index.tsx
