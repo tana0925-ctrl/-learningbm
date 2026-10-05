@@ -1044,8 +1044,8 @@ try {
       if (want.karte) {
         out.push('');
         if (_pk && _pk.materials && _pk.materials.length) {
-          out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
-          _pk.materials.forEach(function (mt) {
+          var _mNote = _pk.materials.filter(function (x) { return x.kind === '先生の観察メモ'; }); var _mRec = _pk.materials.filter(function (x) { return x.kind !== '先生の観察メモ'; }); if (_mNote.length) { out.push('【先生の観察メモ（先生が授業中に気づいたこと。いちばん大事な材料です。ここに書かれていることを必ず一度は使ってください）】'); _mNote.forEach(function (mt) { out.push('・' + (mt.on || '日付不明') + (mt.unit ? '［' + mt.unit + '］' : '') + ' ' + (window._qnMask ? window._qnMask(mt.body || '') : (mt.body || ''))); }); out.push(''); } if (!_mRec.length) out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）'); if (_mRec.length) out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
+          _mRec.forEach(function (mt) {
             // KARTE_TEST_V1 ◎○△ は渡さない（子どもの紙に評価記号が出る事故を構造で防ぐ）。
             //   先生が言葉で書かれた「評価コメント」は数値ではないので残す。
             var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + (mt.unit ? '／' + mt.unit : '') + '）';

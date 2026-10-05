@@ -3686,7 +3686,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       let miInfo: any = null
       try { const _mir = await c.env.DB.prepare('SELECT scores_json, left_total, right_total, taken_at FROM mi_results WHERE user_id=? ORDER BY taken_at DESC LIMIT 1').bind(studentId).first<any>(); if (_mir) miInfo = { scores: _mir.scores_json || '', leftTotal: _mir.left_total, rightTotal: _mir.right_total, takenAt: _mir.taken_at } } catch {}
       let teacherNotes: any[] = []
-  try { const _tnr = await c.env.DB.prepare(`SELECT day_key, body, show_in_karte FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); teacherNotes = (((_tnr && _tnr.results) || []) as any[]).map((r: any) => ({ dayKey: r.day_key, body: r.body, showInKarte: !!r.show_in_karte })) } catch {}
+  try { const _tnr = await c.env.DB.prepare(`SELECT day_key, body, show_in_karte, ai_ok, subject FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); teacherNotes = (((_tnr && _tnr.results) || []) as any[]).map((r: any) => ({ dayKey: r.day_key, body: r.body, showInKarte: !!r.show_in_karte, aiOk: (r.ai_ok === null || r.ai_ok === undefined) ? true : !!r.ai_ok, subject: r.subject || '' })) } catch {}
   // 2026-09-29 整理(E-4): 授業メモ（クラス全体メモ）はこれまでどこにも渡っていなかった。
   //   カルテ・AIの材料として渡す。クラス全体の話なので子どもに渡す紙には出さない。
   //   その子が入っているクラスのメモを、新しいものから30件まで。
@@ -3934,7 +3934,7 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
   }
   let notes: any[] = []
   try {
-    const r = await c.env.DB.prepare(`SELECT tn.id, tn.user_id, tn.day_key, tn.body, (kmu.used_at IS NOT NULL) AS used FROM teacher_student_notes tn LEFT JOIN karte_material_uses kmu ON kmu.user_id = tn.user_id AND kmu.source='note' AND kmu.source_id = CAST(tn.id AS TEXT) WHERE tn.user_id IN (SELECT user_id FROM class_members WHERE class_id=?) ORDER BY COALESCE(NULLIF(tn.day_key,''), substr(tn.created_at,1,10)) DESC, tn.id DESC LIMIT 400`).bind(classId).all<any>()
+    const r = await c.env.DB.prepare(`SELECT tn.id, tn.user_id, tn.day_key, tn.body, tn.subject, (kmu.used_at IS NOT NULL) AS used FROM teacher_student_notes tn LEFT JOIN karte_material_uses kmu ON kmu.user_id = tn.user_id AND kmu.source='note' AND kmu.source_id = CAST(tn.id AS TEXT) WHERE tn.user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND COALESCE(tn.ai_ok,1)=1 ORDER BY COALESCE(NULLIF(tn.day_key,''), substr(tn.created_at,1,10)) DESC, tn.id DESC LIMIT 400`).bind(classId).all<any>()
     notes = ((r && r.results) || []) as any[]
   } catch (e) { notes = [] }
 
@@ -3990,6 +3990,16 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
     o.materials.push(item)
     reserve.push(c.env.DB.prepare('INSERT OR IGNORE INTO karte_material_uses (user_id, source, source_id, class_id) VALUES (?,?,?,?)').bind(uid, kind, String(id), classId))
   }
+  for (const r of notes) {
+    const uid = String(r.user_id || '')
+    const o = out[uid]
+    if (!o) continue
+    if (r.used) { o.heldBack++; continue }
+    const onN = (String(r.day_key || '').trim() || String(r.created_at || '').slice(0, 10))
+    if (!onN || onN < freshFrom) { o.tooOld++; continue }
+    const body = String(r.body || '').slice(0, 200)
+    take(uid, 'note', r.id, { kind: '先生の観察メモ', on: onN, unit: String(r.subject || ''), title: '', evalRank: '', evalComment: '', body, reflection: '' }, body.length + 30)
+  }
   for (const r of rows) {
     const uid = String(r.user_id || '')
     const o = out[uid]
@@ -4001,16 +4011,6 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
     const body = String(r.body || '').slice(0, 260)
     const refl = String(r.reflection || '').slice(0, 160)
     take(uid, 'record', r.id, { kind: kindJa, on, unit: String(r.unit || ''), title: String(r.title || '(無題)'), evalRank: String(r.eval_rank || ''), evalComment: String(r.eval_comment || '').slice(0, 120), body, reflection: refl }, body.length + refl.length + 60)
-  }
-  for (const r of notes) {
-    const uid = String(r.user_id || '')
-    const o = out[uid]
-    if (!o) continue
-    if (r.used) { o.heldBack++; continue }
-    const onN = (String(r.day_key || '').trim() || String(r.created_at || '').slice(0, 10))
-    if (!onN || onN < freshFrom) { o.tooOld++; continue }
-    const body = String(r.body || '').slice(0, 200)
-    take(uid, 'note', r.id, { kind: '先生の観察メモ', on: String(r.day_key || '').slice(0, 10), unit: '', title: '', evalRank: '', evalComment: '', body, reflection: '' }, body.length + 30)
   }
   for (const k of Object.keys(out)) { out[k].exhausted = (out[k].materials.length === 0); delete out[k].chars }
   if (reserve.length) { try { await c.env.DB.batch(reserve) } catch (e) { console.error('karte-materials/pick: 予約の書き込みに失敗', e) } }
@@ -4737,8 +4737,34 @@ app.get('/api/teacher/student-notes', async (c) => {
     : await c.env.DB.prepare('SELECT u.id FROM users u JOIN class_members cm ON cm.user_id=u.id JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE u.id=? LIMIT 1').bind(u.id, studentId).first<any>()
   if (!allowed) return jsonError(c, 404, 'student_not_found')
   let notes: any[] = []
-  try { const r = await c.env.DB.prepare("SELECT day_key, body, show_in_karte FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC").bind(studentId).all<any>(); notes = (((r && r.results) || []) as any[]).map((x: any) => ({ dayKey: x.day_key, body: x.body, showInKarte: !!x.show_in_karte })) } catch {}
+  try { const r = await c.env.DB.prepare("SELECT day_key, body, show_in_karte, ai_ok, subject FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC").bind(studentId).all<any>(); notes = (((r && r.results) || []) as any[]).map((x: any) => ({ dayKey: x.day_key, body: x.body, showInKarte: !!x.show_in_karte, aiOk: (x.ai_ok === null || x.ai_ok === undefined) ? true : !!x.ai_ok, subject: x.subject || '' })) } catch {}
   return c.json({ ok: true, notes })
+})
+// ===== QUICKNOTE_V1 名簿と「今週もう書いた人数」 =====
+// 読み取りは2本だけ。どちらもクラスで絞っており、全件スキャンは増やさない。
+// u2.role='student' なので、クラスに入っている先生自身のアカウントは出ない。
+app.get('/api/teacher/quicknote/roster', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = String(c.req.query('classId') || '')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  const cls = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  const roster = (((await c.env.DB.prepare("SELECT u2.id as userId, u2.login_id as loginId, u2.name as name FROM class_members cm JOIN users u2 ON u2.id=cm.user_id WHERE cm.class_id=? AND u2.role='student'").bind(classId).all<any>()).results) || []) as any[]
+  const _n = new Date()
+  const _j = new Date(_n.getTime() + _n.getTimezoneOffset() * 60000 + 9 * 3600000)
+  const _wd = (_j.getDay() + 6) % 7
+  const _mon = new Date(_j.getTime() - _wd * 86400000)
+  const _p2 = (x: number) => (x < 10 ? '0' : '') + x
+  const weekFrom = _mon.getFullYear() + '-' + _p2(_mon.getMonth() + 1) + '-' + _p2(_mon.getDate())
+  const wrote: Record<string, number> = {}
+  try {
+    const r = await c.env.DB.prepare("SELECT user_id as uid, COUNT(*) as n FROM teacher_student_notes WHERE user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND COALESCE(NULLIF(day_key,''), substr(created_at,1,10)) >= ? GROUP BY user_id").bind(classId, weekFrom).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) wrote[String(x.uid)] = Number(x.n) || 0
+  } catch (e) { console.error('quicknote/roster: 今週の件数が読めません', e) }
+  return c.json({ ok: true, roster, weekFrom, wrote })
 })
 app.post('/api/teacher/student-notes', async (c) => {
   const u = requireTeacher(c)
@@ -4753,8 +4779,8 @@ app.post('/api/teacher/student-notes', async (c) => {
   const txt = String(body.body || '').slice(0, 2000)
   if (!txt.trim()) return jsonError(c, 400, 'empty')
   try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS teacher_student_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, class_id TEXT, day_key TEXT, body TEXT, show_in_karte INTEGER DEFAULT 0, created_by TEXT, created_at TEXT)").run() } catch {}
-  const showK = (body.showInKarte === 1 || body.showInKarte === true || body.showInKarte === '1') ? 1 : 0
-  await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, created_by, created_at) VALUES (?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, u.id, new Date().toISOString()).run()
+  const showK = (body.showInKarte === 1 || body.showInKarte === true || body.showInKarte === '1') ? 1 : 0; const aiOk = showK === 1 ? 1 : ((body.aiOk === 0 || body.aiOk === false || body.aiOk === '0') ? 0 : 1); const subj = String(body.subject || '').slice(0, 20)
+  try { await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, ai_ok, subject, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, aiOk, subj, u.id, new Date().toISOString()).run() } catch (e) { if (aiOk === 0) { console.error('student-notes: ai_ok の列が無いので「先生だけ」は保存しません', e); return jsonError(c, 500, 'ai_ok_column_missing') } await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, created_by, created_at) VALUES (?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, u.id, new Date().toISOString()).run() }
   return c.json({ ok: true })
 })
 
@@ -11393,8 +11419,7 @@ app.get('/teacher', (c) => {
                そのまま書ける個人パネル側を残し、こちらを1つにまとめた。書いたメモは個人パネルの
                中にそのまま一覧で出るので、読めなくなるものは無い。 -->
           <div class="bg-white rounded-xl shadow p-4">
-            <div class="font-bold text-slate-700 mb-1">👤 児童ひとりへのメモ</div>
-            <div class="text-xs text-slate-500">「1 クラス全体」で<b>児童の名前をクリック</b>すると開く画面の、<b>📝 先生の記録</b>から書けます。<br>保存される場所は前とまったく同じです（書いたメモもそのまま残っています）。</div>
+            <div class="font-bold text-slate-700 mb-1">🖊 児童ひとりへのメモ</div><div class="text-xs text-slate-500 mb-2">気づいた子だけでいいです。1人ずつ一言で。右下の「🖊 ひとこと」からも、どの画面からでも開けます。</div><button id="qnOpenFromNotes" type="button" class="bg-teal-600 text-white rounded-lg px-4 py-2 text-xs font-bold hover:opacity-90">🖊 きょうの一言をひらく</button>
           </div>
         </div>
 
@@ -14237,7 +14262,7 @@ app.get('/teacher', (c) => {
         if(tw>0) L.push('・満足度の内訳: ☀️' + (ov.sunCount||0) + '回 / ☁️' + (ov.cloudCount||0) + '回 / 🌧️' + (ov.rainCount||0) + '回');
         if(data.monthlyTrends && data.monthlyTrends.length){ L.push(''); L.push('【月別の提出回数の推移】'); for(var i=0;i<data.monthlyTrends.length;i++){ var t=data.monthlyTrends[i]; L.push('・' + t.month + ': ' + t.count + '回（満足度' + (t.sunRate!=null?t.sunRate+'%':'-') + '・平均' + (t.avgMin||0) + '分）'); } }
         if(data.subjects && data.subjects.length){ var _sg4=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); L.push('※「1問あたり」は 同じ問題を何回解いたかです。ここが大きい単元の高い正答率は、覚えているだけかもしれません。'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug=_unitGrade(su.unit); var _lab=_gradeLabel(_gradeClass(_sg4,_ug))||'対象学年不明'; L.push('・' + _unitJa(su.unit) + '（' + (_ug?('対象'+_ug+'年・'):'') + _lab + '）: 正答率' + su.rate + '%（のべ' + su.total + '問／問題の種類' + (su.kinds||'?') + '／1問あたり' + (su.repeatPer==null?'?':su.repeatPer) + '回' + ((su.repeatPer!=null&&su.repeatPer>=5)?'・周回ぎみ':'') + '）'); } }
-        if(data.teacherNotes && data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; L.push('・'+(nt.dayKey||'')+' '+(nt.body||'')); } } if(data.classNotes && data.classNotes.length){ L.push(''); L.push('【クラス全体の授業メモ（先生が書いた授業の記録・この子だけの話ではありません）】'); for(var cn=0;cn<Math.min(data.classNotes.length,10);cn++){ var cnt=data.classNotes[cn]; L.push('・'+(cnt.dayKey||'')+' '+(cnt.body||'')); } } if(data.streaks && data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ var sk=data.streaks[k]; L.push('・' + sk.length + '日連続（' + sk.start + ' 〜 ' + sk.end + '）'); } }
+        if(data.teacherNotes && data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; if(nt && nt.aiOk===false) continue; L.push('・'+(nt.dayKey||'')+' '+(nt.subject?'['+nt.subject+'] ':'')+(window._qnMask?window._qnMask(nt.body||''):(nt.body||''))); } } if(data.classNotes && data.classNotes.length){ L.push(''); L.push('【クラス全体の授業メモ（先生が書いた授業の記録・この子だけの話ではありません）】'); for(var cn=0;cn<Math.min(data.classNotes.length,10);cn++){ var cnt=data.classNotes[cn]; L.push('・'+(cnt.dayKey||'')+' '+(window._qnMask?window._qnMask(cnt.body||''):(cnt.body||''))); } } if(data.streaks && data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ var sk=data.streaks[k]; L.push('・' + sk.length + '日連続（' + sk.start + ' 〜 ' + sk.end + '）'); } }
         if(data.reflections && data.reflections.length){ L.push(''); L.push('【最近のふりかえり（本人の記録）】'); for(var m=0;m<Math.min(data.reflections.length,5);m++){ var rf=data.reflections[m]; var ps=[]; if(rf.concentration!=null) ps.push('集中度' + rf.concentration + '/3'); if(rf.goodPoint) ps.push('よかった点:' + rf.goodPoint); if(rf.improvePoint) ps.push('直したい点:' + rf.improvePoint); if(rf.nextAction) ps.push('次の目標:' + rf.nextAction); L.push('・[' + (rf.weekKey||'') + '] ' + (ps.length?ps.join(' / '):'記録あり')); } }
         if(data.recentSubmissions && data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,12);n++){ var rs=data.recentSubmissions[n]; var w = rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・' + (rs.day_key||'') + ' ' + w + ' ' + (rs.todo||'') + '（' + (rs.minutes||0) + '分）'; if(rs.weather_reason) line += ' ふりかえり:' + rs.weather_reason; L.push(line); } }
         if(data.testScores && data.testScores.length){ L.push(''); L.push('【テストの記録（今年度・全期間）】'); for(var tsx=0;tsx<data.testScores.length;tsx++){ var tt2=data.testScores[tsx]; L.push('・' + (tt2.testDate||'') + ' ' + (tt2.subject||'') + ' ' + (tt2.testName||'') + '：' + (tt2.score==null?'-':tt2.score) + '/' + (tt2.maxScore||100) + (tt2.pct!=null?'（'+tt2.pct+'%）':'') + (tt2.comment?' 先生:'+tt2.comment:'')); } }
@@ -14455,7 +14480,7 @@ function _faKarteGraphs(d){
         return H.join('');
       }
       function _buildKarteHtml(){ var d=window._faData||{}; var ov=d.overview||{}; var name=window._faName||'あなた'; var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }; var subjects=(d.subjects||[]).slice(); var _sg=(d.student&&d.student.grade)||null; var _cl=function(u){return _gradeClass(_sg,_unitGrade(u));}; var good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)==='same';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); if(!good.length){ good=subjects.filter(function(s){return s.rate>=80&&s.total>=20&&_cl(s.unit)!=='review';}).sort(function(a,b){return (b.rate-a.rate)||(b.total-a.total);}).slice(0,5); } var _rev=subjects.filter(function(s){return _cl(s.unit)==='review'&&s.total>=10;}).sort(function(a,b){return a.rate-b.rate;}); var reviewGood=_rev.filter(function(s){return s.rate>=80;}).slice(0,3); var reviewWeak=_rev.filter(function(s){return s.rate<70;}).slice(0,3); var ahead=subjects.filter(function(s){return _cl(s.unit)==='ahead'&&s.rate>=70&&s.total>=10;}).sort(function(a,b){return (b.rate-a.rate);}).slice(0,3); var grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)==='same';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); if(!grow.length){ grow=subjects.filter(function(s){return s.rate<70&&s.total>=5&&_cl(s.unit)!=='review';}).sort(function(a,b){return a.rate-b.rate;}).slice(0,3); } var period=(ov.firstDate? (ov.firstDate+' 〜 '+ov.lastDate) : ''); var hours=Math.round((ov.totalMinutes||0)/60); var praise='今年度の記録、ここにちゃんと残っとるで。'; if((ov.totalSubmissions||0)===0) praise='今週はまだ白紙やな。それはそれでええ。今日5分だけやるとしたら、何にする？'; else if((ov.maxStreak||0)>=5) praise='今年度でいちばん長かったのは '+ov.maxStreak+'日つづけたとき。これは今年度ぜんたいの記録やで。'; else if((ov.totalSubmissions||0)>=10) praise='今年度でここまで '+(ov.totalSubmissions||0)+'回。ようここまで積んだな。'; var H=[]; H.push('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>家庭学習カルテ</title>'); H.push('<style>'); H.push('@page{size:A4;margin:12mm;} *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'); H.push('body{font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;color:#334155;margin:0;font-size:13px;line-height:1.6;}'); H.push('.wrap{max-width:186mm;margin:0 auto;}'); H.push('.head{text-align:center;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px;margin-bottom:12px;}'); H.push('.head h1{margin:0;font-size:24px;color:#b45309;} .head .nm{font-size:18px;font-weight:800;color:#92400e;margin-top:4px;} .head .pd{font-size:12px;color:#a16207;margin-top:2px;}'); H.push('.sec{border:2px solid #e2e8f0;border-radius:14px;padding:13px 15px;margin-bottom:13px;} .sec h2{margin:0 0 8px;font-size:16px;}'); H.push('.chips{display:flex;flex-wrap:wrap;gap:8px;} .chip{background:#eff6ff;border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:84px;} .chip .v{font-size:20px;font-weight:900;color:#2563eb;} .chip .l{font-size:10px;color:#64748b;}'); H.push('.msg{background:#ecfdf5;border-radius:10px;padding:9px 12px;margin-top:9px;color:#047857;font-weight:700;}'); H.push('.good .b{font-weight:800;color:#16a34a;} .grow .it{background:#fff7ed;border-radius:10px;padding:8px 11px;margin:6px 0;} .grow .t{font-weight:800;color:#ea580c;} .grow .tip{font-size:12px;color:#7c2d12;margin-top:2px;}'); H.push('.refl{font-size:12px;color:#475569;} .refl li{margin:3px 0;} .note{border:2px dashed #cbd5e1;border-radius:12px;min-height:70px;padding:10px;} ul{margin:4px 0;padding-left:20px;} .foot{text-align:center;font-size:10px;color:#cbd5e1;margin-top:6px;}'); H.push('.oneline{font-size:12px;color:#475569;} .lg{color:#94a3b8;font-size:11px;margin-top:5px;}'); H.push('</style></head><body><div class="wrap">'); H.push('<div class="head"><h1>📒 家庭学習カルテ</h1><div class="nm">'+esc(name)+' さん'+(_sg?'（'+_sg+'年生）':'')+'</div>'+(period?'<div class="pd">'+esc(period)+'</div>':'')+'</div>'); /* 📅 2026-09 方針: カルテは月曜に印刷して配るため「直前に終わった週（＝先週）」を主役にする（先生の指示）。 */ /* window._faKarteBaseDate に 'YYYY-MM-DD' を入れると、その日から見た直前の週に切り替えられる。 */ var _kJst=function(){ var n=new Date(); return new Date(n.getTime()+n.getTimezoneOffset()*60000+9*3600000); }; var _kFmt=function(dt){ var p=function(x){return (x<10?'0':'')+x;}; return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate()); }; var _kBase=(function(){ var s=String(window._faKarteBaseDate||''); var m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m) return new Date(Number(m[1]),Number(m[2])-1,Number(m[3])); return _kJst(); })(); var _kWd=(_kBase.getDay()+6)%7; var _kMon=new Date(_kBase.getTime()-_kWd*86400000-7*86400000); var _kDays=[]; for(var kd=0;kd<5;kd++){ _kDays.push(_kFmt(new Date(_kMon.getTime()+kd*86400000))); } /* 📅 KARTE_MATERIAL_V1: 本文（阪神マンのアドバイス）が『どの週について書かれたか』を 保存してあるときは、見出しと週マスもその週にそろえる。印刷した日から逆算していたころは、 金曜に作って月曜に配ると 見出し(9月14日〜18日) と 本文(9月7日〜11日) が一週ズレていた。 保存が無い（古いコメント）ときは、これまでどおり印刷日から逆算する。 */ var _kMeta=(d.aiCommentMeta||null); var _kWs=String((_kMeta&&_kMeta.weekStart)||''); if(_kWs.length===10&&_kWs.charAt(4)==='-'&&_kWs.charAt(7)==='-'){ var _kwp=_kWs.split('-'); var _kmd=new Date(Number(_kwp[0]),Number(_kwp[1])-1,Number(_kwp[2])); if(!isNaN(_kmd.getTime())){ _kMon=_kmd; _kDays=[]; for(var kd9=0;kd9<5;kd9++){ _kDays.push(_kFmt(new Date(_kMon.getTime()+kd9*86400000))); } } } var _kJa=function(s){ var p=String(s).split('-'); return Number(p[1])+'月'+Number(p[2])+'日'; }; var _kIso=function(dt){ var x=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()); var dn=(x.getDay()+6)%7; x.setDate(x.getDate()-dn+3); var f=new Date(x.getFullYear(),0,4); var fn=(f.getDay()+6)%7; f.setDate(f.getDate()-fn+3); var w=1+Math.round((x.getTime()-f.getTime())/(7*86400000)); return x.getFullYear()+'-W'+(w<10?'0'+w:''+w); }; var _kWk=_kIso(_kMon); var _kSub={}; (d.recentSubmissions||[]).forEach(function(s){ if(s&&s.day_key) _kSub[s.day_key]=s; }); var _kDone=0,_kMin=0,_kCells='',_kVoice=[]; var _kDn=['月','火','水','木','金']; for(var kd2=0;kd2<5;kd2++){ var _kk=_kDays[kd2]; var _ks=_kSub[_kk]; var _kw=_ks?((_ks.end_weather==='sun')?'☀️':(_ks.end_weather==='cloud')?'☁️':(_ks.end_weather==='rain')?'🌧️':'⭕'):'・'; if(_ks){ _kDone++; _kMin+=(_ks.minutes||0); if(_ks.weather_reason){ /* KARTE_ADD_V1 50字で切るのをやめた。本人のことばは紙のいちばんの中身で、途中で切れると引用として成立しない。紙に余りができたぶんをここに使う。 */ _kVoice.push(_kDn[kd2]+' '+String(_ks.weather_reason)); } } _kCells+='<div style="text-align:center;flex:1;min-width:44px"><div style="font-size:11px;color:#64748b;font-weight:700">'+_kDn[kd2]+'</div><div style="font-size:24px;line-height:1.2">'+_kw+'</div></div>'; } /* 🐛 2026-09 修正: 振り返りの週キーは '2026-W37' 形式。以前は日付形式と比べていたため一度も表示されなかった。 */ var _kRef=null; (d.reflections||[]).forEach(function(r){ if(!r) return; var rk=String(r.weekKey||''); if(rk===_kWk||rk===_kDays[0]) _kRef=r; }); var _kH='<div class="sec" style="border-color:#fcd34d;background:#fffbeb"><h2>📅 '+_kJa(_kDays[0])+'〜'+_kJa(_kDays[4])+'のようす</h2>'; _kH+='<div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:6px">'+_kCells+'</div>'; _kH+='<div style="font-size:12px;color:#92400e;font-weight:700">この週は 5日のうち '+_kDone+'日 とりくめました（合計 '+_kMin+'分）</div>'; if(_kVoice.length){ _kH+='<div style="margin-top:8px"><div style="font-size:11px;font-weight:800;color:#b45309">🗣 自分のことば</div><ul class="refl">'; for(var kv=0;kv<_kVoice.length;kv++){ _kH+='<li>'+esc(_kVoice[kv])+'</li>'; } _kH+='</ul></div>'; } /* KARTE_ADD_V1 freeText を出す。児童が実際に書いているのはここだけで、これまで表示側が good/improve/next しか見ていなかったため一度も出ていなかった。 */ if(_kRef&&(_kRef.goodPoint||_kRef.improvePoint||_kRef.nextAction||_kRef.freeText)){ _kH+='<div style="margin-top:6px;font-size:12px;color:#475569"><div style="font-size:11px;font-weight:800;color:#b45309">📝 この週のふりかえり</div>'; if(_kRef.goodPoint) _kH+='<div>よかったこと … '+esc(_kRef.goodPoint)+'</div>'; if(_kRef.improvePoint) _kH+='<div>もうすこしなこと … '+esc(_kRef.improvePoint)+'</div>'; if(_kRef.nextAction) _kH+='<div>つぎにやること … '+esc(_kRef.nextAction)+'</div>'; if(_kRef.freeText) _kH+='<div>'+esc(_kRef.freeText)+'</div>';   /* KARTE_ADD_V1 */ _kH+='</div>'; }  _kH+='</div>'; H.push(_kH); /* KARTE_WEEKLY_V1 🐯 阪神マンを「📅 先週のようす」の直後へ上げた。 先生がいちばん力を入れている欄が、グラフの下・紙のいちばん下にあった。 下から切り取って ここに貼っただけで、中身は1文字も変えていない。 */ /* 🐯 KARTE_MATERIAL_V1: いつ書いたものかを添える。2週間以上たっていたら載せない （古い文が今週の紙に載って、見出しと食い違うのを止める）。 週が推定のときは、推定だと分かるように書く。 */ if(d.aiComment&&String(d.aiComment).trim()){ var _acM=(d.aiCommentMeta||{}); var _acOn=String(_acM.updatedAt||'').slice(0,10); var _acAge=null; var _acJa=''; if(_acOn.length===10){ var _ap=_acOn.split('-'); var _ad=new Date(Number(_ap[0]),Number(_ap[1])-1,Number(_ap[2])); if(!isNaN(_ad.getTime())){ _acAge=Math.round((Date.now()-_ad.getTime())/86400000); _acJa=Number(_ap[1])+'月'+Number(_ap[2])+'日'; } } if(_acAge!=null&&_acAge>14){ H.push('<div class="sec"><h2>🐯 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#94a3b8">（'+esc(_acJa)+'に書いたものが最後です。2週間以上たっているので、この紙には載せていません。新しく作って公開すると、ここに出ます。）</div></div>'); } else { var _acNote=_acJa?('（'+esc(_acJa)+'に作成'+(_acM.weekGuessed?'／どの週のことかは作成日からの推定です':'')+'）'):''; H.push('<div class="sec"><h2>🐯 阪神マンからのアドバイス</h2><div style="font-size:12px;color:#475569;white-space:pre-wrap">'+esc(d.aiComment)+'</div>'+(_acNote?'<div style="font-size:10px;color:#94a3b8;margin-top:4px">'+_acNote+'</div>':'')+'</div>'); } } /* KARTE_ADD_V1 ここから下は「その週にしかないもの」。毎週変わらないものは入れない。 */ if(d.prevAsk&&String(d.prevAsk).trim()){ H.push('<div style="margin:-8px 0 13px;font-size:11px;color:#94a3b8;padding-left:15px">先週きかれたこと … 「'+esc(d.prevAsk)+'」</div>'); } var _lw=d.lastWeek||null; var _lwU=(_lw&&_lw.units)||[]; var _sp=d.lastWeekSpecial||null; var _spParts=[]; if(_sp){ if(_sp.pokedex>0) _spParts.push('図鑑に '+_sp.pokedex+'ひき'); if(_sp.typeshoot>0) _spParts.push('タイプシュート '+_sp.typeshoot+'点'); if(_sp.wild>0) _spParts.push('野生 '+_sp.wild); } if((_lw&&_lw.total>0)||_spParts.length){ var _xH='<div class="sec" style="border-color:#bae6fd;background:#f0f9ff"><h2>✨ 先週のひろがり</h2>'; if(_lw&&_lw.total>0){ _xH+='<div style="font-size:12px;color:#0369a1;font-weight:700">アプリで '+_lw.total+'問（'+_lw.days+'日・'+_lwU.length+'単元）</div>'; var _uNames=[]; for(var ui=0;ui<_lwU.length&&ui<6;ui++){ _uNames.push(esc(_unitJa(_lwU[ui].unit))+'('+_lwU[ui].total+'問)'); } if(_uNames.length) _xH+='<div style="font-size:12px;color:#475569;margin-top:3px">やった単元 … '+_uNames.join('、')+'</div>'; var _fe=[]; for(var fi=0;fi<_lwU.length;fi++){ if(_lwU[fi].firstEver) _fe.push(esc(_unitJa(_lwU[fi].unit))); } if(_fe.length) _xH+='<div style="font-size:12px;color:#7c3aed;font-weight:700;margin-top:3px">🆕 はじめて出会った単元 … '+_fe.slice(0,4).join('、')+'</div>'; } if(_spParts.length) _xH+='<div style="font-size:12px;color:#ea580c;font-weight:700;margin-top:3px">🎉 今週のとくべつ … '+_spParts.join('／')+'</div>'; _xH+='</div>'; H.push(_xH); } /* 🌱 KARTE_ADD_V1 先週やった単元のうち、1週間の正答率が年度の正答率と15ポイント以上ちがうもの。 10問以上やった単元だけ。はじめて出会った単元は ✨ 側に出すので ここでは重ねない。 変わった単元が無い週は、この欄ごと出さない。出たときに意味を持たせるため。 */ var _chg=[]; for(var ci=0;ci<_lwU.length;ci++){ var _cu=_lwU[ci]; if(_cu.firstEver||_cu.total<10||_cu.yearRate==null) continue; var _df=_cu.rate-_cu.yearRate; if(_df>=15) _chg.push({t:esc(_unitJa(_cu.unit))+' は先週いい手ごたえやったな',c:'#16a34a'}); else if(_df<=-15) _chg.push({t:esc(_unitJa(_cu.unit))+' は先週てこずっとったな',c:'#ea580c'}); } if(_chg.length){ var _cH='<div class="sec" style="border-color:#bbf7d0;background:#f0fdf4"><h2>🌱 今週かわったこと</h2>'; for(var cj=0;cj<_chg.length&&cj<3;cj++){ _cH+='<div style="font-size:12px;font-weight:700;color:'+_chg[cj].c+'">・'+_chg[cj].t+'</div>'; } _cH+='</div>'; H.push(_cH); } /* KARTE_WEEKLY_V1 🌟 今年度の積み上げ を毎週の紙から外した。 実測で、児童Bは5週とも 提出17回／2,815分／平均166分／☀100% と完全に同一だった。 単調に増えるだけの数字で、記録の少ない子には毎週おなじ数を見せ続けることになる。 同じ数字は先生の『📊 個人分析』の概要統計カードに出ているので、見られなくなるわけではない。 */ /* KARTE_WEEKLY_V2 📊 今年度の学習の見える化（レーダー＋月ごとの提出回数）を 毎週の紙から外した。どちらも年度累計で、週では動かない。 実測：児童Aのレーダーは5週とも小数第1位まで同じ。月ごとの棒は月に1回しか動かない。 消したのではなく、同じ3つのグラフを先生の『📊 個人分析』に出している（下の _faKarteGraphs）。年度を通して見るぶんには意味があるため。 */ /* KARTE_WEEKLY_V1 💡 どう学ぶといいか を毎週の紙から外した。 選ぶ3単元が年度累計から決まるので動かず、『1回◯分』も平均学習時間から決まるので動かない（児童Aは平均52分で固定＝いつも20分）。週で変わるのは『週◯回』だけだった。 関数 _kHowToLearn は消していない。戻したくなったらここで呼ぶだけでよい。 */ /* KARTE_WEEKLY_V1 💪 とくいなところ（🔁復習もバッチリ／🚀先取り）を外した。年度累計。 */ /* 2026-09 方針: 子どもに渡すカルテにはテストの点数・得点率を載せない（先生の指示） */ var _tn=(d.teacherNotes||[]).filter(function(n){return n.showInKarte&&String(''+(n.body||'')).trim();}).slice(0,3); if(_tn.length){ H.push('<div class="sec"><h2>📝 先生からの記録</h2><ul>'); for(var ni=0;ni<_tn.length;ni++){ var nn=_tn[ni]; var _nb=String(nn.body||''); if(_nb.length>50) _nb=_nb.slice(0,49)+'…'; H.push('<li>'+esc(nn.dayKey||'')+' '+esc(_nb)+'</li>'); } H.push('</ul></div>'); }  H.push('<div class="foot">LearningBM ／ 家庭学習カルテ</div>'); H.push('</div></body></html>'); return H.join(''); } function downloadKartePdf(){ try{ var html=_buildKarteHtml(); var w=window.open('','_blank'); if(!w){ alert('ポップアップがブロックされました。このサイトのポップアップを許可してください。'); return; } w.document.open(); w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 500); }catch(e){ alert('カルテの作成に失敗しました: '+e.message); } }
-      function _aiBodyLines(data){ var ov=data.overview||{}; var _sg5=(data.student&&data.student.grade)||null; var L=[]; if(_sg5) L.push('【学年】'+_sg5+'年生'); L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); if(ov.submissionRate&&ov.submissionRate.show){ var _sr2=ov.submissionRate; L.push('・家庭学習の提出率: '+(_sr2.overall!=null?_sr2.overall+'%':'-')+'（直近約4週 '+(_sr2.recent!=null?_sr2.recent+'%':'-')+' / その前 '+(_sr2.prev!=null?_sr2.prev+'%':'-')+'）'); if(_sr2.trend==='down') L.push('・[要注意] 提出率が下がってきている → 正直に指摘し次の一歩を促す'); else if(_sr2.trend==='up') L.push('・提出率が上がってきている → 認めてほめる'); if(_sr2.overall!=null&&_sr2.overall<60) L.push('・[要注意] 提出率が低め（'+_sr2.overall+'%）→ ぼかさず具体的に、小さな目標を示す'); } var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ var _sg6=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); L.push('※「1問あたり」は 同じ問題を何回解いたかです。ここが大きい単元の高い正答率は、覚えているだけかもしれません。'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug6=_unitGrade(su.unit); var _lab6=_gradeLabel(_gradeClass(_sg6,_ug6))||'対象学年不明'; L.push('・'+_unitJa(su.unit)+'（'+(_ug6?('対象'+_ug6+'年・'):'')+_lab6+'）: 正答率'+su.rate+'%（のべ'+su.total+'問／問題の種類'+(su.kinds||'?')+'／1問あたり'+(su.repeatPer==null?'?':su.repeatPer)+'回'+((su.repeatPer!=null&&su.repeatPer>=5)?'・周回ぎみ':'')+'）'); } } if(data.teacherNotes&&data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; L.push('・'+(nt.dayKey||'')+' '+(nt.body||'')); } } if(data.classNotes&&data.classNotes.length){ L.push(''); L.push('【クラス全体の授業メモ（先生が書いた授業の記録・この子だけの話ではありません）】'); for(var cn=0;cn<Math.min(data.classNotes.length,10);cn++){ var cnt=data.classNotes[cn]; L.push('・'+(cnt.dayKey||'')+' '+(cnt.body||'')); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } if(data.testScores&&data.testScores.length){ L.push(''); L.push('【テストの記録（今年度・全期間）】'); for(var tsx=0;tsx<data.testScores.length;tsx++){ var tt2=data.testScores[tsx]; L.push('・'+(tt2.testDate||'')+' '+(tt2.subject||'')+' '+(tt2.testName||'')+'：'+(tt2.score==null?'-':tt2.score)+'/'+(tt2.maxScore||100)+(tt2.pct!=null?'（'+tt2.pct+'%）':'')+(tt2.comment?' 先生:'+tt2.comment:'')); } } if(data.records&&data.records.length){ L.push(''); L.push('【ポートフォリオ（取り込んだプリント・成果物・先生の評価◎○△）／4月からの全期間】'); L.push('※日付は「取り込んだ日」です。古いものを今週の出来事として書かないでください。'); L.push('※「前に渡した材料」と書いてあるものは、前のカルテでもうほめています。二度目はほめないでください。'); var _rkj=function(k){ return k==='test'?'テスト':k==='report'?'まとめ':k==='reflect'?'振り返り':'その他'; }; for(var rpx=0;rpx<data.records.length;rpx++){ var rc2=data.records[rpx]; var _ev2=rc2.evalRank?('／評価:'+rc2.evalRank+((rc2.evalComment&&String(rc2.evalComment).trim())?'／評価コメント:'+rc2.evalComment:'')):''; var _ln2='・['+_rkj(rc2.type)+'] '+(rc2.title||'(無題)')+'（取り込み '+(rc2.importedOn||rc2.dayKey||'日付不明')+(rc2.unit?'／'+rc2.unit:'')+_ev2+(rc2.used?'／前に渡した材料':'')+'）'; if(rc2.body&&String(rc2.body).trim()) _ln2+=' 本文:'+rc2.body; if(rc2.reflection&&String(rc2.reflection).trim()) _ln2+=' ／振り返り:'+rc2.reflection; L.push(_ln2); } } return L; }
+      function _aiBodyLines(data){ var ov=data.overview||{}; var _sg5=(data.student&&data.student.grade)||null; var L=[]; if(_sg5) L.push('【学年】'+_sg5+'年生'); L.push('【基本統計】'); L.push('・提出回数: '+(ov.totalSubmissions||0)+'回'); L.push('・平均学習時間: '+(ov.avgMinutes||0)+'分'); L.push('・学習満足度（☀️の割合）: '+(ov.sunRate||0)+'%'); L.push('・現在の連続提出: '+(ov.currentStreak||0)+'日 / 最長連続: '+(ov.maxStreak||0)+'日'); if(ov.firstDate) L.push('・記録期間: '+ov.firstDate+' 〜 '+ov.lastDate); if(ov.totalMinutes!=null) L.push('・合計学習時間: '+ov.totalMinutes+'分（約'+Math.round((ov.totalMinutes||0)/60)+'時間）'); if(ov.returnRate!=null) L.push('・先生からの返却率: '+ov.returnRate+'%'); if(ov.submissionRate&&ov.submissionRate.show){ var _sr2=ov.submissionRate; L.push('・家庭学習の提出率: '+(_sr2.overall!=null?_sr2.overall+'%':'-')+'（直近約4週 '+(_sr2.recent!=null?_sr2.recent+'%':'-')+' / その前 '+(_sr2.prev!=null?_sr2.prev+'%':'-')+'）'); if(_sr2.trend==='down') L.push('・[要注意] 提出率が下がってきている → 正直に指摘し次の一歩を促す'); else if(_sr2.trend==='up') L.push('・提出率が上がってきている → 認めてほめる'); if(_sr2.overall!=null&&_sr2.overall<60) L.push('・[要注意] 提出率が低め（'+_sr2.overall+'%）→ ぼかさず具体的に、小さな目標を示す'); } var tw=(ov.sunCount||0)+(ov.cloudCount||0)+(ov.rainCount||0); if(tw>0) L.push('・満足度の内訳: ☀️'+(ov.sunCount||0)+'回 / ☁️'+(ov.cloudCount||0)+'回 / 🌧️'+(ov.rainCount||0)+'回'); if(data.subjects&&data.subjects.length){ var _sg6=(data.student&&data.student.grade)||null; L.push(''); L.push('【教科別の正答率（取り組み量の多い順／対象学年つき）】'); L.push('※「1問あたり」は 同じ問題を何回解いたかです。ここが大きい単元の高い正答率は、覚えているだけかもしれません。'); for(var j=0;j<data.subjects.length;j++){ var su=data.subjects[j]; var _ug6=_unitGrade(su.unit); var _lab6=_gradeLabel(_gradeClass(_sg6,_ug6))||'対象学年不明'; L.push('・'+_unitJa(su.unit)+'（'+(_ug6?('対象'+_ug6+'年・'):'')+_lab6+'）: 正答率'+su.rate+'%（のべ'+su.total+'問／問題の種類'+(su.kinds||'?')+'／1問あたり'+(su.repeatPer==null?'?':su.repeatPer)+'回'+((su.repeatPer!=null&&su.repeatPer>=5)?'・周回ぎみ':'')+'）'); } } if(data.teacherNotes&&data.teacherNotes.length){ L.push(''); L.push('【先生の観察メモ（授業中の様子・教師向け）】'); for(var tn=0;tn<Math.min(data.teacherNotes.length,15);tn++){ var nt=data.teacherNotes[tn]; if(nt && nt.aiOk===false) continue; L.push('・'+(nt.dayKey||'')+' '+(nt.subject?'['+nt.subject+'] ':'')+(window._qnMask?window._qnMask(nt.body||''):(nt.body||''))); } } if(data.classNotes&&data.classNotes.length){ L.push(''); L.push('【クラス全体の授業メモ（先生が書いた授業の記録・この子だけの話ではありません）】'); for(var cn=0;cn<Math.min(data.classNotes.length,10);cn++){ var cnt=data.classNotes[cn]; L.push('・'+(cnt.dayKey||'')+' '+(window._qnMask?window._qnMask(cnt.body||''):(cnt.body||''))); } } if(data.streaks&&data.streaks.length){ L.push(''); L.push('【連続提出の記録（上位）】'); for(var k=0;k<Math.min(data.streaks.length,3);k++){ L.push('・'+data.streaks[k].length+'日連続'); } } if(data.recentSubmissions&&data.recentSubmissions.length){ L.push(''); L.push('【直近の学習記録】'); for(var n=0;n<Math.min(data.recentSubmissions.length,10);n++){ var rs=data.recentSubmissions[n]; var w=rs.end_weather==='sun'?'☀️':rs.end_weather==='cloud'?'☁️':rs.end_weather==='rain'?'🌧️':'❓'; var line='・'+(rs.day_key||'')+' '+w+' '+(rs.todo||'')+'（'+(rs.minutes||0)+'分）'; if(rs.weather_reason) line+=' ふりかえり:'+rs.weather_reason; L.push(line); } } if(data.testScores&&data.testScores.length){ L.push(''); L.push('【テストの記録（今年度・全期間）】'); for(var tsx=0;tsx<data.testScores.length;tsx++){ var tt2=data.testScores[tsx]; L.push('・'+(tt2.testDate||'')+' '+(tt2.subject||'')+' '+(tt2.testName||'')+'：'+(tt2.score==null?'-':tt2.score)+'/'+(tt2.maxScore||100)+(tt2.pct!=null?'（'+tt2.pct+'%）':'')+(tt2.comment?' 先生:'+tt2.comment:'')); } } if(data.records&&data.records.length){ L.push(''); L.push('【ポートフォリオ（取り込んだプリント・成果物・先生の評価◎○△）／4月からの全期間】'); L.push('※日付は「取り込んだ日」です。古いものを今週の出来事として書かないでください。'); L.push('※「前に渡した材料」と書いてあるものは、前のカルテでもうほめています。二度目はほめないでください。'); var _rkj=function(k){ return k==='test'?'テスト':k==='report'?'まとめ':k==='reflect'?'振り返り':'その他'; }; for(var rpx=0;rpx<data.records.length;rpx++){ var rc2=data.records[rpx]; var _ev2=rc2.evalRank?('／評価:'+rc2.evalRank+((rc2.evalComment&&String(rc2.evalComment).trim())?'／評価コメント:'+rc2.evalComment:'')):''; var _ln2='・['+_rkj(rc2.type)+'] '+(rc2.title||'(無題)')+'（取り込み '+(rc2.importedOn||rc2.dayKey||'日付不明')+(rc2.unit?'／'+rc2.unit:'')+_ev2+(rc2.used?'／前に渡した材料':'')+'）'; if(rc2.body&&String(rc2.body).trim()) _ln2+=' 本文:'+rc2.body; if(rc2.reflection&&String(rc2.reflection).trim()) _ln2+=' ／振り返り:'+rc2.reflection; L.push(_ln2); } } return L; }
       function _normId(s){ return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248);}).replace(/[\\s　]/g,'').toLowerCase(); }
       function _parseAiBlocks(raw){ var lines=String(raw||'').split(/\\r?\\n/); var blocks=[]; var cur=null; var re=/^[\\s　]*[=＝]{2,}[\\s　]*[\\[［]\\s*([^\\]］]+?)\\s*[\\]］]/; for(var i=0;i<lines.length;i++){ var m=lines[i].match(re); if(m){ if(cur) blocks.push(cur); cur={id:m[1],lines:[]}; } else if(cur){ cur.lines.push(lines[i]); } } if(cur) blocks.push(cur); return blocks.map(function(b){ return {id:b.id, body:b.lines.join(String.fromCharCode(10)).replace(/^\\s+|\\s+$/g,'')}; }); }
       function _aiClassId(){ var s=document.getElementById('analyticsClassFilter'); return s?s.value:''; }
@@ -16087,8 +16112,215 @@ function _faKarteGraphs(d){
         try{ switchTab('homework'); }catch(_e){}
       })();
     </script>
+    <!-- ===== QUICKNOTE_V1 (2026-10-06) 先生が授業中に気づいた一言を入れる口 ===== -->
+    <button id="qnFab" type="button" title="きょうの一言">🖊 ひとこと</button>
+    <div id="qnWrap"><div id="qnSheet">
+      <div id="qnHead">
+        <span id="qnTitle">🖊 きょうの一言</span>
+        <select id="qnClass"></select>
+        <input id="qnDate" type="date">
+        <span id="qnCount"></span>
+        <button id="qnClose" type="button">✕</button>
+      </div>
+      <div id="qnBar">
+        <div id="qnHint">気づいた子だけでいいです。全員ぶん書く必要はありません。</div>
+        <div id="qnChips"></div>
+      </div>
+      <div id="qnList"></div>
+    </div></div>
+    <style>
+      #qnFab{position:fixed;right:18px;bottom:18px;z-index:9998;background:#0d9488;color:#fff;border:none;border-radius:999px;padding:13px 18px;font-size:15px;font-weight:800;box-shadow:0 6px 18px rgba(15,23,42,.28);cursor:pointer}
+      #qnWrap{display:none;position:fixed;left:0;right:0;top:0;bottom:0;z-index:9999;background:rgba(15,23,42,.45)}
+      #qnSheet{position:absolute;right:0;top:0;bottom:0;width:100%;max-width:580px;background:#fff;display:flex;flex-direction:column}
+      #qnHead{padding:9px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+      #qnTitle{font-weight:800;color:#0f766e;font-size:16px}
+      #qnHead select,#qnHead input{border:1px solid #cbd5e1;border-radius:8px;padding:4px 6px;font-size:12px;background:#fff}
+      #qnCount{font-size:12px;color:#0f766e;font-weight:800}
+      #qnClose{margin-left:auto;border:none;background:none;font-size:20px;color:#94a3b8;cursor:pointer}
+      #qnBar{padding:6px 12px;border-bottom:1px solid #f1f5f9}
+      #qnHint{font-size:11px;color:#64748b;margin-bottom:4px}
+      #qnChips{display:flex;gap:4px;flex-wrap:wrap}
+      #qnChips button{border:1px solid #99f6e4;background:#f0fdfa;color:#0f766e;border-radius:999px;padding:3px 9px;font-size:12px;cursor:pointer}
+      #qnList{flex:1;overflow-y:auto;padding:4px 10px 24px 10px}
+      .qnRow{border-bottom:1px solid #f1f5f9;padding:7px 2px}
+      .qnRow.qnOk{background:#f0fdf4}
+      .qnName{font-size:13px;font-weight:700;color:#334155;margin-bottom:3px}
+      .qnName small{font-weight:400;color:#94a3b8;margin-left:5px}
+      .qnIn{display:flex;gap:5px;align-items:center}
+      .qnIn input{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:7px 9px;font-size:14px}
+      .qnVis{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 8px;font-size:15px;cursor:pointer;line-height:1}
+      .qnSub{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
+      .qnSub button{border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer}
+      .qnSub button.on{background:#0d9488;border-color:#0d9488;color:#fff;font-weight:700}
+      .qnSaved{font-size:11px;color:#15803d;margin-top:3px}
+    </style>
+    <script>
+    /* QUICKNOTE_V1  先生が授業中に気づいた一言を、1人10秒で入れる口。
+       ・保存は既存の POST /api/teacher/student-notes（aiOk と subject を足した）
+       ・名簿は GET /api/teacher/quicknote/roster（クラス指定・読み取り2本）
+       ・外部AIに渡す前に、本文に書かれた実名を伏せる（_qnMask）。
+         姓だけで書かれることがあるので、わざと広めに伏せる。 */
+    (function(){
+      var VIS = [
+        { k:1, mark:'🐯', tip:'阪神マンには渡す（紙には先生の言葉としては出ません）', karte:0, ai:1 },
+        { k:2, mark:'🔒', tip:'先生だけ（阪神マンにも渡しません）',                     karte:0, ai:0 },
+        { k:3, mark:'👧', tip:'児童に見せる（紙の「先生からの記録」に出ます）',         karte:1, ai:1 }
+      ];
+      var SUBJ = ['国','社','算','理','体','他'];
+      var PHRASE = ['ふりかえり書こう','ここできてる','自分から動けてた','友だちに説明できてた','もう一歩いける'];
+      var St = {};
+      var lastInput = null;
+      function $(id){ return document.getElementById(id); }
+      function esc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;'); }
+      function today(){ var n=new Date(); var j=new Date(n.getTime()+n.getTimezoneOffset()*60000+9*3600000); var p=function(x){return (x<10?'0':'')+x;}; return j.getFullYear()+'-'+p(j.getMonth()+1)+'-'+p(j.getDate()); }
+
+      /* ── 外部AIに実名を出さないための伏せ字 ──
+         実名・ふりがな、さらにその先頭2〜4文字（姓だけで書かれる場合）を消す。
+         多めに消えても困らないが、名前が出るのは絶対に困るため、広めにとる。 */
+      window._qnMask = function(t){
+        var s = String(t==null?'':t);
+        try{
+          var cand = [];
+          var push = function(v, minLen){ v=String(v==null?'':v).trim(); if(v.length>=minLen) cand.push(v); };
+          var m = {};
+          try{ if(typeof getStudentNameMap==='function') m = getStudentNameMap()||{}; }catch(e1){}
+          for(var k in m){ if(!Object.prototype.hasOwnProperty.call(m,k)) continue;
+            var v=String(m[k]||'').trim(); push(v,2); push(v.slice(0,3),2); push(v.slice(0,2),2); }
+          var f = window._serverFuriganaMap || {};
+          for(var k2 in f){ if(!Object.prototype.hasOwnProperty.call(f,k2)) continue;
+            var v2=String(f[k2]||'').trim(); push(v2,3); push(v2.slice(0,4),3); push(v2.slice(0,3),3); }
+          cand.sort(function(a,b){ return b.length-a.length; });
+          for(var i=0;i<cand.length;i++){ if(s.indexOf(cand[i])>=0) s = s.split(cand[i]).join('その子'); }
+        }catch(e){}
+        return s;
+      };
+
+      function classId(){
+        var s=$('qnClass'); if(s && s.value) return s.value;
+        var ids=['analyticsClassFilter','laClassSelect','activityClassFilter'];
+        for(var i=0;i<ids.length;i++){ var e=document.getElementById(ids[i]); if(e && e.value) return e.value; }
+        return '';
+      }
+      function fillClasses(){
+        var s=$('qnClass'); if(!s || s.getAttribute('data-init')) return Promise.resolve();
+        return fetch('/api/teacher/classes').then(function(r){return r.json();}).then(function(d){
+          if(!d || !d.ok) return;
+          var pre=''; var ids=['analyticsClassFilter','laClassSelect','activityClassFilter'];
+          for(var i=0;i<ids.length;i++){ var e=document.getElementById(ids[i]); if(e && e.value){ pre=e.value; break; } }
+          var h=''; for(var j=0;j<d.classes.length;j++){ h+='<option value="'+esc(d.classes[j].id)+'">'+esc(d.classes[j].name)+'</option>'; }
+          s.innerHTML=h; if(pre) s.value=pre; s.setAttribute('data-init','1');
+        }).catch(function(e){});
+      }
+      function nameOf(st){
+        try{ if(typeof resolveStudentName==='function') return resolveStudentName(st.loginId, st.name); }catch(e){}
+        return st.name || st.loginId || '';
+      }
+      function kanaOf(st){
+        var f = window._serverFuriganaMap || {};
+        return String(f[st.loginId] || '') || nameOf(st);
+      }
+      function render(d){
+        var list=$('qnList'); if(!list) return;
+        var roster=(d.roster||[]).slice();
+        roster.sort(function(a,b){ return kanaOf(a).localeCompare(kanaOf(b),'ja'); });
+        var wrote=d.wrote||{}; var done=0;
+        for(var i=0;i<roster.length;i++){ if(wrote[roster[i].userId]) done++; }
+        var cnt=$('qnCount'); if(cnt) cnt.textContent = done ? ('今週 '+done+'人に書きました') : '';
+        var h='';
+        for(var j=0;j<roster.length;j++){
+          var st=roster[j]; var uid=st.userId;
+          if(!St[uid]) St[uid]={ vis:1, sub:'' };
+          var n=wrote[uid]||0;
+          h+='<div class="qnRow" data-uid="'+esc(uid)+'">';
+          h+='<div class="qnName">'+esc(nameOf(st))+(n?'<small>今週 '+n+'件</small>':'')+'</div>';
+          h+='<div class="qnIn"><input type="text" class="qnText" data-uid="'+esc(uid)+'" placeholder="気づいたことを一言">';
+          h+='<button type="button" class="qnVis" data-uid="'+esc(uid)+'" title="'+esc(VIS[0].tip)+'">'+VIS[0].mark+'</button></div>';
+          h+='<div class="qnSub">';
+          for(var k=0;k<SUBJ.length;k++){ h+='<button type="button" class="qnSubBtn" data-uid="'+esc(uid)+'" data-s="'+esc(SUBJ[k])+'">'+esc(SUBJ[k])+'</button>'; }
+          h+='</div><div class="qnSaved" data-uid="'+esc(uid)+'"></div></div>';
+        }
+        list.innerHTML = h || '<div style="padding:14px;color:#94a3b8;font-size:13px">このクラスの児童が見つかりません</div>';
+      }
+      function load(){
+        var cid=classId();
+        var list=$('qnList');
+        if(!cid){ if(list) list.innerHTML='<div style="padding:14px;color:#94a3b8;font-size:13px">上でクラスをえらんでください</div>'; return; }
+        if(list) list.innerHTML='<div style="padding:14px;color:#94a3b8;font-size:13px">よみこみ中…</div>';
+        fetch('/api/teacher/quicknote/roster?classId='+encodeURIComponent(cid))
+          .then(function(r){return r.json();})
+          .then(function(d){ if(d && d.ok) render(d); else if(list) list.innerHTML='<div style="padding:14px;color:#dc2626;font-size:13px">名簿が読めませんでした</div>'; })
+          .catch(function(e){ if(list) list.innerHTML='<div style="padding:14px;color:#dc2626;font-size:13px">エラー: '+esc(e.message)+'</div>'; });
+      }
+      function save(uid, inp){
+        var txt=String(inp.value||'').trim(); if(!txt) return;
+        var row=inp.closest('.qnRow'); var sv=row?row.querySelector('.qnSaved'):null;
+        var stt=St[uid]||{vis:1,sub:''}; var v=VIS[stt.vis-1]||VIS[0];
+        inp.disabled=true;
+        fetch('/api/teacher/student-notes',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ studentId:uid, dayKey:($('qnDate')||{}).value||today(), body:txt, showInKarte:v.karte, aiOk:v.ai, subject:stt.sub })})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            inp.disabled=false;
+            if(d && d.ok){
+              inp.value=''; if(row) row.className='qnRow qnOk';
+              if(sv) sv.innerHTML = '✓ '+v.mark+' '+(stt.sub?'['+esc(stt.sub)+'] ':'')+esc(txt) + (sv.innerHTML?'<br>'+sv.innerHTML:'');
+              var c=$('qnCount'); var m=/[0-9]+/.exec(c&&c.textContent||''); var cur=m?Number(m[0]):0;
+              if(c && !(row && row.getAttribute('data-counted'))){ c.textContent='今週 '+(cur+1)+'人に書きました'; if(row) row.setAttribute('data-counted','1'); }
+            } else { if(sv) sv.textContent='保存できませんでした'; }
+          })
+          .catch(function(e){ inp.disabled=false; if(sv) sv.textContent='エラー: '+e.message; });
+      }
+      function open_(){
+        var w=$('qnWrap'); if(!w) return;
+        w.style.display='block';
+        var dt=$('qnDate'); if(dt && !dt.value) dt.value=today();
+        var chips=$('qnChips');
+        if(chips && !chips.getAttribute('data-init')){
+          var h=''; for(var i=0;i<PHRASE.length;i++){ h+='<button type="button" data-p="'+esc(PHRASE[i])+'">'+esc(PHRASE[i])+'</button>'; }
+          chips.innerHTML=h; chips.setAttribute('data-init','1');
+        }
+        try{ if(typeof loadServerNameMap==='function' && !window._serverFuriganaMap) loadServerNameMap(); }catch(e){}
+        fillClasses().then(load);
+      }
+      function close_(){ var w=$('qnWrap'); if(w) w.style.display='none'; }
+
+      document.addEventListener('click', function(ev){
+        var t=ev.target; if(!t || !t.getAttribute) return;
+        if(t.id==='qnFab' || t.id==='qnOpenFromNotes'){ ev.preventDefault(); open_(); return; }
+        if(t.id==='qnClose'){ close_(); return; }
+        if(t.id==='qnWrap'){ close_(); return; }
+        if(t.className==='qnVis'){
+          var u=t.getAttribute('data-uid'); if(!St[u]) St[u]={vis:1,sub:''};
+          St[u].vis = St[u].vis>=3 ? 1 : St[u].vis+1;
+          var v=VIS[St[u].vis-1]; t.textContent=v.mark; t.title=v.tip; return;
+        }
+        if(t.className && String(t.className).indexOf('qnSubBtn')>=0){
+          var u2=t.getAttribute('data-uid'); var s=t.getAttribute('data-s');
+          if(!St[u2]) St[u2]={vis:1,sub:''};
+          var row=t.closest('.qnRow');
+          if(row){ var bs=row.querySelectorAll('.qnSubBtn'); for(var i=0;i<bs.length;i++) bs[i].className='qnSubBtn'; }
+          if(St[u2].sub===s){ St[u2].sub=''; } else { St[u2].sub=s; t.className='qnSubBtn on'; }
+          return;
+        }
+        if(t.parentNode && t.parentNode.id==='qnChips'){
+          var p=t.getAttribute('data-p');
+          if(lastInput){ lastInput.value = (lastInput.value?lastInput.value+' ':'') + p; lastInput.focus(); }
+          return;
+        }
+      });
+      document.addEventListener('focusin', function(ev){ if(ev.target && ev.target.className==='qnText') lastInput=ev.target; });
+      document.addEventListener('keydown', function(ev){
+        if(ev.key==='Enter' && ev.target && ev.target.className==='qnText'){ ev.preventDefault(); save(ev.target.getAttribute('data-uid'), ev.target); }
+        if(ev.key==='Escape'){ var w=$('qnWrap'); if(w && w.style.display==='block') close_(); }
+      });
+      document.addEventListener('focusout', function(ev){
+        if(ev.target && ev.target.className==='qnText' && String(ev.target.value||'').trim()) save(ev.target.getAttribute('data-uid'), ev.target);
+      });
+      document.addEventListener('change', function(ev){ if(ev.target && ev.target.id==='qnClass') load(); });
+    })();
+    </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=12"></script>
+    <script src="/teacher-ai.js?v=13"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
