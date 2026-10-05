@@ -897,7 +897,7 @@
             + '<span style="flex:0 0 auto;font-size:10px;font-weight:900;color:#b45309;">+'+(x.coins||0)+'</span>'
             + '</div>';
         }).join('');
-        boxes += '<div style="flex:1 1 180px;min-width:160px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;padding:8px 10px;">'
+        boxes += '<div style="flex:1 1 220px;min-width:160px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;padding:8px 10px;">'
           + '<div style="font-size:11px;font-weight:900;color:#334155;margin-bottom:2px;">'+(DEF2_MVP_ICON[c.key]||'')+' きょうの '+esc(c.label||DEF2_MVP_LABEL[c.key]||'')+' ベスト3</div>'
           + rows + '</div>';
       }
@@ -993,7 +993,7 @@ function def2HypeHtml(log, st){
         return '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
           + '<span style="width:20px;text-align:center;">'+medal+'</span>'
           + '<span style="width:20px;text-align:center;">'+esc(x.sprite||'')+'</span>'
-          + '<span style="flex:0 0 84px;font-size:12px;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(x.name||'')+'</span>'
+          + '<span style="flex:0 0 120px;font-size:12px;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(x.name||'')+'</span>'
           + '<span style="flex:1;background:#e2e8f0;border-radius:999px;height:12px;overflow:hidden;"><span style="display:block;width:'+w+'%;height:100%;background:'+(x.alive?'#3b82f6':'#94a3b8')+';"></span></span>'
           + '<span style="flex:0 0 44px;text-align:right;font-size:11px;color:#475569;">'+(x.dealt||0)+'</span>'
           + '</div>';
@@ -1676,3 +1676,5 @@ function def2HypeHtml(log, st){
   if(document.readyState!=='complete') window.addEventListener('load', install);
   setInterval(install, 700);
 })();
+
+/* DEF2NAME_V1 名前の わくを ひろげた（ベスト3 180->220 / 貢献ゲージ 84->120）。 見た目だけ。勝敗の けいさんには さわっていない。 */
