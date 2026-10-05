@@ -237,6 +237,8 @@ function formatYMD(d){
         .shiny-mon.sv4{filter:hue-rotate(120deg) saturate(2.2) brightness(1.04);}
         .shiny-mon.sv5{filter:hue-rotate(130deg) saturate(2.2) brightness(1.04);}
         .shiny-mon.sv6{filter:sepia(0.8) saturate(3.4) hue-rotate(165deg) brightness(1.08);}
+        /* SHINY_ACTIVE_V4 10連のまとめで 色違いの札 */
+        .shiny-card{border-color:#f59e0b !important;background:#fffbeb !important;box-shadow:0 0 8px rgba(245,158,11,0.55);}
         /* SHINY_BOX_DEX_V1 ここから */
         #boxGrid > div{position:relative;}
         .shiny-ring{position:absolute;top:-2px;right:-2px;bottom:-2px;left:-2px;border:2px solid #f59e0b;border-radius:0.6rem;pointer-events:none;box-shadow:0 0 6px rgba(245,158,11,0.55);}
@@ -14750,7 +14752,7 @@ function grantOcha(){
             document.getElementById('playerLevelDisplay').innerText = `Lv.${lvlDisplay}`;
             document.getElementById('playerHpText').innerText = myMon.hp;
             document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
-            try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = _pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny; if (window.monShinySet) window.monShinySet(_psd, _pmid, !!_psh); else { if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } } catch(e){}
+            try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = window.__activeShiny ? window.__activeShiny(_pmid) : (_pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny); if (window.monShinySet) window.monShinySet(_psd, _pmid, !!_psh); else { if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } } catch(e){}
             const hpPct = Math.max(0, (myMon.hp / myMon.maxHp) * 100);
             document.getElementById('playerHpBar').style.width = `${hpPct}%`;
             document.getElementById('playerPartyBalls').innerHTML = battle.myPartyStatus.map((p, i) => `<div class="ball ${i === battle.activeMyIdx ? 'active' : ''} ${p.hp <= 0 ? 'fainted' : ''}"></div>`).join('');
@@ -17199,7 +17201,7 @@ function updateTrainingMenu() {
                         name = 'Unknown';
                     }
                     
-                    if (!summary[key]) {
+                    if (r.shiny) { key = String(key) + '__sh'; } if (!summary[key]) {
                         summary[key] = { 
                             type: r.type, 
                             sprite: sprite, 
@@ -17213,14 +17215,14 @@ function updateTrainingMenu() {
                 // 結果表示HTML生成
                 let html = '<div class="text-center"><h3 class="text-2xl font-bold mb-4">🎉 10連ガチャ結果 🎉</h3><div class="grid grid-cols-2 gap-3 mb-4 max-h-[400px] overflow-y-auto">';
                 
-                Object.values(summary).forEach(item => {
+                Object.entries(summary).forEach(function(__e){ var __k = __e[0], item = __e[1]; item.shiny = /__sh$/.test(__k); item.monId = parseInt(String(__k).replace('__sh', ''), 10) || 0;
                     const isHiden = item.type === 'hiden';
                     const bgColor = isHiden ? 'bg-yellow-50 border-yellow-300' : 
                                     item.type === 'monster' ? 'bg-blue-50 border-blue-300' : 'bg-green-50 border-green-300';
                     
                     html += `
-                        <div class="${bgColor} border-2 rounded-lg p-3 flex flex-col items-center justify-center">
-                            <div class="text-4xl mb-1">${item.sprite}</div>
+                        <div class="${bgColor} border-2 rounded-lg p-3 flex flex-col items-center justify-center${item.shiny ? ' shiny-card' : ''}">
+                            <div class="text-4xl mb-1">${item.shiny ? '<span class="' + (window.monShinyClass ? window.monShinyClass(item.monId) : 'shiny-mon') + '">' + item.sprite + '</span>' : item.sprite}</div>
                             <div class="font-bold text-sm text-center">${item.name}</div>
                             <div class="text-xl font-bold text-orange-600">×${item.count}</div>
                         </div>
@@ -55655,6 +55657,30 @@ async function _checkContactBadge(){
       }, 0);
     } catch (e) {}
     return hit;
+  };
+})();
+</script>
+<script>/* SHINY_ACTIVE_V4 */
+(function(){
+  /* バトル中の自分のすがた: 種族ではなく「いま手持ちにしている個体」で見る。
+     player.party の持ち方（monsterId の配列）は変えない。
+     ボックスの個体が1つも見つからないときは、これまでどおり種族で見る。 */
+  window.__activeShiny = function(id){
+    try {
+      if (!id) return false;
+      if (typeof getAllBoxEntries === 'function') {
+        var es = getAllBoxEntries() || [];
+        var any = false, act = false;
+        for (var i = 0; i < es.length; i++) {
+          var e = es[i];
+          if (!e || Number(e.monsterId) !== Number(id)) continue;
+          any = true;
+          if (e.isActive && e.shiny) act = true;
+        }
+        if (any) return act;
+      }
+      return !!(window.player && player.monsters && player.monsters[id] && player.monsters[id].shiny);
+    } catch (err) { return false; }
   };
 })();
 </script>
