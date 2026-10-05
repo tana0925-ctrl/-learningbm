@@ -1,0 +1,96 @@
+name: KARTE_HANSHIN_V1 わたしのカルテの見出しを「阪神マンから」にする
+
+# 児童画面「わたしのカルテ」の中の見出し「👩‍🏫 先生から」を「阪神マンから」に変える。
+#   ・この欄の中身は student_ai_comments 一本（＝阪神マンが本人あてに書いたひとこと）。
+#     先生が手で書くコメント（家庭学習シートの「先生から」欄・メール・おへんじ・計画
+#     アドバイス）は、ここには一切まざらない。だから一律に変えてよい。
+#   ・下の注記「※ 先生が読んで〜」は残す（先生が目を通していることを必ず伝える）。
+#   ・public/index.html には一切さわらない。
+#   ・配信チェーンは1本も増やさない。増減していたら何も書かずに止まる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: "流す直前に実測したチェーン件数（src/index.tsx の app.get('/') 〜 app.get('/logout') の .replace( の数）。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/'\"); b=s.index(\"app.get('/logout'\"); print(s[a:b].count('.replace('))"
+          echo -n 'public/index.html sha256: '; sha256sum public/index.html
+          echo -n '既適用マーカー: '; grep -c 'KARTE_HANSHIN_V1' public/student-karte.js || true
+
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_hanshin_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- public/defense2.js
+          echo 'public/index.html ほか: 無変更 OK'
+          echo -n '変更のあったファイル: '; git --no-pager diff --name-only | tr '\n' ' '; echo
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -c 'KARTE_HANSHIN_V1' public/student-karte.js) -ge 3
+          grep -q '阪神マンから' public/student-karte.js
+          grep -q 'monSpriteHtml(154' public/student-karte.js
+          grep -q '先生が読んで' public/student-karte.js
+          ! grep -q '先生から' public/student-karte.js
+          grep -q '/student-karte.js?v=2' src/index.tsx
+          ! grep -q '/student-karte.js?v=1' src/index.tsx
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/'\"); b=s.index(\"app.get('/logout'\"); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 配信JSの構文チェック（既存のものを使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: コミット&プッシュ
+        run: |
+          git add public/student-karte.js src/index.tsx
+          if git diff --cached --quiet; then echo "変更なし"; exit 1; fi
+          git commit -m "KARTE_HANSHIN_V1: わたしのカルテの見出しを「先生から」→「阪神マンから」（阪神マンの絵ID154／注記は残す／student-karte.js v=1->v=2／チェーン167->167）"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: 次の手順
+        run: echo 'このpushでは Deploy は起動しません。Deploy to Cloudflare Pages を手動で dispatch してください。'
