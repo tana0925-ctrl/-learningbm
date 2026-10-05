@@ -1,0 +1,118 @@
+name: KARTE_STYLE_V1 「どう学ぶといいか」の3単元が同じ文になるのを直す
+
+# 別セッションが 2026-09-25 に見つけていた不具合（scripts/patch_karte_slim_v1.py のメモ）:
+#   「『出会ったばかり』の一文が3単元とも同じになっていた」
+# styleFor() が 1問あたりの反復回数だけで文を選ぶので、3単元が同じ帯に入ると3行とも同じ文になる。
+# これは今回ずっと直してきたのと同じ種類の不具合（同じ文がくり返される）。
+#
+# 💡 どう学ぶといいか は第1便で子どもに渡す紙からは外したが、
+# 先生の「📊 個人分析」画面では いまも _kHowToLearn(data) として使われている。だから直す。
+#
+# 直し方: styleFor(p) -> styleFor(p, i)。単元の位置でも言い方を変える（各帯に3通り）。
+# ※ 別セッションの scripts/patch_karte_slim_v1.py には一切さわらない（未実行・方針が逆向き）。
+#
+# さわるのは src/index.tsx の _kHowToLearn だけ。チェーンは増やさない。D1には触らない。
+# 数えるときは grep -c を使わない（src/index.tsx は巨大な1行）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: "流す直前に実測したチェーン件数。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          sha256sum src/index.tsx public/index.html public/student-karte.js public/teacher-ai.js
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_style_v1.py
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- public/student-karte.js
+          git diff --quiet -- public/teacher-ai.js
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- scripts/patch_karte_slim_v1.py
+          echo '無変更 OK'
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -o 'KARTE_STYLE_V1' src/index.tsx | wc -l) -ge 1
+          grep -q 'var styleFor=function(p, i){' src/index.tsx
+          grep -q 'esc(styleFor(p, i))' src/index.tsx
+          ! grep -q 'var styleFor=function(p){' src/index.tsx
+          ! grep -q 'esc(styleFor(p))' src/index.tsx
+          # 前の便を壊していない
+          test $(grep -o 'KARTE_ADD_V1' src/index.tsx | wc -l) -ge 7
+          grep -q 'function _faKarteGraphs(d){' src/index.tsx
+          grep -q '/teacher-ai.js?v=12' src/index.tsx
+          grep -q '/student-karte.js?v=3' src/index.tsx
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+      - name: 3単元で文が変わることを確かめる
+        run: |
+          set -e
+          node - <<'JS'
+          const fs = require('fs');
+          const s = fs.readFileSync('src/index.tsx','utf8');
+          const m = s.match(/var styleFor=function\(p, i\)\{[\s\S]*?\n        \};/);
+          if (!m) { console.error('NG: styleFor が取り出せない'); process.exit(1); }
+          eval(m[0].replace('var styleFor=', 'global.styleFor='));
+          for (const r of [8, 1.1, 3]) {
+            const out = [0,1,2].map(i => styleFor({repeatPer:r}, i));
+            const uniq = new Set(out).size;
+            console.log('1問あたり' + r + '回 → ' + uniq + '通り');
+            out.forEach((o,ix) => console.log('   ' + (ix+1) + '. ' + o));
+            if (uniq !== 3) { console.error('NG: 3単元で同じ文が出ている'); process.exit(1); }
+          }
+          console.log('OK');
+          JS
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: 既存のレンダリング確認（そのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+      - name: コミット&プッシュ
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "::error::変更なし"; exit 1; fi
+          if git diff --cached --name-only | grep -qvx 'src/index.tsx'; then echo "::error::src/index.tsx 以外が入っている"; exit 1; fi
+          git commit -m "KARTE_STYLE_V1: 先生の個人分析『どう学ぶといいか』で、3単元が同じ帯に入ると3行とも同じ文になっていたのを直す（単元の位置でも言い方を変える・チェーン ${{ inputs.chain_before }} のまま）"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: 次の手順
+        run: echo 'このpushでは Deploy は起動しません。Deploy to Cloudflare Pages を手動で dispatch してください。'
