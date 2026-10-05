@@ -310,7 +310,7 @@
       id: Number(id), side: side, name: m.name || ('No.' + id), el: own,
       hp: fromPct('hp', pr.hp), maxHp: fromPct('hp', pr.hp),
       atk: fromPct('atk', pr.atk), def: fromPct('def', pr.def), spd: fromPct('spd', pr.spd),
-      ab: 0, db: 0, heals: 0, st: null, stT: 0, stImm: 0, alive: true, sk: []
+      ab: 0, db: 0, heals: 0, st: null, stT: 0, stImm: 0, stNew: false, alive: true, sk: []
     };
     var src = (m.skills || []).slice(0, 4);
     for (var i = 0; i < src.length; i++) {
@@ -381,14 +381,15 @@
     var c = ST[kind];
     if (c.immune.indexOf(d.el) >= 0) return '';
     if (Math.random() >= STRATE) return '';
-    d.st = kind; d.stT = c.turns;
-    return d.name + ' は ' + c.icon + c.label + ' に なった！';
+    d.st = kind; d.stT = c.turns; d.stNew = true;
+    return d.name + ' は ' + c.icon + c.label + ' に なった！（あと ' + c.turns + 'ターン）';
   }
 
   // ターンの おわりに ダメージ・ターン数・なおり を処理する
   function stTick(u, lines) {
     if (!u || !u.alive) return;
     var c = stOf(u);
+    if (c && u.stNew) { u.stNew = false; return; } // かかった そのターンは 数えない
     if (c) {
       if (c.dot > 0) {
         var dmg = Math.max(1, Math.round(u.maxHp * c.dot));
