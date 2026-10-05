@@ -96,13 +96,8 @@
          + '<div class="text-sm text-gray-800" style="white-space:pre-wrap">' + esc(d.teacherMessage) + '</div></div>';
     }
 
-    /* KARTE_HANSHIN_V1 「先生が目を通している」ことは必ず伝える。
-       上が阪神マンになったので、文としてつながるように言い方だけ整えた。 */
-    h += '<div class="text-xs text-gray-500 mt-2">'
-       + (d.teacherMessage
-          ? '※ 阪神マンのことばは、先生が読んでから わたしてくれたものだよ。'
-          : '※ 先生が読んで、わたしてくれたものだよ。')
-       + '</div>';
+    /* KARTE_HANSHIN_V2 (2026-10-05) 注記（※〜）は出さない（先生の指示）。
+       見出しの「阪神マンから」と虎の絵はそのまま。 */
     h += '</div>';
 
     el.innerHTML = h;
