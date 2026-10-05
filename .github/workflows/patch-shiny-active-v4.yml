@@ -1,0 +1,72 @@
+name: patch-shiny-active-v4
+
+# SHINY_ACTIVE_V4 (第4便)
+#   1) バトル中の自分のすがたを「いま手持ちにしている個体」で見る（種族単位をやめる）
+#      player.party の持ち方は変えない。D1に入っている party_json / snapshot_json も変わらない。
+#   2) 10連ガチャのまとめに色違いを出す（別の札・金わく・キャラごとの色）
+#   さわるのは public/index.html だけ。src/index.tsx は触らない（置換チェーンは増えない）。
+#   GACHAIMG_V1 とアンカーが1つも重なっていないことを確認済み。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi). awanakereba nanimo kakazu tomaru'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          wc -c src/index.tsx public/index.html
+          sha256sum src/index.tsx public/index.html
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_shiny_active_v4.py
+      - name: keep the patched file aside
+        run: cp public/index.html /tmp/patched_index.html
+      - name: build
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: render check (teacher pages)
+        run: node scripts/render_check.mjs
+      - name: render check (child page)
+        run: node scripts/render_check_child.mjs
+      - name: restore the patched file (do not commit inject-rt output)
+        run: |
+          cp /tmp/patched_index.html public/index.html
+          sha256sum src/index.tsx public/index.html
+      - name: record diff
+        run: |
+          git --no-pager diff --stat
+          git status --porcelain
+      - name: commit and push
+        run: |
+          git add public/index.html
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          if git diff --cached --name-only | grep -qx 'src/index.tsx'; then echo "::error::src/index.tsx must not change"; exit 1; fi
+          git commit -m "SHINY_ACTIVE_V4: バトル中は手持ちの個体で判定 / 10連のまとめに色違いを出す (チェーン ${{ inputs.chain_before }} のまま)"
+          git push origin HEAD:main
