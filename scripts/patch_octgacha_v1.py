@@ -241,7 +241,7 @@ EDITS = [
     ("          if(m.gacha===true) return 'ガチャ';", 'before_script',
      "try{var _lp=window.getLimitedGachaFor&&window.getLimitedGachaFor(id);"
      "if(_lp)return _lp.label+'ガチャ（ふつう／ラッキー）で、げきレアが あたったときに 出る。'"
-      "+window.limitedGachaJa(_lp.start)+'〜'+window.limitedGachaJa(_lp.end)+'だけ';}catch(e){}"),
+     "+window.limitedGachaJa(_lp.start)+'〜'+window.limitedGachaJa(_lp.end)+'だけ';}catch(e){}"),
 ]
 
 
@@ -259,14 +259,14 @@ a = src.index("app.get('/'")
 b = src.index("app.get('/logout'")
 head, chain, tail = src[:a], src[a:b], src[b:]
 
-# アンカーは「配信される児立ページ」= public/index.html の中にある。
+# アンカーは「配信される児童ページ」= public/index.html の中にある。
 # src/index.tsx ではなく、こちらで一意性を数える。
 html = io.open('public/index.html', encoding='utf-8').read()
 
 added = 0
 for anchor, kind, payload in EDITS:
     if html.count(anchor) != 1:
-        die('アンカーが %d 件見つかりました（1件つないと危険）: %s' % (html.count(anchor), anchor[:60]))
+        die('アンカーが %d 件見つかりました（1件でないと危険）: %s' % (html.count(anchor), anchor[:60]))
     if kind.endswith('html'):
         new = anchor + payload
     elif kind.startswith('after'):
@@ -297,7 +297,7 @@ out = head + chain + tail
 
 after = chain_count(out)
 if after - now != CHAIN_DELTA:
-    die('チェーンの增分が %d です（%d のはず）。中止します。' % (after - now, CHAIN_DELTA))
+    die('チェーンの増分が %d です（%d のはず）。中止します。' % (after - now, CHAIN_DELTA))
 if added != CHAIN_DELTA:
     die('差し替えた数が %d です（%d のはず）。' % (added, CHAIN_DELTA))
 
@@ -324,5 +324,5 @@ print('list.js: %d 件 -> %d 件' % (before_n, len(ids)))
 missing = [i for i in NEW_IDS if not os.path.exists('public/mon/%d.png' % i)]
 if missing:
     print('※ 絵がまだ無い id: %s' % missing)
-    print('※ 絵が無くても受け皿が���文字に戻すので画面は壊れない。'
+    print('※ 絵が無くても受け皿が絵文字に戻すので画面は壊れない。'
           'PNG を置いた時点で自動的に絵に変わる。')
