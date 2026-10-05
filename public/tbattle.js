@@ -58,7 +58,8 @@
 
   var SE = 1.3;     // こうかばつぐん（既存バトルと同じ倍率。上げない）
   var RES = 0.77;   // こうかいまひとつ
-  var IMM = 0.4;    // 本来は無効。0 だと手が無くなるので弱い倍率にしてある
+  var IMM = 0.6;    // 本来は無効。0 だと手が無くなるので弱い倍率にしてある
+                    // （0.4 だと ゴーストのリーダーが ノーマルに ほとんど勝てなくなった）
   var K = 11;       // ダメージ係数（これより小さいと時間切ればかりになった）
   var BUFF = 0.30;  // 強化1段あたり +30%
   var HEAL = 0.25;  // 回復は最大HPの25%
@@ -116,22 +117,22 @@
       party: [1161, 938, 1403], style: 'heal',
       say: 'あわてない。ゆっくり いこう。' },
     { key: 'grass', name: 'くさの モリタ', emoji: '🌿', badge: 'くさバッジ',
-      party: [1403, 991, 1024], style: 'heal',
+      party: [1403, 991, 36], style: 'heal',
       say: 'そだてた ものは つよいよ。' },
     { key: 'electric', name: 'でんきの ライカ', emoji: '⚡', badge: 'でんきバッジ',
-      party: [1146, 953, 1171], style: 'spd',
+      party: [1146, 953, 938], style: 'spd',
       say: 'はやさで きめる！' },
     { key: 'rock',  name: 'いわの ガンテツ', emoji: '🪨', badge: 'いわバッジ',
-      party: [1112, 1613, 1208], style: 'def',
+      party: [1112, 1613, 1176], style: 'def',
       say: 'かたいぞ。くずせるか？' },
     { key: 'ghost', name: 'ゴーストの ヨイヤミ', emoji: '👻', badge: 'ゴーストバッジ',
-      party: [1210, 1412, 1206], style: 'debuff',
+      party: [1210, 1206, 1201], style: 'debuff',
       say: 'ふふ、なにが くるか わかるかな。' },
     { key: 'steel', name: 'はがねの テツロウ', emoji: '⚙️', badge: 'はがねバッジ',
-      party: [1062, 942, 1211], style: 'def',
+      party: [1062, 2114, 942], style: 'def',
       say: 'きみの いちげき、うけとめる。' },
     { key: 'fairy', name: 'フェアリーの コトハ', emoji: '🎀', badge: 'フェアリーバッジ',
-      party: [2101, 1501, 1504], style: 'buff',
+      party: [2101, 1152, 1504], style: 'buff',
       say: 'たのしく いこうね！' }
   ];
   // 第2便（試運転）は1人だけ。第3便でここを LEADERS.length にする。
@@ -314,9 +315,16 @@
     var src = (m.skills || []).slice(0, 4);
     for (var i = 0; i < src.length; i++) {
       var s = src[i] || {};
-      var ty = s.type === 'heavy' ? 'heavy' : (s.type === 'unique' ? 'unique' : 'normal');
+      // 技の type は 'normal' / 'heavy' / 'unique' のほかに、属性名が入っているものが 52 件ある
+      // （カボチャ頭の「ジャッククラッシュ」は type:'ghost' など）。
+      // それを 'normal' 扱いにすると、そのキャラから強い技が消えてしまうので、別に見る。
+      var ty, el;
+      if (s.type === 'heavy') { ty = 'heavy'; el = own; }
+      else if (s.type === 'unique') { ty = 'unique'; el = own; }
+      else if (s.type === 'normal') { ty = 'normal'; el = 'normal'; }
+      else if (CHART[s.type]) { ty = (Number(s.pow) >= 20 ? 'heavy' : 'normal'); el = s.type; }
+      else { ty = 'normal'; el = 'normal'; }
       var pow = ty === 'normal' ? POW.normal : (ty === 'heavy' ? POW.heavy : (Number(s.pow) > 0 ? POW.unique : 0));
-      var el = ty === 'normal' ? 'normal' : own;
       var sub = subElFor(id, s.name);
       if (sub) el = sub;
       u.sk.push({
