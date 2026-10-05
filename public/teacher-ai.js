@@ -252,18 +252,81 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       if (m.peopleWords > 0) none += '　⚠ 本文に人名らしい語 ' + m.peopleWords + '件';
       say('✓ コピーしました' + from + '（約' + Math.round((m.chars || 0) / 1000) + '千字 / AIが書く欄 ' + (m.blocks || 0) + '個）' + none + '。ChatGPT / Gemini / Claude に貼り付けてください' + warn);
     };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt); done(); });
-    } else { fallbackCopy(txt); done(); }
+    // 2026-10-05 COPYCHECK_V1：入っていないのに「コピーしました」と言わない。
+    //   書いたあと読み返して確かめる。読み返せない環境では今までどおり成功あつかい。
+    var ok = function () {
+      var b = $('taiManualBox');
+      if (b && b.parentNode) b.parentNode.removeChild(b);
+      done();
+    };
+    var ng = function (why) {
+      say('⚠ コピーできていません（' + why + '）。この画面を開いたまま、'
+        + 'もう一度「📋 まとめてコピー」を押してください。'
+        + '作り直しはしないので、すぐ終わります。');
+      taiManualBox(txt);
+    };
+    var norm = function (v) { return String(v == null ? '' : v).replace(/\r\n/g, '\n'); };
+    if (!(navigator.clipboard && navigator.clipboard.writeText)) {
+      if (fallbackCopy(txt)) ok(); else ng('このブラウザでは書きこめません');
+      return;
+    }
+    navigator.clipboard.writeText(txt).then(function () {
+      if (!navigator.clipboard.readText) { ok(); return; }
+      navigator.clipboard.readText().then(function (t) {
+        var got = norm(t);
+        if (got.length && got.slice(0, 120) === txt.slice(0, 120)
+            && got.length >= Math.floor(txt.length * 0.9)) ok();
+        else ng('書きこめたように見えて、中身が入っていません');
+      }, function () { ok(); });
+    }, function (e) {
+      if (fallbackCopy(txt)) { ok(); return; }
+      var nm = (e && e.name) || '';
+      ng(nm === 'NotAllowedError'
+         ? 'ほかの画面に切りかえているあいだは書きこめません'
+         : (nm || String(e)));
+    });
   }
+  // 手で Ctrl+C できる逃げ道。コピーに失敗したときだけ出す。
+  //   onclick 属性は使わない（エスケープ事故を構造でさける）。
+  function taiManualBox(txt) {
+    try {
+      var st = $('taiStatus');
+      var host = (st && st.parentNode) || document.body;
+      var old = $('taiManualBox');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      var box = document.createElement('div');
+      box.id = 'taiManualBox';
+      box.style.cssText = 'margin-top:8px;border:2px solid #dc2626;border-radius:10px;padding:8px;background:#fef2f2';
+      var lead = document.createElement('div');
+      lead.style.cssText = 'font-size:12px;font-weight:800;color:#b91c1c;margin-bottom:5px';
+      lead.textContent = '下の枠の中が、コピーしたかった文です。「ぜんぶ選ぶ」を押してから Ctrl+C（Mac は ⌘+C）でコピーできます。';
+      var ta = document.createElement('textarea');
+      ta.id = 'taiManualText';
+      ta.readOnly = true;
+      ta.rows = 5;
+      ta.style.cssText = 'width:100%;font-size:11px;border:1px solid #fca5a5;border-radius:8px;padding:6px';
+      ta.value = txt;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'ぜんぶ選ぶ';
+      btn.style.cssText = 'margin-top:5px;background:#dc2626;color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer';
+      btn.addEventListener('click', function () { ta.focus(); ta.select(); });
+      box.appendChild(lead); box.appendChild(ta); box.appendChild(btn);
+      host.appendChild(box);
+      ta.focus(); ta.select();
+    } catch (e) {}
+  }
+  // 2026-10-05 COPYCHECK_V1：できたかどうかを返す（今までは握りつぶしていた）。
+  //   _faFallbackCopy() は成否を返さないので、ここでは使わず自前でやる（やることは同じ）。
   function fallbackCopy(txt) {
     try {
-      if (typeof _faFallbackCopy === 'function') { _faFallbackCopy(txt); return; }
       var ta = document.createElement('textarea');
       ta.value = txt; ta.style.position = 'fixed'; ta.style.left = '-9999px';
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.appendChild(ta); ta.select();
+      var okc = document.execCommand('copy');
       document.body.removeChild(ta);
-    } catch (e) {}
+      return !!okc;
+    } catch (e) { return false; }
   }
 
   // ===================================================================
@@ -1765,7 +1828,7 @@ function applyMonday() {
   var note = document.createElement('div');
   note.id = 'taiMonNote';
   note.className = 'bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5 text-xs text-sky-800 font-bold mb-2';
-  note.textContent = '\U0001F4C5 今日は月曜日です。「今週の計画へのアドバイス」も入れてあります。子どもが計画を出しおわってから①を押してください。';
+  note.textContent = '📅 今日は月曜日です。「今週の計画へのアドバイス」も入れてあります。子どもが計画を出しおわってから①を押してください。';
   row.parentNode.insertBefore(note, row.nextSibling);
 }
 
@@ -1818,7 +1881,7 @@ async function taiShowMaterials(cid) {
   var warn = !!(total && planN < total);
   var tone = warn ? 'amber' : 'emerald';
   var h = '<div class="rounded-lg border-2 border-' + tone + '-300 bg-' + tone + '-50 p-2">';
-  h += '<div class="text-xs font-black text-' + tone + '-800">\U0001F4CA いま何人ぶんの材料があるか</div>';
+  h += '<div class="text-xs font-black text-' + tone + '-800">📊 いま何人ぶんの材料があるか</div>';
   h += '<ul class="text-[11px] text-' + tone + '-800 list-disc pl-4 mt-1 space-y-0.5">';
   h += '<li>今週の計画を書いているのは <b>' + total + '人中 ' + planN + '人</b> です（計画アドバイス）</li>';
   h += '<li>まだ返していない家庭学習は <b>' + hwN + '人ぶん</b> です（家庭学習コメント）</li>';

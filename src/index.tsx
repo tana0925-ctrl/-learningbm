@@ -15932,7 +15932,7 @@ app.get('/teacher', (c) => {
       })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=9"></script>
+    <script src="/teacher-ai.js?v=10"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
