@@ -1,0 +1,183 @@
+name: patch-gachaimg-v1
+
+# GACHAIMG_V1  ガチャの結果画面のキャラを、絵文字からキャラ画像に差し替える。
+#
+#   ・図鑑ですでに動いている monSpriteHtml を呼ぶだけ。新しい仕組みは作らない。
+#   ・直すのは public/index.html の2か所だけ（1連の結果 / 10連のまとめ）。
+#   ・src/index.tsx は1バイトも触らない。チェーン数は「増えていないこと」の確認だけに使う。
+#     合わなければパッチは1バイトも書かずに止まる（フェイルクローズ）。
+#   ・秘伝の書とアイテムはキャラではないので絵文字のまま。残っていることを数えて確かめる。
+#   ・CSS は足さない。.mon-img{width:1em;height:1em} なので親の文字サイズで決まる。
+#       1連 = text-8xl → 96x96 ／ 10連 = text-4xl → 36x36
+#
+#   ⚠️ Deploy は自動で起こさない。児童23人が使う画面なので、手で16時以降に dispatch する。
+#   ⚠️ DDL は流さない。D1 には一切触らない。
+#   ⚠️ 絵（public/mon/*.png）と list.js はこの便では触らない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | wc -c
+          git show HEAD:public/index.html | sha256sum
+          git show HEAD:public/mon/list.js | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_gachaimg_v1.py
+
+      - name: src/index.tsx は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- src/index.tsx; then
+            echo "::error::src/index.tsx が変わっています。中止します。"; exit 1
+          fi
+
+      - name: public/mon/ は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- public/mon; then
+            echo "::error::public/mon/ が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 変わったファイルは public/index.html の1つだけであること
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      # inject-rt.py は public/index.html に書きこむことがある（今は入っているので素通りの見こみ）。
+      # 念のため、あてたものを控えておいてビルドのあとで戻す。
+      - name: あてた public/index.html を控える
+        run: |
+          cp public/index.html /tmp/patched_index.html
+          sha256sum /tmp/patched_index.html
+
+      # ⚠️ --bundle は node_modules が要る。既存の便と同じ順番にそろえる。
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+
+      - name: あてた public/index.html を戻して、差分が1ファイルだけのままか見る
+        run: |
+          cp -f /tmp/patched_index.html public/index.html
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: /mon/ がそのまま配る側に入ったままか
+        run: python3 scripts/check_mon_routes_v1.py
+
+      # 既存の検査スクリプトに乗る。新しいものは作らない。
+      - name: 配信HTMLの構文検査（教師ページ側）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側・この便では必須）
+        run: node scripts/render_check_child.mjs
+
+      - name: 配信HTMLに差し替えが本当に載っているか
+        run: |
+          cat > /tmp/verify_gachaimg.mjs <<'JSEOF'
+          import fs from 'fs';
+          const mod = await import(process.cwd() + '/dist/_worker.js');
+          const env = { ASSETS: { fetch: async (req) => {
+            const u = new URL(typeof req === 'string' ? req : req.url);
+            const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname;
+            try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }); }
+            catch (e) { return new Response('', { status: 404 }); } } } };
+          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} });
+          const html = await res.text();
+          const need = {
+            '1 1連の印':              '/* GACHAIMG_V1 1連の結果',
+            '2 1連の呼び出し':         'monSpriteHtml(monster.id, monster.sprite)',
+            '3 10連の印':             '/* GACHAIMG_V1 10連のまとめ',
+            '4 10連の呼び出し':        "monSpriteHtml(r.data.id, (r.data.sprite || '❓'))",
+            '5 絵文字のまま(秘伝の書)': "innerText = result.sprite || '\u{1F4DC}'",
+            '6 絵文字のまま(アイテム)': 'innerText = result.sprite;',
+            '7 出現アニメ':            'animate-pop-count',
+            '8 レア演出':              'drop-shadow-[0_0_20px_rgba(255,255,0,0.5)]',
+            '9 受け皿':                'window.monSpriteHtml',
+            '10 lazy と onerror':      'loading="lazy" decoding="async"',
+            '11 絵文字へ落ちる道':      'onerror="monImgFail(this)"',
+          };
+          for (const k of Object.keys(need)) {
+            const n = html.split(need[k]).length - 1;
+            console.log('  ' + k + ': ' + n + ' 件');
+            if (n < 1) throw new Error('配信HTMLに「' + k + '」が無い');
+          }
+          // 1連の「むきだしの絵文字の行」が消えていること。
+          // try/catch の受けの中に同じ行が1本だけ残るのは正しい（絵が出ないときの落ち先）。
+          const gone = "const monster = result.data;\n                document.getElementById('gachaResultSprite').innerText = monster.sprite;";
+          if (html.includes(gone)) throw new Error('1連の古い絵文字の行が残っている');
+          const n12 = html.split('innerText = monster.sprite;').length - 1;
+          console.log('  12 落ち先の絵文字: ' + n12 + ' 件');
+          if (n12 !== 1) throw new Error('落ち先の絵文字が 1 件ではない: ' + n12);
+          console.log('配信HTML ' + html.length + ' 文字。差し替えも演出も受け皿もそろっている。');
+          JSEOF
+          node /tmp/verify_gachaimg.mjs
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1']:
+              n = s.count(k)
+              print('%-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c public/index.html
+          sha256sum public/index.html src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add public/index.html
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "GACHAIMG_V1: ガチャの結果画面のキャラを絵文字からキャラ画像に（1連96px/10連36px・秘伝の書とアイテムは絵文字のまま／チェーン${{ inputs.chain_before }}->据え置き）"
+          git push origin HEAD:main
