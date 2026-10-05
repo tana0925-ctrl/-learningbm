@@ -4,7 +4,8 @@
  *  ・サーバー側は自分の分しか返さない（ほかの子の user_id を渡すと 403）。
  *  ・テストの点数・得点率・順位・ほかの子との比較は一切出さない。
  *  ・数字は「今週 5日のうち○日」のような実数だけ。パーセントは使わない。
- *  ・文章は「その子自身が書いたことば」と「先生が読んで公開したメッセージ」だけ。
+ *  ・文章は「その子自身が書いたことば」と「阪神マンのひとこと」だけ。
+ *    阪神マンのひとことは、先生が読んで「公開」を押したものだけが出る（KARTE_HANSHIN_V1）。
  */
 (function () {
   'use strict';
@@ -80,12 +81,28 @@
     }
 
     if (d.teacherMessage) {
+      /* KARTE_HANSHIN_V1 (2026-10-05)
+         ここに出る文章は阪神マン（関西弁の応援キャラ）が本人あてに書いたもの。
+         先生が読んで「公開」を押したものだけが届く。
+         紙のカルテの見出し「🐯 阪神マンからのアドバイス」と言い方をそろえた。
+         顔は図鑑の絵（ID:154 阪神マン）。絵が無い・読めないときは 🐯 にもどる。 */
+      var face = '🐯';
+      try {
+        if (typeof window.monSpriteHtml === 'function') face = window.monSpriteHtml(154, '🐯');
+      } catch (e) {}
       h += '<div class="mt-3 rounded-xl bg-white border border-amber-200 p-3">'
-         + '<div class="text-xs font-bold text-amber-700">👩‍🏫 先生から</div>'
+         + '<div class="text-xs font-bold text-amber-700" style="display:flex;align-items:center;gap:5px">'
+         + '<span style="font-size:24px;line-height:1">' + face + '</span><span>阪神マンから</span></div>'
          + '<div class="text-sm text-gray-800" style="white-space:pre-wrap">' + esc(d.teacherMessage) + '</div></div>';
     }
 
-    h += '<div class="text-xs text-gray-500 mt-2">※ 先生が読んで、わたしてくれたものだよ。</div>';
+    /* KARTE_HANSHIN_V1 「先生が目を通している」ことは必ず伝える。
+       上が阪神マンになったので、文としてつながるように言い方だけ整えた。 */
+    h += '<div class="text-xs text-gray-500 mt-2">'
+       + (d.teacherMessage
+          ? '※ 阪神マンのことばは、先生が読んでから わたしてくれたものだよ。'
+          : '※ 先生が読んで、わたしてくれたものだよ。')
+       + '</div>';
     h += '</div>';
 
     el.innerHTML = h;

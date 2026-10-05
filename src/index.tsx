@@ -9461,7 +9461,7 @@ app.get('/', async (c) => {
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（モバイル版）。
       t = t.replace(`<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button>`, `<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button><button class="w-full px-4 py-3 text-sm font-bold text-amber-700 hover:bg-amber-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="location.href='/himitsu'; closeSysMenuMobile()"><span>🔒</span>ひみつのしつもん</button>`)
       // 📒 わたしのカルテ（子ども向け）のスクリプトを読み込む
-      t = t.replace('</body>', '<script src="/student-karte.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/student-karte.js?v=2"></script></body>')
       // 👾 __DEFSTAGE_CHARS_V1__ 防衛戦ステージ初クリアの げんていキャラ（4体）の名前とすがた。
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')
