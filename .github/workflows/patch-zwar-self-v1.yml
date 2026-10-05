@@ -1,0 +1,181 @@
+name: ZWAR_SELF_V1 便1 ゾンビ襲来：児童のわざ3を発動させる（public/index.html だけ・チェーンは増やさない）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'src/index.tsx の app.get(/) 〜 app.get(/logout) の .replace( の数。dispatch の直前に数え直した値を入れる'
+        required: true
+      after_school:
+        description: '児童画面を変える便です。放課後16時以降か夜なら yes'
+        required: true
+        default: 'no'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを掃除
+        run: git checkout -- .
+
+      - name: 最新を取り込む
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - name: 放課後の確認（児童画面を変える便）
+        run: |
+          if [ "${{ github.event.inputs.after_school }}" != "yes" ]; then
+            echo 'NG: after_school が yes ではない。授業時間中は流さない'; exit 1
+          fi
+          echo "JST now: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M %a')"
+
+      - name: 前の便（ZWAR_BOSS_SKILL3_V1）が入っていること
+        run: |
+          grep -q '__ZWAR_BOSS_SKILL3_V1__' src/index.tsx
+          echo '前の便あり（県ボスの skills フォールバック）'
+
+      - name: チェーンの数が dispatch 直前に数えた値と同じであること（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ github.event.inputs.chain_before }}
+        run: |
+          python3 - << 'PYEOF'
+          import io, os, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          want = os.environ.get('CHAIN_BEFORE', '').strip()
+          print('chain actual =', n, '/ input =', want)
+          if not want.isdigit():
+              print('NG: chain_before が数字でない'); sys.exit(1)
+          if n != int(want):
+              print('NG: チェーンの数が合わない。別の便が入っている。数え直してから流す'); sys.exit(1)
+          print('CHAIN OK', n)
+          PYEOF
+
+      - name: 流す前にアンカーを実測する（児童2件・敵ボス1件）
+        run: |
+          python3 - << 'PYEOF'
+          import io, re, sys
+          h = io.open('public/index.html', encoding='utf-8', newline='').read()
+          if '__ZWAR_SELF_V1__' in h:
+              print('すでに適用済み（この step は確認だけ）'); sys.exit(0)
+          if '\r' in h:
+              print('NG: CRLF が混ざっている'); sys.exit(1)
+          rx = re.compile(
+              r"(?P<ind>[ \t]*)const m3 = \(mon && Array\.isArray\(mon\.moves\) && mon\.moves\[2\]\) \? mon\.moves\[2\] : null;\n"
+              r"(?P=ind)const skill3Name = m3 \? \(m3\.name\|\|''\) : '';\n"
+              r"(?P=ind)const skill3Effect = m3 \? \(m3\.effect\|\|''\) : '';\n")
+          ms = list(rx.finditer(h))
+          print('3行かたまり =', len(ms), '字下げ =', [len(m.group('ind')) for m in ms])
+          if len(ms) != 3:
+              print('NG: 期待 3 件（児童2・敵ボスspawn1）'); sys.exit(1)
+          f0 = h.index('function getWarUnitStatsFromMonster(mon, id){')
+          f1 = h.index('\nfunction ', f0 + 10)
+          inside = [m for m in ms if f0 < m.start() < f1]
+          if len(inside) != 2:
+              print('NG: 児童側が', len(inside), '件'); sys.exit(1)
+          if h.count("if(e==='heal_party'){") != 1:
+              print('NG: heal_party の分岐が1件でない'); sys.exit(1)
+          print('ANCHOR OK')
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止＝ファイルに触らない）
+        run: python3 scripts/patch_zwar_self_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        run: python3 scripts/patch_zwar_self_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          git diff --name-only
+          if git diff --name-only | grep -vE '^public/index\.html$' | grep -q .; then
+            echo 'NG: public/index.html 以外が変わっている'; exit 1
+          fi
+          grep -q 'LEFT JOIN ranking_stats' src/def_resolve.ts
+          echo 'def_resolve.ts の LEFT JOIN は無傷'
+
+      - name: 検証（別の条件で確かめる）
+        run: |
+          python3 - << 'PYEOF'
+          import io, re, subprocess, sys
+          h = io.open('public/index.html', encoding='utf-8', newline='').read()
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          ok = True
+
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          print('chain after =', n)
+          if subprocess.call(['git', 'diff', '--quiet', '--', 'src/index.tsx']) != 0:
+              print('NG: src/index.tsx が変わっている'); ok = False
+
+          rx = re.compile(
+              r"(?P<ind>[ \t]*)const m3 = \(mon && Array\.isArray\(mon\.moves\) && mon\.moves\[2\]\) \? mon\.moves\[2\] : null;\n"
+              r"(?P=ind)const skill3Name = m3 \? \(m3\.name\|\|''\) : '';\n"
+              r"(?P=ind)const skill3Effect = m3 \? \(m3\.effect\|\|''\) : '';\n")
+          left = list(rx.finditer(h))
+          if len(left) != 1 or left[0].group('ind') != '  ':
+              print('NG: 残った3行かたまりが敵ボスspawnの1件でない', len(left)); ok = False
+
+          # 県ボスのチェーンのアンカーが生きていること（これが消えるとボスの効果が死ぬ）
+          boss_anchor = ('  const atkInterval = clamp(1100 - (mon.spd||30)*6, 420, 1100);\n'
+                         "  const m3 = (mon && Array.isArray(mon.moves) && mon.moves[2]) ? mon.moves[2] : null;")
+          if h.count(boss_anchor) != 1:
+              print('NG: 県ボスのチェーンのアンカーが', h.count(boss_anchor), '件'); ok = False
+
+          for key, want in [('__ZWAR_SELF_V1__', 4),
+                            ('Array.isArray(mon.skills)', 2),
+                            ('function __zwarNormEffect(e){', 1),
+                            ('__zwarNormEffect(m3.effect)', 2),
+                            ('window.__zwarHealPartyUntil', 5)]:
+              if h.count(key) != want:
+                  print('NG:', key, h.count(key), 'want', want); ok = False
+
+          # 開けてはいけない技が 実装されていないこと
+          for bad in ['instant_kill', 'revive', 'stun', 'counter', 'reflect', 'evade', 'shield']:
+              if ("e==='" + bad + "'") in h:
+                  print('NG: ゾンビ襲来に', bad, 'の分岐ができている'); ok = False
+          print('勝ち確定技の分岐なし を確認')
+
+          if '\r' in h:
+              print('NG: CRLF'); ok = False
+          if not ok:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ビルドして render_check を通す（児童ページも）
+        run: |
+          npm ci
+          npm run build
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+          git checkout -- dist 2>/dev/null || true
+          git clean -fdq dist 2>/dev/null || true
+          echo '--- git status ---'
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- public/index.html; then
+            echo 'no change (already applied)'; exit 0
+          fi
+          git add public/index.html
+          git commit -m 'ZWAR_SELF_V1: zombie war reads skills[2] for player units, normalize *_self / buff_speed, heal_party 1 per 10s per team'
+          git pull --rebase origin main
+          git push origin HEAD:main
