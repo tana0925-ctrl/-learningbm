@@ -29499,7 +29499,9 @@ try {
                         entry.isActive ? 'border-cyan-400 bg-cyan-50' :
                         'border-gray-200 bg-white'
                     }`;
-                    slot.innerHTML = `<div class="text-lg leading-none">${entry.shiny ? '<span class="' + (window.monShinyClass ? window.monShinyClass(entry.monsterId) : 'shiny-mon') + '">' + m.sprite + '</span>' : m.sprite}</div>${entry.shiny ? '<span class="shiny-ring"></span>' : ''}<div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
+                    /* BOXIMG_V1 ボックスのマス: 絵があれば絵、無ければ絵文字 */
+                    const _bsp = (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : m.sprite;
+                    slot.innerHTML = `<div class="text-lg leading-none">${entry.shiny ? '<span class="' + (window.monShinyClass ? window.monShinyClass(entry.monsterId) : 'shiny-mon') + '">' + _bsp + '</span>' : _bsp}</div>${entry.shiny ? '<span class="shiny-ring"></span>' : ''}<div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
                     slot.onclick = () => {
                         if (window.__boxMoveUid) {
                             // Swap with move target
@@ -44700,7 +44702,9 @@ function renderTradeBox() {
       var isSelected = entry.uid === _tradeSelectedUid;
       slot.className = 'rounded-lg border-2 cursor-pointer transition hover:shadow-md flex flex-col items-center justify-center p-0.5 ' +
         (isSelected ? 'border-emerald-500 bg-emerald-100 ring-2 ring-emerald-400 shadow-lg' : 'border-gray-200 bg-white hover:border-teal-400');
-      slot.innerHTML = '<div class="text-lg leading-none">' + m.sprite + '</div><div class="text-[8px] font-bold truncate w-full text-center">' + m.name + '</div><div class="text-[7px] text-gray-400">Lv.' + (entry.level||1) + '</div>';
+      /* BOXIMG_V1 交換のボックスのマス: 絵があれば絵、無ければ絵文字 */
+      var _bsp2 = (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : m.sprite;
+      slot.innerHTML = '<div class="text-lg leading-none">' + _bsp2 + '</div><div class="text-[8px] font-bold truncate w-full text-center">' + m.name + '</div><div class="text-[7px] text-gray-400">Lv.' + (entry.level||1) + '</div>';
       slot.dataset.uid = entry.uid;
       slot.onclick = function(){ selectTradeMonster(this.dataset.uid); };
     } else {
