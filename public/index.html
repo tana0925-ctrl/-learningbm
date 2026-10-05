@@ -11,6 +11,7 @@ var MONSTERS = window.MONSTERS || [];
 window.MONSTERS = MONSTERS;
 </script>
 <script src="/mon/list.js"></script>
+<script src="/mon/shiny.js"></script>
 <script>/* MON_IMG_V1 キャラの絵の受け皿。絵があれば絵、無ければ絵文字。 */
 (function(){
   /* MON_IMG_V2 一覧は 配列 [1,2,3] でも 表 {1:1} でも受け取れる */
@@ -229,6 +230,13 @@ function formatYMD(d){
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
         .shiny-mon{filter:hue-rotate(150deg) saturate(2.2) brightness(1.05);position:relative;display:inline-block;}
+        /* SHINY_COLORS_V3 キャラごとの色。表は public/mon/shiny.js */
+        .shiny-mon.sv1{filter:hue-rotate(170deg) saturate(2.2) brightness(1.05);}
+        .shiny-mon.sv2{filter:hue-rotate(200deg) saturate(2.0) brightness(1.05);}
+        .shiny-mon.sv3{filter:hue-rotate(240deg) saturate(2.1) brightness(1.05);}
+        .shiny-mon.sv4{filter:hue-rotate(120deg) saturate(2.2) brightness(1.04);}
+        .shiny-mon.sv5{filter:hue-rotate(130deg) saturate(2.2) brightness(1.04);}
+        .shiny-mon.sv6{filter:sepia(0.8) saturate(3.4) hue-rotate(165deg) brightness(1.08);}
         /* SHINY_BOX_DEX_V1 ここから */
         #boxGrid > div{position:relative;}
         .shiny-ring{position:absolute;top:-2px;right:-2px;bottom:-2px;left:-2px;border:2px solid #f59e0b;border-radius:0.6rem;pointer-events:none;box-shadow:0 0 6px rgba(245,158,11,0.55);}
@@ -14742,7 +14750,7 @@ function grantOcha(){
             document.getElementById('playerLevelDisplay').innerText = `Lv.${lvlDisplay}`;
             document.getElementById('playerHpText').innerText = myMon.hp;
             document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
-            try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = _pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny; if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } catch(e){}
+            try { var _psd = document.getElementById('playerSpriteDisplay'); var _pmid = (battle.myPartyStatus && battle.myPartyStatus[battle.activeMyIdx]) ? battle.myPartyStatus[battle.activeMyIdx].id : null; var _psh = _pmid && player.monsters && player.monsters[_pmid] && player.monsters[_pmid].shiny; if (window.monShinySet) window.monShinySet(_psd, _pmid, !!_psh); else { if (_psh) _psd.classList.add('shiny-mon'); else _psd.classList.remove('shiny-mon'); } } catch(e){}
             const hpPct = Math.max(0, (myMon.hp / myMon.maxHp) * 100);
             document.getElementById('playerHpBar').style.width = `${hpPct}%`;
             document.getElementById('playerPartyBalls').innerHTML = battle.myPartyStatus.map((p, i) => `<div class="ball ${i === battle.activeMyIdx ? 'active' : ''} ${p.hp <= 0 ? 'fainted' : ''}"></div>`).join('');
@@ -14751,7 +14759,7 @@ function grantOcha(){
                 document.getElementById('enemyNameDisplay').innerText = `${enemyMon.name} Lv.${enemyMon.level}`;
 
                 document.getElementById('enemySpriteDisplay').innerText = enemyMon.sprite;
-                try { var _esd = document.getElementById('enemySpriteDisplay'); if (battle.enemyShiny || (enemyMon && enemyMon.shiny)) _esd.classList.add('shiny-mon'); else _esd.classList.remove('shiny-mon'); } catch(e){}
+                try { var _esd = document.getElementById('enemySpriteDisplay'); var _esh = !!(battle.enemyShiny || (enemyMon && enemyMon.shiny)); if (window.monShinySet) window.monShinySet(_esd, enemyMon && enemyMon.id, _esh); else { if (_esh) _esd.classList.add('shiny-mon'); else _esd.classList.remove('shiny-mon'); } } catch(e){}
                 const eHpPct = Math.max(0, (enemyMon.hp / enemyMon.maxHp) * 100);
                 document.getElementById('enemyHpBar').style.width = `${eHpPct}%`;
                 document.getElementById('enemyHpText').innerText = enemyMon.hp;
@@ -17496,7 +17504,7 @@ return;
             } else {
                 const monster = result.data;
                 const level = result.level;
-                result.levelUpCount = 0; result.shiny = !!(window.__shinyGachaRoll && window.__shinyGachaRoll());
+                result.levelUpCount = 0; result.shiny = !!(window.__shinyGachaRoll && window.__shinyGachaRoll(result.data && result.data.id));
                 result.gainedExp = 0;
                 if (!player.monsters[monster.id]) {
                     player.monsters[monster.id] = { level: level, exp: 0, nextExp: calculateNextExp(level), stars: 0 };
@@ -29473,7 +29481,7 @@ try {
                         entry.isActive ? 'border-cyan-400 bg-cyan-50' :
                         'border-gray-200 bg-white'
                     }`;
-                    slot.innerHTML = `<div class="text-lg leading-none">${entry.shiny ? '<span class="shiny-mon">' + m.sprite + '</span>' : m.sprite}</div>${entry.shiny ? '<span class="shiny-ring"></span>' : ''}<div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
+                    slot.innerHTML = `<div class="text-lg leading-none">${entry.shiny ? '<span class="' + (window.monShinyClass ? window.monShinyClass(entry.monsterId) : 'shiny-mon') + '">' + m.sprite + '</span>' : m.sprite}</div>${entry.shiny ? '<span class="shiny-ring"></span>' : ''}<div class="text-[8px] font-bold truncate w-full text-center">${m.name}</div><div class="text-[7px] text-gray-400">Lv.${entry.level}</div>`;
                     slot.onclick = () => {
                         if (window.__boxMoveUid) {
                             // Swap with move target
@@ -55574,7 +55582,7 @@ async function _checkContactBadge(){
       var btn = box.getElementsByTagName('button')[0];
       if (!btn) return;
       btn.onclick = function(){
-        var on = spriteEl.classList.toggle('shiny-mon');
+        var on = !spriteEl.classList.contains('shiny-mon'); if (window.monShinySet) window.monShinySet(spriteEl, id, on); else spriteEl.classList.toggle('shiny-mon');
         btn.className = on ? 'on' : '';
         btn.innerHTML = on
           ? 'ノーマルを見る'
@@ -55595,7 +55603,7 @@ async function _checkContactBadge(){
   };
 })();
 </script>
-<script>/* SHINY_RATE_V2 */
+<script>/* SHINY_RATE_V2 *//* SHINY_COLORS_V3 */
 (function(){
   /* 野生: 1日1回だけ。ガチャ: 1回ごと。ここだけ変えれば先生が調整できます。 */
   var WILD_RATE  = 1/120;
@@ -55630,14 +55638,14 @@ async function _checkContactBadge(){
   };
 
   /* ガチャ: 1回ごとに判定。上限なし。限定キャラも同じ確率。 */
-  window.__shinyGachaRoll = function(){
+  window.__shinyGachaRoll = function(mid){
     var hit = false;
     try { hit = Math.random() < GACHA_RATE; } catch (e) { hit = false; }
     try {
       setTimeout(function(){
         var el = document.getElementById('gachaResultSprite');
         if (!el) return;
-        if (hit) el.classList.add('shiny-mon'); else el.classList.remove('shiny-mon');
+        if (window.monShinySet) window.monShinySet(el, mid, hit); else { if (hit) el.classList.add('shiny-mon'); else el.classList.remove('shiny-mon'); }
       }, 0);
     } catch (e) {}
     return hit;
