@@ -1,0 +1,195 @@
+name: patch-octgacha-v1
+
+# OCTGACHA_V1  期間限定ガチャの「器」＋10月の12体（アジア大会・金メダルの国ぐに）。
+#
+#   ・毎月の差し替えは LIMITED_GACHA_PLAN の1か所だけ。11月は1行足すだけ。
+#   ・期間外は if を1つ抜けるだけ。いまとまったく同じ動きになる。
+#   ・キャラが0体のときは「期間中」とみなさない。見出しもバナーも出ない。
+#   ・激レアの確率（ふつう0.25% / ラッキー2%）は1つも変えない。
+#     激レアが当たったときの中身を、半分の確率で限定キャラに振り替えるだけ。値段も変えない。
+#   ・デバフ技の「威力」表示を '-' にする（ダメージが出ないのに数字が出ていた）。
+#
+#   ⚠️ public/index.html は1バイトも触らない（配信チェーンの t.replace() でだけ扱う）。
+#   ⚠️ 書き換えるのは src/index.tsx と public/mon/list.js だけ。
+#   ⚠️ チェーンは 8 本増える。増分が違えば1バイトも書かずに止まる。
+#   ⚠️ 絵（public/mon/1220〜1231.png）は、この便では入れない。
+#      PNG が無いあいだは受け皿（monSpriteHtml の onerror）が絵文字に戻すので壊れない。
+#      PNG を置いた時点で自動的に絵に変わる。
+#   ⚠️ DDL は流さない。D1 には一切触らない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | sha256sum
+          git show HEAD:public/mon/list.js | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_octgacha_v1.py
+
+      - name: public/index.html は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- public/index.html; then
+            echo "::error::public/index.html が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 変わったファイルは2つだけであること
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/mon/list.js src/index.tsx " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      # ⚠️ --bundle は node_modules が要る。既存の便と同じく、型を外して構文だけ見る。
+      - name: src/index.tsx の構文検査
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+          node --check public/mon/list.js
+
+      - name: list.js の中身を確かめる（PNGとセットになっているか）
+        run: |
+          node - <<'EOF'
+          const fs=require('fs');
+          const src=fs.readFileSync('public/mon/list.js','utf8');
+          global.window={}; new Function('window', src)(global.window);
+          const ids=global.window.MON_IMG_IDS;
+          if(!Array.isArray(ids)) throw new Error('MON_IMG_IDS が配列ではない');
+          const want=[1220,1221,1222,1223,1224,1225,1226,1227,1228,1229,1230,1231];
+          for(const i of want) if(ids.indexOf(i)<0) throw new Error('list.js に '+i+' が無い');
+          if(new Set(ids).size!==ids.length) throw new Error('list.js に重複がある');
+          const missing=want.filter(i=>!fs.existsSync('public/mon/'+i+'.png'));
+          console.log('list.js '+ids.length+'件 / 1220-1231 すべて登録ずみ');
+          if(missing.length){
+            console.log('※ PNG がまだ無い id: '+missing.join(',')+
+              '  → 受け皿が絵文字に戻すので画面は壊れない。PNG を置けば自動で絵になる。');
+          } else {
+            console.log('12枚の PNG もそろっている。');
+          }
+          EOF
+
+      # 配信（deploy.yml）は inject-rt.py を通してからビルドする。
+      # 検査も同じ順番にしておかないと、本番とちがうものを見てしまう。
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+          git checkout -- public/index.html
+
+      # 既存の検査スクリプトに乗る。新しいものは作らない。
+      - name: 配信HTMLの構文検査（教師ページ側）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側・この便では必須）
+        run: node scripts/render_check_child.mjs
+
+      - name: 期間の判定と「0体なら出さない」を実際に動かして確かめる
+        run: |
+          node --input-type=module -e "
+          import fs from 'fs';
+          const mod = await import(process.cwd() + '/dist/_worker.js');
+          const env = { ASSETS: { fetch: async (req) => {
+            const u = new URL(typeof req === 'string' ? req : req.url);
+            const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname;
+            try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }); }
+            catch (e) { return new Response('', { status: 404 }); } } } };
+          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} });
+          const html = await res.text();
+          const names = ['フジイッポン','パンピン','ゾウダッシュ','トゥクシャトル','クジャクバディ','ウータンキック','トラユミ','ペルシャヅキ','パゴダパッド','バンリザブン','チョウチンリン','タケタイキョク'];
+          for (const n of names) if (!html.includes(n)) throw new Error('配信HTMLに ' + n + ' が無い');
+          // ★ .replace() はアンカーが外れても黙って何もしない。8本すべて着地したか1つずつ見る。
+          const landed = {
+            '1 定義ブロック':          '/* OCTGACHA_V1 ここだけ差し替えれば',
+            '2 図鑑の通常枠から除外':  'gachaSet.add(Number(x));',
+            '3 図鑑の限定セクション':  'renderEvoLine([x],gr);',
+            '4 激レア枠のピックアップ':'/* OCTGACHA_V1 期間外は if を抜けるだけ',
+            '5 バナーの入れ物':        \"id='limitedGachaBanner'\",
+            '6 バナーを描く呼び出し':  'if(window.renderLimitedGachaBanner)window.renderLimitedGachaBanner();',
+            '7 入手方法の文':          'げきレアが あたったときに 出る。',
+            '8 デバフ技の威力表示':    \"String(skill.effect||'').indexOf('debuff') !== 0\",
+          };
+          for (const k of Object.keys(landed)) {
+            const n = html.split(landed[k]).length - 1;
+            console.log('  ' + k + ': ' + n + ' 件');
+            if (n < 1) throw new Error('差し替え「' + k + '」が配信HTMLに着地していない（アンカーが外れた）');
+          }
+          const a = html.indexOf('/* OCTGACHA_V1 ここだけ差し替えれば');
+          const b = html.indexOf('const MID_TIER', a);
+          if (a < 0 || b < 0) throw new Error('注入した定義ブロックが見つからない');
+          const code = html.slice(a, b);
+          const win = { MONSTERS: [] };
+          const getMonster = (id) => win.MONSTERS.find(m => Number(m.id) === Number(id)) || null;
+          new Function('window','getMonster','document', code)(win, getMonster, { getElementById: () => null });
+          if (win.MONSTERS.length !== 12) throw new Error('12体になっていない: ' + win.MONSTERS.length);
+          const d = (s) => { const p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2], 12, 0, 0); };
+          const inPeriod = ['2026-10-05','2026-10-20','2026-10-31'];
+          const outPeriod = ['2026-09-30','2026-10-04','2026-11-01','2026-12-25'];
+          for (const x of inPeriod) if (!win.getLimitedGachaNow(d(x))) throw new Error(x + ' が期間外になっている');
+          for (const x of outPeriod) if (win.getLimitedGachaNow(d(x))) throw new Error(x + ' が期間中になっている');
+          win.LIMITED_GACHA_PLAN[0].ids = [];
+          if (win.getLimitedGachaNow(d('2026-10-20'))) throw new Error('0体なのに期間中になっている');
+          win.LIMITED_GACHA_PLAN[0].ids = [999991];
+          if (win.getLimitedGachaNow(d('2026-10-20'))) throw new Error('居ないidなのに期間中になっている');
+          console.log('期間内3件・期間外4件・0体・居ないid、すべて想定どおり。12体も入っている。');
+          "
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1']:
+              n = s.count(k)
+              print('%-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx
+          sha256sum src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add src/index.tsx public/mon/list.js
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "OCTGACHA_V1: 期間限定ガチャの器＋10月の12体（確率・値段は据え置き／チェーン${{ inputs.chain_before }}->+8）"
+          git push origin HEAD:main
