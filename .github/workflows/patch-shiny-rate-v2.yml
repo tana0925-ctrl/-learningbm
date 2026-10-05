@@ -1,0 +1,80 @@
+name: patch-shiny-rate-v2
+
+# SHINY_RATE_V2 (第2便)
+#   野生 … その日の1〜3戦目のどれかで1回だけ抽選 1/120（どの子も年1〜2体）
+#   ガチャ … 1回ごとに 1/50（上限なし。限定キャラもふくむ）
+#   重複のガチャでも、色違いを引いたときだけボックスに個体を作る
+#   強さは変えない。public/index.html と src/index.tsx の両方をさわるが
+#   置換チェーンの件数は増やさない（置き換える側の文字列を1か所直すだけ）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'chain kensuu (jissoku chi). awanakereba nanimo kakazu tomaru'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          wc -c src/index.tsx public/index.html
+          sha256sum src/index.tsx public/index.html
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_shiny_rate_v2.py
+      - name: keep the patched files aside
+        run: |
+          cp public/index.html /tmp/patched_index.html
+          cp src/index.tsx /tmp/patched_index.tsx
+      - name: syntax check (tsx)
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+      - name: build
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: render check (teacher pages)
+        run: node scripts/render_check.mjs
+      - name: render check (child page)
+        run: node scripts/render_check_child.mjs
+      - name: restore the patched files (do not commit inject-rt output)
+        run: |
+          cp /tmp/patched_index.html public/index.html
+          cp /tmp/patched_index.tsx src/index.tsx
+          sha256sum src/index.tsx public/index.html
+      - name: chain count after
+        run: python3 -c "import io;t=io.open('src/index.tsx',encoding='utf-8',newline='').read();a=t.index(\"app.get('/', async (c) => {\");b=t.index(\"app.get('/logout'\",a);print('chain:',t[a:b].count('.replace('))"
+      - name: record diff
+        run: |
+          git --no-pager diff --stat
+          git status --porcelain
+      - name: commit and push
+        run: |
+          git add public/index.html src/index.tsx
+          if git diff --cached --quiet; then echo "::error::no change"; exit 1; fi
+          git commit -m "SHINY_RATE_V2: 野生は1日1回 1/120 / ガチャは1回ごと 1/50（限定もふくむ）/ 重複でも色違いは個体を作る (チェーン ${{ inputs.chain_before }} のまま)"
+          git push origin HEAD:main
