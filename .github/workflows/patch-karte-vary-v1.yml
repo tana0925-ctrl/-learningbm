@@ -1,0 +1,137 @@
+name: KARTE_VARY_V1 つながりのあるカルテ（4月からの話を必須にしない／前に言ったことを踏まえる）
+
+# 先生のことば（2つ）:
+#   「4月からのこと言ったり、最近のこと言ったり、判断してほしいんだよね」
+#   「これまでに、なんて言ったかもふまえて言ってくれるといいのかなー」
+#
+# この便でやること（教師画面の「まとめてコピー」で作られる束の中身を変える）:
+#   1) 指示文の「次の4つを必ず全部入れる」の (2)【4月からの移りかわり】を必須から外し、
+#      「4月からの長い話」と「ここ最近の話」のどちらを書くかをAIに判断させる。
+#   2) 前に渡したカルテを「週ごとに1本・直近4週・全文・いつの文か分かる形」で渡す。
+#      これまでは published_at の新しい順に2本・各260字だったので、同じ週に作り直すと
+#      2本とも同じ週になり、外部AIには「先週」しか見えていなかった。
+#      260字で切ると末尾の問いかけも落ちていた。
+#   3) 前のカルテの最後の問いかけが どうなったかに触れる指示を足す
+#      （やっていれば認める／やっていなくても責めない／毎回むりに触れない）。
+#   4) 見立ての語尾の例を7つに散らす（「〜かもしれんな」が95%だった）。
+#   5) 「書くことが少ない週は短くてよい」を実際に効かせる（(2)必須のせいで効いていなかった）。
+#
+# さわるのは public/teacher-ai.js と src/index.tsx の2か所だけ。
+#   public/index.html・public/student-karte.js・防衛戦まわりには一切さわらない。
+#   src/index.tsx の app.get('/') 〜 app.get('/logout') の .replace( チェーンは1本も増やさない。
+#   teacher-ai.js を変えたので ?v=10 -> ?v=11 に上げる。
+# D1には一切書き込まない。karte_material_uses にも触らない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: "流す直前に実測したチェーン件数（src/index.tsx の app.get('/') 〜 app.get('/logout') の .replace( の数）。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          sha256sum public/teacher-ai.js src/index.tsx public/index.html
+          echo -n '既適用マーカー: '; grep -c 'KARTE_VARY_V1' public/teacher-ai.js || true
+
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_karte_vary_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- public/student-karte.js
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- public/defense2.js
+          echo 'public/index.html / student-karte.js / 防衛戦: 無変更 OK'
+          echo -n '変更のあったファイル: '; git --no-pager diff --name-only | tr '\n' ' '; echo
+
+      - name: 適用後の内容検証
+        run: |
+          set -e
+          test $(grep -c 'KARTE_VARY_V1' public/teacher-ai.js) -ge 8
+          grep -q 'KARTE_VARY_V1' src/index.tsx
+          # A: 必須をやめた
+          ! grep -q '必ず全部入れる' public/teacher-ai.js
+          ! grep -q 'かならず一度は触れる' public/teacher-ai.js
+          grep -q '毎回触れる必要はありません' public/teacher-ai.js
+          grep -q '長い話と最近の話、どちらを書くか' public/teacher-ai.js
+          # F: つながり
+          grep -q '前に言ったことを踏まえる' public/teacher-ai.js
+          grep -q '最後が問いかけで終わっています' public/teacher-ai.js
+          grep -q '_karteAgoLabel' public/teacher-ai.js
+          # F: 取り方
+          grep -q "SELECT target_id, week_key, body, published_at FROM ai_review_drafts" src/index.tsx
+          grep -q 'pastKartes.length >= 4' src/index.tsx
+          ! grep -q 'pastKartes.length >= 2' src/index.tsx
+          ! grep -q "String(d.body || '').slice(0, 260)" src/index.tsx
+          # 語尾を散らした
+          grep -q '〜ってことやろか' public/teacher-ai.js
+          # 短く書ける
+          grep -q '70〜100字でよいです' public/teacher-ai.js
+          # ?v= を上げた
+          grep -q '/teacher-ai.js?v=11' src/index.tsx
+          ! grep -q '/teacher-ai.js?v=10' src/index.tsx
+          # D1への書き込みを増やしていない
+          test $(grep -c "INSERT OR IGNORE INTO karte_material_uses" src/index.tsx) -eq 1
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+
+      - name: 配信JSの構文チェック（node --check）
+        run: node --check public/teacher-ai.js
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 既存のレンダリング確認（そのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: コミット&プッシュ
+        run: |
+          git add public/teacher-ai.js src/index.tsx
+          if git diff --cached --quiet; then echo "::error::変更なし"; exit 1; fi
+          if git diff --cached --name-only | grep -qx 'public/index.html'; then echo "::error::public/index.html must not change"; exit 1; fi
+          git commit -m "KARTE_VARY_V1: 4月からの話を必須から外してAIに判断させる / 前のカルテを週ごと1本・直近4週・全文・日付つきで渡し、前の問いかけがどうなったかに触れる / 語尾を散らす / 材料が少ない週は短く（teacher-ai.js v=10->v=11・チェーン ${{ inputs.chain_before }} のまま）"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: 次の手順
+        run: echo 'このpushでは Deploy は起動しません。Deploy to Cloudflare Pages を手動で dispatch してください。'
