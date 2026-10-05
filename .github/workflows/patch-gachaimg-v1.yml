@@ -93,11 +93,14 @@ jobs:
           npm run build
           cp -f public/*.js dist/ 2>/dev/null || true
 
-      - name: あてた public/index.html を戻して、差分が1ファイルだけのままか見る
+      # dist/ は git に入ったままなので、npm run build で必ず変わる。コミットはしないので無視してよい。
+      # 見るのは「もとになるファイル」だけ。
+      - name: あてた public/index.html を戻して、もとのファイルの差分が1つだけのままか見る
         run: |
           cp -f /tmp/patched_index.html public/index.html
-          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
-          echo "changed: $CHANGED"
+          CHANGED=$(git diff --name-only -- src public scripts .github package.json package-lock.json | sort | tr '\n' ' ')
+          echo "changed(src): $CHANGED"
+          echo "changed(all): $(git diff --name-only | sort | tr '\n' ' ')"
           if [ "$CHANGED" != "public/index.html " ]; then
             echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
           fi
