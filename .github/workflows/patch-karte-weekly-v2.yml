@@ -81,7 +81,7 @@ jobs:
         run: |
           set -e
           test $(grep -o 'KARTE_WEEKLY_V2' src/index.tsx | wc -l) -ge 3
-          test $(grep -o 'KARTE_WEEKLY_V1' src/index.tsx | wc -l) -ge 5
+          test $(grep -o 'KARTE_WEEKLY_V1' src/index.tsx | wc -l) -ge 4   # 第1便の目印7個のうち3個は、今回外す見える化のブロックの中にあるので4個になる
           grep -q 'function _faKarteGraphs(d){' src/index.tsx
           grep -q 'html += _faKarteGraphs(data);' src/index.tsx
           grep -q 'function _kRadar(vals){' src/index.tsx
