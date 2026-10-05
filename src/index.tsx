@@ -3858,7 +3858,8 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
 
   const out: Record<string, any> = {}
   const mem = (((await c.env.DB.prepare('SELECT user_id as uid FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || []) as any[]
-  for (const m of mem) out[String(m.uid)] = { materials: [], pastKartes: [], exhausted: true, heldBack: 0, dropped: 0, tooOld: 0 }
+  // KARTE_VARY_V2 pastAsks / longWeeks / olderWeeks は「6週より前のたな卸し」。本文は入れない。
+  for (const m of mem) out[String(m.uid)] = { materials: [], pastKartes: [], pastAsks: [], longWeeks: [], olderWeeks: 0, exhausted: true, heldBack: 0, dropped: 0, tooOld: 0 }
 
   let rows: any[] = []
   try {
@@ -3875,7 +3876,7 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
   } catch (e) { notes = [] }
 
   // 前に渡したカルテ。クラスで1本。
-  // KARTE_VARY_V1 週ごとに1本・直近4週・全文・週キーつき。
+  // KARTE_VARY_V1 週ごとに1本・全文・週キーつき。KARTE_VARY_V2 で直近6週に広げた。
   //   ねらいは2つ。(1)くり返しを避ける (2)前に言ったことを踏まえて書けるようにする。
   //   これまでは published_at の新しい順に2本だった。先生は同じ週に何度も作り直されるので
   //   （実測：2026-W40 は62本）、2本とも同じ週のものになり、外部AIには「先週」しか
@@ -3895,7 +3896,24 @@ app.post('/api/teacher/karte-materials/pick', async (c) => {
       const seenKey = uid + '|' + wkk
       if (seenWeek[seenKey]) continue          // 同じ週は いちばん新しい1本だけ
       seenWeek[seenKey] = 1
-      if (o.pastKartes.length >= 4) continue   // 直近4週ぶん
+      // KARTE_VARY_V2 直近6週は全文。それより前は本文を渡さず「どの手を使ったか」だけ残す。
+      //   全部を全文にすると年度末で約137,000字になり、束の大半が過去カルテになるため。
+      //   ここで集めるものは週が増えても長さが変わらない。
+      if (o.pastKartes.length >= 6) {
+        const ob = String(d.body || '')
+        o.olderWeeks = (o.olderWeeks || 0) + 1
+        // 長い期間の言い方を使った週（この子に もう長期の話をしたか）
+        if (/4月から|ずっと|夏休み|[0-9]+月は|前期/.test(ob) && o.longWeeks.length < 12) o.longWeeks.push(wkk)
+        // 末尾の問いかけ（同じ聞き方をくり返さないため）
+        const qi = ob.lastIndexOf('？')
+        if (qi > 0) {
+          let st = 0
+          for (const mk of ['。', '！', '？', '\n']) { const p = ob.lastIndexOf(mk, qi - 1); if (p + 1 > st) st = p + 1 }
+          const q = ob.slice(st, qi + 1).trim().slice(0, 40)
+          if (q.length >= 6 && o.pastAsks.indexOf(q) < 0 && o.pastAsks.length < 8) o.pastAsks.push(q)
+        }
+        continue
+      }
       o.pastKartes.push({ on: String(d.published_at || '').slice(0, 10), week: wkk, text: String(d.body || '').slice(0, 300) })
     }
   } catch (e) {}
@@ -15956,7 +15974,7 @@ app.get('/teacher', (c) => {
       })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=11"></script>
+    <script src="/teacher-ai.js?v=12"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
