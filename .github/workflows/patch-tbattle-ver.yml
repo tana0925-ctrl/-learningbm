@@ -1,0 +1,122 @@
+name: ターン制バトル（TBATTLE_VER・読み込み番号だけを上げる）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'src/index.tsx の .replace( チェーン数（dispatch 直前に数えた値）'
+        required: true
+      from_ver:
+        description: 'いまの番号（例 1）'
+        required: true
+      to_ver:
+        description: 'あたらしい番号（例 2）'
+        required: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: チェーン数を実測して照合（合わなければ中止）
+        env:
+          CHAIN_BEFORE: ${{ github.event.inputs.chain_before }}
+        run: |
+          python3 - << 'PYEOF'
+          import io, os, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          want = int(os.environ['CHAIN_BEFORE'])
+          print('chain=', n, ' 期待=', want)
+          if n != want:
+              print('NG: チェーンが %d 件（期待 %d）。ほかの便が入った可能性があるので中止' % (n, want))
+              sys.exit(1)
+          PYEOF
+
+      - name: 配る2本の文法を見る
+        run: |
+          node --check public/tbsub.js
+          node --check public/tbattle.js
+
+      - name: 番号を上げる（一致しなければ中止）
+        run: python3 scripts/patch_tbattle_ver.py "${{ github.event.inputs.from_ver }}" "${{ github.event.inputs.to_ver }}"
+
+      - name: 触ったファイルが public/index.html だけか
+        run: |
+          CHANGED="$(git diff --name-only | tr '\n' ' ' | xargs)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/index.html" ]; then
+            echo "NG: さわったファイルが public/index.html だけでない: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配信HTMLの構文チェック（既存のものをそのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: 壊してはいけないものが無傷か
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          h = io.open('public/index.html', encoding='utf-8').read()
+          ok = [True]
+          if h.count('TBATTLE_V1_MARK') != 1:
+              print('NG: 目印が1件でない'); ok[0] = False
+          if h.count('</body>') != 1:
+              print('NG: </body> が1件でない'); ok[0] = False
+          for label, text in (
+              ('野生バトルの画面', 'id="screen-battle"'),
+              ('ジムの画面', 'id="screen-gym"'),
+              ('防衛戦の読み込み', 'defense2.js'),
+              ('タイプシュート', 'typeshoot.js'),
+              ('色違いの表', '/mon/shiny.js'),
+              ('キャラ画像の表', '/mon/list.js'),
+          ):
+              if h.count(text) < 1:
+                  print('NG: %s が消えている' % label); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/index.html
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'
+          else
+            git commit -m "TBATTLE_VER: tbattle/tbsub の読み込み番号を ${{ github.event.inputs.from_ver }} -> ${{ github.event.inputs.to_ver }}"
+            git push origin HEAD:main
+          fi

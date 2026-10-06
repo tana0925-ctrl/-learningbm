@@ -14,6 +14,9 @@
  *      type 'heavy'   → そのキャラの属性（相性が乗る）
  *      type 'unique'  → そのキャラの属性・低威力・効果が主役
  *    さらに tbsub.js の表があれば、その技だけ属性を差し替える。
+ *  - じょうたい（やけど・どく・しびれ）は、つよい技が当たったときだけ 20% でかかる。
+ *    ふつうの技では ぜったいに かからない。1体に1つ、なおったあと3ターンは かからない。
+ *    「動けなくなる」効果は入れていない（運だけが増えて、読み合いにならなかったため）。
  *  - 技の効果は window.__zwarNormEffect で正規化してから使う。
  *    正規化が空文字を返すもの（instant_kill / revive / stun / counter /
  *    reflect / evade / shield）は通常攻撃として処理する＝勝ち確定を作らない。
@@ -55,15 +58,42 @@
 
   var SE = 1.3;     // こうかばつぐん（既存バトルと同じ倍率。上げない）
   var RES = 0.77;   // こうかいまひとつ
-  var IMM = 0.4;    // 本来は無効。0 だと手が無くなるので弱い倍率にしてある
+  var IMM = 0.6;    // 本来は無効。0 だと手が無くなるので弱い倍率にしてある
+                    // （0.4 だと ゴーストのリーダーが ノーマルに ほとんど勝てなくなった）
   var K = 11;       // ダメージ係数（これより小さいと時間切ればかりになった）
   var BUFF = 0.30;  // 強化1段あたり +30%
   var HEAL = 0.25;  // 回復は最大HPの25%
   var HEALCAP = 2;  // 1体が回復できるのは2回まで（回復で粘って時間切れにしない）
   var MAXSTACK = 2; // 強化はこうげき＋ぼうぎょ合わせて2段まで
   var CAP = 20;     // 20ターンで打ち切り、残りHPの割合が多いほうの勝ち
-  var BLEND = 0.45; // リーダーの強さを、その子の手持ちに45%だけ合わせる
+  var BLEND = 0.58; // リーダーの強さを、その子の手持ちに58%だけ合わせる
   var POW = { normal: 14, heavy: 30, unique: 12 };
+
+  /* ----- じょうたい（やけど・どく・しびれ）TB_V2 -----
+     ・つよい技（強撃技）だけが STRATE の確率でかける。ふつうの技では ぜったいに かからない。
+     ・1体に1つだけ。なおったあと ST_IMM ターンは 同じ子に かからない（止め続けられないように）。
+     ・行動できなくなる効果は 入れていない。
+       「2ターンだけ 25%で 動けない」を入れて測ったが、勝率はほとんど動かず、運だけが増えたため。
+     ・自分と同じ系統には かからない（ほのおは やけどしない、など）。 */
+  var STRATE = 0.20;
+  var ST_IMM = 3;
+  var ST_EARLY = 0.25; // 毎ターン、この確率で ターン数より はやく なおる
+  var PARA_SKIP = 0.25; // しびれているとき、この確率で うごけない（こうたいは できる）
+  // ※ はやく なおるぶん、1回あたりの 効き目は 少し強くしてある
+  //   （やけど 6%→8%、どく 8%→10%。平均の ダメージ量が だいたい 同じになるように）
+  var ST = {
+    burn:   { label: 'やけど', icon: '🔥', turns: 3, dot: 0.08, atk: 0.85, spd: 1,
+              from: ['fire'], immune: ['fire'] },
+    poison: { label: 'どく',   icon: '☠',  turns: 3, dot: 0.10, atk: 1,    spd: 1,
+              from: ['grass', 'poison', 'bug'], immune: ['grass', 'poison', 'bug', 'steel'] },
+    para:   { label: 'しびれ', icon: '⚡', turns: 2, dot: 0,    atk: 1,    spd: 0.5,
+              from: ['electric', 'ice'], immune: ['electric', 'ice'] }
+  };
+  var ST_BY_EL = (function () {
+    var m = {}, k, i;
+    for (k in ST) for (i = 0; i < ST[k].from.length; i++) m[ST[k].from[i]] = k;
+    return m;
+  })();
 
   var BAND = { hp: [1012, 1138], atk: [110, 130], def: [100, 116], spd: [104, 122] };
 
@@ -91,26 +121,26 @@
       party: [1161, 938, 1403], style: 'heal',
       say: 'あわてない。ゆっくり いこう。' },
     { key: 'grass', name: 'くさの モリタ', emoji: '🌿', badge: 'くさバッジ',
-      party: [1403, 991, 1024], style: 'heal',
+      party: [1403, 991, 36], style: 'heal',
       say: 'そだてた ものは つよいよ。' },
     { key: 'electric', name: 'でんきの ライカ', emoji: '⚡', badge: 'でんきバッジ',
-      party: [1146, 953, 1171], style: 'spd',
+      party: [1146, 953, 938], style: 'spd',
       say: 'はやさで きめる！' },
     { key: 'rock',  name: 'いわの ガンテツ', emoji: '🪨', badge: 'いわバッジ',
-      party: [1112, 1613, 1208], style: 'def',
+      party: [1112, 1613, 1176], style: 'def',
       say: 'かたいぞ。くずせるか？' },
     { key: 'ghost', name: 'ゴーストの ヨイヤミ', emoji: '👻', badge: 'ゴーストバッジ',
-      party: [1210, 1412, 1206], style: 'debuff',
+      party: [1210, 1206, 1201], style: 'debuff',
       say: 'ふふ、なにが くるか わかるかな。' },
     { key: 'steel', name: 'はがねの テツロウ', emoji: '⚙️', badge: 'はがねバッジ',
-      party: [1062, 942, 1211], style: 'def',
+      party: [1062, 2114, 942], style: 'def',
       say: 'きみの いちげき、うけとめる。' },
     { key: 'fairy', name: 'フェアリーの コトハ', emoji: '🎀', badge: 'フェアリーバッジ',
-      party: [2101, 1501, 1504], style: 'buff',
+      party: [2101, 1152, 1504], style: 'buff',
       say: 'たのしく いこうね！' }
   ];
-  // 第2便（試運転）は1人だけ。第3便でここを LEADERS.length にする。
-  var ACTIVE = 1;
+  // 試運転が終わったので、8人ぜんいんを出す。
+  var ACTIVE = LEADERS.length;
 
   /* ===================== 小道具 ===================== */
 
@@ -284,18 +314,25 @@
       id: Number(id), side: side, name: m.name || ('No.' + id), el: own,
       hp: fromPct('hp', pr.hp), maxHp: fromPct('hp', pr.hp),
       atk: fromPct('atk', pr.atk), def: fromPct('def', pr.def), spd: fromPct('spd', pr.spd),
-      ab: 0, db: 0, heals: 0, alive: true, sk: []
+      ab: 0, db: 0, heals: 0, st: null, stT: 0, stImm: 0, stNew: false, alive: true, sk: []
     };
     var src = (m.skills || []).slice(0, 4);
     for (var i = 0; i < src.length; i++) {
       var s = src[i] || {};
-      var ty = s.type === 'heavy' ? 'heavy' : (s.type === 'unique' ? 'unique' : 'normal');
+      // 技の type は 'normal' / 'heavy' / 'unique' のほかに、属性名が入っているものが 52 件ある
+      // （カボチャ頭の「ジャッククラッシュ」は type:'ghost' など）。
+      // それを 'normal' 扱いにすると、そのキャラから強い技が消えてしまうので、別に見る。
+      var ty, el;
+      if (s.type === 'heavy') { ty = 'heavy'; el = own; }
+      else if (s.type === 'unique') { ty = 'unique'; el = own; }
+      else if (s.type === 'normal') { ty = 'normal'; el = 'normal'; }
+      else if (CHART[s.type]) { ty = (Number(s.pow) >= 20 ? 'heavy' : 'normal'); el = s.type; }
+      else { ty = 'normal'; el = 'normal'; }
       var pow = ty === 'normal' ? POW.normal : (ty === 'heavy' ? POW.heavy : (Number(s.pow) > 0 ? POW.unique : 0));
-      var el = ty === 'normal' ? 'normal' : own;
       var sub = subElFor(id, s.name);
       if (sub) el = sub;
       u.sk.push({
-        name: s.name || 'こうげき', pow: pow, el: el,
+        name: s.name || 'こうげき', pow: pow, el: el, ty: ty,
         acc: (s.acc == null ? 0.95 : Number(s.acc)),
         eff: normEffect(s.effect), desc: s.desc || ''
       });
@@ -326,13 +363,56 @@
     if (!s.pow) return { dmg: 0, m: 1, miss: false };
     if (Math.random() > s.acc) return { dmg: 0, m: mult(s.el, d.el), miss: true };
     var m = mult(s.el, d.el);
-    var atk = a.atk * (1 + BUFF * a.ab);
+    var atk = a.atk * (1 + BUFF * a.ab) * stAtkRate(a);
     var def = d.def * (1 + BUFF * d.db);
     var x = Math.max(1, Math.round(s.pow * K * (atk / def) * m * (0.94 + 0.12 * Math.random())));
     d.hp = Math.max(0, d.hp - x);
     if (d.hp === 0) d.alive = false;
-    return { dmg: x, m: m, miss: false };
+    var st = (d.alive && s.ty === 'heavy') ? stTryInflict(d, s.el) : '';
+    return { dmg: x, m: m, miss: false, st: st };
   }
+  function stOf(u) { return (u && u.st && ST[u.st]) ? ST[u.st] : null; }
+  function stAtkRate(u) { var c = stOf(u); return c ? c.atk : 1; }
+  function effSpd(u) { var c = stOf(u); return u.spd * (c ? c.spd : 1); }
+  function stLabel(u) { var c = stOf(u); return c ? (c.icon + c.label) : ''; }
+
+  // 強撃技が当たったときだけ、その技の属性に応じて かかる
+  function stTryInflict(d, el) {
+    var kind = ST_BY_EL[el];
+    if (!kind) return '';
+    if (d.st) return '';          // すでに かかっている
+    if (d.stImm > 0) return '';   // なおった直後は かからない
+    var c = ST[kind];
+    if (c.immune.indexOf(d.el) >= 0) return '';
+    if (Math.random() >= STRATE) return '';
+    d.st = kind; d.stT = c.turns; d.stNew = true;
+    return d.name + ' は ' + c.icon + c.label + ' に なった！（あと ' + c.turns + 'ターンまで。はやく なおることも ある）';
+  }
+
+  // ターンの おわりに ダメージ・ターン数・なおり を処理する
+  function stTick(u, lines) {
+    if (!u || !u.alive) return;
+    var c = stOf(u);
+    if (c && u.stNew) { u.stNew = false; return; } // かかった そのターンは 数えない
+    if (c) {
+      if (c.dot > 0) {
+        var dmg = Math.max(1, Math.round(u.maxHp * c.dot));
+        u.hp = Math.max(0, u.hp - dmg);
+        lines.push(u.name + ' は ' + c.icon + c.label + ' で ' + dmg + ' の ダメージ！');
+        if (u.hp === 0) { u.alive = false; lines.push(u.name + ' は たおれた！'); }
+      }
+      if (u.alive && Math.random() < ST_EARLY) {
+        u.st = null; u.stImm = ST_IMM;
+        lines.push(u.name + ' の ' + c.icon + c.label + ' が はやく なおった！');
+      } else {
+        u.stT--;
+        if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; lines.push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
+      }
+    } else if (u.stImm > 0) {
+      u.stImm--;
+    }
+  }
+
   function applyEffect(a, d, eff, dealt) {
     if (!eff) return '';
     var msg = '';
@@ -365,6 +445,92 @@
       if (d.db > -2) { d.db--; msg = d.name + ' の ぼうぎょ が さがった！'; }
     }
     return msg;
+  }
+
+
+  /* ===================== きょうのジム（第4便） =====================
+     日付から1人を決める。計算だけなので、全員の端末で同じ相手になる。
+     ほかのリーダーにも ふつうに挑める。きょうのジムは「今日の推し」。 */
+  function tbDayNum(ymd) {
+    var s = String(ymd || today()), n = 0;
+    for (var i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) % 100000;
+    return n;
+  }
+  function todayLeaderIdx() {
+    var n = Math.max(1, Math.min(ACTIVE, LEADERS.length));
+    return tbDayNum(today()) % n;
+  }
+
+  /* ===================== ショップの わりびき（第5便） =====================
+     その週（月〜日）に 家庭学習を出した日数で決める。連続日数は使わない。
+     週が変われば 自動的に 0 から数え直す（休んだ子が 戻れなくなるのを さけるため）。
+       3日 → 1わりびき / 5日 → 2わりびき
+     既存の SHOP_ITEMS の price を書きかえるだけ。買う処理・表示の処理には 手を入れていない。 */
+  function tbWeekStart(d) {
+    var x = new Date(d.getTime());
+    var w = x.getDay();              // 0=日
+    var back = (w === 0) ? 6 : (w - 1); // 月曜はじまり
+    x.setDate(x.getDate() - back);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  }
+  function tbWeekStudyDays() {
+    try {
+      var logs = (typeof hsLogs === 'function') ? (hsLogs() || []) : [];
+      var start = tbWeekStart(new Date());
+      var seen = {}, cnt = 0;
+      for (var i = 0; i < logs.length; i++) {
+        var l = logs[i];
+        if (!l || !l.dayKey || l.restDay) continue;
+        var p = String(l.dayKey).split('-');
+        if (p.length !== 3) continue;
+        var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+        if (d < start) continue;
+        if (seen[l.dayKey]) continue;
+        seen[l.dayKey] = 1; cnt++;
+      }
+      return cnt;
+    } catch (e) { return 0; }
+  }
+  function tbShopRate(days) {
+    if (days >= 5) return 0.8;
+    if (days >= 3) return 0.9;
+    return 1;
+  }
+  function tbApplyShopDiscount() {
+    try {
+      if (typeof SHOP_ITEMS === 'undefined' || !SHOP_ITEMS || !SHOP_ITEMS.length) return;
+      var days = tbWeekStudyDays(), rate = tbShopRate(days), changed = false;
+      for (var i = 0; i < SHOP_ITEMS.length; i++) {
+        var it = SHOP_ITEMS[i];
+        if (!it) continue;
+        if (typeof it._tbBase !== 'number') it._tbBase = Number(it.price) || 0;
+        var np = Math.max(1, Math.ceil(it._tbBase * rate));
+        if (it.price !== np) { it.price = np; changed = true; }
+      }
+      tbShopBanner(days, rate);
+      return changed;
+    } catch (e) { log('わりびきの反映に失敗', e); }
+  }
+  function tbShopBanner(days, rate) {
+    try {
+      var sc = document.getElementById('screen-shop');
+      if (!sc) return;
+      var el = document.getElementById('tbShopBanner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'tbShopBanner';
+        el.style.cssText = 'margin:4px 6px;padding:6px 10px;border-radius:10px;font-size:12px;font-weight:800';
+        sc.insertBefore(el, sc.firstChild);
+      }
+      if (rate < 1) {
+        el.style.background = '#fef3c7'; el.style.color = '#92400e';
+        el.textContent = '今週 ' + days + '日 がんばったから ' + (rate === 0.8 ? '2わりびき' : '1わりびき') + '！（月よう日に リセット）';
+      } else {
+        el.style.background = '#f1f5f9'; el.style.color = '#475569';
+        el.textContent = '今週 ' + days + '日。あと ' + Math.max(0, 3 - days) + '日で 1わりびき！（家庭学習を 3日で 1わり、5日で 2わり）';
+      }
+    } catch (e) {}
   }
 
   /* ===================== 状態 ===================== */
@@ -536,8 +702,19 @@
 
     var party = myParty();
     var h = '';
+    // きょうのジム（日付で決まる・全員同じ）
+    var todayIdx = todayLeaderIdx();
+    if (ACTIVE > 0 && LEADERS[todayIdx]) {
+      h += '<div class="rounded-xl p-2 mb-2" style="background:linear-gradient(90deg,#fde68a,#fca5a5)">' +
+        '<div class="text-xs font-bold text-amber-900">★ きょうの ジム</div>' +
+        '<div class="text-sm font-bold text-slate-800">' + LEADERS[todayIdx].emoji + ' ' + esc(LEADERS[todayIdx].name) + '</div>' +
+        '<div class="text-[11px] text-amber-900">クラスの みんなが 今日は この人に いどめます。かつと コインが すこし 多めに もらえます。</div>' +
+        '</div>';
+    }
+
     h += '<div class="text-xs text-slate-500 mb-1">こたえなくていい バトルです。わざを えらんで たたかいます。チケット1まい つかいます。</div>';
     h += '<div class="text-xs text-slate-400 mb-2">みんな レベル50・つよさも そろえて たたかいます。あいしょうと わざの えらびかたで きまります。リーダーの つよさは きみの てもちに すこし あわせます。</div>';
+    h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。じょうたいは 何ターンかで なおります。はやく なおることも あります。</div>';
 
     // バッジ
     h += '<div class="flex flex-wrap gap-1 mb-2">';
@@ -577,6 +754,7 @@
       h += '<div style="font-size:30px">' + L.emoji + '</div>';
       h += '<div class="flex-1"><div class="font-bold text-sm">' + esc(L.name) + '</div>';
       h += '<div class="text-[11px] text-slate-500">' + esc(L.say) + '</div></div>';
+      if (k === todayLeaderIdx()) h += '<div class="text-xs font-bold text-amber-700">★きょう</div>';
       h += (tb && tb.badges[L.key]) ? '<div class="text-xs font-bold text-amber-600">バッジ ○</div>' : '';
       h += '</div>';
       h += '<div class="flex items-center gap-2 mt-1 flex-wrap">';
@@ -691,8 +869,23 @@
     var r = u.hp / u.maxHp;
     return r > 0.5 ? '#22c55e' : (r > 0.2 ? '#f59e0b' : '#ef4444');
   }
+  // この技が じょうたいを かけられるか（かからない相手なら出さない）
+  function skillStHint(s, foe) {
+    if (!s || s.ty !== 'heavy') return '';
+    var kind = ST_BY_EL[s.el];
+    if (!kind) return '';
+    var c = ST[kind];
+    if (!foe || c.immune.indexOf(foe.el) >= 0) return '';
+    if (foe.st || foe.stImm > 0) return '';
+    return c.icon + c.label + 'に することがある';
+  }
+
   function statArrows(u) {
     var s = '';
+    if (u.st && ST[u.st]) {
+      s += '<span style="display:inline-block;padding:0 4px;border-radius:999px;background:#fff;color:#7c2d12;font-size:10px;font-weight:800">' +
+        ST[u.st].icon + ST[u.st].label + ' あと' + Math.max(0, u.stT) + 'まで</span> ';
+    }
     if (u.ab > 0) s += '<span style="color:#fca5a5;font-size:10px">こう↑' + u.ab + '</span>';
     if (u.ab < 0) s += '<span style="color:#93c5fd;font-size:10px">こう↓' + (-u.ab) + '</span>';
     if (u.db > 0) s += '<span style="color:#fcd34d;font-size:10px">ぼう↑' + u.db + '</span>';
@@ -711,6 +904,7 @@
         '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">' + badge(s.el) +
         '<span style="font-size:10px;color:#64748b">' + note + '</span>' +
         (lab ? '<span style="font-size:10px;font-weight:800;color:' + (m > 1 ? '#dc2626' : '#2563eb') + '">' + lab + '</span>' : '') +
+        (skillStHint(s, fo) ? '<span style="font-size:10px;font-weight:800;color:#9333ea">' + skillStHint(s, fo) + '</span>' : '') +
         '</div></button>';
     }
     var others = [];
@@ -790,6 +984,7 @@
     var bi = 0, bv = -1;
     for (var i = 0; i < a.sk.length; i++) {
       var v2 = expDmg(a, f, a.sk[i]) * (sloppy ? (0.6 + Math.random() * 0.8) : 1);
+      if (!sloppy && skillStHint(a.sk[i], f)) v2 *= 1.15;
       if (v2 > bv) { bv = v2; bi = i; }
     }
     return { kind: 'skill', i: bi };
@@ -810,7 +1005,7 @@
     S.stat.spdN++;
     if (me.spd < fo.spd) S.stat.spdLoss++;
 
-    var meFirst = me.spd >= fo.spd;
+    var meFirst = effSpd(me) >= effSpd(fo);
     var lines = [];
 
     function actMe() {
@@ -820,6 +1015,10 @@
         lines.push('がんばれ！ ' + cur('me').name + '！');
         return;
       }
+      if (u.st === 'para' && Math.random() < PARA_SKIP) {
+        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
+        return;
+      }
       var s = u.sk[myAct.i] || u.sk[0];
       var r = doHit(u, v, s);
       if (r.miss) lines.push(u.name + ' の ' + s.name + '！ しかし はずれた！');
@@ -827,6 +1026,7 @@
         var lab = multLabel(r.m);
         lines.push(u.name + ' の ' + s.name + '！ ' + (lab ? lab + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
       } else lines.push(u.name + ' の ' + s.name + '！');
+      if (r.st) lines.push(r.st);
       var em = applyEffect(u, v, s.eff, r.dmg);
       if (em) lines.push(em);
       if (!v.alive) lines.push(v.name + ' は たおれた！');
@@ -838,6 +1038,10 @@
         lines.push(S.L.name + ' は ' + cur('foe').name + ' を だした！');
         return;
       }
+      if (u.st === 'para' && Math.random() < PARA_SKIP) {
+        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
+        return;
+      }
       var s = u.sk[foeAct.i] || u.sk[0];
       var r = doHit(u, v, s);
       if (r.miss) lines.push(u.name + ' の ' + s.name + '！ しかし はずれた！');
@@ -845,6 +1049,7 @@
         var lab2 = multLabel(r.m);
         lines.push(u.name + ' の ' + s.name + '！ ' + (lab2 ? lab2 + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
       } else lines.push(u.name + ' の ' + s.name + '！');
+      if (r.st) lines.push(r.st);
       var em2 = applyEffect(u, v, s.eff, r.dmg);
       if (em2) lines.push(em2);
       if (!v.alive) lines.push(v.name + ' は たおれた！');
@@ -852,6 +1057,10 @@
 
     if (meFirst) { actMe(); if (cur('me').alive) actFoe(); }
     else { actFoe(); if (cur('foe').alive) actMe(); }
+
+    // ターンの おわり：やけど・どくの ダメージと、ターン数の へらし
+    stTick(cur('me'), lines);
+    stTick(cur('foe'), lines);
 
     // たおれたら次を出す
     if (!cur('me').alive) {
@@ -909,6 +1118,7 @@
     try {
       if (win) {
         coins = 40;
+        if (S.lv === todayLeaderIdx()) { coins += 20; S.todayBonus = true; }
         if (tb && !tb.badges[S.L.key]) { tb.badges[S.L.key] = 1; gotBadge = true; }
         if (Math.random() < 0.15) shards = 3;
       } else {
@@ -931,7 +1141,7 @@
     h += '</div>';
     h += '<div class="rounded-xl bg-white border border-slate-200 p-2 mb-2">';
     h += '<div class="text-sm font-bold">もらったもの</div>';
-    h += '<div class="text-sm">コイン +' + coins + '</div>';
+    h += '<div class="text-sm">コイン +' + coins + (S.todayBonus ? '（★きょうの ジム ボーナス +20）' : '') + '</div>';
     if (shards) h += '<div class="text-sm">かけら +' + shards + '</div>';
     if (gotBadge) h += '<div class="text-sm font-bold text-amber-600">' + esc(S.L.badge) + ' を もらった！</div>';
     h += '</div>';
@@ -957,19 +1167,28 @@
       buildScreen();
       addMenuButton();
       hookHomestudy();
+      tbApplyShopDiscount();
       window.tbOpen = open;
       window.TB = {
-        ver: 'TB_V1', open: open, leaders: LEADERS, chart: CHART,
+        ver: 'TB_V2', open: open, leaders: LEADERS, chart: CHART,
         param: {
           SE: SE, RES: RES, IMM: IMM, K: K, BUFF: BUFF, HEAL: HEAL, HEALCAP: HEALCAP,
-          MAXSTACK: MAXSTACK, CAP: CAP, BLEND: BLEND, BAND: BAND, POW: POW
+          MAXSTACK: MAXSTACK, CAP: CAP, BLEND: BLEND, BAND: BAND, POW: POW,
+          STRATE: STRATE, ST_IMM: ST_IMM, ST_EARLY: ST_EARLY, PARA_SKIP: PARA_SKIP
         },
+        ST: ST, ST_BY_EL: ST_BY_EL,
         avgPctOf: avgPctOf,
+        todayLeaderIdx: todayLeaderIdx,
+        weekStudyDays: tbWeekStudyDays,
+        shopRate: tbShopRate,
+        applyShopDiscount: tbApplyShopDiscount,
         buildUnit: buildUnit, mult: mult, grantTicket: grantTicket
       };
       log('ready');
     } catch (e) { log('boot失敗', e); }
   }
+
+  setInterval(function () { try { tbApplyShopDiscount(); } catch (e) {} }, 60000);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
@@ -977,7 +1196,7 @@
   var tries = 0;
   var iv = setInterval(function () {
     tries++;
-    try { addMenuButton(); hookHomestudy(); } catch (e) {}
+    try { addMenuButton(); hookHomestudy(); tbApplyShopDiscount(); } catch (e) {}
     if (tries > 20) clearInterval(iv);
   }, 1500);
 })();
