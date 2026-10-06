@@ -1,0 +1,144 @@
+name: IMPNAME 取り込みの名前合わせを直す（便を1つずつ）
+
+# 成果物の取り込みで、児童の名前が当たらない問題を直す。
+# 調べて分かったこと：このアプリは OCR をしていない。手書きを読むのは外部AIで、
+# アプリの仕事は返ってきたテキストの名前を22人に当てることだけ。
+# その突き合わせに穴が4つあった。1便ずつ流す。
+#   a … 成果物プロンプトに名簿（実名）と【名前の読み取り】を入れる
+#   b … 読み取りの前に loadServerNameMap() を待つ
+#   d … サーバ側でも real_name_map / real_furigana_map を照合先にする
+#   e … 無言で別の子に付く経路を3つ塞ぐ
+# さわるのは src/index.tsx の教師画面とサーバAPIだけ。
+# 児童の配信チェーンは増減させない。public/index.html には一切さわらない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      bin:
+        description: "流す便"
+        required: true
+        type: choice
+        options:
+          - a
+          - b
+          - d
+          - e
+      chain_before:
+        description: "流す直前に実測したチェーン件数。合わなければ何も書かずに止まる"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: パッチ本体の構文チェック
+        run: python3 -m py_compile scripts/patch_impname_${{ inputs.bin }}_v1.py
+
+      - name: 適用前の実測
+        run: |
+          git rev-parse HEAD
+          echo -n 'チェーン件数(前): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo -n 'public/index.html sha256: '; sha256sum public/index.html
+          echo -n 'src/index.tsx の文字数: '; python3 -c "print(len(open('src/index.tsx',encoding='utf-8').read()))"
+          echo -n '児童ルートの文字数: '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(len(s[a:b]))"
+          for m in IMPNAME_A_V1 IMPNAME_B_V1 IMPNAME_D_V1 IMPNAME_E_V1; do
+            echo -n "$m の数(前): "; grep -o "$m" src/index.tsx | wc -l
+          done
+
+      - name: パッチ適用（フェイルクローズ）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_impname_${{ inputs.bin }}_v1.py
+
+      - name: 触ってはいけないファイルが無傷であること
+        run: |
+          set -e
+          git diff --quiet -- public/index.html
+          git diff --quiet -- public/teacher-ai.js
+          git diff --quiet -- public/student-karte.js
+          git diff --quiet -- public/defense2.js
+          git diff --quiet -- src/def_engine.ts
+          git diff --quiet -- src/def_resolve.ts
+          git diff --quiet -- src/def_stage.ts
+          git diff --quiet -- scripts/patch_karte_slim_v1.py
+          echo 'public/index.html ほか: 無変更 OK'
+          echo -n '変更のあったファイル: '; git --no-pager diff --name-only | tr '\n' ' '; echo
+
+      - name: 児童の配信チェーンが1文字も変わっていないこと
+        run: |
+          set -e
+          git show HEAD:src/index.tsx > /tmp/_before.tsx
+          python3 - <<'PY'
+          import hashlib
+          def child(p):
+              s = open(p, encoding='utf-8').read()
+              a = s.index("app.get('/', async (c) => {")
+              b = s.index("app.get('/logout'", a)
+              return s[a:b]
+          x = child('/tmp/_before.tsx'); y = child('src/index.tsx')
+          hx = hashlib.sha256(x.encode()).hexdigest(); hy = hashlib.sha256(y.encode()).hexdigest()
+          print('児童ルート 前=%d 後=%d' % (len(x), len(y)))
+          print('sha256 前=%s' % hx)
+          print('sha256 後=%s' % hy)
+          if hx != hy:
+              print('::error::児童ルートが変わりました')
+              raise SystemExit(1)
+          print('児童ルート: 無変更 OK')
+          PY
+
+      - name: 適用後の内容検証（grep -c は使わない。巨大な1行なので必ず1を返すため）
+        run: |
+          set -e
+          for m in IMPNAME_A_V1 IMPNAME_B_V1 IMPNAME_D_V1 IMPNAME_E_V1 __IMPORT_AUTO_V1__ __IMPORT_CHECK_V1__ QUICKNOTE_V1 _qnMask karte_material_uses WARMIX; do
+            echo -n "$m: "; grep -o "$m" src/index.tsx | wc -l
+          done
+          echo -n 'チェーン件数(後): '; python3 -c "s=open('src/index.tsx',encoding='utf-8').read(); a=s.index(\"app.get('/', async (c) => {\"); b=s.index(\"app.get('/logout'\",a); print(s[a:b].count('.replace('))"
+          echo '検証OK'
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: 配信JSの構文チェック（既存のものを使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: コミット&プッシュ
+        run: |
+          set -e
+          case "${{ inputs.bin }}" in
+            a) MSG="IMPNAME_A_V1: 成果物プロンプトに名簿（実名）と【名前の読み取り】を入れる／テスト側の名簿もニックネームから実名へ（教師画面のみ・チェーン 167 のまま）" ;;
+            b) MSG="IMPNAME_B_V1: 成果物の読み取りの前に loadServerNameMap() を待つ（ふりがな照合と共有別名が効くように・教師画面のみ・チェーン 167 のまま）" ;;
+            d) MSG="IMPNAME_D_V1: サーバ側 /api/teacher/records/parse でも real_name_map / real_furigana_map を照合先にする（読むだけ・チェーン 167 のまま）" ;;
+            e) MSG="IMPNAME_E_V1: 名前の取り違えを無言で通さない歯止め3つ（突き合わせ例外時は全行未マッチ／別名経由は要確認／数字のログインIDは部分一致に使わない・チェーン 167 のまま）" ;;
+            *) echo "::error::不明な便"; exit 1 ;;
+          esac
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "::error::変更なし"; exit 1; fi
+          git commit -m "$MSG"
+          git checkout -- .
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: 次の手順
+        run: echo 'push で Deploy to Cloudflare Pages が走ります。走らなければ手動で dispatch してください。'
