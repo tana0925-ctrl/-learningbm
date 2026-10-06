@@ -1,0 +1,71 @@
+name: 図鑑で見切れている絵に余白を足しなおす v1（18枚だけ・絵は描き直さない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pillow を入れる
+        run: pip install --quiet pillow
+
+      - name: 余白を足しなおす（チェーン167・18枚ぶんだけ・1枚でもだめなら何も書かない）
+        run: python3 scripts/patch_mon_repad_v1.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ビルド（検査のため）
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: /mon/ が そのまま配る側に入ったままか確かめる
+        run: python3 scripts/check_mon_routes_v1.py
+
+      - name: 配信されるHTMLのJSを構文チェック
+        run: node scripts/render_check.mjs
+
+      - name: 児童画面のJSを構文チェック
+        run: node scripts/render_check_child.mjs
+
+      - name: 絵のファイル以外が混ざっていないか確かめる
+        run: |
+          git add public/mon
+          CHANGED=$(git diff --staged --name-only)
+          echo "$CHANGED"
+          BAD=$(echo "$CHANGED" | grep -v '^public/mon/[0-9]\+\.png$' || true)
+          if [ -n "$BAD" ]; then
+            echo "### 中止: 絵以外が混ざっている"
+            echo "$BAD"
+            exit 1
+          fi
+          N=$(echo "$CHANGED" | sed '/^$/d' | wc -l)
+          if [ "$N" != "18" ]; then
+            echo "### 中止: 変わったファイルが $N 件。18件のはず。"
+            exit 1
+          fi
+
+      - name: コミット&プッシュ（public/mon の絵18枚だけ）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "図鑑で見切れていた18枚に透明の余白を足しなおす（絵は描き直していない・チェーン167->167）"
+          git push
+
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
