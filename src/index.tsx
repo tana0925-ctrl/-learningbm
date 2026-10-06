@@ -4668,7 +4668,10 @@ app.post('/api/teacher/records/parse', async (c) => {
   const rows = blocks.map((bk: any) => {
     const keyId = _recNorm(bk.idRaw); const keyNm = _recNorm(bk.nameRaw)
     let uid: string | null = idx[keyId] || idx[keyNm] || null
-    if (!uid && keyNm) { for (const m of roster as any[]) { const nn = _recNorm(m.name); if (nn && (nn.indexOf(keyNm) >= 0 || keyNm.indexOf(nn) >= 0)) { uid = m.id; break } } }
+    // 📌 IMPNAME_E_V1 e3: users.name は "444" "626" "321" のような数字のことがある。
+    //    数字同士は簡単に部分一致してしまうので、部分一致の相手からは外す。
+    //    1文字の鍵も外す（短すぎて誰にでも当たる）。完全一致（上の idx）は今までどおり効く。
+    if (!uid && keyNm && keyNm.length >= 2) { for (const m of roster as any[]) { const nn = _recNorm(m.name); if (!nn || nn.length < 2) continue; if (/^[0-9]+$/.test(nn) || /^[0-9]+$/.test(keyNm)) continue; if (nn.indexOf(keyNm) >= 0 || keyNm.indexOf(nn) >= 0) { uid = m.id; break } } }
     const mm = uid ? (roster as any[]).find((x: any) => x.id === uid) : null
     const dupKey = uid ? (uid + '|' + _recNorm(bk.title)) : ''
     return { idRaw: bk.idRaw, nameRaw: bk.nameRaw, title: bk.title, day: bk.day, subject: bk.subject, unit: bk.unit, body: bk.body, reflection: bk.reflection, evalRank: bk.evalRank, evalComment: bk.evalComment, score: bk.score, maxScore: bk.maxScore, evalKnowledge: bk.evalKnowledge, evalThinking: bk.evalThinking, evalAttitude: bk.evalAttitude, dest: _impDest(bk), autoType: _impAutoType(bk), dupOn: (dupKey && _recDup[dupKey]) ? _recDup[dupKey] : '', matchedUserId: uid, matchedName: mm ? mm.name : null }
@@ -14631,7 +14634,7 @@ function _faKarteGraphs(d){
       function _rememberAlias(cid, rawName, uid){ if(!cid||!uid) return; var nk=_nameNorm(rawName); if(!nk) return; try{ var all=JSON.parse(localStorage.getItem('studentAliases')||'{}'); if(!all[cid]) all[cid]={}; all[cid][nk]=uid; localStorage.setItem('studentAliases',JSON.stringify(all)); }catch(_){ } try{ if(!window._serverAliasMap) window._serverAliasMap={}; if(!window._serverAliasMap[cid]) window._serverAliasMap[cid]={}; window._serverAliasMap[cid][nk]=uid; }catch(_a){} try{ api('/api/teacher/aliases',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:cid,key:nk,userId:uid})}); }catch(_p){} }
       function _buildRosterKeys(roster){ var fmap=(window._serverFuriganaMap&&typeof window._serverFuriganaMap==='object')?window._serverFuriganaMap:{}; var rk=[]; for(var j=0;j<roster.length;j++){ var rm=roster[j]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(rm.loginId,rm.name):(rm.name||rm.loginId||''); var fur=fmap[rm.loginId]||''; var strong={}, weak={}; var addS=function(x){ var nn=_nameNorm(x); if(nn) strong[nn]=1; }; addS(dn); addS(rm.name); addS(rm.loginId); addS(fur); var pp=_nameParts(dn).concat(_nameParts(rm.name||'')).concat(_nameParts(fur)); for(var p=0;p<pp.length;p++){ weak[pp[p]]=1; } var dp=_nameParts(dn); if(dp.length===2){ weak[dp[1]+dp[0]]=1; } var fp=_nameParts(fur); if(fp.length===2){ strong[fp[0]+fp[1]]=1; weak[fp[1]+fp[0]]=1; } rk.push({rm:rm, strong:strong, weak:weak, primary:_nameNorm(dn)}); } return rk; }
       function _matchRosterRows(d, cid){ var roster=d.roster||[]; var rk=_buildRosterKeys(roster); var aliases=_getAliasMap(cid); for(var i=0;i<d.rows.length;i++){ var r=d.rows[i]; var rawName=(r.rawName!=null)?r.rawName:(r.nameRaw||''); var rawId=r.idRaw||''; var nkey=_nameNorm(rawName); var idkey=_nameNorm(rawId); var hit=null, status='none';
-        if(nkey && aliases[nkey]){ for(var a=0;a<rk.length;a++){ if(rk[a].rm.userId===aliases[nkey]){ hit=rk[a].rm; status='auto'; break; } } }
+        /* IMPNAME_E_V1 e2: 別名は「過去に先生が手で直した読み違い文字列」。同じ綴りが別の子のものとして出てくると、auto だと永久に無言で通る。cand にして確認を挟む。 */ if(nkey && aliases[nkey]){ for(var a=0;a<rk.length;a++){ if(rk[a].rm.userId===aliases[nkey]){ hit=rk[a].rm; status='cand'; break; } } }
         if(!hit && idkey){ for(var a=0;a<rk.length;a++){ if(rk[a].strong[idkey]){ hit=rk[a].rm; status='auto'; break; } } }
         if(!hit && nkey){ for(var a=0;a<rk.length;a++){ if(rk[a].strong[nkey]){ hit=rk[a].rm; status='auto'; break; } } }
         if(!hit && nkey){ for(var a=0;a<rk.length;a++){ if(rk[a].weak[nkey]){ hit=rk[a].rm; status='cand'; break; } } }
@@ -14804,7 +14807,7 @@ function _faKarteGraphs(d){
         fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
           window._recParsed=d;
-          try{ _matchRosterRows(d, cid); }catch(_e){}
+          try{ _matchRosterRows(d, cid); }catch(_e){ /* IMPNAME_E_V1 e1: 突き合わせが落ちたら、サーバ側のゆるい推測を ✓自動 として残さない。全部 先生に選んでもらう。 */ try{ for(var _z=0;_z<d.rows.length;_z++){ d.rows[_z].matchedUserId=null; d.rows[_z].matchStatus='none'; d.rows[_z].matchedName=null; } }catch(_e9){} }
           if(st) st.textContent='✓ '+d.rows.length+'件を読み取りました。内容を確認して保存してください';
           _recRenderPreview(d);
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
