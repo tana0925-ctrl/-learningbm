@@ -77,10 +77,14 @@
      ・自分と同じ系統には かからない（ほのおは やけどしない、など）。 */
   var STRATE = 0.20;
   var ST_IMM = 3;
+  var ST_EARLY = 0.25; // 毎ターン、この確率で ターン数より はやく なおる
+  var PARA_SKIP = 0.25; // しびれているとき、この確率で うごけない（こうたいは できる）
+  // ※ はやく なおるぶん、1回あたりの 効き目は 少し強くしてある
+  //   （やけど 6%→8%、どく 8%→10%。平均の ダメージ量が だいたい 同じになるように）
   var ST = {
-    burn:   { label: 'やけど', icon: '🔥', turns: 3, dot: 0.06, atk: 0.85, spd: 1,
+    burn:   { label: 'やけど', icon: '🔥', turns: 3, dot: 0.08, atk: 0.85, spd: 1,
               from: ['fire'], immune: ['fire'] },
-    poison: { label: 'どく',   icon: '☠',  turns: 3, dot: 0.08, atk: 1,    spd: 1,
+    poison: { label: 'どく',   icon: '☠',  turns: 3, dot: 0.10, atk: 1,    spd: 1,
               from: ['grass', 'poison', 'bug'], immune: ['grass', 'poison', 'bug', 'steel'] },
     para:   { label: 'しびれ', icon: '⚡', turns: 2, dot: 0,    atk: 1,    spd: 0.5,
               from: ['electric', 'ice'], immune: ['electric', 'ice'] }
@@ -382,7 +386,7 @@
     if (c.immune.indexOf(d.el) >= 0) return '';
     if (Math.random() >= STRATE) return '';
     d.st = kind; d.stT = c.turns; d.stNew = true;
-    return d.name + ' は ' + c.icon + c.label + ' に なった！（あと ' + c.turns + 'ターン）';
+    return d.name + ' は ' + c.icon + c.label + ' に なった！（あと ' + c.turns + 'ターンまで。はやく なおることも ある）';
   }
 
   // ターンの おわりに ダメージ・ターン数・なおり を処理する
@@ -397,8 +401,13 @@
         lines.push(u.name + ' は ' + c.icon + c.label + ' で ' + dmg + ' の ダメージ！');
         if (u.hp === 0) { u.alive = false; lines.push(u.name + ' は たおれた！'); }
       }
-      u.stT--;
-      if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; lines.push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
+      if (u.alive && Math.random() < ST_EARLY) {
+        u.st = null; u.stImm = ST_IMM;
+        lines.push(u.name + ' の ' + c.icon + c.label + ' が はやく なおった！');
+      } else {
+        u.stT--;
+        if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; lines.push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
+      }
     } else if (u.stImm > 0) {
       u.stImm--;
     }
@@ -609,7 +618,7 @@
     var h = '';
     h += '<div class="text-xs text-slate-500 mb-1">こたえなくていい バトルです。わざを えらんで たたかいます。チケット1まい つかいます。</div>';
     h += '<div class="text-xs text-slate-400 mb-2">みんな レベル50・つよさも そろえて たたかいます。あいしょうと わざの えらびかたで きまります。リーダーの つよさは きみの てもちに すこし あわせます。</div>';
-    h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。</div>';
+    h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。じょうたいは 何ターンかで なおります。はやく なおることも あります。</div>';
 
     // バッジ
     h += '<div class="flex flex-wrap gap-1 mb-2">';
@@ -778,7 +787,7 @@
     var s = '';
     if (u.st && ST[u.st]) {
       s += '<span style="display:inline-block;padding:0 4px;border-radius:999px;background:#fff;color:#7c2d12;font-size:10px;font-weight:800">' +
-        ST[u.st].icon + ST[u.st].label + ' のこり' + Math.max(0, u.stT) + '</span> ';
+        ST[u.st].icon + ST[u.st].label + ' あと' + Math.max(0, u.stT) + 'まで</span> ';
     }
     if (u.ab > 0) s += '<span style="color:#fca5a5;font-size:10px">こう↑' + u.ab + '</span>';
     if (u.ab < 0) s += '<span style="color:#93c5fd;font-size:10px">こう↓' + (-u.ab) + '</span>';
@@ -909,6 +918,10 @@
         lines.push('がんばれ！ ' + cur('me').name + '！');
         return;
       }
+      if (u.st === 'para' && Math.random() < PARA_SKIP) {
+        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
+        return;
+      }
       var s = u.sk[myAct.i] || u.sk[0];
       var r = doHit(u, v, s);
       if (r.miss) lines.push(u.name + ' の ' + s.name + '！ しかし はずれた！');
@@ -926,6 +939,10 @@
       if (foeAct.kind === 'swap') {
         S.fi = foeAct.j;
         lines.push(S.L.name + ' は ' + cur('foe').name + ' を だした！');
+        return;
+      }
+      if (u.st === 'para' && Math.random() < PARA_SKIP) {
+        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
         return;
       }
       var s = u.sk[foeAct.i] || u.sk[0];
@@ -1058,7 +1075,7 @@
         param: {
           SE: SE, RES: RES, IMM: IMM, K: K, BUFF: BUFF, HEAL: HEAL, HEALCAP: HEALCAP,
           MAXSTACK: MAXSTACK, CAP: CAP, BLEND: BLEND, BAND: BAND, POW: POW,
-          STRATE: STRATE, ST_IMM: ST_IMM
+          STRATE: STRATE, ST_IMM: ST_IMM, ST_EARLY: ST_EARLY, PARA_SKIP: PARA_SKIP
         },
         ST: ST, ST_BY_EL: ST_BY_EL,
         avgPctOf: avgPctOf,
