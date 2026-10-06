@@ -708,6 +708,7 @@
   }
   function exit() {
     try {
+      vsLeave();
       vsStopTimers();
       S = null;
       if (EL.root) EL.root.classList.add('hidden');
@@ -1340,8 +1341,10 @@
     var opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
     return fetch(path, opt).then(function (r) { return r.json(); });
   }
+  var VS_CODE_RE = /^[A-Z0-9]{4,}$/;
+  function vsOkCode(c) { return !!c && VS_CODE_RE.test(String(c)) && String(c).indexOf('--') < 0; }
   function vsSend(meta) {
-    var v = S && S.vs; if (!v || !v.code) return;
+    var v = S && S.vs; if (!v || !vsOkCode(v.code)) return;
     vsApi('/api/rt/damage/' + v.code, { damage: 0, monsterId: 0, eventType: 'tb', meta: meta })
       .then(function (d) { if (d && d.eventId) v.mine[d.eventId] = 1; })
       .catch(function () {});
@@ -1394,7 +1397,7 @@
     var tries = 0;
     var iv = setInterval(function () {
       tries++;
-      if (tries > 240) { clearInterval(iv); vsWaitPanel('あいてが きませんでした', ''); return; }
+      if (tries > 160) { clearInterval(iv); vsLeave(); vsWaitPanel('あいてが きませんでした', ''); return; }
       vsApi('/api/rt/room/' + code).then(function (d) {
         if (!d || !d.ok || !d.room) return;
         var r = d.room;
@@ -1406,13 +1409,13 @@
           });
         }
       }).catch(function () {});
-    }, 1000);
+    }, 1500);
     S_vsTimers.push(iv);
   }
   // --- あいことばで はいる（ゲスト）---
   function vsJoin(code) {
     code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (code.length < 4) { alert('あいことばを いれてね'); return; }
+    if (!vsOkCode(code)) { alert('あいことばを いれてね（えいすうじ 4もじ いじょう）'); return; }
     var party = vsMyPartyPayload();
     if (!party.length) { alert('てもちが ありません。'); return; }
     vsWaitPanel('はいっています…', code);
@@ -1445,8 +1448,19 @@
           vsBattleStart(code, role, nm, ids);
         }
       }).catch(function () {});
-    }, 700);
+    }, 1200);
     S_vsTimers.push(iv);
+  }
+
+  // 部屋を かたづける（ホストなら けす／ゲストなら ぬける）。
+  // egg2p.js が おわっても 止めていなかったため playing の部屋が 43件 のこっていた。
+  // 同じことを しないように、おわり・画面を とじる・ページを はなれる の3つで よぶ。
+  function vsLeave(code) {
+    var c = code || (S && S.vs && S.vs.code);
+    if (!vsOkCode(c)) return;
+    try {
+      fetch('/api/rt/leave/' + c, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(function () {});
+    } catch (e) {}
   }
 
   var S_vsTimers = [];
@@ -1474,7 +1488,7 @@
       vs: {
         code: code, role: role, oppName: oppName, mine: {}, lastId: 0,
         myAct: null, foeAct: null, resolving: false, turnStart: 0,
-        noMove: 0, lastRes: Date.now(), t0: Date.now(), ended: false
+        noMove: 0, lastRes: Date.now(), t0: Date.now(), lastProgress: Date.now(), ended: false
       }
     };
     EL.lobby.classList.add('hidden');
@@ -1484,12 +1498,16 @@
     say(oppName + ' との たいせん！');
     renderField();
     vsBeginTurn();
-    var iv = setInterval(vsTick, 400);
+    // ポーリングは 1秒おき。240msにすると 22人で 146リクエスト/秒になり、
+    // D1の書き込み枠を 1コマで 65% 使ってしまう（別セッションの実測）。
+    // ターン制は あいての手を 待つだけなので 1秒で 何も困らない。
+    var iv = setInterval(vsTick, 1000);
     S_vsTimers.push(iv);
   }
 
   function vsBeginTurn() {
     if (!S || !S.vs || S.over) return;
+    S.vs.lastProgress = Date.now();
     S.vs.turnStart = Date.now();
     S.vs.myAct = null;
     lockCmd(false);
@@ -1540,6 +1558,7 @@
     var w = vsVerdict();
     vsSend({ k: 'res', t: S.turn, L: lines, end: w ? 1 : 0, w: w || '' });
     v.resolving = false;
+    v.lastProgress = Date.now();
     playLines(lines, function () {
       if (w) { vsFinish(w); return; }
       if (v.noMove >= VS_NOMOVE_MAX) { vsSend({ k: 'bye' }); vsFinish('d', 'あいてが いなくなった みたい'); return; }
@@ -1579,6 +1598,7 @@
   function vsOnEvent(meta) {
     var v = S && S.vs; if (!v || S.over) return;
     if (!meta || !meta.k) return;
+    v.lastProgress = Date.now();
     if (meta.k === 'mv' && v.role === 'host') { v.foeAct = meta.a || { kind: 'skill', i: 0 }; vsHostTry(); return; }
     if (meta.k === 'bye') { vsFinish('d', 'あいてが いなくなった みたい'); return; }
     if (meta.k === 'res' && v.role === 'guest') {
@@ -1599,6 +1619,9 @@
     if (!S || !S.vs) { return; }
     var v = S.vs;
     if (S.over) return;
+    if (!vsOkCode(v.code)) { vsFinish('d', 'あいことばが おかしいです'); return; }
+    // 画面が 見えていないときは 通信しない（むだな リクエストを 出さない）
+    if (document.hidden) return;
     // 通信
     vsApi('/api/rt/room/' + v.code + '?after=' + v.lastId).then(function (d) {
       if (!d || !d.ok) return;
@@ -1627,7 +1650,13 @@
       return;
     }
     // ぜんたいの上限
-    if ((Date.now() - v.t0) > VS_MAX_MS + 20000) vsFinish('d', 'じかんぎれ');
+    if ((Date.now() - v.t0) > VS_MAX_MS + 20000) { vsFinish('d', 'じかんぎれ'); return; }
+    // いのちづな：どんな理由でも 45秒 なにも進まなければ 引き分けで おわる
+    // （「たいせんが 終わらない」を ぜったいに 残さないため）
+    if ((Date.now() - (v.lastProgress || v.t0)) > 45000) {
+      vsFinish('d', 'つうしんが うまく いきませんでした');
+      return;
+    }
     // のこり秒
     if (!S.busy && v.turnStart) {
       var left = Math.max(0, Math.ceil((VS_TURN_MS - (Date.now() - v.turnStart)) / 1000));
@@ -1639,6 +1668,7 @@
     if (!S || S.over) return;
     S.over = true;
     vsStopTimers();
+    vsLeave();
     lockCmd(true);
     if (EL.who) EL.who.textContent = '';
     var win = (w === 'h' && S.vs.role === 'host') || (w === 'g' && S.vs.role === 'guest') || w === 'g_win';
@@ -1697,6 +1727,14 @@
 
   function boot() {
     try {
+      try {
+        window.addEventListener('beforeunload', function () {
+          try { if (S && S.vs) { vsStopTimers(); vsLeave(); } } catch (e) {}
+        });
+        window.addEventListener('pagehide', function () {
+          try { if (S && S.vs) { vsStopTimers(); vsLeave(); } } catch (e) {}
+        });
+      } catch (e) {}
       buildScreen();
       addMenuButton();
       hookHomestudy();
