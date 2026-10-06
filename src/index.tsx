@@ -14773,12 +14773,16 @@ function _faKarteGraphs(d){
         if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
         if(/^\s*===\s*\[[^\]]*\]/m.test(raw)){ parseRecords(); } else { parseTestScores(); }
       }
-      function parseRecords(){
+      /* IMPNAME_B_V1 実名マップ・ふりがな・共有別名が未ロードのまま突き合わせていた。
+         テスト側(parseTestScores)と同じく、読み取りの前に必ず読む。 */
+      async function parseRecords(){
         var ta=document.getElementById('tsPaste'); var raw=ta?ta.value:'';
         var st=document.getElementById('tsParseStatus');
         var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
         if(!cid){ if(st) st.textContent='先に「クラス」を選んでください'; return; }
         if(!raw||!raw.trim()){ if(st) st.textContent='AIの出力を貼り付けてください'; return; }
+        if(st) st.textContent='名簿を読み込み中...';
+        try{ if(!window._serverFuriganaMap){ await loadServerNameMap(); } }catch(_e0){}
         if(st) st.textContent='読み取り中...';
         fetch('/api/teacher/records/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({classId:cid,text:raw})}).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){ if(st) st.textContent='読み取りに失敗しました（クラス権限などを確認）'; return; }
