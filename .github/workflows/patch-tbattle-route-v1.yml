@@ -1,0 +1,120 @@
+name: ターン制バトル（TBATTLE_ROUTE_V1・js を配信できるようにする）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'src/index.tsx の .replace( チェーン数（dispatch 直前に数えた値）'
+        required: true
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: チェーン数とアンカーを実測して照合（合わなければ中止）
+        env:
+          CHAIN_BEFORE: ${{ github.event.inputs.chain_before }}
+        run: |
+          python3 - << 'PYEOF'
+          import io, os, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          want = int(os.environ['CHAIN_BEFORE'])
+          print('chain=', n, ' 期待=', want)
+          if n != want:
+              print('NG: チェーンが %d 件（期待 %d）。中止' % (n, want)); sys.exit(1)
+          if "'tbattle.js'" in s and "'tbsub.js'" in s:
+              print('すでに適用ずみ')
+          else:
+              if s.count("const _g8files = [") != 1:
+                  print('NG: _g8files が1件でない'); sys.exit(1)
+              if s.count("'hanshin_advice2.js']") != 1:
+                  print('NG: 配列の終わりが1件でない'); sys.exit(1)
+          PYEOF
+
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_tbattle_route_v1.py
+
+      - name: 触ったファイルが src/index.tsx だけか
+        run: |
+          CHANGED="$(git diff --name-only | tr '\n' ' ' | xargs)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "src/index.tsx" ]; then
+            echo "NG: さわったファイルが src/index.tsx だけでない: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配信HTMLの構文チェック（既存のものをそのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: 2本が配信されるか・壊してはいけないものが無傷か
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          w = io.open('dist/_worker.js', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          chk("tbattle.js の登録", s.count("'tbattle.js'"), 1)
+          chk("tbsub.js の登録", s.count("'tbsub.js'"), 1)
+          chk("_g8files", s.count("const _g8files = ["), 1)
+          # 防衛戦まわりが無傷か（名前だけ確認）
+          for label, text in (
+              ('防衛戦の配信', "app.get('/defense2.js'"),
+              ('防衛戦の解決', 'def_resolve'),
+              ('LEFT JOIN', 'LEFT JOIN'),
+          ):
+              if s.count(text) < 1:
+                  print('NG: %s が消えている' % label); ok[0] = False
+          if 'tbattle.js' not in w:
+              print('NG: ビルドに tbattle.js が入っていない'); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/index.tsx
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'
+          else
+            git commit -m 'TBATTLE_ROUTE_V1: tbattle.js / tbsub.js を配信できるように _g8files に追加'
+            git push origin HEAD:main
+          fi
