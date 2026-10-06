@@ -617,7 +617,7 @@
       '</div>' +
       '<div id="tbLobby" class="flex-1 overflow-y-auto px-2 pb-2"></div>' +
       '<div id="tbField" class="hidden flex-1 flex flex-col min-h-0">' +
-        '<div id="tbScene" class="battle-scene">' +
+        '<div id="tbScene" class="battle-scene" style="height:46%;min-height:200px">' +
           '<div id="tbFoe" class="battle-enemy">' +
             '<div class="battle-status-box">' +
               '<div id="tbFoeName" style="font-weight:800"></div>' +
@@ -1160,8 +1160,11 @@
       if (!v.alive) pushLine(v.name + ' は たおれた！');
     }
 
-    if (meFirst) { actMe(); if (cur('me').alive) actFoe(); }
-    else { actFoe(); if (cur('foe').alive) actMe(); }
+    // 2ばんめに動くのは「2ばんめの子が まだ たおれていないとき」だけ。
+    // ここを 自分がわ／あいてがわ で 取りちがえていたため、
+    // たおれた子が そのターンに こうげきしていた。
+    if (meFirst) { actMe(); if (cur('foe').alive) actFoe(); }
+    else { actFoe(); if (cur('me').alive) actMe(); }
 
     // ターンの おわり：やけど・どくの ダメージと、ターン数の へらし
     stTick(cur('me'), pushLine);
