@@ -1,0 +1,136 @@
+name: ターン制バトル（TBATTLE_V1・script タグ2本を足すだけ）
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: 'src/index.tsx の .replace( チェーン数（dispatch 直前に数えた値）'
+        required: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 作業ツリーを綺麗にする
+        run: git checkout -- .
+
+      - name: origin/main に追いつく
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: チェーン数とアンカーを実測して照合（合わなければ中止）
+        env:
+          CHAIN_BEFORE: ${{ github.event.inputs.chain_before }}
+        run: |
+          python3 - << 'PYEOF'
+          import io, os, sys
+          s = io.open('src/index.tsx', encoding='utf-8').read()
+          h = io.open('public/index.html', encoding='utf-8').read()
+          i = s.index("app.get('/', async (c) => {")
+          j = s.index("app.get('/logout'", i)
+          n = s[i:j].count('.replace(')
+          want = int(os.environ['CHAIN_BEFORE'])
+          print('chain=', n, ' 期待=', want)
+          if n != want:
+              print('NG: チェーンが %d 件（期待 %d）。ほかの便が入った可能性があるので中止' % (n, want))
+              sys.exit(1)
+          applied = 'TBATTLE_V1_MARK' in h
+          print('applied=', applied)
+          if not applied:
+              for label, text, want2 in (
+                  ('</body>', '</body>', 1),
+                  ('tbattle.js はまだ無い', '/tbattle.js', 0),
+                  ('tbsub.js はまだ無い', '/tbsub.js', 0),
+                  ('screen-tbattle はまだ無い', 'screen-tbattle', 0),
+              ):
+                  c = h.count(text)
+                  if c != want2:
+                      print('NG: アンカー %s が %d 件（期待 %d）' % (label, c, want2))
+                      sys.exit(1)
+              print('アンカーはすべて期待どおり')
+          PYEOF
+
+      - name: 足す2本の文法を見る
+        run: |
+          node --check public/tbsub.js
+          node --check public/tbattle.js
+          echo 'tbsub.js / tbattle.js の文法は OK'
+
+      - name: パッチを適用（一致しなければ中止）
+        run: python3 scripts/patch_tbattle_v1.py
+
+      - name: 触ったファイルが public/index.html だけか
+        run: |
+          CHANGED="$(git diff --name-only | tr '\n' ' ' | xargs)"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/index.html" ]; then
+            echo "NG: さわったファイルが public/index.html だけでない: $CHANGED"; exit 1
+          fi
+          echo "さわったファイル: [$CHANGED]"
+
+      - name: ビルドが通ることを確認（通らなければ push しない）
+        run: |
+          npm install
+          npm run build
+
+      - name: 配信HTMLの構文チェック（既存のものをそのまま使う）
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+
+      - name: 児童ページに2本が1回ずつ入ったか・壊してはいけないものが無傷か
+        run: |
+          python3 - << 'PYEOF'
+          import io, sys
+          h = io.open('public/index.html', encoding='utf-8').read()
+          ok = [True]
+          def chk(label, got, want):
+              if got != want:
+                  print('NG: %s が %s 件（期待 %s）' % (label, got, want)); ok[0] = False
+          chk('TBATTLE_V1_MARK', h.count('TBATTLE_V1_MARK'), 1)
+          chk('tbsub.js の読み込み', h.count('<script src="/tbsub.js?v=1"></script>'), 1)
+          chk('tbattle.js の読み込み', h.count('<script src="/tbattle.js?v=1"></script>'), 1)
+          chk('</body>', h.count('</body>'), 1)
+          # 既存バトルの入口が消えていないこと（件数は増減しうるので「ある」ことだけ見る）
+          for label, text in (
+              ('野生バトルの画面', 'id="screen-battle"'),
+              ('ジムの画面', 'id="screen-gym"'),
+              ('防衛戦の読み込み', 'defense2.js'),
+              ('タイプシュート', 'typeshoot.js'),
+              ('色違いの表', '/mon/shiny.js'),
+              ('キャラ画像の表', '/mon/list.js'),
+          ):
+              if h.count(text) < 1:
+                  print('NG: %s が消えている' % label); ok[0] = False
+          if not ok[0]:
+              sys.exit(1)
+          print('VERIFY OK')
+          PYEOF
+
+      - name: ビルドの副産物を元に戻す
+        run: |
+          git checkout -- dist package-lock.json 2>/dev/null || true
+          git status --porcelain
+
+      - name: コミットして push
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/index.html
+          if git diff --cached --quiet; then
+            echo '変更なし（すでに適用済み）'
+          else
+            git commit -m 'TBATTLE_V1: ターン制バトル（オマケ）の script タグ2本を児童ページに追加'
+            git push origin HEAD:main
+          fi
