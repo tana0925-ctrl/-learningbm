@@ -447,6 +447,92 @@
     return msg;
   }
 
+
+  /* ===================== きょうのジム（第4便） =====================
+     日付から1人を決める。計算だけなので、全員の端末で同じ相手になる。
+     ほかのリーダーにも ふつうに挑める。きょうのジムは「今日の推し」。 */
+  function tbDayNum(ymd) {
+    var s = String(ymd || today()), n = 0;
+    for (var i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) % 100000;
+    return n;
+  }
+  function todayLeaderIdx() {
+    var n = Math.max(1, Math.min(ACTIVE, LEADERS.length));
+    return tbDayNum(today()) % n;
+  }
+
+  /* ===================== ショップの わりびき（第5便） =====================
+     その週（月〜日）に 家庭学習を出した日数で決める。連続日数は使わない。
+     週が変われば 自動的に 0 から数え直す（休んだ子が 戻れなくなるのを さけるため）。
+       3日 → 1わりびき / 5日 → 2わりびき
+     既存の SHOP_ITEMS の price を書きかえるだけ。買う処理・表示の処理には 手を入れていない。 */
+  function tbWeekStart(d) {
+    var x = new Date(d.getTime());
+    var w = x.getDay();              // 0=日
+    var back = (w === 0) ? 6 : (w - 1); // 月曜はじまり
+    x.setDate(x.getDate() - back);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  }
+  function tbWeekStudyDays() {
+    try {
+      var logs = (typeof hsLogs === 'function') ? (hsLogs() || []) : [];
+      var start = tbWeekStart(new Date());
+      var seen = {}, cnt = 0;
+      for (var i = 0; i < logs.length; i++) {
+        var l = logs[i];
+        if (!l || !l.dayKey || l.restDay) continue;
+        var p = String(l.dayKey).split('-');
+        if (p.length !== 3) continue;
+        var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+        if (d < start) continue;
+        if (seen[l.dayKey]) continue;
+        seen[l.dayKey] = 1; cnt++;
+      }
+      return cnt;
+    } catch (e) { return 0; }
+  }
+  function tbShopRate(days) {
+    if (days >= 5) return 0.8;
+    if (days >= 3) return 0.9;
+    return 1;
+  }
+  function tbApplyShopDiscount() {
+    try {
+      if (typeof SHOP_ITEMS === 'undefined' || !SHOP_ITEMS || !SHOP_ITEMS.length) return;
+      var days = tbWeekStudyDays(), rate = tbShopRate(days), changed = false;
+      for (var i = 0; i < SHOP_ITEMS.length; i++) {
+        var it = SHOP_ITEMS[i];
+        if (!it) continue;
+        if (typeof it._tbBase !== 'number') it._tbBase = Number(it.price) || 0;
+        var np = Math.max(1, Math.ceil(it._tbBase * rate));
+        if (it.price !== np) { it.price = np; changed = true; }
+      }
+      tbShopBanner(days, rate);
+      return changed;
+    } catch (e) { log('わりびきの反映に失敗', e); }
+  }
+  function tbShopBanner(days, rate) {
+    try {
+      var sc = document.getElementById('screen-shop');
+      if (!sc) return;
+      var el = document.getElementById('tbShopBanner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'tbShopBanner';
+        el.style.cssText = 'margin:4px 6px;padding:6px 10px;border-radius:10px;font-size:12px;font-weight:800';
+        sc.insertBefore(el, sc.firstChild);
+      }
+      if (rate < 1) {
+        el.style.background = '#fef3c7'; el.style.color = '#92400e';
+        el.textContent = '今週 ' + days + '日 がんばったから ' + (rate === 0.8 ? '2わりびき' : '1わりびき') + '！（月よう日に リセット）';
+      } else {
+        el.style.background = '#f1f5f9'; el.style.color = '#475569';
+        el.textContent = '今週 ' + days + '日。あと ' + Math.max(0, 3 - days) + '日で 1わりびき！（家庭学習を 3日で 1わり、5日で 2わり）';
+      }
+    } catch (e) {}
+  }
+
   /* ===================== 状態 ===================== */
 
   var S = null; // 進行中のバトル
@@ -616,6 +702,16 @@
 
     var party = myParty();
     var h = '';
+    // きょうのジム（日付で決まる・全員同じ）
+    var todayIdx = todayLeaderIdx();
+    if (ACTIVE > 0 && LEADERS[todayIdx]) {
+      h += '<div class="rounded-xl p-2 mb-2" style="background:linear-gradient(90deg,#fde68a,#fca5a5)">' +
+        '<div class="text-xs font-bold text-amber-900">★ きょうの ジム</div>' +
+        '<div class="text-sm font-bold text-slate-800">' + LEADERS[todayIdx].emoji + ' ' + esc(LEADERS[todayIdx].name) + '</div>' +
+        '<div class="text-[11px] text-amber-900">クラスの みんなが 今日は この人に いどめます。かつと コインが すこし 多めに もらえます。</div>' +
+        '</div>';
+    }
+
     h += '<div class="text-xs text-slate-500 mb-1">こたえなくていい バトルです。わざを えらんで たたかいます。チケット1まい つかいます。</div>';
     h += '<div class="text-xs text-slate-400 mb-2">みんな レベル50・つよさも そろえて たたかいます。あいしょうと わざの えらびかたで きまります。リーダーの つよさは きみの てもちに すこし あわせます。</div>';
     h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。じょうたいは 何ターンかで なおります。はやく なおることも あります。</div>';
@@ -658,6 +754,7 @@
       h += '<div style="font-size:30px">' + L.emoji + '</div>';
       h += '<div class="flex-1"><div class="font-bold text-sm">' + esc(L.name) + '</div>';
       h += '<div class="text-[11px] text-slate-500">' + esc(L.say) + '</div></div>';
+      if (k === todayLeaderIdx()) h += '<div class="text-xs font-bold text-amber-700">★きょう</div>';
       h += (tb && tb.badges[L.key]) ? '<div class="text-xs font-bold text-amber-600">バッジ ○</div>' : '';
       h += '</div>';
       h += '<div class="flex items-center gap-2 mt-1 flex-wrap">';
@@ -1021,6 +1118,7 @@
     try {
       if (win) {
         coins = 40;
+        if (S.lv === todayLeaderIdx()) { coins += 20; S.todayBonus = true; }
         if (tb && !tb.badges[S.L.key]) { tb.badges[S.L.key] = 1; gotBadge = true; }
         if (Math.random() < 0.15) shards = 3;
       } else {
@@ -1043,7 +1141,7 @@
     h += '</div>';
     h += '<div class="rounded-xl bg-white border border-slate-200 p-2 mb-2">';
     h += '<div class="text-sm font-bold">もらったもの</div>';
-    h += '<div class="text-sm">コイン +' + coins + '</div>';
+    h += '<div class="text-sm">コイン +' + coins + (S.todayBonus ? '（★きょうの ジム ボーナス +20）' : '') + '</div>';
     if (shards) h += '<div class="text-sm">かけら +' + shards + '</div>';
     if (gotBadge) h += '<div class="text-sm font-bold text-amber-600">' + esc(S.L.badge) + ' を もらった！</div>';
     h += '</div>';
@@ -1069,6 +1167,7 @@
       buildScreen();
       addMenuButton();
       hookHomestudy();
+      tbApplyShopDiscount();
       window.tbOpen = open;
       window.TB = {
         ver: 'TB_V2', open: open, leaders: LEADERS, chart: CHART,
@@ -1079,11 +1178,17 @@
         },
         ST: ST, ST_BY_EL: ST_BY_EL,
         avgPctOf: avgPctOf,
+        todayLeaderIdx: todayLeaderIdx,
+        weekStudyDays: tbWeekStudyDays,
+        shopRate: tbShopRate,
+        applyShopDiscount: tbApplyShopDiscount,
         buildUnit: buildUnit, mult: mult, grantTicket: grantTicket
       };
       log('ready');
     } catch (e) { log('boot失敗', e); }
   }
+
+  setInterval(function () { try { tbApplyShopDiscount(); } catch (e) {} }, 60000);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
@@ -1091,7 +1196,7 @@
   var tries = 0;
   var iv = setInterval(function () {
     tries++;
-    try { addMenuButton(); hookHomestudy(); } catch (e) {}
+    try { addMenuButton(); hookHomestudy(); tbApplyShopDiscount(); } catch (e) {}
     if (tries > 20) clearInterval(iv);
   }, 1500);
 })();
