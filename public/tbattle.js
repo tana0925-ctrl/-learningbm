@@ -390,7 +390,7 @@
   }
 
   // ターンの おわりに ダメージ・ターン数・なおり を処理する
-  function stTick(u, lines) {
+  function stTick(u, push) {
     if (!u || !u.alive) return;
     var c = stOf(u);
     if (c && u.stNew) { u.stNew = false; return; } // かかった そのターンは 数えない
@@ -398,15 +398,15 @@
       if (c.dot > 0) {
         var dmg = Math.max(1, Math.round(u.maxHp * c.dot));
         u.hp = Math.max(0, u.hp - dmg);
-        lines.push(u.name + ' は ' + c.icon + c.label + ' で ' + dmg + ' の ダメージ！');
-        if (u.hp === 0) { u.alive = false; lines.push(u.name + ' は たおれた！'); }
+        push(u.name + ' は ' + c.icon + c.label + ' で ' + dmg + ' の ダメージ！');
+        if (u.hp === 0) { u.alive = false; push(u.name + ' は たおれた！'); }
       }
       if (u.alive && Math.random() < ST_EARLY) {
         u.st = null; u.stImm = ST_IMM;
-        lines.push(u.name + ' の ' + c.icon + c.label + ' が はやく なおった！');
+        push(u.name + ' の ' + c.icon + c.label + ' が はやく なおった！');
       } else {
         u.stT--;
-        if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; lines.push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
+        if (u.stT <= 0) { u.st = null; u.stImm = ST_IMM; push(u.name + ' の ' + c.icon + c.label + ' が なおった！'); }
       }
     } else if (u.stImm > 0) {
       u.stImm--;
@@ -582,16 +582,31 @@
 
   var EL = {}; // DOM参照
 
+  // 野生バトルの screen-battle は .lbm-main（まんなかの広い枠）の中にある。
+  // ジムの screen-gym は その外（右の細い列）にある。
+  // ここを間違えると、画面の右はじの細い列に 全部が入ってしまう。
   function host() {
-    var ref = document.getElementById('screen-gym') || document.getElementById('screen-battle');
-    return (ref && ref.parentNode) ? ref.parentNode : document.body;
+    var main = document.querySelector('.lbm-main');
+    if (main) return main;
+    var wild = document.getElementById('screen-battle');
+    if (wild && wild.parentNode) return wild.parentNode;
+    var gym = document.getElementById('screen-gym');
+    return (gym && gym.parentNode) ? gym.parentNode : document.body;
   }
 
   function buildScreen() {
+    var exist = document.getElementById('screen-tbattle');
+    if (exist) {
+      // 置き場所が ちがっていたら 直す（古い版が のこっている場合）
+      var h0 = host();
+      if (exist.parentNode !== h0) h0.appendChild(exist);
+      exist.className = 'hidden h-full w-full flex flex-col relative';
+      if (EL.root === exist) return exist;
+    }
     if (EL.root && document.body.contains(EL.root)) return EL.root;
-    var d = document.createElement('div');
+    var d = exist || document.createElement('div');
     d.id = 'screen-tbattle';
-    d.className = 'hidden h-full flex flex-col relative flex-1 min-w-0';
+    d.className = 'hidden h-full w-full flex flex-col relative';
     d.innerHTML =
       '<div id="tbTop" class="flex items-center justify-between px-2 py-1">' +
         '<div class="font-bold text-sm text-slate-700">ジムチャレンジ（ターンせい）</div>' +
@@ -630,19 +645,17 @@
           '<div id="tbTurn" style="position:absolute;top:4px;left:8px;color:#fff;font-weight:800;font-size:12px;text-shadow:0 1px 3px #000"></div>' +
         '</div>' +
         '<div id="tbWho" class="px-2 pt-1 text-xs font-bold"></div>' +
-        '<div id="tbMsgPrev" class="px-2 text-xs text-slate-400" style="min-height:1.2em"></div>' +
-        '<div id="tbMsg" class="px-2 pb-1 text-sm font-bold text-slate-700" style="min-height:2.4em"></div>' +
+        '<div id="tbMsg" class="px-2 pb-1 text-sm font-bold" style="min-height:3.2em;line-height:1.35;color:#0f172a;display:flex;align-items:center"></div>' +
         '<div id="tbCmd" class="battle-choice-grid px-2 pb-2" style="flex:0 0 auto;align-content:start;max-height:46%"></div>' +
       '</div>' +
       '<div id="tbResult" class="hidden flex-1 overflow-y-auto px-3 py-2"></div>';
-    host().appendChild(d);
+    if (d.parentNode !== host()) host().appendChild(d);
     EL.root = d;
     EL.lobby = d.querySelector('#tbLobby');
     EL.field = d.querySelector('#tbField');
     EL.result = d.querySelector('#tbResult');
     EL.cmd = d.querySelector('#tbCmd');
     EL.msg = d.querySelector('#tbMsg');
-    EL.msgPrev = d.querySelector('#tbMsgPrev');
     EL.who = d.querySelector('#tbWho');
     EL.ticket = d.querySelector('#tbTicket');
     d.querySelector('#tbClose').addEventListener('click', function () { exit(); });
@@ -712,13 +725,18 @@
       h += '<div class="rounded-xl p-2 mb-2" style="background:linear-gradient(90deg,#fde68a,#fca5a5)">' +
         '<div class="text-xs font-bold text-amber-900">★ きょうの ジム</div>' +
         '<div class="text-sm font-bold text-slate-800">' + LEADERS[todayIdx].emoji + ' ' + esc(LEADERS[todayIdx].name) + '</div>' +
-        '<div class="text-[11px] text-amber-900">クラスの みんなが 今日は この人に いどめます。かつと コインが すこし 多めに もらえます。</div>' +
+        '<div class="text-[11px] text-amber-900">クラスの みんなが 今日は この人に いどめます。かつと コインが +20。</div>' +
+        '<button class="tb-go mt-1 w-full py-2 rounded-lg text-white font-bold text-sm" data-lv="' + todayIdx + '" style="background:linear-gradient(180deg,#f59e0b,#d97706)">★ きょうの ジムに いどむ（チケット1まい）</button>' +
         '</div>';
     }
 
-    h += '<div class="text-xs text-slate-500 mb-1">こたえなくていい バトルです。わざを えらんで たたかいます。チケット1まい つかいます。</div>';
-    h += '<div class="text-xs text-slate-400 mb-2">みんな レベル50・つよさも そろえて たたかいます。あいしょうと わざの えらびかたで きまります。リーダーの つよさは きみの てもちに すこし あわせます。</div>';
-    h += '<div class="text-xs text-slate-400 mb-2">つよい わざは、あいてを 🔥やけど ☠どく ⚡しびれ に することが あります（ふつうの わざでは なりません）。じょうたいは 何ターンかで なおります。はやく なおることも あります。</div>';
+    h += '<div class="text-xs text-slate-500 mb-2">こたえなくていい バトル。わざを えらんで たたかう。チケット1まい。' +
+      '<button id="tbHelpBtn" class="underline text-indigo-600 ml-1">くわしく</button></div>';
+    h += '<div id="tbHelp" class="hidden text-xs text-slate-400 mb-2">' +
+      'みんな レベル50・つよさも そろえて たたかう。あいしょうと わざの えらびかたで きまる。' +
+      'リーダーの つよさは きみの てもちに すこし あわせる。' +
+      'つよい わざは あいてを 🔥やけど ☠どく ⚡しびれ に することが ある（ふつうの わざでは ならない）。じょうたいは 何ターンかで なおる。' +
+      '</div>';
 
     // バッジ
     h += '<div class="flex flex-wrap gap-1 mb-2">';
@@ -751,7 +769,15 @@
     h += '</div>';
 
     // リーダー一覧
-    for (var k = 0; k < ACTIVE && k < LEADERS.length; k++) {
+    var order = [];
+    for (var oi = 0; oi < ACTIVE && oi < LEADERS.length; oi++) order.push(oi);
+    order.sort(function (a, b) {
+      if (a === todayIdx) return -1;
+      if (b === todayIdx) return 1;
+      return a - b;
+    });
+    for (var ok = 0; ok < order.length; ok++) {
+      var k = order[ok];
       var L = LEADERS[k];
       h += '<div class="rounded-xl bg-white border-2 border-indigo-200 p-2 mb-2">';
       h += '<div class="flex items-center gap-2">';
@@ -777,6 +803,11 @@
       h += '<div class="text-xs text-slate-400">ほかの ジムリーダーは じゅんびちゅうです。</div>';
     }
     EL.lobby.innerHTML = h;
+    var hb = EL.lobby.querySelector('#tbHelpBtn');
+    if (hb) hb.addEventListener('click', function () {
+      var hp = EL.lobby.querySelector('#tbHelp');
+      if (hp) hp.classList.toggle('hidden');
+    });
     var gos = EL.lobby.querySelectorAll('.tb-go');
     for (var g = 0; g < gos.length; g++) {
       gos[g].addEventListener('click', function (ev) {
@@ -833,6 +864,7 @@
     EL.result.classList.add('hidden');
     EL.field.classList.remove('hidden');
     EL.ticket.textContent = 'チケット ' + tb.tk + 'まい';
+    clearLog();
     say(L.name + ' が しょうぶを しかけてきた！');
     renderField();
     lockCmd(false);
@@ -842,11 +874,22 @@
   function cur(side) { return side === 'me' ? S.mine[S.mi] : S.foes[S.fi]; }
   function aliveList(arr) { var o = []; for (var i = 0; i < arr.length; i++) if (arr[i].alive) o.push(i); return o; }
 
+  // 1行ずつ 出して、次の行で 消える。
+  // 新しい行が 出たことが わかるように、出るたびに ちいさく ふわっとさせる。
   function say(t) {
     if (!EL.msg) return;
-    if (EL.msgPrev) EL.msgPrev.textContent = EL.msg.textContent || '';
     EL.msg.textContent = t;
+    try {
+      EL.msg.style.transition = 'none';
+      EL.msg.style.opacity = '0.25';
+      EL.msg.style.transform = 'translateY(2px)';
+      void EL.msg.offsetWidth;
+      EL.msg.style.transition = 'opacity .18s, transform .18s';
+      EL.msg.style.opacity = '1';
+      EL.msg.style.transform = 'translateY(0)';
+    } catch (e) {}
   }
+  function clearLog() { if (EL.msg) EL.msg.textContent = ''; }
 
   // だれの番か（ターン制だと ひと目で わかるように）
   function setWho(mine) {
@@ -875,9 +918,29 @@
     return s;
   }
 
-  function renderField() {
+  // その時点の HP・じょうたいを ひかえておく（文と 画面を そろえるため）
+  function snapshot() {
+    var f = function (u) { return { hp: u.hp, st: u.st, stT: u.stT, ab: u.ab, db: u.db, alive: u.alive }; };
+    return { mi: S.mi, fi: S.fi, me: S.mine.map(f), fo: S.foes.map(f) };
+  }
+  function viewOf(unit, snapUnit) {
+    if (!snapUnit) return unit;
+    return {
+      id: unit.id, name: unit.name, el: unit.el, maxHp: unit.maxHp,
+      hp: snapUnit.hp, st: snapUnit.st, stT: snapUnit.stT, ab: snapUnit.ab, db: snapUnit.db, alive: snapUnit.alive
+    };
+  }
+  function ballsOf(arr, snapArr) {
+    var s = '';
+    for (var i = 0; i < arr.length; i++) s += ((snapArr ? snapArr[i].alive : arr[i].alive) ? '●' : '○');
+    return s;
+  }
+
+  function renderField(snap) {
     if (!S) return;
-    var me = cur('me'), fo = cur('foe');
+    var mi = snap ? snap.mi : S.mi, fi = snap ? snap.fi : S.fi;
+    var me = viewOf(S.mine[mi], snap ? snap.me[mi] : null);
+    var fo = viewOf(S.foes[fi], snap ? snap.fo[fi] : null);
     var d = EL.root;
     d.querySelector('#tbTurn').textContent = 'のこり ' + Math.max(0, CAP - S.turn) + 'ターン';
     d.querySelector('#tbFoeName').textContent = fo.name;
@@ -885,17 +948,25 @@
     d.querySelector('#tbFoeBar').style.width = Math.round(100 * fo.hp / fo.maxHp) + '%';
     d.querySelector('#tbFoeBar').style.background = hpColor(fo);
     d.querySelector('#tbFoeHp').textContent = fo.hp + ' / ' + fo.maxHp;
-    d.querySelector('#tbFoeBalls').textContent = balls(S.foes);
-    d.querySelector('#tbFoeSprite').innerHTML = spriteHtml(fo.id, 56);
+    d.querySelector('#tbFoeBalls').textContent = ballsOf(S.foes, snap ? snap.fo : null);
+    d.querySelector('#tbFoeSprite').innerHTML = spriteHtml(fo.id, tbSpritePx(true));
     d.querySelector('#tbMeName').textContent = me.name;
     d.querySelector('#tbMeType').innerHTML = badge(me.el) + statArrows(me);
     d.querySelector('#tbMeBar').style.width = Math.round(100 * me.hp / me.maxHp) + '%';
     d.querySelector('#tbMeBar').style.background = hpColor(me);
     d.querySelector('#tbMeHp').textContent = me.hp + ' / ' + me.maxHp;
-    d.querySelector('#tbMeBalls').textContent = balls(S.mine);
-    d.querySelector('#tbMeSprite').innerHTML = spriteHtml(me.id, 64);
-    renderCmd();
+    d.querySelector('#tbMeBalls').textContent = ballsOf(S.mine, snap ? snap.me : null);
+    d.querySelector('#tbMeSprite').innerHTML = spriteHtml(me.id, tbSpritePx(false));
+    if (!snap) renderCmd();
   }
+  // 画面の広さに合わせて 絵の大きさを決める（iPad 横 1024 でも 大きすぎないように）
+  function tbSpritePx(isFoe) {
+    var w = 0;
+    try { w = (EL.root ? EL.root.getBoundingClientRect().width : 0) || window.innerWidth || 1024; } catch (e) { w = 1024; }
+    var base = w >= 1400 ? 112 : (w >= 1000 ? 92 : (w >= 700 ? 76 : 60));
+    return isFoe ? Math.round(base * 0.9) : base;
+  }
+
   function hpColor(u) {
     var r = u.hp / u.maxHp;
     return r > 0.5 ? '#22c55e' : (r > 0.2 ? '#f59e0b' : '#ef4444');
@@ -1040,75 +1111,80 @@
 
     var meFirst = effSpd(me) >= effSpd(fo);
     var lines = [];
+    function pushLine(t) { lines.push({ t: t, s: snapshot() }); }
 
     function actMe() {
       var u = cur('me'), v = cur('foe');
       if (myAct.kind === 'swap') {
         S.mi = myAct.j;
-        lines.push('がんばれ！ ' + cur('me').name + '！');
+        pushLine('がんばれ！ ' + cur('me').name + '！');
         return;
       }
       if (u.st === 'para' && Math.random() < PARA_SKIP) {
-        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
+        pushLine(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
         return;
       }
       var s = u.sk[myAct.i] || u.sk[0];
       var r = doHit(u, v, s);
-      if (r.miss) lines.push(u.name + ' の ' + s.name + '！ しかし はずれた！');
+      if (r.miss) pushLine(u.name + ' の ' + s.name + '！ しかし はずれた！');
       else if (s.pow) {
         var lab = multLabel(r.m);
-        lines.push(u.name + ' の ' + s.name + '！ ' + (lab ? lab + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
-      } else lines.push(u.name + ' の ' + s.name + '！');
-      if (r.st) lines.push(r.st);
+        pushLine(u.name + ' の ' + s.name + '！ ' + (lab ? lab + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
+      } else pushLine(u.name + ' の ' + s.name + '！');
+      if (r.st) pushLine(r.st);
       var em = applyEffect(u, v, s.eff, r.dmg);
-      if (em) lines.push(em);
-      if (!v.alive) lines.push(v.name + ' は たおれた！');
+      if (em) pushLine(em);
+      if (!v.alive) pushLine(v.name + ' は たおれた！');
     }
     function actFoe() {
       var u = cur('foe'), v = cur('me');
       if (foeAct.kind === 'swap') {
         S.fi = foeAct.j;
-        lines.push(S.L.name + ' は ' + cur('foe').name + ' を だした！');
+        pushLine(S.L.name + ' は ' + cur('foe').name + ' を だした！');
         return;
       }
       if (u.st === 'para' && Math.random() < PARA_SKIP) {
-        lines.push(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
+        pushLine(u.name + ' は ' + ST.para.icon + 'しびれて うごけない！');
         return;
       }
       var s = u.sk[foeAct.i] || u.sk[0];
       var r = doHit(u, v, s);
-      if (r.miss) lines.push(u.name + ' の ' + s.name + '！ しかし はずれた！');
+      if (r.miss) pushLine(u.name + ' の ' + s.name + '！ しかし はずれた！');
       else if (s.pow) {
         var lab2 = multLabel(r.m);
-        lines.push(u.name + ' の ' + s.name + '！ ' + (lab2 ? lab2 + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
-      } else lines.push(u.name + ' の ' + s.name + '！');
-      if (r.st) lines.push(r.st);
+        pushLine(u.name + ' の ' + s.name + '！ ' + (lab2 ? lab2 + ' ' : '') + v.name + ' に ' + r.dmg + ' のダメージ！');
+      } else pushLine(u.name + ' の ' + s.name + '！');
+      if (r.st) pushLine(r.st);
       var em2 = applyEffect(u, v, s.eff, r.dmg);
-      if (em2) lines.push(em2);
-      if (!v.alive) lines.push(v.name + ' は たおれた！');
+      if (em2) pushLine(em2);
+      if (!v.alive) pushLine(v.name + ' は たおれた！');
     }
 
     if (meFirst) { actMe(); if (cur('me').alive) actFoe(); }
     else { actFoe(); if (cur('foe').alive) actMe(); }
 
     // ターンの おわり：やけど・どくの ダメージと、ターン数の へらし
-    stTick(cur('me'), lines);
-    stTick(cur('foe'), lines);
+    stTick(cur('me'), pushLine);
+    stTick(cur('foe'), pushLine);
 
     // たおれたら次を出す
     if (!cur('me').alive) {
       var al = aliveList(S.mine);
-      if (al.length) { S.mi = al[0]; lines.push('いけ！ ' + cur('me').name + '！'); }
+      if (al.length) { S.mi = al[0]; pushLine('いけ！ ' + cur('me').name + '！'); }
     }
     if (!cur('foe').alive) {
       var al2 = aliveList(S.foes);
-      if (al2.length) { S.fi = al2[0]; lines.push(S.L.name + ' は ' + cur('foe').name + ' を だした！'); }
+      if (al2.length) { S.fi = al2[0]; pushLine(S.L.name + ' は ' + cur('foe').name + ' を だした！'); }
     }
 
     // 演出（1行ずつ）
     var step = 0;
     function next() {
-      if (step < lines.length) { say(lines[step++]); renderField(); setTimeout(next, 900); return; }
+      if (step < lines.length) {
+        var it = lines[step++];
+        say(it.t); renderField(it.s);
+        setTimeout(next, 900); return;
+      }
       setTimeout(function () {
         S.busy = false;
         renderField();
