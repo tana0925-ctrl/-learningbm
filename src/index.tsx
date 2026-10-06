@@ -4640,6 +4640,23 @@ app.post('/api/teacher/records/parse', async (c) => {
   const roster = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=?').bind(classId, 'student').all<any>()).results) || [])
   const idx: Record<string, string> = {}
   for (const m of roster as any[]) { if (m.name) idx[_recNorm(m.name)] = m.id; if (m.loginId) idx[_recNorm(m.loginId)] = m.id }
+  // 📌 IMPNAME_D_V1 users.name は実名ではない（ニックネーム／ログインID）。
+  //    実名とふりがなは admin_settings にしかないので、ここでも照合先に足す。
+  //    読むだけ。key 指定の1行取得を2本だけで、全件スキャンにはならない。
+  let _rnMap: Record<string, string> = {}
+  let _rfMap: Record<string, string> = {}
+  try {
+    const _r1 = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1`).first<any>()
+    if (_r1 && _r1.value) { const j = JSON.parse(_r1.value); if (j && typeof j === 'object') _rnMap = j }
+  } catch (_e) { _rnMap = {} }
+  try {
+    const _r2 = await c.env.DB.prepare(`SELECT value FROM admin_settings WHERE key='real_furigana_map' LIMIT 1`).first<any>()
+    if (_r2 && _r2.value) { const j = JSON.parse(_r2.value); if (j && typeof j === 'object') _rfMap = j }
+  } catch (_e) { _rfMap = {} }
+  for (const m of roster as any[]) {
+    const _k1 = _recNorm(_rnMap[m.loginId] || ''); if (_k1 && !idx[_k1]) idx[_k1] = m.id
+    const _k2 = _recNorm(_rfMap[m.loginId] || ''); if (_k2 && !idx[_k2]) idx[_k2] = m.id
+  }
   // 📌 二重取り込みの下調べ。同じクラスの直近60日ぶんのタイトルだけを引く（LIMIT つき・軽い）。
   const _recDup: Record<string, string> = {}
   try {
