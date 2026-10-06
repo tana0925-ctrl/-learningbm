@@ -14715,30 +14715,52 @@ function _faKarteGraphs(d){
           else { if(st) st.textContent='保存できませんでした（児童の割り当てを確認）'; }
         }).catch(function(e){ if(st) st.textContent='エラー: '+e.message; });
       }
+      /* IMPNAME_A_V1 名簿を渡していなかったので、外部AIは手書きを読んだままの字を返し、
+         22人の表記に寄せる機会がなかった。テスト側(copyTestPrompt)と同じ作法に合わせる。
+         名前は users.name（ニックネーム）ではなく実名マップ側を使う。 */
       function copyRecordPrompt(){
         var NL=String.fromCharCode(10);
         var label='成果物・振り返り';
-        var L=[];
-        L.push('あなたは小学校の先生のアシスタントです。アップロードした（または貼り付けた）児童の'+label+'のPDF・画像から、児童ごとに内容を読み取り、次の「出力形式」だけを、コードブロックに入れずそのまま出力してください。前置きや説明は書かないでください。');
-        L.push('');
-        L.push('【出力形式】児童ごとに次のブロックをくり返す。');
-        L.push('=== [児童ID] 名前 ===');
-        L.push('タイトル: （'+label+'のタイトル。なければ内容を短く要約）');
-        L.push('日付: （YYYY-MM-DD。わからなければ空欄）');
-        L.push('教科: （国語・算数・理科・社会 など。なければ空欄）');
-        L.push('単元: （わかれば。なければ空欄）');
-        L.push('本文:');
-        L.push('（児童が書いた文章・成果物をそのまま。複数行でよい）');
-        L.push('振り返り: （児童の振り返りがあれば。なければ空欄。複数行でよい）');
-        L.push('評価: （先生の評価があれば ◎ / ○ / △ のどれか。なければ空欄）');
-        L.push('評価コメント: （先生の評価コメントがあれば。なければ空欄）');
-        L.push('点数: （テストの点数があれば数字だけ。成果物なら空欄のまま）');
-        L.push('');
-        L.push('【ルール】児童IDは名簿のログインID。わからなければ [名前] のように名前を入れる。1人ずつ「=== [..] .. ===」で区切る。本文・振り返りはそれぞれの見出しの次の行から次の見出しか次の===まで。成果物と振り返りがセットなら両方入れる。評価・振り返りが無ければ空欄でよい。要約や講評を勝手に足さず、児童の記述を尊重する。読み取れない児童は飛ばしてよい。');
-        var txt=L.join(NL);
         var st=document.getElementById('recPromptStatus');
-        var done=function(){ if(st) st.textContent='✓ コピーしました。AIに貼り付けてください'; };
-        if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+        var sel=document.getElementById('laClassSelect'); var cid=sel?sel.value:'';
+        if(!cid){ if(st) st.textContent='先に「クラス」を選んでください'; return; }
+        if(st) st.textContent='名簿を読み込み中...';
+        var _build=function(names){
+          var L=[];
+          L.push('あなたは小学校の先生のアシスタントです。アップロードした（または貼り付けた）児童の'+label+'のPDF・画像から、児童ごとに内容を読み取り、次の「出力形式」だけを、コードブロックに入れずそのまま出力してください。前置きや説明は書かないでください。');
+          L.push('');
+          L.push('【出力形式】児童ごとに次のブロックをくり返す。');
+          L.push('=== [児童ID] 名前 ===');
+          L.push('タイトル: （'+label+'のタイトル。なければ内容を短く要約）');
+          L.push('日付: （YYYY-MM-DD。わからなければ空欄）');
+          L.push('教科: （国語・算数・理科・社会 など。なければ空欄）');
+          L.push('単元: （わかれば。なければ空欄）');
+          L.push('本文:');
+          L.push('（児童が書いた文章・成果物をそのまま。複数行でよい）');
+          L.push('振り返り: （児童の振り返りがあれば。なければ空欄。複数行でよい）');
+          L.push('評価: （先生の評価があれば ◎ / ○ / △ のどれか。なければ空欄）');
+          L.push('評価コメント: （先生の評価コメントがあれば。なければ空欄）');
+          L.push('点数: （テストの点数があれば数字だけ。成果物なら空欄のまま）');
+          L.push('');
+          if(names.length){ L.push('【このクラスの名簿（児童名は必ずこの中の表記に合わせる）】'); L.push(names.join('、')); L.push(''); }
+          L.push('【名前の読み取り】手書きの名前が崩れて読みにくいときも、安易に飛ばさないでください。上の名簿の中から最も近い児童名を選んで（予測して）記入します。確信が低い予測は、名前のうしろに「※名前推定」と付けてください。どうしても判断できないときだけ飛ばします。');
+          L.push('');
+          L.push('【ルール】児童IDは名簿のログインID。わからなければ [名前] のように名前を入れる。名前は必ず上の名簿の表記で書く。1人ずつ「=== [..] .. ===」で区切る。本文・振り返りはそれぞれの見出しの次の行から次の見出しか次の===まで。成果物と振り返りがセットなら両方入れる。評価・振り返りが無ければ空欄でよい。要約や講評を勝手に足さず、児童の記述を尊重する。読み取れない児童は飛ばしてよい。');
+          var txt=L.join(NL);
+          var done=function(){ if(st) st.textContent='✓ コピーしました（名簿'+names.length+'人つき）。AIに貼り付けてください'; };
+          if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+        };
+        (async function(){
+          var names=[];
+          try{ if(!window._serverFuriganaMap){ await loadServerNameMap(); } }catch(_e0){}
+          try{
+            var _r=await fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/members');
+            var _d=await _r.json();
+            var _ms=(_d&&_d.members)||[];
+            for(var i=0;i<_ms.length;i++){ var m=_ms[i]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(m.loginId,m.name):(m.name||m.loginId||''); if(dn) names.push(dn); }
+          }catch(_e1){}
+          _build(names);
+        })();
       }
       // 📌 __IMPORT_AUTO_V1__ 入口は1つ。貼られた形を見て、こちらで振り分ける。
       //    「=== [ID] 名前 ===」の行があれば 児童ごとのブロック形式（成果物・振り返り）、
@@ -14892,10 +14914,13 @@ function _faKarteGraphs(d){
         var subject=(document.getElementById('tsSubject')||{}).value||'';
         var unit=(((document.getElementById('tsUnit')||{}).value)||'').trim();
         if(st) st.textContent='名簿を読み込み中...';
-        fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/members').then(function(r){return r.json();}).then(function(d){
+        /* IMPNAME_A_V1 実名マップが未ロードだと名簿がニックネームになるので先に読む。 */
+        (window._serverFuriganaMap?Promise.resolve():loadServerNameMap()).catch(function(){}).then(function(){
+        return fetch('/api/teacher/class/'+encodeURIComponent(cid)+'/members').then(function(r){return r.json();}).then(function(d){
           var names=[];
           if(d&&d.members){
-            for(var i=0;i<d.members.length;i++){ var m=d.members[i]; if(m.name) names.push(m.name); }
+            /* IMPNAME_A_V1 members の name はニックネーム。実名マップ側を使う。 */
+            for(var i=0;i<d.members.length;i++){ var m=d.members[i]; var dn=(typeof resolveStudentName==='function')?resolveStudentName(m.loginId,m.name):(m.name||''); if(dn) names.push(dn); }
             if(!grade){ var gc={}, best='', bn=0; for(var j=0;j<d.members.length;j++){ var gg=d.members[j].grade; if(gg){ gc[gg]=(gc[gg]||0)+1; if(gc[gg]>bn){ bn=gc[gg]; best=String(gg); } } } if(best) grade=best; }
           }
           var gtxt=grade?(grade+'年生'):'この学年';
@@ -14954,6 +14979,7 @@ function _faKarteGraphs(d){
           var txt=L.join(NL);
           var done=function(){ if(st) st.textContent='✓ コピーしました。AIに画像と一緒に貼り付けてください'; };
           if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){ _faFallbackCopy(txt); done(); }); } else { _faFallbackCopy(txt); done(); }
+        });
         }).catch(function(e){ if(st) st.textContent='名簿の読み込みに失敗しました（クラス選択を確認）'; });
       }
       function _rcRankGlyph(r){ return r==='◎'?'<span class="text-pink-600 font-black">◎</span>':r==='○'?'<span class="text-green-600 font-black">○</span>':r==='△'?'<span class="text-orange-600 font-black">△</span>':'<span class="text-slate-300">・</span>'; }
