@@ -629,7 +629,9 @@
           '</div>' +
           '<div id="tbTurn" style="position:absolute;top:4px;left:8px;color:#fff;font-weight:800;font-size:12px;text-shadow:0 1px 3px #000"></div>' +
         '</div>' +
-        '<div id="tbMsg" class="px-2 py-1 text-sm font-bold text-slate-700" style="min-height:2.6em"></div>' +
+        '<div id="tbWho" class="px-2 pt-1 text-xs font-bold"></div>' +
+        '<div id="tbMsgPrev" class="px-2 text-xs text-slate-400" style="min-height:1.2em"></div>' +
+        '<div id="tbMsg" class="px-2 pb-1 text-sm font-bold text-slate-700" style="min-height:2.4em"></div>' +
         '<div id="tbCmd" class="battle-choice-grid px-2 pb-2" style="flex:0 0 auto;align-content:start;max-height:46%"></div>' +
       '</div>' +
       '<div id="tbResult" class="hidden flex-1 overflow-y-auto px-3 py-2"></div>';
@@ -640,6 +642,8 @@
     EL.result = d.querySelector('#tbResult');
     EL.cmd = d.querySelector('#tbCmd');
     EL.msg = d.querySelector('#tbMsg');
+    EL.msgPrev = d.querySelector('#tbMsgPrev');
+    EL.who = d.querySelector('#tbWho');
     EL.ticket = d.querySelector('#tbTicket');
     d.querySelector('#tbClose').addEventListener('click', function () { exit(); });
     return d;
@@ -831,12 +835,39 @@
     EL.ticket.textContent = 'チケット ' + tb.tk + 'まい';
     say(L.name + ' が しょうぶを しかけてきた！');
     renderField();
+    lockCmd(false);
+    setWho(true);
   }
 
   function cur(side) { return side === 'me' ? S.mine[S.mi] : S.foes[S.fi]; }
   function aliveList(arr) { var o = []; for (var i = 0; i < arr.length; i++) if (arr[i].alive) o.push(i); return o; }
 
-  function say(t) { if (EL.msg) EL.msg.textContent = t; }
+  function say(t) {
+    if (!EL.msg) return;
+    if (EL.msgPrev) EL.msgPrev.textContent = EL.msg.textContent || '';
+    EL.msg.textContent = t;
+  }
+
+  // だれの番か（ターン制だと ひと目で わかるように）
+  function setWho(mine) {
+    if (!EL.who) return;
+    if (mine) {
+      EL.who.textContent = '▶ きみの ばん！ わざを えらぼう';
+      EL.who.style.color = '#1d4ed8';
+    } else {
+      EL.who.textContent = '… あいての ばん';
+      EL.who.style.color = '#b45309';
+    }
+  }
+
+  // 演出のあいだは ボタンを押せなくする（押せるのに 反応しない、を なくす）
+  function lockCmd(on) {
+    if (!EL.cmd) return;
+    EL.cmd.style.opacity = on ? '0.45' : '1';
+    EL.cmd.style.pointerEvents = on ? 'none' : 'auto';
+    var bs = EL.cmd.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) bs[i].disabled = !!on;
+  }
 
   function balls(arr) {
     var s = '';
@@ -910,7 +941,7 @@
     var others = [];
     for (var j = 0; j < S.mine.length; j++) if (j !== S.mi && S.mine[j].alive) others.push(j);
     h += '<button class="battle-choice-btn tb-sw" style="border-radius:10px;border:2px solid #cbd5e1;background:#f8fafc;color:#1f2937;font-weight:800;font-size:13px"' +
-      (others.length ? '' : ' disabled') + '>こうたい' + (others.length ? '' : '（できない）') + '</button>';
+      (others.length ? '' : ' disabled') + '>こうたい' + (others.length ? '<span style="font-size:10px;font-weight:600"> （1ターン つかう）</span>' : '（できない）') + '</button>';
     EL.cmd.innerHTML = h;
     var sks = EL.cmd.querySelectorAll('.tb-sk');
     for (var k = 0; k < sks.length; k++) {
@@ -993,6 +1024,8 @@
   function turn(myAct) {
     if (!S || S.busy || S.over) return;
     S.busy = true;
+    lockCmd(true);
+    setWho(false);
     S.turn++;
     var foeAct = aiChoose();
     var me = cur('me'), fo = cur('foe');
@@ -1075,10 +1108,13 @@
     // 演出（1行ずつ）
     var step = 0;
     function next() {
-      if (step < lines.length) { say(lines[step++]); renderField(); setTimeout(next, 750); return; }
-      S.busy = false;
-      renderField();
-      checkEnd();
+      if (step < lines.length) { say(lines[step++]); renderField(); setTimeout(next, 900); return; }
+      setTimeout(function () {
+        S.busy = false;
+        renderField();
+        if (!S.over) { lockCmd(false); setWho(true); }
+        checkEnd();
+      }, 350);
     }
     next();
   }
@@ -1113,6 +1149,8 @@
 
   function finish(win, msg) {
     S.over = true;
+    lockCmd(true);
+    if (EL.who) EL.who.textContent = '';
     var tb = ensureTb(), p = P();
     var coins = 0, shards = 0, gotBadge = false;
     try {
