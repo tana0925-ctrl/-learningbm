@@ -92,7 +92,7 @@ jobs:
           for label, text in (
               ('野生バトルの画面', 'id="screen-battle"'),
               ('ジムの画面', 'id="screen-gym"'),
-              ('防衛戦の読み込み', 'defense2.js'),
+              # defense2.js は配信時に差し込まれるので、ここでは見ない
               ('タイプシュート', 'typeshoot.js'),
               ('色違いの表', '/mon/shiny.js'),
               ('キャラ画像の表', '/mon/list.js'),
