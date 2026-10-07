@@ -138,7 +138,7 @@ jobs:
             '2 _revOK の定義': ['window._revOK = function', 1],
             '3 絞り込みに足した分': [' && (!window._revOK || window._revOK(x))', 3],
             '4 復習チャレンジ': ['function startReviewChallenge', 1],
-            '5 ステータスの復習リスト': ['statReviewList', 1],
+            '5 ステータスの復習リスト': ['statReviewList', 2],
             '6 対戦の出題': ['function _warPickFromWrongQuestions', 1],
             '7 まちがいの記録': ['function recordWrongProblem', 1],
             '8 CURRICULUM': ['const CURRICULUM', 1],
