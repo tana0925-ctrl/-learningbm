@@ -14751,9 +14751,16 @@ function grantOcha(){
             document.getElementById('playerNameDisplay').innerText = myMon.name;
             document.getElementById('playerLevelDisplay').innerText = `Lv.${lvlDisplay}`;
             document.getElementById('playerHpText').innerText = myMon.hp;
-            /* WILDIMG_V1 野生バトル・自分: 絵があれば絵、無ければ絵文字（色違いのクラスはこのすぐ下で付けます） */
+            /* WILDIMG_V2（WILDIMG_V1 の直し）野生バトル・自分: 中身が変わったときだけ書く。
+               バトル中はこの関数が 0.1秒ごとに走るので、毎回 innerHTML を書くと
+               img を作り直してしまい、チカチカ点滅して見える。 */
             try {
-                document.getElementById('playerSpriteDisplay').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(myMon.id, myMon.sprite) : String(myMon.sprite == null ? '' : myMon.sprite);
+                var _wpEl = document.getElementById('playerSpriteDisplay');
+                var _wpKey = '_wp' + String(myMon.id) + '|' + String(myMon.sprite);
+                if (_wpEl.getAttribute('data-sp-key') !== _wpKey) {
+                    _wpEl.setAttribute('data-sp-key', _wpKey);
+                    _wpEl.innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(myMon.id, myMon.sprite) : String(myMon.sprite == null ? '' : myMon.sprite);
+                }
             } catch (e) {
                 document.getElementById('playerSpriteDisplay').innerText = myMon.sprite;
             }
@@ -14765,9 +14772,16 @@ function grantOcha(){
             if (enemyMon) {
                 document.getElementById('enemyNameDisplay').innerText = `${enemyMon.name} Lv.${enemyMon.level}`;
 
-                /* WILDIMG_V1 野生バトル・相手: 絵があれば絵、無ければ絵文字（色違いのクラスはこのすぐ下で付けます） */
+                /* WILDIMG_V2（WILDIMG_V1 の直し）野生バトル・相手: 中身が変わったときだけ書く。
+                   バトル中はこの関数が 0.1秒ごとに走るので、毎回 innerHTML を書くと
+                   img を作り直してしまい、チカチカ点滅して見える。 */
                 try {
-                    document.getElementById('enemySpriteDisplay').innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(enemyMon.id, enemyMon.sprite) : String(enemyMon.sprite == null ? '' : enemyMon.sprite);
+                    var _weEl = document.getElementById('enemySpriteDisplay');
+                    var _weKey = '_we' + String(enemyMon.id) + '|' + String(enemyMon.sprite);
+                    if (_weEl.getAttribute('data-sp-key') !== _weKey) {
+                        _weEl.setAttribute('data-sp-key', _weKey);
+                        _weEl.innerHTML = (typeof monSpriteHtml === 'function') ? monSpriteHtml(enemyMon.id, enemyMon.sprite) : String(enemyMon.sprite == null ? '' : enemyMon.sprite);
+                    }
                 } catch (e) {
                     document.getElementById('enemySpriteDisplay').innerText = enemyMon.sprite;
                 }
