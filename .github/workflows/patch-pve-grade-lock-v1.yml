@@ -1,0 +1,213 @@
+name: patch-pve-grade-lock-v1
+
+# PVE_GRADE_LOCK_V1 野生バトルの学年ボタンが「出てから消える」のをやめる。
+#
+# ・public/index.html の addPveGradeSelector() を2か所だけ直す。
+#   (1) 解禁されていない学年は最初から描かない（__gradeUnlocked が無ければ今までどおり全部描く）
+#   (2) 自分の学年が分かっているなら、最初に選ばれている学年をそれに合わせる
+# ・g8core.js / g9core.js / g10core.js は1バイトも触らない。消す側（enforceButtons）は安全網として残す。
+# ・src/index.tsx は1バイトも触らない。チェーン数は「増えていないこと」の確認だけに使う。
+#   合わなければ1バイトも書かずに止まる（フェイルクローズ）。
+# ・D1 には一切触らない。DDL も流さない。
+#
+# ⚠️ Deploy は自動で起こさない。手で dispatch する。
+# ⚠️ dist/ は .gitignore に書いてあるのに git に入ったままなので、ビルドのたびに必ず変わる。
+#    コミットはしないので、差分の確認は「もとになるファイル」だけを見る。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | wc -c
+          git show HEAD:public/index.html | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_pve_grade_lock_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_pve_grade_lock_v1.py
+
+      - name: src/index.tsx は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- src/index.tsx; then
+            echo "::error::src/index.tsx が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 学年パック（g8/g9/g10）と scripts/ は1バイトも変わっていないこと
+        run: |
+          for f in public/g8core.js public/g9core.js public/g10core.js public/g8wild.js public/g9wild.js public/g10wild.js; do
+            if ! git diff --quiet -- "$f"; then
+              echo "::error::$f が変わっています。中止します。"; exit 1
+            fi
+          done
+          if ! git diff --quiet -- scripts; then
+            echo "::error::scripts/ が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 変わったファイルは public/index.html の1つだけであること
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: あてた public/index.html を控える
+        run: |
+          cp public/index.html /tmp/patched_index.html
+          sha256sum /tmp/patched_index.html
+          wc -c /tmp/patched_index.html
+
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+
+      - name: あてた public/index.html を戻して、もとのファイルの差分が1つだけのままか見る
+        run: |
+          cp -f /tmp/patched_index.html public/index.html
+          CHANGED=$(git diff --name-only -- src public scripts .github package.json package-lock.json | sort | tr '\n' ' ')
+          echo "changed(src): $CHANGED"
+          echo "changed(all): $(git diff --name-only | sort | tr '\n' ' ')"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 配信HTMLの構文検査（教師ページ側）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側・この便では必須）
+        run: node scripts/render_check_child.mjs
+
+      - name: 配信HTMLに入っているか／ふるい分けが思ったとおりに効くか
+        run: |
+          cat > /tmp/verify_pvegrade.mjs <<'JSEOF'
+          import fs from 'fs';
+          const mod = await import(process.cwd() + '/dist/_worker.js');
+          const env = { ASSETS: { fetch: async (req) => {
+            const u = new URL(typeof req === 'string' ? req : req.url);
+            const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname;
+            try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }); }
+            catch (e) { return new Response('', { status: 404 }); } } } };
+          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} });
+          const html = await res.text();
+          const count = (s) => html.split(s).length - 1;
+
+          const need = {
+            '1 番兵': ['__PVE_GRADE_LOCK_V1__', 2],
+            '2 ふるい分け': ['if (g > 1 && window.__gradeUnlocked && !window.__gradeUnlocked(g)) return;', 1],
+            '3 初期学年あわせ': ['window.__pveGradeInit', 2],
+            '4 学年セレクター': ['function addPveGradeSelector', 1],
+            '5 学年の配列': ['[1, 2, 3, 4, 5, 6, 7].forEach', 1],
+            '6 地方選択フック': ['function renderPveDistrictSelectWithGrade', 1],
+            '7 エリア選択フック': ['function renderPveAreaSelectWithGrade', 1],
+            '8 復習の番兵（前便）': ['__REVIEW_BADANS_A1__', 1],
+          };
+          for (const k of Object.keys(need)) {
+            const [s, want] = need[k];
+            const n = count(s);
+            console.log('  ' + k + ': ' + n + ' 件（想定 ' + want + '）');
+            if (n !== want) throw new Error('配信HTMLの「' + k + '」が ' + n + ' 件（想定 ' + want + '）');
+          }
+
+          // ふるい分けの条件式だけを取り出して、実際に動かして確かめる
+          const cond = (g, unlocked) => {
+            const w = unlocked ? { __gradeUnlocked: (x) => unlocked(x) } : {};
+            return (g > 1 && w.__gradeUnlocked && !w.__gradeUnlocked(g)) ? 'skip' : 'draw';
+          };
+          const u3 = (g) => g <= 3;            // 3年生（上は未解禁）
+          const u6 = (g) => g <= 6;            // 6年生
+          const cases = [
+            ['3年生 1年生ボタン', cond(1, u3), 'draw'],
+            ['3年生 3年生ボタン', cond(3, u3), 'draw'],
+            ['3年生 4年生ボタン', cond(4, u3), 'skip'],
+            ['3年生 6年生ボタン', cond(6, u3), 'skip'],
+            ['3年生 中1ボタン', cond(7, u3), 'skip'],
+            ['6年生 6年生ボタン', cond(6, u6), 'draw'],
+            ['6年生 中1ボタン', cond(7, u6), 'skip'],
+            ['g10coreが無いとき(全部出す)', cond(7, null), 'draw'],
+            ['1年生ボタンは常に出す', cond(1, () => false), 'draw'],
+          ];
+          let bad = 0;
+          for (const [label, got, want] of cases) {
+            console.log('  ' + (got === want ? 'OK ' : 'NG ') + label + ' -> ' + got + '（想定 ' + want + '）');
+            if (got !== want) bad++;
+          }
+          if (bad) throw new Error('ふるい分けの動きが想定と違う: ' + bad + ' 件');
+          console.log('配信HTML ' + html.length + ' 文字。ふるい分けは想定どおり。');
+          JSEOF
+          node /tmp/verify_pvegrade.mjs
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1']:
+              n = s.count(k)
+              print('src  %-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          for k in ['window.monSpriteHtml', 'monShinySet', 'shiny-ring', 'WILDIMG_V2',
+                    'pveGradeSelectorWrap', 'window.renderPvEDistrictSelect',
+                    'window.renderPvEAreaSelectForDistrict', '__REVIEW_BADANS_A1__']:
+              n = h.count(k)
+              print('html %-38s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c public/index.html
+          sha256sum public/index.html src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add public/index.html
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "PVE_GRADE_LOCK_V1: 野生バトルの学年ボタンを出してから消すのをやめる（解禁ぶんだけ描く＋初期学年を自分の学年に・チェーン${{ inputs.chain_before }}->据え置き）"
+          git push origin HEAD:main
