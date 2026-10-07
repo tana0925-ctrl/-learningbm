@@ -16474,7 +16474,7 @@ try{ (function(){ var gc=document.getElementById('homeGrowthCard'); if(!gc) retu
     if(reviewListEl){
       try{
         const w = player.wrongQuestions || {};
-        const arr = Object.values(w).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0)
+        const arr = Object.values(w).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0 && (!window._revOK || window._revOK(x)))
                       .sort((a,b)=>(b.count-a.count)).slice(0,5);
         if(reviewBadge) reviewBadge.textContent = arr.length > 0 ? `${Object.values(w).filter(x=>x&&x.count>0).length}問` : '';
         if(arr.length===0){
@@ -16508,7 +16508,7 @@ var _reviewTotalHerbs = 0;
 function startReviewChallenge(){
   try{
     const w = player.wrongQuestions || {};
-    const arr = Object.values(w).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0)
+    const arr = Object.values(w).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0 && (!window._revOK || window._revOK(x)))
                   .sort((a,b)=>(b.count-a.count)).slice(0,10);
     if(arr.length===0){
       alert('復習リストがないよ！まちがえた問題が自動で追加されます。');
@@ -41806,7 +41806,7 @@ renderPower();
   function _warPickFromWrongQuestions(){
     try{
       if(!window.player || !player.wrongQuestions) return null;
-      const arr = Object.values(player.wrongQuestions).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0);
+      const arr = Object.values(player.wrongQuestions).filter(x=>x && x.q && x.ans!=null && (x.count||0)>0 && (!window._revOK || window._revOK(x)));
       if(!arr.length) return null;
 
       // weighted by count
@@ -55749,5 +55749,47 @@ async function _checkContactBadge(){
 <!-- TBATTLE_V1_MARK ターン制バトル（オマケ）。既存バトル7種には触っていません -->
 <script src="/tbsub.js?v=2"></script>
 <script src="/tbattle.js?v=2"></script>
+<script>
+/* __REVIEW_BADANS_A1__ 四択の正解が選択肢番号のまま保存された復習エントリを出さない */
+(function(){
+  var MAP = null, MAPDONE = false;
+  function buildMap(){
+    var m = {}, n = 0;
+    try {
+      var C = window.CURRICULUM;
+      if (!C) { return null; }
+      for (var sk in C) {
+        if (!Object.prototype.hasOwnProperty.call(C, sk)) { continue; }
+        var g = C[sk] && C[sk].grades;
+        if (!g) { continue; }
+        for (var gk in g) {
+          if (!Object.prototype.hasOwnProperty.call(g, gk)) { continue; }
+          var us = g[gk] && g[gk].units;
+          if (!us) { continue; }
+          for (var i = 0; i < us.length; i++) {
+            if (us[i] && us[i].id) { m[us[i].id] = us[i].input; n++; }
+          }
+        }
+      }
+    } catch (e) { return null; }
+    return n > 0 ? m : null;
+  }
+  window._revOK = function(x){
+    try {
+      if (!x) { return false; }
+      var a = String(x.ans == null ? '' : x.ans);
+      if (!/^[0-3]$/.test(a)) { return true; }
+      var q = String(x.q == null ? '' : x.q);
+      if (q.indexOf('□') >= 0) { return true; }
+      if (!/[ぁ-んァ-ヶ一-龥]/.test(q)) { return true; }
+      if (!MAPDONE) { MAP = buildMap(); MAPDONE = true; }
+      if (!MAP) { return true; }
+      var inp = x.mode ? MAP[x.mode] : undefined;
+      if (inp === 'numpad' || inp === 'fraction') { return true; }
+      return false;
+    } catch (e) { return true; }
+  };
+})();
+</script>
 </body>
 </html>
