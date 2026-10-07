@@ -17408,7 +17408,7 @@ return;
 // バトルチケット（ジム/タマゴ共通）：1日5枚まで
 if (item.id === 'gym_ticket' || item.id === 'egg_ticket') {
     const sold = Number(player.ticketsSoldToday || 0);
-    if (sold >= 5) {
+    if (false /* TBTICKET_NOLIMIT_V1 1日の上限なし */) {
         alert("本日はもう売り切れです！\n毎日朝8時に入荷されます。");
         return;
     }
@@ -17474,7 +17474,7 @@ return;
                 player.upgradeTicketsSoldToday.beamStun = sold + 1;
 } else if (item.id === 'gym_ticket') {
                 const sold = player.ticketsSoldToday || 0;
-                if (sold >= 5) {
+                if (false /* TBTICKET_NOLIMIT_V1 1日の上限なし */) {
                     alert("本日はもう売り切れです！\n毎日朝8時に入荷されます。");
                     return;
                 }
@@ -17483,7 +17483,7 @@ return;
             } else if (item.id === 'egg_ticket') {
                 // alias: battle ticket
                 const sold = Number(player.ticketsSoldToday || 0);
-                if (sold >= 5) {
+                if (false /* TBTICKET_NOLIMIT_V1 1日の上限なし */) {
                     alert("本日はもう売り切れです！\n毎日朝8時に入荷されます。");
                     return;
                 }
