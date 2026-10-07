@@ -53880,6 +53880,8 @@ setTimeout(function() {
 
   // ── 学年セレクターをUIに追加 ──
   function addPveGradeSelector() {
+    /* __PVE_GRADE_LOCK_V1__ 自分の学年が分かったら、最初に選ばれている学年をそれに合わせる（一度だけ） */
+    try { if (!window.__pveGradeInit && Number(window.__userGrade) >= 1) { window.pveSelectedGrade = Number(window.__userGrade); window.__pveGradeInit = 1; } } catch (e) {}
     const existing = document.getElementById('pveGradeSelectorWrap');
     if (existing) existing.remove();
     const title = document.getElementById('pveSelectTitle');
@@ -53888,6 +53890,8 @@ setTimeout(function() {
     wrap.id = 'pveGradeSelectorWrap';
     wrap.className = 'flex flex-wrap gap-1 mb-2 justify-center';
     [1, 2, 3, 4, 5, 6, 7].forEach(g => {
+      /* __PVE_GRADE_LOCK_V1__ まだ解禁されていない学年は最初から出さない（出てから消えるのを防ぐ） */
+      if (g > 1 && window.__gradeUnlocked && !window.__gradeUnlocked(g)) return;
       const btn = document.createElement('button');
       const isSelected = g === window.pveSelectedGrade;
       btn.className = 'px-3 py-1 rounded-full text-sm font-bold border-2 transition ' +
