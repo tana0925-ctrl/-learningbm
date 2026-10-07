@@ -4,7 +4,9 @@
  *
  * 設計メモ
  *  - 問題に答えません。技を選んで殴り合うだけ。1回3〜4分。
- *  - 入場にターン制バトルチケット（player.tb.tk）が1枚必要。
+ *  - 入場に バトルチケット（player.gymTickets）が1枚必要。
+ *    ショップで50コインで売っているもの・既存のジム／タマゴと同じチケット。
+ *    新しい種類は増やしていない。
  *  - 相手はこのモード専用のジムリーダー（既存のジムリーダー 400〜419 は使いません）。
  *  - 両軍ともレベル50固定＋種族値を全キャラの順位で帯に圧縮。
  *    技の威力も規定値（通常14／強撃30／特殊12）。
@@ -96,6 +98,10 @@
   })();
 
   var BAND = { hp: [1012, 1138], atk: [110, 130], def: [100, 116], spd: [104, 122] };
+  // ともだち たいせんは、ジムより さらに つよさを そろえる（両方に 同じように かける）。
+  // そろえないと、強い手持ちの子の勝率が 99% になった（実測）。
+  var FBAND = { hp: [1065, 1085], atk: [118, 122], def: [107, 109], spd: [112, 114] };
+  var CURBAND = BAND;
 
   var JEL = {
     normal: 'ノーマル', fire: 'ほのお', water: 'みず', grass: 'くさ', electric: 'でんき',
@@ -265,7 +271,7 @@
     return a.length > 1 ? lo / (a.length - 1) : 0.5;
   }
   function fromPct(key, p) {
-    var b = BAND[key];
+    var b = CURBAND[key];
     if (p < 0) p = 0; if (p > 1) p = 1;
     return Math.round(b[0] + (b[1] - b[0]) * p);
   }
@@ -546,18 +552,38 @@
     if (!tb.badges || typeof tb.badges !== 'object') tb.badges = {};
     if (typeof tb.grantDay !== 'string') tb.grantDay = '';
     if (typeof tb.grantCount !== 'number') tb.grantCount = 0;
-    if (!tb.init) { tb.init = 1; tb.tk = Math.max(tb.tk, 2); } // 初回だけ2枚（お試し用）
+    if (!tb.init) { tb.init = 1; }
+    // ターン制だけの チケットは やめて、ショップの「バトルチケット」に 一本化した。
+    // それまでに 配ってしまった分は、1回だけ バトルチケットに 振りかえる（損をさせない）。
+    if (!tb.mig1) {
+      tb.mig1 = 1;
+      var carry = Math.max(0, Math.floor(Number(tb.tk) || 0));
+      if (carry > 0) { p.gymTickets = Math.max(0, Math.floor(Number(p.gymTickets) || 0)) + carry; }
+      tb.tk = 0;
+      save();
+    }
     return tb;
   }
+  // いま持っている バトルチケットの枚数
+  function ticketCount() {
+    var p = P();
+    return Math.max(0, Math.floor(Number(p && p.gymTickets) || 0));
+  }
 
+  // 家庭学習の ごほうびに あわせて バトルチケットを1枚（1日2枚まで）。
+  // hsGrantRewards 自体は コインと かけらしか配っていないので、ここで足している。
   function grantTicket(n) {
-    var tb = ensureTb();
-    if (!tb) return 0;
+    var tb = ensureTb(), p = P();
+    if (!tb || !p) return 0;
     var d = today();
     if (tb.grantDay !== d) { tb.grantDay = d; tb.grantCount = 0; }
     var room = Math.max(0, 2 - tb.grantCount); // 1日2枚まで
     var give = Math.min(room, Math.max(0, n | 0));
-    if (give > 0) { tb.tk += give; tb.grantCount += give; save(); }
+    if (give > 0) {
+      p.gymTickets = Math.max(0, Math.floor(Number(p.gymTickets) || 0)) + give;
+      tb.grantCount += give;
+      save();
+    }
     return give;
   }
 
@@ -704,6 +730,8 @@
   }
   function exit() {
     try {
+      vsLeave();
+      vsStopTimers();
       S = null;
       if (EL.root) EL.root.classList.add('hidden');
       if (typeof setMode === 'function') setMode('status');
@@ -715,7 +743,7 @@
     EL.field.classList.add('hidden');
     EL.result.classList.add('hidden');
     EL.lobby.classList.remove('hidden');
-    EL.ticket.textContent = 'チケット ' + (tb ? tb.tk : 0) + 'まい';
+    EL.ticket.textContent = 'バトルチケット ' + ticketCount() + 'まい';
 
     var party = myParty();
     var h = '';
@@ -730,7 +758,7 @@
         '</div>';
     }
 
-    h += '<div class="text-xs text-slate-500 mb-2">こたえなくていい バトル。わざを えらんで たたかう。チケット1まい。' +
+    h += '<div class="text-xs text-slate-500 mb-2">こたえなくていい バトル。わざを えらんで たたかう。バトルチケット1まい（ショップで 50コイン）。' +
       '<button id="tbHelpBtn" class="underline text-indigo-600 ml-1">くわしく</button></div>';
     h += '<div id="tbHelp" class="hidden text-xs text-slate-400 mb-2">' +
       'みんな レベル50・つよさも そろえて たたかう。あいしょうと わざの えらびかたで きまる。' +
@@ -768,6 +796,15 @@
     }
     h += '</div>';
 
+    // ともだちと たいせん
+    h += '<div class="rounded-xl bg-white border-2 border-emerald-200 p-2 mb-2">';
+    h += '<div class="text-sm font-bold text-emerald-700">🤝 ともだちと たいせん</div>';
+    h += '<div class="text-[11px] text-slate-500 mb-1">おなじ ターンせいで、ともだちと たたかえます。チケットは いりません（かつと コイン30）。</div>';
+    h += '<div class="flex gap-2">';
+    h += '<button id="tbVsCreate" class="flex-1 py-2 rounded-lg text-white font-bold text-sm" style="background:linear-gradient(180deg,#34d399,#059669)">へやを つくる</button>';
+    h += '<button id="tbVsJoin" class="flex-1 py-2 rounded-lg text-white font-bold text-sm" style="background:linear-gradient(180deg,#60a5fa,#2563eb)">あいことばで はいる</button>';
+    h += '</div></div>';
+
     // リーダー一覧
     var order = [];
     for (var oi = 0; oi < ACTIVE && oi < LEADERS.length; oi++) order.push(oi);
@@ -803,6 +840,13 @@
       h += '<div class="text-xs text-slate-400">ほかの ジムリーダーは じゅんびちゅうです。</div>';
     }
     EL.lobby.innerHTML = h;
+    var vc = EL.lobby.querySelector('#tbVsCreate');
+    if (vc) vc.addEventListener('click', function () { vsCreate(); });
+    var vj = EL.lobby.querySelector('#tbVsJoin');
+    if (vj) vj.addEventListener('click', function () {
+      var c = window.prompt('あいことばを いれてね（ともだちの がめんに 出ている 6もじ）');
+      if (c) vsJoin(c);
+    });
     var hb = EL.lobby.querySelector('#tbHelpBtn');
     if (hb) hb.addEventListener('click', function () {
       var hp = EL.lobby.querySelector('#tbHelp');
@@ -838,7 +882,7 @@
   function start(idx) {
     var tb = ensureTb();
     if (!tb) { alert('データが よみこまれていません。'); return; }
-    if (tb.tk < 1) { alert('チケットが ありません。かていがくしゅうを だすと もらえます。'); return; }
+    if (ticketCount() < 1) { alert('バトルチケットが ありません。\nショップで 50コインで かえます。かていがくしゅうを だしても もらえます。'); return; }
     var party = myParty();
     if (party.length < 1) { alert('てもちが ありません。'); return; }
     var L = LEADERS[idx] || LEADERS[0];
@@ -853,7 +897,9 @@
     for (var j = 0; j < L.party.length; j++) { var f = buildUnit(L.party[j], 'foe', cp); if (f) foes.push(f); }
     if (!mine.length || !foes.length) { alert('バトルを じゅんびできませんでした。'); return; }
 
-    tb.tk -= 1; save();
+    var pp = P();
+    pp.gymTickets = Math.max(0, ticketCount() - 1);
+    save();
 
     S = {
       L: L, lv: idx, mine: mine, foes: foes, mi: 0, fi: 0, turn: 0,
@@ -863,7 +909,7 @@
     EL.lobby.classList.add('hidden');
     EL.result.classList.add('hidden');
     EL.field.classList.remove('hidden');
-    EL.ticket.textContent = 'チケット ' + tb.tk + 'まい';
+    EL.ticket.textContent = 'バトルチケット ' + ticketCount() + 'まい';
     clearLog();
     say(L.name + ' が しょうぶを しかけてきた！');
     renderField();
@@ -872,6 +918,7 @@
   }
 
   function cur(side) { return side === 'me' ? S.mine[S.mi] : S.foes[S.fi]; }
+  function foeSideName() { return (S && S.vs) ? (S.vs.oppName || 'あいて') : ((S && S.L) ? S.L.name : 'あいて'); }
   function aliveList(arr) { var o = []; for (var i = 0; i < arr.length; i++) if (arr[i].alive) o.push(i); return o; }
 
   // 1行ずつ 出して、次の行で 消える。
@@ -1093,12 +1140,20 @@
   }
 
   function turn(myAct) {
-    if (!S || S.busy || S.over) return;
+    if (!S || S.over) return;
+    if (S.vs) { vsPlay(myAct); return; }
+    if (S.busy) return;
     S.busy = true;
     lockCmd(true);
     setWho(false);
     S.turn++;
-    var foeAct = aiChoose();
+    var lines = resolveTurn(myAct, aiChoose());
+    playLines(lines, function () { checkEnd(); });
+  }
+
+  // 1ターン分を計算して、出す文と そのときの画面を返す。
+  // ともだち たいせんでは、ホストだけが これを動かし、結果を ゲストに おくる。
+  function resolveTurn(myAct, foeAct) {
     var me = cur('me'), fo = cur('foe');
 
     // 記録（敗因カード用）
@@ -1140,7 +1195,7 @@
       var u = cur('foe'), v = cur('me');
       if (foeAct.kind === 'swap') {
         S.fi = foeAct.j;
-        pushLine(S.L.name + ' は ' + cur('foe').name + ' を だした！');
+        pushLine(foeSideName() + ' は ' + cur('foe').name + ' を だした！');
         return;
       }
       if (u.st === 'para' && Math.random() < PARA_SKIP) {
@@ -1177,10 +1232,14 @@
     }
     if (!cur('foe').alive) {
       var al2 = aliveList(S.foes);
-      if (al2.length) { S.fi = al2[0]; pushLine(S.L.name + ' は ' + cur('foe').name + ' を だした！'); }
+      if (al2.length) { S.fi = al2[0]; pushLine(foeSideName() + ' は ' + cur('foe').name + ' を だした！'); }
     }
 
-    // 演出（1行ずつ）
+    return lines;
+  }
+
+  // 1行ずつ 出す（出た文と そのときのHPが そろうように）
+  function playLines(lines, done) {
     var step = 0;
     function next() {
       if (step < lines.length) {
@@ -1192,7 +1251,7 @@
         S.busy = false;
         renderField();
         if (!S.over) { lockCmd(false); setWho(true); }
-        checkEnd();
+        if (done) done();
       }, 350);
     }
     next();
@@ -1277,10 +1336,429 @@
     EL.result.querySelector('#tbAgain').addEventListener('click', function () { S = null; showLobby(); });
   }
 
+
+  /* ===================== ともだち たいせん（第6便） =====================
+     通信は 既存の「ともだちバトルの部屋」を そのまま使う。
+       おくる：POST /api/rt/damage/{あいことば}  {eventType:'tb', meta:{...}}
+       うけとる：GET /api/rt/room/{あいことば}?after=N  の events
+     これは public/rt-battle.js（タマゴ）が すでに やっている形。
+     サーバは1行も変えていない。新しいクエリも 増やしていない。
+
+     ホストが しんぱん：
+       ゲストは 自分の手を おくるだけ。ホストが 1ターン分を計算して、
+       出す文と そのときのHPを そのまま おくる。
+       → 両方が べつべつに計算して 結果が ちがう、という事故が 起きない。
+
+     かならず 終わるように、止まりどころを 4つ：
+       1) 自分が 15秒 考えたら じどうで わざを えらぶ（まけにはしない）
+       2) ゲストの手が 来ない → ホストが じどうで すすめる。3ターン続けて
+          来なければ 引き分けで おわり
+       3) ホストの結果が 来ない → ゲストが 20秒 待って 引き分けで おわり
+       4) 20ターン、または 5分で うちきり（のこりHPの わりあいで 判定）
+  */
+  var VS_TURN_MS = 15000;   // 1ターンの もちじかん
+  var VS_WAIT_MS = 20000;   // あいての結果を 待つ上限
+  var VS_MAX_MS = 300000;   // 1戦ぜんたいの上限（5分）
+  var VS_NOMOVE_MAX = 3;    // ゲストの手が 来ないのを ゆるす回数
+
+  function vsApi(path, body) {
+    var opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+    return fetch(path, opt).then(function (r) { return r.json(); });
+  }
+  var VS_CODE_RE = /^[A-Z0-9]{4,}$/;
+  function vsOkCode(c) { return !!c && VS_CODE_RE.test(String(c)) && String(c).indexOf('--') < 0; }
+  function vsSend(meta) {
+    var v = S && S.vs; if (!v || !vsOkCode(v.code)) return;
+    vsApi('/api/rt/damage/' + v.code, { damage: 0, monsterId: 0, eventType: 'tb', meta: meta })
+      .then(function (d) { if (d && d.eventId) v.mine[d.eventId] = 1; })
+      .catch(function () {});
+  }
+  function vsMyPartyPayload() {
+    var ids = myParty(), p = P(), out = [];
+    for (var i = 0; i < ids.length; i++) {
+      var md = (p && p.monsters && (p.monsters[ids[i]] || p.monsters[String(ids[i])])) || null;
+      out.push({ i: ids[i], l: md ? Number(md.level || 1) : 1 });
+    }
+    return out;
+  }
+  function vsMyName() {
+    var p = P();
+    var n = (p && (p.name || p.displayName)) ? String(p.name || p.displayName) : 'プレイヤー';
+    return n.slice(0, 20);
+  }
+  function vsCode() {
+    var s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', o = 'TB';
+    for (var i = 0; i < 4; i++) o += s.charAt(Math.floor(Math.random() * s.length));
+    return o;
+  }
+  function vsOppIds(oppParty) {
+    var out = [];
+    try {
+      for (var i = 0; i < (oppParty || []).length && out.length < 3; i++) {
+        var it = oppParty[i], id = normId(it && (it.i != null ? it.i : it));
+        if (id && monOf(id)) out.push(id);
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // --- 部屋をつくる（ホスト）---
+  function vsCreate() {
+    var party = vsMyPartyPayload();
+    if (!party.length) { alert('てもちが ありません。'); return; }
+    var code = vsCode();
+    vsWaitPanel('あいことばを つくっています…', '');
+    vsApi('/api/rt/create', { party: party, name: vsMyName(), area: 'tb', battleType: 'gym', code: code })
+      .then(function (res) {
+        if (!res || !res.ok) { vsWaitPanel('つくれませんでした', String((res && res.error) || '')); return; }
+        var rid = res.roomId || res.id || code;
+        vsWaitPanel('あいことば', rid);
+        vsHostWait(rid);
+      })
+      .catch(function () { vsWaitPanel('つうしんに しっぱい しました', ''); });
+  }
+  function vsHostWait(code) {
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (tries > 160) { clearInterval(iv); vsLeave(); vsWaitPanel('あいてが きませんでした', ''); return; }
+      vsApi('/api/rt/room/' + code).then(function (d) {
+        if (!d || !d.ok || !d.room) return;
+        var r = d.room;
+        if (r.guestName) {
+          clearInterval(iv);
+          vsWaitPanel(r.guestName + ' が きた！ はじめます', code);
+          vsApi('/api/rt/ready/' + code, {}).then(function () {
+            vsWaitPlaying(code, 'host', r.guestName, d.room.opponentParty || []);
+          });
+        }
+      }).catch(function () {});
+    }, 1500);
+    S_vsTimers.push(iv);
+  }
+  // --- あいことばで はいる（ゲスト）---
+  function vsJoin(code) {
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!vsOkCode(code)) { alert('あいことばを いれてね（えいすうじ 4もじ いじょう）'); return; }
+    var party = vsMyPartyPayload();
+    if (!party.length) { alert('てもちが ありません。'); return; }
+    vsWaitPanel('はいっています…', code);
+    vsApi('/api/rt/join/' + code, { party: party, name: vsMyName() })
+      .then(function (res) {
+        if (!res || !res.ok) {
+          var m = { room_not_found: 'その あいことばの へやが ありません', room_not_available: 'もう はいれません', cannot_join_own_room: '自分の へやには はいれません' };
+          vsWaitPanel(m[res && res.error] || 'はいれませんでした', '');
+          return;
+        }
+        vsApi('/api/rt/ready/' + code, {}).then(function () {
+          vsWaitPlaying(code, 'guest', res.hostName || 'あいて', res.opponentParty || []);
+        });
+      })
+      .catch(function () { vsWaitPanel('つうしんに しっぱい しました', ''); });
+  }
+  // --- 両方 ready になるのを 待つ ---
+  function vsWaitPlaying(code, role, oppName, oppParty) {
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (tries > 120) { clearInterval(iv); vsWaitPanel('はじめられませんでした', ''); return; }
+      vsApi('/api/rt/room/' + code).then(function (d) {
+        if (!d || !d.ok || !d.room) return;
+        var r = d.room;
+        var ids = vsOppIds(r.opponentParty && r.opponentParty.length ? r.opponentParty : oppParty);
+        var nm = (role === 'host') ? (r.guestName || oppName) : (r.hostName || oppName);
+        if (r.status === 'playing' && ids.length) {
+          clearInterval(iv);
+          vsBattleStart(code, role, nm, ids);
+        }
+      }).catch(function () {});
+    }, 1200);
+    S_vsTimers.push(iv);
+  }
+
+  // 部屋を かたづける（ホストなら けす／ゲストなら ぬける）。
+  // egg2p.js が おわっても 止めていなかったため playing の部屋が 43件 のこっていた。
+  // 同じことを しないように、おわり・画面を とじる・ページを はなれる の3つで よぶ。
+  function vsLeave(code) {
+    var c = code || (S && S.vs && S.vs.code);
+    if (!vsOkCode(c)) return;
+    try {
+      fetch('/api/rt/leave/' + c, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(function () {});
+    } catch (e) {}
+  }
+
+  var S_vsTimers = [];
+  function vsStopTimers() {
+    for (var i = 0; i < S_vsTimers.length; i++) { try { clearInterval(S_vsTimers[i]); } catch (e) {} }
+    S_vsTimers = [];
+  }
+
+  // --- バトル開始 ---
+  function vsBattleStart(code, role, oppName, oppIds) {
+    vsStopTimers();
+    var myIds = myParty();
+    var mine = [], foes = [];
+    CURBAND = FBAND;                 // ともだち たいせんは もっと そろえた帯で
+    try {
+      for (var i = 0; i < myIds.length; i++) { var u = buildUnit(myIds[i], 'me'); if (u) mine.push(u); }
+      for (var j = 0; j < oppIds.length; j++) { var f = buildUnit(oppIds[j], 'foe'); if (f) foes.push(f); }
+    } finally { CURBAND = BAND; }
+    if (!mine.length || !foes.length) { alert('バトルを じゅんびできませんでした。'); showLobby(); return; }
+
+    S = {
+      L: null, lv: -1, mine: mine, foes: foes, mi: 0, fi: 0, turn: 0,
+      busy: false, over: false,
+      stat: { myMultSum: 0, myMultN: 0, spdLoss: 0, spdN: 0 },
+      vs: {
+        code: code, role: role, oppName: oppName, mine: {}, lastId: 0,
+        myAct: null, foeAct: null, resolving: false, turnStart: 0,
+        noMove: 0, lastRes: Date.now(), t0: Date.now(), lastProgress: Date.now(), ended: false
+      }
+    };
+    EL.lobby.classList.add('hidden');
+    EL.result.classList.add('hidden');
+    EL.field.classList.remove('hidden');
+    clearLog();
+    say(oppName + ' との たいせん！');
+    renderField();
+    vsBeginTurn();
+    // ポーリングは 1秒おき。240msにすると 22人で 146リクエスト/秒になり、
+    // D1の書き込み枠を 1コマで 65% 使ってしまう（別セッションの実測）。
+    // ターン制は あいての手を 待つだけなので 1秒で 何も困らない。
+    var iv = setInterval(vsTick, 1000);
+    S_vsTimers.push(iv);
+  }
+
+  function vsBeginTurn() {
+    if (!S || !S.vs || S.over) return;
+    S.vs.lastProgress = Date.now();
+    S.vs.turnStart = Date.now();
+    S.vs.myAct = null;
+    lockCmd(false);
+    setWho(true);
+  }
+
+  function vsAutoAct(side) {
+    var T = (side === 'me') ? S.mine : S.foes, q = (side === 'me') ? S.mi : S.fi;
+    var a = T[q], f = (side === 'me') ? cur('foe') : cur('me');
+    var bi = 0, bv = -1;
+    for (var i = 0; i < a.sk.length; i++) {
+      var v = expDmg(a, f, a.sk[i]);
+      if (v > bv) { bv = v; bi = i; }
+    }
+    return { kind: 'skill', i: bi };
+  }
+
+  // プレイヤーが わざを えらんだとき
+  function vsPlay(myAct) {
+    var v = S.vs;
+    if (S.busy || S.over || v.myAct) return;
+    v.myAct = myAct;
+    S.busy = true;
+    lockCmd(true);
+    setWho(false);
+    if (v.role === 'guest') {
+      vsSend({ k: 'mv', t: S.turn + 1, a: myAct });
+      say('あいてを まっています…');
+    } else {
+      say('あいてを まっています…');
+      vsHostTry();
+    }
+  }
+
+  function vsHostTry() {
+    var v = S.vs;
+    if (!v || v.role !== 'host' || v.resolving || S.over) return;
+    if (!v.myAct) return;
+    var waited = Date.now() - v.turnStart;
+    if (!v.foeAct && waited < VS_TURN_MS) return;
+    v.resolving = true;
+    var foeAct = v.foeAct || vsAutoAct('foe');
+    if (v.foeAct) v.noMove = 0; else v.noMove++;
+    var myAct = v.myAct;
+    v.myAct = null; v.foeAct = null;
+    S.turn++;
+    var lines = resolveTurn(myAct, foeAct);
+    var w = vsVerdict();
+    vsSend({ k: 'res', t: S.turn, L: lines, end: w ? 1 : 0, w: w || '' });
+    v.resolving = false;
+    v.lastProgress = Date.now();
+    playLines(lines, function () {
+      if (w) { vsFinish(w); return; }
+      if (v.noMove >= VS_NOMOVE_MAX) { vsSend({ k: 'bye' }); vsFinish('d', 'あいてが いなくなった みたい'); return; }
+      vsBeginTurn();
+    });
+  }
+
+  function vsVerdict() {
+    var meAlive = aliveList(S.mine).length, foAlive = aliveList(S.foes).length;
+    if (foAlive === 0 && meAlive > 0) return 'h';
+    if (meAlive === 0 && foAlive > 0) return 'g';
+    if (meAlive === 0 && foAlive === 0) return 'd';
+    if (S.turn >= CAP || (Date.now() - S.vs.t0) > VS_MAX_MS) {
+      var a = hpRate(S.mine), b = hpRate(S.foes);
+      return a > b ? 'h' : (b > a ? 'g' : 'd');
+    }
+    return '';
+  }
+
+  // ホストの snapshot は ホストから見た形。ゲストは 左右を入れかえて使う。
+  function vsFlipSnap(sn) {
+    if (!sn) return sn;
+    return { mi: sn.fi, fi: sn.mi, me: sn.fo, fo: sn.me };
+  }
+  function vsApplySnap(sn) {
+    if (!sn) return;
+    S.mi = sn.mi; S.fi = sn.fi;
+    var f = function (arr, sa) {
+      for (var i = 0; i < arr.length && i < sa.length; i++) {
+        arr[i].hp = sa[i].hp; arr[i].st = sa[i].st; arr[i].stT = sa[i].stT;
+        arr[i].ab = sa[i].ab; arr[i].db = sa[i].db; arr[i].alive = sa[i].alive;
+      }
+    };
+    f(S.mine, sn.me); f(S.foes, sn.fo);
+  }
+
+  function vsOnEvent(meta) {
+    var v = S && S.vs; if (!v || S.over) return;
+    if (!meta || !meta.k) return;
+    v.lastProgress = Date.now();
+    if (meta.k === 'mv' && v.role === 'host') { v.foeAct = meta.a || { kind: 'skill', i: 0 }; vsHostTry(); return; }
+    if (meta.k === 'bye') { vsFinish('d', 'あいてが いなくなった みたい'); return; }
+    if (meta.k === 'res' && v.role === 'guest') {
+      v.lastRes = Date.now();
+      S.turn = Number(meta.t || S.turn + 1);
+      var L = (meta.L || []).map(function (it) { return { t: it.t, s: vsFlipSnap(it.s) }; });
+      S.busy = true; lockCmd(true); setWho(false);
+      playLines(L, function () {
+        if (L.length) vsApplySnap(L[L.length - 1].s);
+        renderField();
+        if (meta.end) { vsFinish(meta.w === 'h' ? 'g_lose' : (meta.w === 'g' ? 'g_win' : 'd')); return; }
+        vsBeginTurn();
+      });
+    }
+  }
+
+  function vsTick() {
+    if (!S || !S.vs) { return; }
+    var v = S.vs;
+    if (S.over) return;
+    if (!vsOkCode(v.code)) { vsFinish('d', 'あいことばが おかしいです'); return; }
+    // 画面が 見えていないときは 通信しない（むだな リクエストを 出さない）
+    if (document.hidden) return;
+    // 通信
+    vsApi('/api/rt/room/' + v.code + '?after=' + v.lastId).then(function (d) {
+      if (!d || !d.ok) return;
+      var evs = d.events || [];
+      for (var i = 0; i < evs.length; i++) {
+        var ev = evs[i];
+        if (ev.id > v.lastId) v.lastId = ev.id;
+        if (ev.event_type !== 'tb') continue;
+        if (v.mine[ev.id]) continue;
+        var meta = null;
+        try { meta = typeof ev.meta_json === 'string' ? JSON.parse(ev.meta_json) : ev.meta_json; } catch (e) { meta = null; }
+        if (meta) vsOnEvent(meta);
+      }
+    }).catch(function () {});
+    // じかんぎれ：自分が えらばない
+    if (!S.busy && !v.myAct && v.turnStart && (Date.now() - v.turnStart) > VS_TURN_MS) {
+      say('じかんぎれ！ じどうで えらんだよ');
+      vsPlay(vsAutoAct('me'));
+      return;
+    }
+    // ホスト：ゲストの手が 来なくても すすめる
+    if (v.role === 'host') vsHostTry();
+    // ゲスト：結果が 来ない
+    if (v.role === 'guest' && (Date.now() - v.lastRes) > VS_WAIT_MS) {
+      vsFinish('d', 'あいてが いなくなった みたい');
+      return;
+    }
+    // ぜんたいの上限
+    if ((Date.now() - v.t0) > VS_MAX_MS + 20000) { vsFinish('d', 'じかんぎれ'); return; }
+    // いのちづな：どんな理由でも 45秒 なにも進まなければ 引き分けで おわる
+    // （「たいせんが 終わらない」を ぜったいに 残さないため）
+    if ((Date.now() - (v.lastProgress || v.t0)) > 45000) {
+      vsFinish('d', 'つうしんが うまく いきませんでした');
+      return;
+    }
+    // のこり秒
+    if (!S.busy && v.turnStart) {
+      var left = Math.max(0, Math.ceil((VS_TURN_MS - (Date.now() - v.turnStart)) / 1000));
+      if (EL.who) EL.who.textContent = '▶ きみの ばん！ わざを えらぼう（あと ' + left + 'びょう）';
+    }
+  }
+
+  function vsFinish(w, msg) {
+    if (!S || S.over) return;
+    S.over = true;
+    vsStopTimers();
+    vsLeave();
+    lockCmd(true);
+    if (EL.who) EL.who.textContent = '';
+    var win = (w === 'h' && S.vs.role === 'host') || (w === 'g' && S.vs.role === 'guest') || w === 'g_win';
+    var lose = (w === 'h' && S.vs.role === 'guest') || (w === 'g' && S.vs.role === 'host') || w === 'g_lose';
+    var draw = !win && !lose;
+    var p = P(), coins = 0;
+    try {
+      if (win) coins = 30;
+      else if (lose) coins = 10 + Math.round(10 * (1 - hpRate(S.foes)));
+      else coins = 10;
+      if (p && coins > 0 && !p.coinBanned) p.coins = Number(p.coins || 0) + coins;
+      save();
+    } catch (e) { log('ごほうび付与に失敗', e); }
+
+    var h = '';
+    h += '<div class="text-center">';
+    h += '<div style="font-size:40px">' + (win ? '🎉' : (draw ? '🤝' : '💧')) + '</div>';
+    h += '<div class="font-bold text-lg ' + (win ? 'text-amber-600' : 'text-slate-600') + '">' + (win ? 'かった！' : (draw ? 'ひきわけ' : 'まけた…')) + '</div>';
+    h += '<div class="text-xs text-slate-500 mb-2">' + esc(msg || (S.vs.oppName + ' との たいせん')) + '</div>';
+    h += '</div>';
+    h += '<div class="rounded-xl bg-white border border-slate-200 p-2 mb-2">';
+    h += '<div class="text-sm font-bold">もらったもの</div>';
+    h += '<div class="text-sm">コイン +' + coins + '</div>';
+    h += '<div class="text-[11px] text-slate-400">ともだち たいせんでは バッジと かけらは もらえません</div>';
+    h += '</div>';
+    if (lose) {
+      h += '<div class="rounded-xl bg-indigo-50 border border-indigo-200 p-2 mb-2">';
+      h += '<div class="text-xs font-bold text-indigo-700 mb-1">つぎの ヒント</div>';
+      h += '<div class="text-sm">' + esc(lossCard()) + '</div>';
+      h += '</div>';
+    }
+    h += '<button id="tbAgain" class="w-full py-2 rounded-lg text-white font-bold" style="background:linear-gradient(180deg,#818cf8,#4f46e5)">もどる</button>';
+    EL.field.classList.add('hidden');
+    EL.result.classList.remove('hidden');
+    EL.result.innerHTML = h;
+    EL.result.querySelector('#tbAgain').addEventListener('click', function () { S = null; showLobby(); });
+  }
+
+  // --- 待ちうけの画面 ---
+  function vsWaitPanel(title, code) {
+    EL.field.classList.add('hidden');
+    EL.result.classList.add('hidden');
+    EL.lobby.classList.remove('hidden');
+    var h = '';
+    h += '<div class="rounded-xl bg-white border-2 border-indigo-200 p-3 text-center">';
+    h += '<div class="text-sm font-bold text-slate-700 mb-1">' + esc(title) + '</div>';
+    if (code) h += '<div style="font-size:30px;font-weight:900;letter-spacing:4px;color:#4f46e5">' + esc(code) + '</div>';
+    h += '<div class="text-xs text-slate-400 mt-1">この あいことばを ともだちに おしえてね</div>';
+    h += '<button id="tbVsCancel" class="mt-3 px-4 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">やめる</button>';
+    h += '</div>';
+    EL.lobby.innerHTML = h;
+    EL.lobby.querySelector('#tbVsCancel').addEventListener('click', function () { vsStopTimers(); S = null; showLobby(); });
+  }
+
   /* ===================== 起動 ===================== */
 
   function boot() {
     try {
+      try {
+        window.addEventListener('beforeunload', function () {
+          try { if (S && S.vs) { vsStopTimers(); vsLeave(); } } catch (e) {}
+        });
+        window.addEventListener('pagehide', function () {
+          try { if (S && S.vs) { vsStopTimers(); vsLeave(); } } catch (e) {}
+        });
+      } catch (e) {}
       buildScreen();
       addMenuButton();
       hookHomestudy();
@@ -1299,7 +1777,8 @@
         weekStudyDays: tbWeekStudyDays,
         shopRate: tbShopRate,
         applyShopDiscount: tbApplyShopDiscount,
-        buildUnit: buildUnit, mult: mult, grantTicket: grantTicket
+        vsCreate: vsCreate, vsJoin: vsJoin, FBAND: FBAND,
+        buildUnit: buildUnit, mult: mult, grantTicket: grantTicket, ticketCount: ticketCount
       };
       log('ready');
     } catch (e) { log('boot失敗', e); }
