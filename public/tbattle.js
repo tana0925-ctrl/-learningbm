@@ -4,7 +4,9 @@
  *
  * 設計メモ
  *  - 問題に答えません。技を選んで殴り合うだけ。1回3〜4分。
- *  - 入場にターン制バトルチケット（player.tb.tk）が1枚必要。
+ *  - 入場に バトルチケット（player.gymTickets）が1枚必要。
+ *    ショップで50コインで売っているもの・既存のジム／タマゴと同じチケット。
+ *    新しい種類は増やしていない。
  *  - 相手はこのモード専用のジムリーダー（既存のジムリーダー 400〜419 は使いません）。
  *  - 両軍ともレベル50固定＋種族値を全キャラの順位で帯に圧縮。
  *    技の威力も規定値（通常14／強撃30／特殊12）。
@@ -550,18 +552,38 @@
     if (!tb.badges || typeof tb.badges !== 'object') tb.badges = {};
     if (typeof tb.grantDay !== 'string') tb.grantDay = '';
     if (typeof tb.grantCount !== 'number') tb.grantCount = 0;
-    if (!tb.init) { tb.init = 1; tb.tk = Math.max(tb.tk, 2); } // 初回だけ2枚（お試し用）
+    if (!tb.init) { tb.init = 1; }
+    // ターン制だけの チケットは やめて、ショップの「バトルチケット」に 一本化した。
+    // それまでに 配ってしまった分は、1回だけ バトルチケットに 振りかえる（損をさせない）。
+    if (!tb.mig1) {
+      tb.mig1 = 1;
+      var carry = Math.max(0, Math.floor(Number(tb.tk) || 0));
+      if (carry > 0) { p.gymTickets = Math.max(0, Math.floor(Number(p.gymTickets) || 0)) + carry; }
+      tb.tk = 0;
+      save();
+    }
     return tb;
   }
+  // いま持っている バトルチケットの枚数
+  function ticketCount() {
+    var p = P();
+    return Math.max(0, Math.floor(Number(p && p.gymTickets) || 0));
+  }
 
+  // 家庭学習の ごほうびに あわせて バトルチケットを1枚（1日2枚まで）。
+  // hsGrantRewards 自体は コインと かけらしか配っていないので、ここで足している。
   function grantTicket(n) {
-    var tb = ensureTb();
-    if (!tb) return 0;
+    var tb = ensureTb(), p = P();
+    if (!tb || !p) return 0;
     var d = today();
     if (tb.grantDay !== d) { tb.grantDay = d; tb.grantCount = 0; }
     var room = Math.max(0, 2 - tb.grantCount); // 1日2枚まで
     var give = Math.min(room, Math.max(0, n | 0));
-    if (give > 0) { tb.tk += give; tb.grantCount += give; save(); }
+    if (give > 0) {
+      p.gymTickets = Math.max(0, Math.floor(Number(p.gymTickets) || 0)) + give;
+      tb.grantCount += give;
+      save();
+    }
     return give;
   }
 
@@ -721,7 +743,7 @@
     EL.field.classList.add('hidden');
     EL.result.classList.add('hidden');
     EL.lobby.classList.remove('hidden');
-    EL.ticket.textContent = 'チケット ' + (tb ? tb.tk : 0) + 'まい';
+    EL.ticket.textContent = 'バトルチケット ' + ticketCount() + 'まい';
 
     var party = myParty();
     var h = '';
@@ -736,7 +758,7 @@
         '</div>';
     }
 
-    h += '<div class="text-xs text-slate-500 mb-2">こたえなくていい バトル。わざを えらんで たたかう。チケット1まい。' +
+    h += '<div class="text-xs text-slate-500 mb-2">こたえなくていい バトル。わざを えらんで たたかう。バトルチケット1まい（ショップで 50コイン）。' +
       '<button id="tbHelpBtn" class="underline text-indigo-600 ml-1">くわしく</button></div>';
     h += '<div id="tbHelp" class="hidden text-xs text-slate-400 mb-2">' +
       'みんな レベル50・つよさも そろえて たたかう。あいしょうと わざの えらびかたで きまる。' +
@@ -860,7 +882,7 @@
   function start(idx) {
     var tb = ensureTb();
     if (!tb) { alert('データが よみこまれていません。'); return; }
-    if (tb.tk < 1) { alert('チケットが ありません。かていがくしゅうを だすと もらえます。'); return; }
+    if (ticketCount() < 1) { alert('バトルチケットが ありません。\nショップで 50コインで かえます。かていがくしゅうを だしても もらえます。'); return; }
     var party = myParty();
     if (party.length < 1) { alert('てもちが ありません。'); return; }
     var L = LEADERS[idx] || LEADERS[0];
@@ -875,7 +897,9 @@
     for (var j = 0; j < L.party.length; j++) { var f = buildUnit(L.party[j], 'foe', cp); if (f) foes.push(f); }
     if (!mine.length || !foes.length) { alert('バトルを じゅんびできませんでした。'); return; }
 
-    tb.tk -= 1; save();
+    var pp = P();
+    pp.gymTickets = Math.max(0, ticketCount() - 1);
+    save();
 
     S = {
       L: L, lv: idx, mine: mine, foes: foes, mi: 0, fi: 0, turn: 0,
@@ -885,7 +909,7 @@
     EL.lobby.classList.add('hidden');
     EL.result.classList.add('hidden');
     EL.field.classList.remove('hidden');
-    EL.ticket.textContent = 'チケット ' + tb.tk + 'まい';
+    EL.ticket.textContent = 'バトルチケット ' + ticketCount() + 'まい';
     clearLog();
     say(L.name + ' が しょうぶを しかけてきた！');
     renderField();
@@ -1754,7 +1778,7 @@
         shopRate: tbShopRate,
         applyShopDiscount: tbApplyShopDiscount,
         vsCreate: vsCreate, vsJoin: vsJoin, FBAND: FBAND,
-        buildUnit: buildUnit, mult: mult, grantTicket: grantTicket
+        buildUnit: buildUnit, mult: mult, grantTicket: grantTicket, ticketCount: ticketCount
       };
       log('ready');
     } catch (e) { log('boot失敗', e); }
