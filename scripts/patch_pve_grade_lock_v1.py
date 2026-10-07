@@ -75,7 +75,6 @@ KEEP_HTML = [
     'function renderPveDistrictSelectWithGrade',
     'function renderPveAreaSelectWithGrade',
     'pveGradeSelectorWrap',
-    'pveSelectedGrade',
     'window.renderPvEDistrictSelect',
     'window.renderPvEAreaSelectForDistrict',
     '__REVIEW_BADANS_A1__',
@@ -162,6 +161,9 @@ def main():
         die('(1)の本体が %d件（想定 1件）' % h3.count('!window.__gradeUnlocked(g)) return;'))
     if h3.count('window.__pveGradeInit') != 2:
         die('(2)の本体が %d件（想定 2件）' % h3.count('window.__pveGradeInit'))
+    if h3.count('pveSelectedGrade') != h.count('pveSelectedGrade') + 1:
+        die('pveSelectedGrade の増分が %d（想定 1）'
+            % (h3.count('pveSelectedGrade') - h.count('pveSelectedGrade')))
     if h3.count('[1, 2, 3, 4, 5, 6, 7].forEach') != 1:
         die('学年の配列が %d件になった' % h3.count('[1, 2, 3, 4, 5, 6, 7].forEach'))
     if h3.count('<script') != h.count('<script'):
