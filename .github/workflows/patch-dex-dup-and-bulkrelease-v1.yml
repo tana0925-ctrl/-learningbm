@@ -1,0 +1,63 @@
+name: 図鑑の重複表示を止める＋ボックスに「まとめてにがす」 v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 入れる JS の構文チェック（入れる前に）
+        run: node --check scripts/bulkrelease_v1.js
+
+      - name: 図鑑の重複表示を止める（チェーン167・データは触らない）
+        run: python3 scripts/patch_dex_dup_v1.py
+
+      - name: ボックスに「まとめてにがす」を足す（チェーン167）
+        run: python3 scripts/patch_bulkrelease_v1.py
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: /mon/ が そのまま配る側に入ったままか確かめる
+        run: python3 scripts/check_mon_routes_v1.py
+
+      - name: 配信されるHTMLのJSを構文チェック
+        run: node scripts/render_check.mjs
+
+      - name: 児童画面のJSを構文チェック
+        run: node scripts/render_check_child.mjs
+
+      - name: 変わったのが public/index.html だけか確かめる
+        run: |
+          git add public/index.html
+          CHANGED=$(git diff --staged --name-only)
+          echo "$CHANGED"
+          if [ "$CHANGED" != "public/index.html" ]; then
+            echo "### 中止: public/index.html 以外が混ざっている"
+            exit 1
+          fi
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "DEXDUP_V1 図鑑の重複表示を止める＋BULKRELEASE_V1 まとめてにがす（チェーン167->167）"
+          git push
+
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
