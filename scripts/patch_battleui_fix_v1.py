@@ -71,7 +71,6 @@ B_NEW = "    max-height: 150px;\n    width: 100%;"
 
 # public/index.html で壊してはいけない目印（件数が変わったら中止）
 KEEP_HTML = [
-    '.rpg-num-btn {',
     '.rpg-num-btn.submit {',
     'id="battleNumpadGrid"',
     '#battleQuestion svg,',
@@ -161,6 +160,10 @@ def main():
     if h3.count('grid-template-rows: repeat(4, minmax(0, 1fr));') != 1:
         die('(ア)の本体が %d件（想定 1件）'
             % h3.count('grid-template-rows: repeat(4, minmax(0, 1fr));'))
+    # 新しいCSS（#battleNumpadGrid > .rpg-num-btn）が '.rpg-num-btn {' を含むので1件ふえる
+    if h3.count('.rpg-num-btn {') != h.count('.rpg-num-btn {') + 1:
+        die('.rpg-num-btn のCSSが %d件（想定 %d件）'
+            % (h3.count('.rpg-num-btn {'), h.count('.rpg-num-btn {') + 1))
     if h3.count('max-height: 150px !important') != 0:
         die('!important が残っている')
     if h3.count('max-height: 150px;') != h.count('max-height: 150px;') + 1:
