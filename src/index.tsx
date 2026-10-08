@@ -12148,15 +12148,62 @@ app.get('/teacher', (c) => {
       function qrEsc(x){ return String(x==null?'':x).replace(/[&<>"']/g, function(ch){
         return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
 
+      /* QRHUNT_V2_CLASS: QR欄の中で完結させる。
+         もとは別カードの cmClassFilter を借りていたが、片づけ便でその
+         カードが折りたたみに入り「どこで選ぶのか」が分からなくなった。
+         ここで自分のクラス一覧を持ち、必ず「作る」まで出す。 */
+      var __qrClasses = null;      // [{id,name}] 一度だけ取る
+      var __qrClassId  = '';       // いま選んでいるクラス
+
+      async function qrLoadClasses(){
+        if(__qrClasses) return __qrClasses;
+        try{
+          var j = await fetch('/api/teacher/classes').then(function(r){return r.json();});
+          __qrClasses = (j && j.classes) || [];
+        }catch(e){ __qrClasses = []; }
+        return __qrClasses;
+      }
+
+      function qrClassId(){
+        var mine = document.getElementById('qrClassFilter');
+        if(mine && mine.value) return mine.value;
+        if(__qrClassId) return __qrClassId;
+        var cm = document.getElementById('cmClassFilter');   // 昔のカードが在れば参考にする
+        return cm ? cm.value : '';
+      }
+
+      window.onQrClassChange = function(v){ __qrClassId = v; loadQrHunts(); };
+
+      function qrClassPicker(){
+        var cs = __qrClasses || [];
+        if(!cs.length){
+          return '<p class="text-xs text-red-600 mb-2">クラスが見つかりませんでした。先に「クラス・名簿」でクラスを作ってください。</p>';
+        }
+        var h = '<div class="flex items-center gap-2 mb-3">'
+          + '<label class="text-xs font-bold text-gray-600 whitespace-nowrap">どのクラス</label>'
+          + '<select id="qrClassFilter" class="border p-2 rounded text-sm bg-white flex-1" onchange="onQrClassChange(this.value)">';
+        for(var i=0;i<cs.length;i++){
+          h += '<option value="' + qrEsc(cs[i].id) + '"' + (cs[i].id===__qrClassId ? ' selected' : '') + '>' + qrEsc(cs[i].name) + '</option>';
+        }
+        return h + '</select></div>';
+      }
+
       async function loadQrHunts(){
         var box = document.getElementById('qrHuntBox'); if(!box) return;
-        var sel = document.getElementById('cmClassFilter');
-        var classId = sel ? sel.value : '';
-        if(!classId){ box.innerHTML = '<span class="text-slate-400">クラスをえらんでください</span>'; return; }
+        await qrLoadClasses();
+        /* クラスを選ばせて止めない。1つなら自動、2つ以上でも先頭を既定にする。
+           先生はプルダウンで選び直せる。 */
+        if(!__qrClassId){
+          var cm = document.getElementById('cmClassFilter');
+          if(cm && cm.value) __qrClassId = cm.value;
+          else if(__qrClasses.length) __qrClassId = __qrClasses[0].id;
+        }
+        var classId = __qrClassId;
+        if(!classId){ box.innerHTML = qrClassPicker(); return; }
         try{
           var j = await fetch('/api/teacher/qr-hunts?classId=' + encodeURIComponent(classId)).then(function(r){return r.json();});
           var hs = (j && j.hunts) || [];
-          var html = '';
+          var html = qrClassPicker();   // QRHUNT_V2_CLASS: 欄の中で選べるようにする
           if(!hs.length){
             html += '<p class="text-slate-500 mb-2">まだありません。</p>';
           }
@@ -12203,14 +12250,13 @@ app.get('/teacher', (c) => {
             + '<p id="qrNewMsg" class="text-sm"></p>'
             + '</div>';
           box.innerHTML = html;
-        }catch(e){ box.innerHTML = '<span class="text-red-600">よみこみに失敗しました</span>'; }
+        }catch(e){ box.innerHTML = qrClassPicker() + '<span class="text-red-600">よみこみに失敗しました</span>'; }
       }
 
       async function createQrHunt(){
-        var sel = document.getElementById('cmClassFilter');
         var msg = document.getElementById('qrNewMsg');
-        var classId = sel ? sel.value : '';
-        if(!classId){ msg.textContent = 'クラスをえらんでください'; return; }
+        var classId = qrClassId();   // QRHUNT_V2_CLASS
+        if(!classId){ msg.textContent = 'クラスが見つかりませんでした'; return; }
         var body = {
           classId: classId,
           title: document.getElementById('qrNewTitle').value || 'ひみつのQR',
