@@ -1,0 +1,30 @@
+name: inspect-classes-v1
+
+# INSPECT_CLASSES_V1 : 教師ダッシュボード ⑥クラス・名簿 の組み立てを読み出すだけ。
+#
+# ・何も書かない。何もコミットしない。何もデプロイしない。
+# ・src/index.tsx は 1.25MB の巨大行で GitHub のウェブ画面では中身が見えないので、
+#   Actions のログに repr() で出して読む。
+# ・D1 には一切触らない。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 読み出し（書き込みなし）
+        run: python3 scripts/inspect_classes_v1.py
+
+      - name: 何も変わっていないこと
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::読むだけのはずが変わっています。中止します。"; exit 1
+          fi
+          echo "clean"
