@@ -1,0 +1,198 @@
+name: patch-mojibake-fix-v1
+
+# MOJIBAKE_FIX_V1 児童に見える文字化け2か所を直す。
+#
+#  (A) 小6理科「大地のつくり」の正解「泡が出る（二酸化■ite素が発生）」→「二酸化炭素」
+#  (B) 家庭学習の週のメニュー「そ■■他：」→「その他：」
+#  残る8文字は JavaScript のコメントの中なので触らない。
+#
+# ・直すのは public/index.html だけ（2か所の置換）。
+# ・src/index.tsx は1バイトも触らない。チェーン数は「増えていないこと」の確認だけに使う。
+#   合わなければ1バイトも書かずに止まる（フェイルクローズ）。
+# ・D1 には一切触らない。問題バンクの他の問題にも触らない。
+#
+# ⚠️ Deploy は自動で起こさない。手で dispatch する。
+# ⚠️ dist/ は .gitignore に書いてあるのに git に入ったままなので、ビルドのたびに必ず変わる。
+#    コミットはしないので、差分の確認は「もとになるファイル」だけを見る。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | wc -c
+          git show HEAD:public/index.html | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_mojibake_fix_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_mojibake_fix_v1.py
+
+      - name: src/index.tsx は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- src/index.tsx; then
+            echo "::error::src/index.tsx が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 変わったファイルは public/index.html の1つだけであること
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 差分は2行だけであること
+        run: |
+          ADD=$(git diff --numstat -- public/index.html | awk '{print $1}')
+          DEL=$(git diff --numstat -- public/index.html | awk '{print $2}')
+          echo "added=$ADD deleted=$DEL"
+          if [ "$ADD" != "2" ] || [ "$DEL" != "2" ]; then
+            echo "::error::差分が2行ではありません。中止します。"; exit 1
+          fi
+
+      - name: あてた public/index.html を控える
+        run: |
+          cp public/index.html /tmp/patched_index.html
+          sha256sum /tmp/patched_index.html
+          wc -c /tmp/patched_index.html
+
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+
+      - name: あてた public/index.html を戻して、もとのファイルの差分が1つだけのままか見る
+        run: |
+          cp -f /tmp/patched_index.html public/index.html
+          CHANGED=$(git diff --name-only -- src public scripts .github package.json package-lock.json | sort | tr '\n' ' ')
+          echo "changed(src): $CHANGED"
+          if [ "$CHANGED" != "public/index.html " ]; then
+            echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 配信HTMLの構文検査（教師ページ側）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側・この便では必須）
+        run: node scripts/render_check_child.mjs
+
+      - name: 配信HTMLで文字化けが直っているか
+        run: |
+          cat > /tmp/verify_mojibake.mjs <<'JSEOF'
+          import fs from 'fs';
+          const mod = await import(process.cwd() + '/dist/_worker.js');
+          const env = { ASSETS: { fetch: async (req) => {
+            const u = new URL(typeof req === 'string' ? req : req.url);
+            const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname;
+            try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }); }
+            catch (e) { return new Response('', { status: 404 }); } } } };
+          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} });
+          const html = await res.text();
+          const count = (s) => html.split(s).length - 1;
+          const BAD = String.fromCharCode(0xFFFD);
+
+          const nBad = count(BAD);
+          console.log('  U+FFFD: ' + nBad + ' 文字（想定 8・すべてコメント内）');
+          if (nBad !== 8) throw new Error('U+FFFD が ' + nBad + ' 文字（想定 8）');
+
+          const need = {
+            '1 二酸化炭素': ['二酸化炭素が発生', 1],
+            '2 その他': ["'その他：<span", 1],
+            '3 石灰岩の問題': ['石灰岩に塩酸をかけると', 1],
+            '4 復習の番兵': ['__REVIEW_BADANS_A1__', 1],
+            '5 学年ロックの番兵': ['__PVE_GRADE_LOCK_V1__', 2],
+          };
+          for (const k of Object.keys(need)) {
+            const [s, want] = need[k];
+            const n = count(s);
+            console.log('  ' + k + ': ' + n + ' 件（想定 ' + want + '）');
+            if (n !== want) throw new Error('配信HTMLの「' + k + '」が ' + n + ' 件（想定 ' + want + '）');
+          }
+
+          // 残った8文字がすべてコメント行（//）の中にあることを確かめる
+          let i = -1, outside = 0;
+          while ((i = html.indexOf(BAD, i + 1)) !== -1) {
+            const lineStart = html.lastIndexOf('\n', i) + 1;
+            const line = html.slice(lineStart, i);
+            if (line.indexOf('//') < 0) outside++;
+          }
+          console.log('  コメント外に残った U+FFFD: ' + outside + ' 文字（想定 0）');
+          if (outside !== 0) throw new Error('コメント外に U+FFFD が ' + outside + ' 文字残っている');
+
+          console.log('配信HTML ' + html.length + ' 文字。児童に見える文字化けは無くなった。');
+          JSEOF
+          node /tmp/verify_mojibake.mjs
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1']:
+              n = s.count(k)
+              print('src  %-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          for k in ['window.monSpriteHtml', 'monShinySet', 'WILDIMG_V2', 'pveGradeSelectorWrap',
+                    '__REVIEW_BADANS_A1__', 'genEarth6', 'otherEl.innerHTML']:
+              n = h.count(k)
+              print('html %-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c public/index.html
+          sha256sum public/index.html src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add public/index.html
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "MOJIBAKE_FIX_V1: 児童に見える文字化け2か所を直す（二酸化炭素／その他・U+FFFD 11->8・チェーン${{ inputs.chain_before }}->据え置き）"
+          git push origin HEAD:main
