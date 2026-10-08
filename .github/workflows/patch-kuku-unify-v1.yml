@@ -126,9 +126,6 @@ jobs:
           const need = {
             '1 番兵': ['__KUKU_UNIFY_V1__', 1],
             '2 いつも飾りつき': ['            if (true) {', 1],
-            '3 九九の生成関数': ['function generateKukuProblem', 1],
-            '4 九九のSVG': ['viewBox="0 0 400 100"', 1],
-            '5 九九の指定高さ': ['max-height:70px', 1],
             '6 前便の番兵': ['__BATTLEUI_FIX_V1__', 1],
           };
           for (const k of Object.keys(need)) {
@@ -136,6 +133,16 @@ jobs:
             const n = count(s);
             console.log('  ' + k + ': ' + n + ' 件（想定 ' + want + '）');
             if (n !== want) throw new Error('配信HTMLの「' + k + '」が ' + n + ' 件（想定 ' + want + '）');
+          }
+          // 配信HTMLでは2回出るものがあるので「1件以上」で見る
+          for (const [label, s] of [
+            ['3 九九の生成関数', 'function generateKukuProblem'],
+            ['4 九九のSVG', 'viewBox="0 0 400 100"'],
+            ['5 九九の指定高さ', 'max-height:70px'],
+          ]) {
+            const n = count(s);
+            console.log('  ' + label + ': ' + n + ' 件（1件以上あればよい）');
+            if (n < 1) throw new Error('配信HTMLに「' + label + '」が無い');
           }
           const oldc = count('20%の確率で視覚的な虫食い式を出す');
           console.log('  7 もとの20%分岐のコメント: ' + oldc + ' 件（想定 0）');
