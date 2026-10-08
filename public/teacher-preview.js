@@ -437,7 +437,8 @@
     var btn = document.createElement('button');
     btn.id = 'tspOpenBtn';
     btn.type = 'button';
-    btn.className = 'fixed bottom-4 right-4 z-[9998] bg-sky-600 hover:bg-sky-700 text-white font-black rounded-full shadow-lg px-5 py-3 text-sm';
+    /* __CLASSES_TIDY_V1__ 「ひとこと」ボタンと重なるので少し上げる */
+    btn.className = 'fixed bottom-20 right-4 z-[9998] bg-sky-600 hover:bg-sky-700 text-white font-black rounded-full shadow-lg px-5 py-3 text-sm';
     btn.textContent = '📨 この子にいま届いているもの';
     btn.onclick = openModal;
     document.body.appendChild(btn);

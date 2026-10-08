@@ -12700,7 +12700,7 @@ app.get('/teacher', (c) => {
             + ' <span class="text-xs text-slate-400 ml-2">生徒数: ' + cls.memberCount + '人</span>';
           header.appendChild(title);
           const btnGroup = document.createElement('div');
-          btnGroup.className='flex items-center gap-2';
+          btnGroup.className='flex flex-wrap items-center justify-end gap-2'; /* __CLASSES_TIDY_V1__ 横に入らないときは段を増やす（縦書きにしない） */
           // ランキング参加トグルボタン
           const rankBtn = document.createElement('button');
           const isEnabled = !!cls.rankingEnabled;
@@ -12816,7 +12816,7 @@ app.get('/teacher', (c) => {
             + '<div class="kht-body text-xs text-slate-500">よみこみ中…</div>'
             + '<div class="kht-ctrl flex flex-wrap gap-1 items-center mt-2"></div>'
             + '<div class="kht-pending text-xs mt-2"></div>';
-          header.appendChild(khtBox);
+          /* __CLASSES_TIDY_V1__ カフート券は見出し行の中ではなく、カードの下に置く */
 
           const khtBanner = khtBox.querySelector('.kht-banner');
           const khtBody = khtBox.querySelector('.kht-body');
@@ -12826,7 +12826,7 @@ app.get('/teacher', (c) => {
 
           const khtBtn = function(label, cls){
             const b = document.createElement('button');
-            b.className = 'text-xs px-2 py-1 rounded font-bold border ' + cls;
+            b.className = 'text-xs px-2 py-1 rounded font-bold border ' + cls; b.style.whiteSpace = 'nowrap'; b.style.flexShrink = '0'; /* __CLASSES_TIDY_V1__ */
             b.textContent = label;
             return b;
           };
@@ -12846,7 +12846,16 @@ app.get('/teacher', (c) => {
             s += (d.needRaw === null) ? '（クラス全員＝児童' + d.size + '人）' : '（先生が ' + d.need + ' 人に下げています）';
             s += '｜いまの値段：500円が' + d.tier500 + '人／1500円が' + d.tier1500 + '人／3000円が' + d.tier3000 + '人';
             if(typeof d.daysLeft === 'number'){ s += '｜のこり ' + d.daysLeft + '日で自動返金'; }
-            khtBody.textContent = s;
+            khtBody.innerHTML = ''; /* __CLASSES_TIDY_V1__ 4行の「｜」区切りをやめて2行にする */
+            var _kl1 = document.createElement('div');
+            _kl1.textContent = (d.enabled ? 'ショップに出ています' : 'ショップに出ていません')
+              + '　・　' + d.paid + ' / ' + d.need + ' 人'
+              + ((d.needRaw === null) ? '（クラス全員＝児童' + d.size + '人）' : '（先生が ' + d.need + ' 人に下げています）')
+              + ((typeof d.daysLeft === 'number') ? '　・　のこり ' + d.daysLeft + '日で自動返金' : '');
+            var _kl2 = document.createElement('div');
+            _kl2.textContent = '値段　500円…' + d.tier500 + '人／1500円…' + d.tier1500 + '人／3000円…' + d.tier3000 + '人';
+            khtBody.appendChild(_kl1);
+            khtBody.appendChild(_kl2);
 
             khtPend.innerHTML = '';
             if(d.cannotAfford > 0 && !d.reached){
@@ -13047,7 +13056,7 @@ app.get('/teacher', (c) => {
           });
 
           menusDivider.appendChild(menusGrid);
-          header.appendChild(menusDivider);
+          /* __CLASSES_TIDY_V1__ メニュー表示設定も見出し行の中ではなく、カードの下に置く */
 
 
           const delBtn = document.createElement('button');
@@ -13058,9 +13067,45 @@ app.get('/teacher', (c) => {
             try{ await api('/api/teacher/class/'+cls.id,{method:'DELETE'}); await renderClasses(); }
             catch(e){ alert(String(e.message||e)); }
           };
-          btnGroup.appendChild(delBtn);
+          /* __CLASSES_TIDY_V1__ 削除はほかのボタンと並べない。いちばん下に単独で置く */
           header.appendChild(btnGroup);
           card.appendChild(header);
+            /* __CLASSES_TIDY_V1__ ここから：かたまりごとに置きなおす。機能は消さない。 */
+            try {
+              var _tdEls = header.querySelectorAll('button, select, span, a');
+              for (var _ti = 0; _ti < _tdEls.length; _ti++) {
+                _tdEls[_ti].style.whiteSpace = 'nowrap';
+                _tdEls[_ti].style.flexShrink = '0';
+              }
+              title.className = 'flex flex-wrap items-baseline gap-x-2 gap-y-1';
+              title.style.flexShrink = '0';
+            } catch (e) {}
+            setTimeout(function () {
+              try {
+                var _fold = function (sumText, keyText, el) {
+                  var h = el.querySelector('div');
+                  if (h && h.textContent && h.textContent.indexOf(keyText) >= 0) { h.remove(); }
+                  el.className = '';
+                  var d = document.createElement('details');
+                  d.className = 'mt-3 pt-3 border-t border-slate-200';
+                  var s = document.createElement('summary');
+                  s.className = 'text-xs font-bold text-slate-600 cursor-pointer select-none';
+                  s.textContent = sumText;
+                  d.appendChild(s);
+                  d.appendChild(el);
+                  return d;
+                };
+                card.appendChild(_fold('🎫 カフート券', 'カフート券', khtBox));
+                card.appendChild(_fold('🗒 メニュー表示設定', 'メニュー表示設定', menusDivider));
+                var _foot = document.createElement('div');
+                _foot.className = 'mt-4 pt-3 border-t border-slate-200 flex justify-end';
+                delBtn.style.whiteSpace = 'nowrap';
+                delBtn.style.flexShrink = '0';
+                _foot.appendChild(delBtn);
+                card.appendChild(_foot);
+              } catch (e) {}
+            }, 0);
+            /* __CLASSES_TIDY_V1__ ここまで */
 
           const rankDiv = document.createElement('div');
           rankDiv.innerHTML='<p class="text-xs text-slate-400">ランキングを読み込み中...</p>';
