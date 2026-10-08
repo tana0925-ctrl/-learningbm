@@ -1,0 +1,27 @@
+name: inspect-classes-v2
+
+# INSPECT_CLASSES_V2 : ⑥クラス・名簿 の後半を読み出すだけ。
+# ・何も書かない。何もコミットしない。何もデプロイしない。
+# ・D1 には一切触らない。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 読み出し（書き込みなし）
+        run: python3 scripts/inspect_classes_v2.py
+
+      - name: 何も変わっていないこと
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::読むだけのはずが変わっています。中止します。"; exit 1
+          fi
+          echo "clean"
