@@ -97,7 +97,7 @@ def main():
     if h.count(A_OLD) != 1:
         die('足場が %d件（想定 1件）' % h.count(A_OLD))
     if h.count('Math.random() < 0.2') != 1:
-        die('20%の分岐が %d件（想定 1件）' % h.count('Math.random() < 0.2'))
+        die('20%%の分岐が %d件（想定 1件）' % h.count('Math.random() < 0.2'))
 
     keep0 = {}
     for k in KEEP_HTML:
