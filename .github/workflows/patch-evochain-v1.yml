@@ -1,0 +1,57 @@
+name: 図鑑の進化のつながり 14組39体を直す v1（表示だけ・stage は触らない）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 鎖の判定だけを直す（チェーン167・データは触らない）
+        run: python3 scripts/patch_evochain_v1.py
+
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+
+      - name: /mon/ が そのまま配る側に入ったままか確かめる
+        run: python3 scripts/check_mon_routes_v1.py
+
+      - name: 配信されるHTMLのJSを構文チェック
+        run: node scripts/render_check.mjs
+
+      - name: 児童画面のJSを構文チェック
+        run: node scripts/render_check_child.mjs
+
+      - name: 変わったのが public/index.html だけか確かめる
+        run: |
+          git add public/index.html
+          CHANGED=$(git diff --staged --name-only)
+          echo "$CHANGED"
+          if [ "$CHANGED" != "public/index.html" ]; then
+            echo "### 中止: public/index.html 以外が混ざっている"
+            exit 1
+          fi
+
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "EVOCHAIN_V1 図鑑の進化のつながり14組39体を直す（表示だけ・stageは無変更・チェーン167->167）"
+          git push
+
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
