@@ -96,8 +96,10 @@ def main():
     with open(SRC, encoding='utf-8', newline='') as fp:
         s = fp.read()
 
-    if SENTINEL in h:
-        print('SKIP: 番兵 %s があるので何もしない' % SENTINEL)
+    # 冪等性：壊れた形が1つも無ければ、すでに直っているので何もしない
+    # （このパッチは番兵をHTMLに書き込まない。置換2件だけに留めるため）
+    if h.count(A_OLD) == 0 and h.count(B_OLD) == 0:
+        print('SKIP: すでに直っている（壊れた形が1つも無い）')
         return
 
     # --- フェイルクローズ: 前提の確認 --------------------------------------
