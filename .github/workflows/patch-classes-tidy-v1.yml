@@ -1,0 +1,188 @@
+name: patch-classes-tidy-v1
+
+# CLASSES_TIDY_V1 教師ダッシュボード「⑥ クラス・名簿」の片づけ。
+#
+# ・src/index.tsx の renderClasses() と public/teacher-preview.js だけを直す。
+# ・児童の画面（public/index.html）には1バイトも触らない。
+# ・g8core/g9core/g10core などの学年パックにも触らない。
+# ・D1 には一切触らない。DDL も流さない。
+# ・チェーン件数は「増えても減ってもいないこと」の確認だけに使う。
+#   合わなければ1バイトも書かずに止まる（フェイルクローズ）。
+#
+# ⚠️ Deploy は自動で起こさない。手で dispatch する。
+# ⚠️ dist/ は .gitignore に書いてあるのに git に入ったままなので、ビルドのたびに必ず変わる。
+#    コミットはしないので、差分の確認は「もとになるファイル」だけを見る。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | sha256sum
+          git show HEAD:public/teacher-preview.js | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_classes_tidy_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_classes_tidy_v1.py
+
+      - name: 児童の画面と学年パックは1バイトも変わっていないこと
+        run: |
+          for f in public/index.html public/g8core.js public/g9core.js public/g10core.js \
+                   public/g8wild.js public/g9wild.js public/g10wild.js public/war-mix.js; do
+            if ! git diff --quiet -- "$f"; then
+              echo "::error::$f が変わっています。中止します。"; exit 1
+            fi
+          done
+          if ! git diff --quiet -- scripts; then
+            echo "::error::scripts/ が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 変わったファイルは2つだけであること
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/teacher-preview.js src/index.tsx " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: あてたファイルを控える
+        run: |
+          cp src/index.tsx /tmp/patched_index.tsx
+          cp public/teacher-preview.js /tmp/patched_teacher_preview.js
+          sha256sum /tmp/patched_index.tsx /tmp/patched_teacher_preview.js
+          wc -c /tmp/patched_index.tsx /tmp/patched_teacher_preview.js
+
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+
+      - name: あてたファイルを戻して、もとのファイルの差分が2つのままか見る
+        run: |
+          cp -f /tmp/patched_index.tsx src/index.tsx
+          cp -f /tmp/patched_teacher_preview.js public/teacher-preview.js
+          CHANGED=$(git diff --name-only -- src public scripts .github package.json package-lock.json | sort | tr '\n' ' ')
+          echo "changed(src): $CHANGED"
+          echo "changed(all): $(git diff --name-only | sort | tr '\n' ' ')"
+          if [ "$CHANGED" != "public/teacher-preview.js src/index.tsx " ]; then
+            echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 配信HTMLの構文検査（教師ページ側・この便では必須）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側）
+        run: node scripts/render_check_child.mjs
+
+      - name: 片づけが思ったとおりに入っているか
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          t = open('public/teacher-preview.js', encoding='utf-8').read()
+          bad = False
+          def need(label, got, want):
+              global bad
+              print('  %-46s %d （想定 %d）' % (label, got, want))
+              if got != want:
+                  print('::error::%s が %d 件（想定 %d）' % (label, got, want)); bad = True
+          need('番兵 __CLASSES_TIDY_V1__ (src)', s.count('__CLASSES_TIDY_V1__'), 8)
+          need('番兵 __CLASSES_TIDY_V1__ (teacher-preview)', t.count('__CLASSES_TIDY_V1__'), 1)
+          need('古い header.appendChild(khtBox)', s.count('header.appendChild(khtBox);'), 0)
+          need('古い header.appendChild(menusDivider)', s.count('header.appendChild(menusDivider);'), 0)
+          need('古い btnGroup.appendChild(delBtn)', s.count('btnGroup.appendChild(delBtn);'), 0)
+          need('ボタンの箱を見出し行へ', s.count('header.appendChild(btnGroup);'), 1)
+          need('削除を下に置く', s.count('_foot.appendChild(delBtn);'), 1)
+          need('カフート券の折りたたみ', s.count("_fold('🎫 カフート券', 'カフート券', khtBox)"), 1)
+          need('メニューの折りたたみ', s.count("_fold('🗒 メニュー表示設定', 'メニュー表示設定', menusDivider)"), 1)
+          need('ボタンの箱 flex-wrap', s.count('flex flex-wrap items-center justify-end gap-2'), 1)
+          need('カフート券の説明 2行目', s.count('khtBody.appendChild(_kl2);'), 1)
+          need('浮きボタン bottom-20', t.count('fixed bottom-20 right-4 z-[9998]'), 1)
+          need('浮きボタン 古い bottom-4', t.count('bottom-4'), 0)
+          # 機能が残っていること
+          for k in ['ランキング参加中', '家庭学習ON', '連絡帳ON', 'シール交換けんON',
+                    '習ったところまで', 'プログラム せいげんなし', 'メニュー表示設定',
+                    'まだの子をみる', 'みんなにコインを返す', '学校の休みを足す',
+                    'カフートをやった（リセット）', 'を削除しますか？',
+                    'kht-banner', 'kht-body', 'kht-ctrl', 'kht-pending']:
+              n = s.count(k)
+              print('  のこっている %-24s %d' % (k, n))
+              if n < 1:
+                  print('::error::%s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1']:
+              n = s.count(k)
+              print('src  %-34s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          for k in ['window.monSpriteHtml', 'monShinySet', 'shiny-ring', 'WILDIMG_V2',
+                    'pveGradeSelectorWrap', '__REVIEW_BADANS_A1__', '__PVE_GRADE_LOCK_V1__']:
+              n = h.count(k)
+              print('html %-38s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx public/teacher-preview.js
+          sha256sum src/index.tsx public/teacher-preview.js public/index.html
+
+      - name: commit and push
+        run: |
+          git add src/index.tsx public/teacher-preview.js
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "CLASSES_TIDY_V1: ⑥クラス・名簿の片づけ（縦書きの解消・かたまりで置きなおし・削除を単独に・浮きボタンの重なり解消／チェーン${{ inputs.chain_before }}->据え置き）"
+          git push origin HEAD:main
