@@ -1,0 +1,85 @@
+name: patch-qrhunt-v2-class
+
+# QRHUNT_V2_CLASS  QR欄が「クラスをえらんでください」で行き止まりになるのを直す。
+#   ・QR欄の中に自前のクラス選択を置く（別カードの cmClassFilter に頼らない）
+#   ・クラスが1つなら自動、2つ以上でも先頭を既定にして「作る」まで必ず出す
+#   ⚠️ チェーンは1本も増やさない。増減があれば1バイトも書かずに止まる。
+#   ⚠️ public/index.html は触らない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: reset working tree
+        run: git checkout -- .
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:src/index.tsx | sha256sum
+          git show HEAD:public/index.html | sha256sum
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_qrhunt_v2_class.py
+
+      - name: public/index.html は1バイトも変わっていないこと
+        run: |
+          if ! git diff --quiet -- public/index.html; then
+            echo "::error::public/index.html が変わっています。中止します。"; exit 1
+          fi
+
+      - name: 構文検査
+        run: |
+          npx --yes esbuild@0.21.5 src/index.tsx --outfile=/tmp/after.js --log-level=warning
+          node --check /tmp/after.js
+
+      - name: 安全マーカーと新しい関数の生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', '__WORLD_V3__', 'WARMIX', '_hash',
+                    'registerMi(app)', 'registerQrHunt(app)', '_safeNext', 'loadQrHunts',
+                    'qrClassPicker', 'onQrClassChange', 'qrLoadClasses']:
+              n = s.count(k)
+              print('%-26s %d' % (k, n))
+              if n < 1:
+                  print('::error::%s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c src/index.tsx
+          sha256sum src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "QRHUNT_V2_CLASS: QR欄に自前のクラス選択を置き、行き止まりをなくす（チェーン ${{ inputs.chain_before }} のまま）"
+          git push origin HEAD:main
