@@ -133,7 +133,7 @@ jobs:
             '4 進み具合の表示': ['function addNextHint()', 1],
             '5 表示の呼び出し': ['addNextHint();', 1],
             '6 もとの累計集計': ['function gradeStats(L)', 1],
-            '7 解禁チェック': ['G10.checkUnlock', 1],
+            '7 解禁チェック': ['G10.checkUnlock', 3],
           };
           for (const k of Object.keys(need)) {
             const [s, want] = need[k];
