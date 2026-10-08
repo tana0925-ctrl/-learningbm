@@ -29165,7 +29165,7 @@ try {
                     if (!nxM) break;
 
                     // 進化段階が連続していない（別系統に飛ぶ等）場合は打ち切り
-                    if (typeof curM.stage === 'number' && typeof nxM.stage === 'number' && nxM.stage !== curM.stage + 1) break;
+                    if (typeof curM.stage === 'number' && typeof nxM.stage === 'number' && nxM.stage !== curM.stage + 1 && !(typeof curM.evoLevel === 'number' && curM.evoLevel > 0)) break; /* EVOCHAIN_V1 stageがそろっていなくても evoLevel があれば 本当に進化するので つなぐ。stage のデータは触らない */
 
                     cur = nx;
                 }
