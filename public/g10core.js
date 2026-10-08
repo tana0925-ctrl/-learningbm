@@ -62,9 +62,38 @@
   }
   G10.gradeStats = gradeStats;
   // 到達条件を満たすか（100問正解 かつ 正答率80%以上）
+  // __GRADE_RECENT_V1__ 直近の成績。trainingProgress[単元].recentAnswers は
+  // 1単元あたり最大100件の正誤の記録（古いものから捨てられる）。
+  function recentStats(L) {
+    var c = 0, t = 0;
+    try {
+      var C = window.CURRICULUM; if (!C) return { c: 0, t: 0 };
+      var P = (typeof player !== 'undefined' && player) ? player : null;
+      if (!P) return { c: 0, t: 0 };
+      var tp = P.trainingProgress || {};
+      Object.keys(C).forEach(function (subj) {
+        var g = C[subj] && C[subj].grades && C[subj].grades[L];
+        if (!g || !g.units) return;
+        g.units.forEach(function (u) {
+          var pu = tp[u.id];
+          var ra = (pu && pu.recentAnswers && pu.recentAnswers.length) ? pu.recentAnswers : null;
+          if (!ra) return;
+          for (var i = 0; i < ra.length; i++) { t++; if (ra[i] === true) c++; }
+        });
+      });
+    } catch (e) {}
+    return { c: c, t: t };
+  }
+  G10.recentStats = recentStats;
+
+  // 累計 OR 直近。どちらかが条件を満たせば開く。
+  // 累計だけだと、昨年・昨月につまずいた子はどれだけがんばっても取り返せない。
+  // OR なので、いま開いている子が閉じることは起きない。
   function gradeCleared(L) {
     var s = gradeStats(L);
-    return (s.c >= NEED_CORRECT) && (s.t >= MIN_TOTAL) && ((s.c / s.t) >= NEED_ACC);
+    if ((s.c >= NEED_CORRECT) && (s.t >= MIN_TOTAL) && ((s.c / s.t) >= NEED_ACC)) return true;
+    var r = recentStats(L);
+    return (r.c >= NEED_CORRECT) && (r.t >= MIN_TOTAL) && ((r.c / r.t) >= NEED_ACC);
   }
   G10.gradeCleared = gradeCleared;
 
@@ -171,6 +200,44 @@
         }
       }
       if (window.__gradeUnlocked(10)) addGrade10Button();
+      addNextHint();
+    } catch (e) {}
+  }
+
+  // __GRADE_RECENT_V1__ 鍵のかかった「つぎの学年」を1つだけ、進み具合つきで出す。
+  function addNextHint() {
+    try {
+      var wrap = document.getElementById('pveGradeSelectorWrap');
+      if (!wrap) return;
+      var old = document.getElementById('pveNextGradeHint');
+      if (old) old.remove();
+      var base = baseGrade();
+      var G = 0;
+      for (var g = base + 1; g <= 10; g++) { if (!window.__gradeUnlocked(g)) { G = g; break; } }
+      if (!G) return;
+      var L = G - 1;
+      var s = gradeStats(L), r = recentStats(L);
+      var c = Math.max(s.c, r.c);
+      var acc = 0;
+      if (s.t > 0) acc = Math.max(acc, s.c / s.t);
+      if (r.t > 0) acc = Math.max(acc, r.c / r.t);
+      var pct = Math.round(acc * 100);
+      var nm = LABEL[G] || (G + '年');
+      var msg;
+      if (c < NEED_CORRECT) {
+        msg = '\u{1F512} ' + nm + 'は あと ' + (NEED_CORRECT - c) + '問 で ひらくよ（いま '
+            + c + '/' + NEED_CORRECT + '問・せいかい率 ' + pct + '%）';
+      } else if (acc < NEED_ACC) {
+        msg = '\u{1F512} ' + nm + 'は せいかい率 8わり で ひらくよ（いま '
+            + pct + '%・' + NEED_CORRECT + '問は たっせい）';
+      } else {
+        msg = '\u{1F513} ' + nm + 'が もうすぐ ひらくよ！';
+      }
+      var d = document.createElement('div');
+      d.id = 'pveNextGradeHint';
+      d.className = 'text-xs text-gray-600 text-center mt-1 px-2';
+      d.textContent = msg;
+      wrap.insertAdjacentElement('afterend', d);
     } catch (e) {}
   }
   G10.enforceButtons = enforceButtons;
