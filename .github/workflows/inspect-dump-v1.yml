@@ -1,0 +1,57 @@
+name: inspect-dump-v1
+
+# INSPECT_DUMP_V1 : 目印のまわりを読み出すだけ。
+# ・何も書かない。何もコミットしない。何もデプロイしない。
+# ・D1 には一切触らない。
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: '読むファイル（例 public/index.html）'
+        required: true
+        type: string
+      anchor:
+        description: '目印の文字列'
+        required: true
+        type: string
+      occurrence:
+        description: '何個目の目印か（1から）'
+        required: false
+        default: '1'
+        type: string
+      before:
+        description: '目印の何文字前から'
+        required: false
+        default: '300'
+        type: string
+      after:
+        description: '目印の何文字後まで'
+        required: false
+        default: '4000'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 読み出し（書き込みなし）
+        env:
+          IN_FILE: ${{ inputs.file }}
+          IN_ANCHOR: ${{ inputs.anchor }}
+          IN_OCC: ${{ inputs.occurrence }}
+          IN_BEFORE: ${{ inputs.before }}
+          IN_AFTER: ${{ inputs.after }}
+        run: python3 scripts/inspect_dump_v1.py
+
+      - name: 何も変わっていないこと
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::読むだけのはずが変わっています。中止します。"; exit 1
+          fi
+          echo "clean"
