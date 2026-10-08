@@ -137,9 +137,9 @@ jobs:
             console.log('  ' + k + ': ' + n + ' 件（想定 ' + want + '）');
             if (n !== want) throw new Error('配信HTMLの「' + k + '」が ' + n + ' 件（想定 ' + want + '）');
           }
-          const rnd = count('Math.random() < 0.2');
-          console.log('  7 20%の分岐: ' + rnd + ' 件（想定 0）');
-          if (rnd !== 0) throw new Error('20%の分岐が残っている: ' + rnd);
+          const oldc = count('20%の確率で視覚的な虫食い式を出す');
+          console.log('  7 もとの20%分岐のコメント: ' + oldc + ' 件（想定 0）');
+          if (oldc !== 0) throw new Error('九九の20%分岐が残っている: ' + oldc);
           console.log('配信HTML ' + html.length + ' 文字。想定どおり。');
           JSEOF
           node /tmp/verify.mjs
