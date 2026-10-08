@@ -111,10 +111,9 @@ def main():
         die('(A)の足場が %d件（想定 1件）' % h.count(A_OLD))
     if h.count(B_OLD) != 1:
         die('(B)の足場が %d件（想定 1件）' % h.count(B_OLD))
-    if A_NEW in h:
-        die('(A)の直した形が既にある')
-    if "'その他：<span" in h:
-        die('(B)の直した形が既にある')
+    # 直した形は別の正しい箇所にも既にある。件数を控えて「ちょうど1件ふえる」ことを見る。
+    n_a_new0 = h.count('二酸化炭素が発生')
+    n_b_new0 = h.count("'その他：<span")
 
     keep0 = {}
     for k in KEEP_HTML:
@@ -146,10 +145,12 @@ def main():
     # --- 当てたあとの確認 --------------------------------------------------
     if h3.count(FFFD) != FFFD_AFTER:
         die('U+FFFD が %d文字（想定 %d文字）' % (h3.count(FFFD), FFFD_AFTER))
-    if h3.count('二酸化炭素が発生') != 1:
-        die('「二酸化炭素が発生」が %d件（想定 1件）' % h3.count('二酸化炭素が発生'))
-    if h3.count("'その他：<span") != 1:
-        die('「その他：」が %d件（想定 1件）' % h3.count("'その他：<span"))
+    if h3.count('二酸化炭素が発生') != n_a_new0 + 1:
+        die('「二酸化炭素が発生」が %d件（想定 %d件）'
+            % (h3.count('二酸化炭素が発生'), n_a_new0 + 1))
+    if h3.count("'その他：<span") != n_b_new0 + 1:
+        die('「その他：」が %d件（想定 %d件）'
+            % (h3.count("'その他：<span"), n_b_new0 + 1))
     if h3.count(A_OLD) != 0 or h3.count(B_OLD) != 0:
         die('壊れた形が残っている')
     want_len = len(h) + (len(A_NEW) - len(A_OLD)) + (len(B_NEW) - len(B_OLD))
