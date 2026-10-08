@@ -96,8 +96,11 @@ def main():
         die('public/index.html に CR がある（LFのはず）')
     if h.count(A_OLD) != 1:
         die('足場が %d件（想定 1件）' % h.count(A_OLD))
-    if h.count('Math.random() < 0.2') != 1:
-        die('20%%の分岐が %d件（想定 1件）' % h.count('Math.random() < 0.2'))
+    # Math.random() < 0.2 は他の機能でも使われている（実測4件）。足場そのものの
+    # 一意性だけを見て、件数は「1件へる」ことで確かめる。
+    n_rnd0 = h.count('Math.random() < 0.2')
+    if n_rnd0 < 1:
+        die('20%%の分岐が1件も無い')
 
     keep0 = {}
     for k in KEEP_HTML:
@@ -122,8 +125,9 @@ def main():
 
     if h2.count(SENTINEL) != 1:
         die('番兵が %d件（想定 1件）' % h2.count(SENTINEL))
-    if h2.count('Math.random() < 0.2') != 0:
-        die('20%の分岐が残っている')
+    if h2.count('Math.random() < 0.2') != n_rnd0 - 1:
+        die('20%%の分岐が %d件（想定 %d件）'
+            % (h2.count('Math.random() < 0.2'), n_rnd0 - 1))
     if h2.count('            if (true) {') != 1:
         die('if (true) が %d件（想定 1件）' % h2.count('            if (true) {'))
     want_len = len(h) + (len(A_NEW) - len(A_OLD))
