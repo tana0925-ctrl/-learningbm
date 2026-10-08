@@ -237,6 +237,31 @@ function formatYMD(d){
         .shiny-mon.sv4{filter:hue-rotate(120deg) saturate(2.2) brightness(1.04);}
         .shiny-mon.sv5{filter:hue-rotate(130deg) saturate(2.2) brightness(1.04);}
         .shiny-mon.sv6{filter:sepia(0.8) saturate(3.4) hue-rotate(165deg) brightness(1.08);}
+        /* SHINY_SHOW_V5 ここから（音は入れない） */
+        .shiny-mon{filter:hue-rotate(150deg) saturate(2.2) brightness(1.05) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv1{filter:hue-rotate(170deg) saturate(2.2) brightness(1.05) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv2{filter:hue-rotate(200deg) saturate(2.0) brightness(1.05) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv3{filter:hue-rotate(240deg) saturate(2.1) brightness(1.05) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv4{filter:hue-rotate(120deg) saturate(2.2) brightness(1.04) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv5{filter:hue-rotate(130deg) saturate(2.2) brightness(1.04) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-mon.sv6{filter:sepia(0.8) saturate(3.4) hue-rotate(165deg) brightness(1.08) drop-shadow(0 0 6px rgba(251,191,36,.95));}
+        .shiny-card{animation:shinypopBounce .55s ease-out 1;}
+        .shiny-pop{animation:shinypopJump .55s ease-out 1;}
+        @keyframes shinypopBounce{0%{transform:scale(.88)}55%{transform:scale(1.12)}100%{transform:scale(1)}}
+        @keyframes shinypopJump{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
+        .shiny-spark{position:fixed;z-index:99998;pointer-events:none;font-size:18px;line-height:1;animation:shinypopSpark .9s ease-out forwards;}
+        @keyframes shinypopSpark{0%{opacity:0;transform:translate(-50%,-50%) scale(.4)}20%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--dx,0px)),calc(-50% + var(--dy,0px))) scale(1.15)}}
+        .shiny-flash{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99997;pointer-events:none;background:#fff;opacity:0;animation:shinypopFlash .6s ease-out forwards;}
+        @keyframes shinypopFlash{0%{opacity:0}25%{opacity:.5}100%{opacity:0}}
+        .shiny-ribbon{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99996;background:linear-gradient(90deg,#a21caf,#e879f9);color:#fff;font-weight:900;font-size:14px;padding:5px 16px;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.3);pointer-events:none;}
+        .shinypop{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.25);}
+        .shinypop-in{background:#fffbeb;border:3px solid #f59e0b;border-radius:20px;padding:18px 26px;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,.35);animation:shinypopBounce .5s ease-out 1;max-width:86vw;}
+        .shinypop-sp{font-size:64px;line-height:1;margin-bottom:6px;}
+        .shinypop-ttl{font-weight:900;color:#a21caf;font-size:20px;}
+        .shinypop-name{font-weight:900;color:#334155;font-size:16px;margin-top:4px;}
+        .shinypop-first{margin-top:6px;font-size:13px;font-weight:900;color:#b45309;}
+        .shinypop-hint{margin-top:8px;font-size:11px;color:#94a3b8;}
+        /* SHINY_SHOW_V5 ここまで */
         /* SHINY_ACTIVE_V4 10連のまとめで 色違いの札 */
         .shiny-card{border-color:#f59e0b !important;background:#fffbeb !important;box-shadow:0 0 8px rgba(245,158,11,0.55);}
         /* SHINY_BOX_DEX_V1 ここから */
@@ -55725,7 +55750,7 @@ async function _checkContactBadge(){
   };
 
   /* ガチャ: 1回ごとに判定。上限なし。限定キャラも同じ確率。 */
-  window.__shinyGachaRoll = function(mid){
+  window.__shinyGachaRoll = function(mid){ window.__shinyGachaMid = mid; try { setTimeout(function(){ var _ge = document.getElementById('gachaResultSprite'); if (_ge && _ge.classList.contains('shiny-mon') && window.__shinyBurst) window.__shinyBurst(_ge, 10); }, 40); } catch(e) {}
     var hit = false;
     try { hit = Math.random() < GACHA_RATE; } catch (e) { hit = false; }
     try {
@@ -55806,6 +55831,112 @@ async function _checkContactBadge(){
       if (inp === 'numpad' || inp === 'fraction') { return true; }
       return false;
     } catch (e) { return true; }
+  };
+})();
+</script>
+<script>/* SHINY_SHOW_V5 */
+(function(){
+  function esc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+
+  /* ✨ を何個か、その場から外へ飛ばす */
+  window.__shinyBurst = function(el, n){
+    try {
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      var marks = ['✨', '💫', '⭐', '✨'];
+      var cnt = n || 8;
+      for (var i = 0; i < cnt; i++) {
+        var d = document.createElement('div');
+        d.className = 'shiny-spark';
+        d.textContent = marks[i % marks.length];
+        var ang = (Math.PI * 2 * i) / cnt + Math.random() * 0.5;
+        var dist = 30 + Math.random() * 28;
+        d.style.left = cx + 'px';
+        d.style.top = cy + 'px';
+        d.style.setProperty('--dx', (Math.cos(ang) * dist) + 'px');
+        d.style.setProperty('--dy', (Math.sin(ang) * dist) + 'px');
+        document.body.appendChild(d);
+        (function(e){ setTimeout(function(){ try { e.remove(); } catch (x) {} }, 950); })(d);
+      }
+    } catch (e) {}
+  };
+
+  /* 画面が薄く白く光る（0.6秒） */
+  window.__shinyFlash = function(){
+    try {
+      var f = document.createElement('div');
+      f.className = 'shiny-flash';
+      document.body.appendChild(f);
+      setTimeout(function(){ try { f.remove(); } catch (x) {} }, 650);
+    } catch (e) {}
+  };
+
+  /* A: 出会った瞬間。チェーンの finishInitPvE から呼ばれる。
+     相手の絵が出てからにしたいので 260ms 待つ。 */
+  window.__shinyEncounter = function(){
+    setTimeout(function(){
+      try {
+        window.__shinyFlash();
+        var el = document.getElementById('enemySpriteDisplay');
+        if (el) {
+          el.classList.remove('shiny-pop');
+          void el.offsetWidth;
+          el.classList.add('shiny-pop');
+          setTimeout(function(){ try { window.__shinyBurst(el, 8); } catch (x) {} }, 120);
+        }
+        var r = document.getElementById('shinyRibbon');
+        if (!r) {
+          r = document.createElement('div');
+          r.id = 'shinyRibbon';
+          r.className = 'shiny-ribbon';
+          document.body.appendChild(r);
+        }
+        r.textContent = '✨ いろちがい ✨';
+        r.style.display = '';
+        if (window.__shinyRibbonTimer) clearTimeout(window.__shinyRibbonTimer);
+        window.__shinyRibbonTimer = setTimeout(function(){ try { r.style.display = 'none'; } catch (x) {} }, 2600);
+      } catch (e) {}
+    }, 260);
+  };
+
+  /* B: 捕まえた瞬間。alert は使わない。通信の成否に関係なく出す。 */
+  window.__shinyCard = function(name, isFirst){
+    try {
+      var box = document.getElementById('shinyPopCard');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'shinyPopCard';
+        box.className = 'shinypop';
+        box.onclick = function(){ try { box.style.display = 'none'; } catch (x) {} };
+        document.body.appendChild(box);
+      }
+      var spriteHtml = '✨';
+      try {
+        var list = window.MONSTERS || [];
+        for (var i = 0; i < list.length; i++) {
+          if (list[i] && list[i].name === name) {
+            var cls = window.monShinyClass ? window.monShinyClass(list[i].id) : 'shiny-mon';
+            var inner = (typeof monSpriteHtml === 'function') ? monSpriteHtml(list[i].id, list[i].sprite) : esc(list[i].sprite);
+            spriteHtml = '<span class="' + cls + '">' + inner + '</span>';
+            break;
+          }
+        }
+      } catch (x) {}
+      var first = isFirst ? '<div class="shinypop-first">きみが いちばん最初に 見つけたよ！</div>' : '';
+      box.innerHTML = '<div class="shinypop-in">'
+        + '<div class="shinypop-sp">' + spriteHtml + '</div>'
+        + '<div class="shinypop-ttl">✨ 色ちがいだ！ ✨</div>'
+        + '<div class="shinypop-name">' + esc(name || 'モンスター') + ' を つかまえた！</div>'
+        + first
+        + '<div class="shinypop-hint">タップでとじる</div>'
+        + '</div>';
+      box.style.display = 'flex';
+      if (window.__shinyCardTimer) clearTimeout(window.__shinyCardTimer);
+      window.__shinyCardTimer = setTimeout(function(){ try { box.style.display = 'none'; } catch (x) {} }, 2500);
+      setTimeout(function(){ try { window.__shinyBurst(box.firstChild, 12); } catch (x) {} }, 60);
+    } catch (e) {}
   };
 })();
 </script>
