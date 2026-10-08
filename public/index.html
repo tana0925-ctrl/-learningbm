@@ -608,6 +608,16 @@ function formatYMD(d){
     box-shadow: 0 2px 0 #222;
 }
 
+/* __BATTLEUI_FIX_V1__ テンキーの段がずれないようにする（行数を明示し height:100% をやめる） */
+#battleNumpadGrid {
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+}
+#battleNumpadGrid > .rpg-num-btn {
+    height: auto;
+    min-height: 0;
+    align-self: stretch;
+}
+
         .rpg-num-btn.submit {
             background: linear-gradient(to bottom, #f59e0b, #d97706);
             border-color: #fcd34d;
@@ -1079,7 +1089,7 @@ function formatYMD(d){
 /* 図（面積など）の表示が切れないようにする */
 #battleQuestion svg,
 #battleQuestion img {
-    max-height: 150px !important;
+    max-height: 150px;
     width: 100%;
     height: auto;
     display: block;
