@@ -261,6 +261,14 @@ function formatYMD(d){
         .shinypop-name{font-weight:900;color:#334155;font-size:16px;margin-top:4px;}
         .shinypop-first{margin-top:6px;font-size:13px;font-weight:900;color:#b45309;}
         .shinypop-hint{margin-top:8px;font-size:11px;color:#94a3b8;}
+        /* EVO_SHOW_V6 進化のカード（音なし。V5の部品を流用） */
+        .evo-stage{position:relative;height:78px;margin-bottom:6px;}
+        .evo-stage > span{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:64px;line-height:1;}
+        .evo-before{animation:evoFadeOut .62s ease-in forwards;}
+        .evo-after{opacity:0;animation:evoPopIn .6s ease-out .55s forwards;}
+        @keyframes evoFadeOut{0%{opacity:1;filter:brightness(1)}70%{opacity:1;filter:brightness(6) saturate(0)}100%{opacity:0;filter:brightness(9) saturate(0);transform:translate(-50%,-50%) scale(1.25)}}
+        @keyframes evoPopIn{0%{opacity:0;transform:translate(-50%,-50%) scale(.6);filter:brightness(5)}60%{opacity:1;transform:translate(-50%,-50%) scale(1.14);filter:brightness(1.3)}100%{opacity:1;transform:translate(-50%,-50%) scale(1);filter:brightness(1)}}
+        .evo-in .shinypop-ttl{color:#7c3aed;}
         /* SHINY_SHOW_V5 ここまで */
         /* SHINY_ACTIVE_V4 10連のまとめで 色違いの札 */
         .shiny-card{border-color:#f59e0b !important;background:#fffbeb !important;box-shadow:0 0 8px rgba(245,158,11,0.55);}
@@ -14437,6 +14445,7 @@ function startSantaBattle() {
 
                 // 図鑑登録
                 if (!player.pokedex.includes(next.id)) player.pokedex.push(next.id);
+                try { if (window.__evoQueuePush) window.__evoQueuePush(id, next.id); } catch (e) {}
 
                 id = next.id;
             }
@@ -20677,7 +20686,7 @@ let rewardMsg = "";
                         const beforeEvoId2 = mId;
                         const afterEvoId2 = tryEvolveById(beforeEvoId2);
                         if (afterEvoId2 !== beforeEvoId2) {
-                            rewardMsg += `\n✨ ${getMonster(beforeEvoId2).name} -> ${getMonster(afterEvoId2).name} 進化！`;
+                            /* EVO_SHOW_V6 進化はカードで出すので、alert の行からは外す */
                         }
                     }
                 } else {
@@ -20890,8 +20899,7 @@ let rewardMsg = "";
                     const beforeEvoId = pid;
                     const afterEvoId = tryEvolveById(beforeEvoId);
                     if (afterEvoId !== beforeEvoId) {
-                        lvlUpMsg += `✨ ${getMonster(beforeEvoId).name} -> ${getMonster(afterEvoId).name} 進化!
-`;
+                        /* EVO_SHOW_V6 進化はカードで出すので、alert の行からは外す */
                     }
                 }
             });
@@ -55938,6 +55946,70 @@ async function _checkContactBadge(){
       setTimeout(function(){ try { window.__shinyBurst(box.firstChild, 12); } catch (x) {} }, 60);
     } catch (e) {}
   };
+})();
+</script>
+<script>/* EVO_SHOW_V6 */
+(function(){
+  var q = [], busy = false;
+  function esc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+  function monOf(id){ try { return (typeof getMonster === 'function') ? getMonster(id) : null; } catch (e) { return null; } }
+  function spriteOf(id){
+    var m = monOf(id);
+    if (!m) return '❓';
+    try { return (typeof monSpriteHtml === 'function') ? monSpriteHtml(m.id, m.sprite) : esc(m.sprite); }
+    catch (e) { return esc(m.sprite); }
+  }
+  function nameOf(id){ var m = monOf(id); return (m && m.name) ? m.name : '???'; }
+
+  /* tryEvolveById の中から、進化1段ごとに呼ばれる */
+  window.__evoQueuePush = function(beforeId, afterId){
+    try {
+      if (!beforeId || !afterId || Number(beforeId) === Number(afterId)) return;
+      if (q.length >= 5) return;
+      q.push([beforeId, afterId]);
+      if (!busy) setTimeout(next, 500);
+    } catch (e) {}
+  };
+
+  function next(){
+    if (busy) return;
+    var item = q.shift();
+    if (!item) return;
+    busy = true;
+    show(item[0], item[1], function(){ busy = false; if (q.length) setTimeout(next, 160); });
+  }
+
+  function show(b, a, done){
+    try {
+      var box = document.getElementById('evoCard');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'evoCard';
+        box.className = 'shinypop';
+        document.body.appendChild(box);
+      }
+      box.innerHTML = '<div class="shinypop-in evo-in">'
+        + '<div class="evo-stage"><span class="evo-before">' + spriteOf(b) + '</span>'
+        + '<span class="evo-after">' + spriteOf(a) + '</span></div>'
+        + '<div class="shinypop-ttl">しんか！</div>'
+        + '<div class="shinypop-name">' + esc(nameOf(b)) + ' が ' + esc(nameOf(a)) + ' に なった！</div>'
+        + '<div class="shinypop-hint">タップでとじる</div>'
+        + '</div>';
+      box.style.display = 'flex';
+      try { if (window.__shinyFlash) window.__shinyFlash(); } catch (e) {}
+      setTimeout(function(){ try { if (window.__shinyBurst) window.__shinyBurst(box.firstChild, 12); } catch (e) {} }, 520);
+      var closed = false;
+      function close(){
+        if (closed) return;
+        closed = true;
+        try { box.style.display = 'none'; } catch (e) {}
+        try { done(); } catch (e) {}
+      }
+      box.onclick = close;
+      if (window.__evoTimer) clearTimeout(window.__evoTimer);
+      window.__evoTimer = setTimeout(close, 1600);
+    } catch (e) { try { done(); } catch (x) {} }
+  }
 })();
 </script>
 </body>
