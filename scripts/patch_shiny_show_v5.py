@@ -95,16 +95,13 @@ for mark in ('/* SHINY_BOX_DEX_V1 */', '/* SHINY_RATE_V2 */',
 # ------------------------------------------------------------------
 H1 = '.shiny-mon.sv6{filter:sepia(0.8) saturate(3.4) hue-rotate(165deg) brightness(1.08);}'
 H2 = 'window.__shinyGachaRoll = function(mid){'
-H3 = ("        var el = document.getElementById('gachaResultSprite');\n"
-      "        if (!el) return;\n"
-      "        if (hit) el.classList.add('shiny-mon'); else el.classList.remove('shiny-mon');")
 H4 = '</body>'
 
 T1 = r"_sh0.shiny = true;\n                    }'"
 N1 = 'window._shinyCaught = function(monName){'
 N2 = 'setTimeout(function(){ try { alert(msg); } catch(e) {} }, 1800);'
 
-for lbl, s in (('H1', H1), ('H2', H2), ('H3', H3), ('H4', H4)):
+for lbl, s in (('H1', H1), ('H2', H2), ('H4', H4)):
     must_be_one(html, s, lbl)
     if lbl != 'H4' and s in tsx:
         fail('%s が src/index.tsx にもある。中止' % lbl)
@@ -112,7 +109,7 @@ for lbl, s in (('T1', T1), ('N1', N1), ('N2', N2)):
     must_be_one(tsx, s, lbl)
     if s in html:
         fail('%s が public/index.html にもある。鎖が空振りするので中止' % lbl)
-print('OK アンカー7種をすべて1箇所で確認')
+print('OK アンカー6種をすべて1箇所で確認')
 
 # ------------------------------------------------------------------
 # 1) CSS
@@ -148,10 +145,12 @@ html = html.replace(H1, CSS, 1)
 # ------------------------------------------------------------------
 # 2) ガチャ（単発）
 # ------------------------------------------------------------------
-html = html.replace(H2, 'window.__shinyGachaRoll = function(mid){ window.__shinyGachaMid = mid;', 1)
-html = html.replace(H3, H3 +
-    "\n        if (hit) { try { if (window.monShinySet) window.monShinySet(el, mid, true); } catch(e2) {} "
-    "try { if (window.__shinyBurst) window.__shinyBurst(el, 10); } catch(e3) {} }", 1)
+# 絵の色づけは第3便の monShinySet がすでにやっている（そこは触らない）。
+# ここで足すのは ✨ の粒だけ。当たったかどうかは 40ms 後にクラスを見て判断する。
+html = html.replace(H2,
+    "window.__shinyGachaRoll = function(mid){ window.__shinyGachaMid = mid;"
+    " try { setTimeout(function(){ var _ge = document.getElementById('gachaResultSprite');"
+    " if (_ge && _ge.classList.contains('shiny-mon') && window.__shinyBurst) window.__shinyBurst(_ge, 10); }, 40); } catch(e) {}", 1)
 
 # ------------------------------------------------------------------
 # 3) 演出の係
