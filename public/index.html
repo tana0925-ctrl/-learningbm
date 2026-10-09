@@ -4171,8 +4171,9 @@ window.claimClassMission=async function(){
       <div class="font-black text-xl text-gray-800" id="reviewModalQ"></div>
     </div>
     <div id="reviewModalAnswerArea">
+      <div id="reviewModalChoices" class="hidden mb-3"></div>
       <input type="text" id="reviewModalInput" inputmode="numeric" placeholder="こたえをにゅうりょく" class="w-full border-2 border-amber-300 rounded-xl px-4 py-3 text-xl font-black text-center focus:outline-none focus:border-amber-500 mb-3"/>
-      <button onclick="checkReviewAnswer()" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-3 rounded-xl text-lg">こたえる！</button>
+      <button id="reviewModalGoBtn" onclick="checkReviewAnswer()" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-3 rounded-xl text-lg">こたえる！</button>
     </div>
     <div id="reviewModalFeedback" class="hidden mt-3 rounded-xl p-4 text-center">
       <div class="font-black text-2xl mb-2" id="reviewModalFeedbackIcon"></div>
@@ -16624,7 +16625,112 @@ function _showReviewQuestion(){
     if(fbEl){ fbEl.style.display='none'; fbEl.className='hidden mt-3 rounded-xl p-4 text-center'; }
     if(areaEl){ areaEl.style.display=''; }
     if(progEl) progEl.textContent = `${_reviewCurrentIdx+1}/${_reviewQueue.length}問目`;
+    try { _revSetupAnswerUI(_reviewCurrentItem); } catch(e){}   /* __REVIEW_C_V1__ */
   }catch(e){}
+}
+
+
+/* __REVIEW_C_V1__ : 答えの形で 入力式／四択／自己採点 を切り替える
+   ・答えが数字          -> 入力式（今までどおり）
+   ・数字でなく opts あり -> 四択
+   ・数字でなく opts 無し -> こたえを見る → 自己採点
+   単元名では判定しない。答えの形だけで判定する。 */
+var _reviewAnsMode = 'input';
+var _reviewPicked = null;
+
+function _revIsNumAns(a) {
+  return /^-?[0-9]+(\.[0-9]+)?$/.test(String(a == null ? '' : a).trim());
+}
+
+function _revChoiceCls(on) {
+  return 'w-full block text-left px-4 py-3 mb-2 rounded-xl border-2 font-bold text-lg leading-snug '
+       + (on ? 'bg-amber-200 border-amber-500' : 'bg-white border-amber-300 hover:bg-amber-50');
+}
+
+/* 選択肢として使えるか。使えないなら null を返す（疑わしきは四択にしない） */
+function _revChoiceList(x) {
+  try {
+    var raw = x && (x.opts || x.options);
+    if (!raw || Object.prototype.toString.call(raw) !== '[object Array]') return null;
+    var ans = String((x && x.ans) == null ? '' : x.ans).trim();
+    if (!ans) return null;
+    var seen = {}, out = [];
+    for (var i = 0; i < raw.length; i++) {
+      var t = String(raw[i] == null ? '' : raw[i]).trim();
+      if (!t) continue;
+      if (seen[t]) continue;
+      seen[t] = 1;
+      out.push(t);
+    }
+    if (out.length < 2) return null;
+    var at = -1;
+    for (var k = 0; k < out.length; k++) { if (out[k] === ans) { at = k; break; } }
+    if (at < 0) return null;   /* 正解が選択肢に無い -> 四択にしない */
+    /* 並びをまぜる */
+    for (var j = out.length - 1; j > 0; j--) {
+      var r = Math.floor(Math.random() * (j + 1));
+      var tmp = out[j]; out[j] = out[r]; out[r] = tmp;
+    }
+    if (out.length > 4) {
+      var cut = out.slice(0, 4);
+      var has = false;
+      for (var m = 0; m < cut.length; m++) { if (cut[m] === ans) { has = true; break; } }
+      if (!has) cut[cut.length - 1] = ans;
+      out = cut;
+    }
+    return out;
+  } catch (e) { return null; }
+}
+
+function _revPickChoice(el, txt) {
+  _reviewPicked = txt;
+  var box = document.getElementById('reviewModalChoices');
+  if (box) {
+    var bs = box.getElementsByTagName('button');
+    for (var i = 0; i < bs.length; i++) bs[i].className = _revChoiceCls(bs[i] === el);
+  }
+  checkReviewAnswer();
+}
+
+function _revSetupAnswerUI(item) {
+  try {
+    var area = document.getElementById('reviewModalAnswerArea');
+    var box = document.getElementById('reviewModalChoices');
+    var inp = document.getElementById('reviewModalInput');
+    var btn = document.getElementById('reviewModalGoBtn');
+
+    _reviewPicked = null;
+    var ans = String((item && item.ans) == null ? '' : item.ans).trim();
+    var list = _revIsNumAns(ans) ? null : _revChoiceList(item);
+    _reviewAnsMode = _revIsNumAns(ans) ? 'input' : (list ? 'choice' : 'self');
+
+    /* 毎回まっさらに戻す */
+    if (area) { area.classList.remove('hidden'); area.style.display = ''; }
+    if (box) { box.innerHTML = ''; box.classList.add('hidden'); box.style.display = 'none'; }
+    if (inp) { inp.classList.remove('hidden'); inp.style.display = ''; }
+    if (btn) { btn.classList.remove('hidden'); btn.style.display = ''; btn.textContent = 'こたえる！'; }
+
+    if (_reviewAnsMode === 'choice' && box) {
+      if (inp) { inp.classList.add('hidden'); inp.style.display = 'none'; }
+      if (btn) { btn.classList.add('hidden'); btn.style.display = 'none'; }
+      box.classList.remove('hidden');
+      box.style.display = '';
+      for (var i = 0; i < list.length; i++) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = _revChoiceCls(false);
+        b.style.minHeight = '52px';
+        b.textContent = list[i];
+        b.onclick = (function (t) {
+          return function (ev) { _revPickChoice(ev.currentTarget, t); };
+        })(list[i]);
+        box.appendChild(b);
+      }
+    } else if (_reviewAnsMode === 'self') {
+      if (inp) { inp.classList.add('hidden'); inp.style.display = 'none'; }
+      if (btn) btn.textContent = '\ud83d\udc40 こたえを見る';
+    }
+  } catch (e) { _reviewAnsMode = 'input'; }
 }
 
 function checkReviewAnswer(){
@@ -16636,15 +16742,17 @@ function checkReviewAnswer(){
     const ansEl = document.getElementById('reviewModalCorrectAns');
     const areaEl = document.getElementById('reviewModalAnswerArea');
     if(!_reviewCurrentItem) return;
-    const userAns = (inputEl ? inputEl.value.trim() : '');
+    const userAns = (_reviewAnsMode === 'choice')
+      ? String(_reviewPicked == null ? '' : _reviewPicked).trim()
+      : (inputEl ? inputEl.value.trim() : '');
     const correct = String(_reviewCurrentItem.ans||'').trim();
-    const isOk = (userAns === correct);
+    const isOk = (_reviewAnsMode === 'self') ? null : (userAns === correct);
     if(fbEl){
       fbEl.classList.remove('hidden');
       fbEl.style.display='';
-      fbEl.className = 'mt-3 rounded-xl p-4 text-center ' + (isOk ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300');
+      fbEl.className = 'mt-3 rounded-xl p-4 text-center ' + (isOk === null ? 'bg-amber-50 border-2 border-amber-300' : (isOk ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300'));
     }
-    if(iconEl) iconEl.textContent = isOk ? '⭕' : '❌';
+    if(iconEl) iconEl.textContent = (isOk === null) ? '👀' : (isOk ? '⭕' : '❌');
     if(ansEl) ansEl.textContent = correct;
     if(areaEl) areaEl.style.display='none';
 
@@ -16683,7 +16791,7 @@ function checkReviewAnswer(){
       try{ document.getElementById('trainingCoinCount').innerText = player.coins||0; }catch(e){}
       try{ saveData(); }catch(e){}
     }
-    if(txtEl) txtEl.innerHTML = (isOk ? 'せいかい！' : 'ちがうよ…') + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
+    if(txtEl) txtEl.innerHTML = (isOk === null ? 'こたえを見たよ。できたかな？' : (isOk ? 'せいかい！' : 'ちがうよ…')) + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
   }catch(e){}
 }
 
@@ -55913,6 +56021,7 @@ async function _checkContactBadge(){
     try {
       if (!x) { return false; }
       if (_revMathBad(x) === true) { return false; }
+      if (String((x && x.q) == null ? '' : x.q).trim().length <= 1) { return false; }   /* __REVIEW_C_V1__ 問題文が無い壊れた記録 */
       var a = String(x.ans == null ? '' : x.ans);
       if (!/^[0-3]$/.test(a)) { return true; }
       var q = String(x.q == null ? '' : x.q);
