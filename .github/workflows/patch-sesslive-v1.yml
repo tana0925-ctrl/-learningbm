@@ -129,15 +129,20 @@ jobs:
       - name: 組み上がった worker に打ち直しが入っていること
         run: |
           python3 - <<'PYEOF'
-          import sys
+          import re, sys
+          # ビルドはコメントを落とし、ローカルの名前を付けかえる。
+          # そこで番兵や SESSION_MAX_AGE ではなく、消えようのない「中身」で見る。
+          # Cookie の有効期間（30日）は、いまのビルドでは maxAge:3600*24*30 の形で残る
+          #   （リポジトリに入っている当てる前の dist で実測：1件）。
+          #   ログイン時の1件 + 打ち直しの1件 = 2件 になるはず。
+          #   畳み方が変わっても拾えるよう、3つの書き方を足して数える。
           w = open('dist/_worker.js', encoding='utf-8', errors='replace').read()
-          bad = False
-          for k, least in [('__SESSLIVE_V1__', 1), ('SESSION_MAX_AGE', 1)]:
-              n = w.count(k)
-              print('worker %-20s %d (1件以上)' % (k, n))
-              if n < least:
-                  print('::error::worker に %s がありません' % k); bad = True
-          if bad: sys.exit(1)
+          flat = re.sub(r'\s+', '', w)
+          n = (flat.count('maxAge:3600*24*30') + flat.count('maxAge:2592000')
+               + flat.count('maxAge:60*60*24*30') + flat.count('maxAge:2592e3'))
+          print('worker の Cookie 有効期間(30日) の出現: %d 件（2件以上のはず）' % n)
+          if n < 2:
+              print('::error::worker に Cookie の打ち直しが入っていません'); sys.exit(1)
           print('worker %d 文字。' % len(w))
           PYEOF
 
