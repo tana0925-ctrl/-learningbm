@@ -1,0 +1,231 @@
+name: patch-sesslive-v1
+
+# SESSLIVE_V1 セッションを使うたびに延ばす ＋ 403のときの文言を直す。
+#
+#  (1) src/index.tsx の認証ミドルウェアで、発行から1日以上たっていたら
+#      同じ中身・同じ秘密鍵で Cookie を打ち直す（スライド式）。
+#      makeSession / readSession / SESSION_SECRET / SESSION_MAX_AGE の
+#      どれも変えない。失敗しても、いまの Cookie はそのまま残す。
+#  (2) public/index.html の hsSubmitAndExport の catch で、403 のときだけ
+#      「もう一度ログインしてね」と出して /login へ送る。
+#      apiJson は触らない（他の呼び出し全部に影響するため）。
+#
+# ・直すのは src/index.tsx（1か所）と public/index.html（1か所）だけ。
+# ・配信チェーン（app.get('/') と app.get('/logout') のあいだの .replace( の数）は
+#   据え置き。合わなければ1バイトも書かずに止まる（フェイルクローズ）。
+# ・D1 には一切触らない。DDL も流さない。
+#
+# ⚠️ Deploy は自動で起こさない。手で dispatch する。
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain_before:
+        description: '流す直前に実測したチェーン件数（合わなければ何も書かずに止まる）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: reset working tree
+        run: git checkout -- .
+
+      - name: rebase on origin/main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
+      - name: record HEAD before
+        run: |
+          git rev-parse HEAD
+          git show HEAD:src/index.tsx | wc -c
+          git show HEAD:public/index.html | wc -c
+
+      - name: apply patch (fail-closed)
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_sesslive_v1.py
+
+      - name: 冪等性の確認（2回目は何もしないこと）
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: python3 scripts/patch_sesslive_v1.py
+
+      - name: 変わったファイルが想定どおりか
+        run: |
+          CHANGED=$(git diff --name-only | sort | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ "$CHANGED" != "public/index.html src/index.tsx " ]; then
+            echo "::error::思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 署名のしかたを変えていないこと
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          bad = False
+          # 署名の土台。1件もなくなったら大惨事（全員ログアウト）なので必ず止める。
+          for k, want in [
+              ("async function makeSession", 1),
+              ("const SESSION_MAX_AGE = 30 * 24 * 60 * 60", 1),
+              ("import { getCookie, setCookie, deleteCookie } from 'hono/cookie'", 1),
+          ]:
+              n = s.count(k)
+              print('src %-70s %d (want %d)' % (k, n, want))
+              if n != want:
+                  print('::error::署名の土台 %s が %d 件です（%d 件のはず）' % (k, n, want)); bad = True
+          # 打ち直しは1か所だけ
+          n = s.count("setCookie(c, 'session'")
+          print('setCookie(session) 件数: %d (want 2: ログイン時 + 打ち直し)' % n)
+          if n != 2:
+              print('::error::setCookie(session) が %d 件です（2件のはず）' % n); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: あてたファイルを控える
+        run: |
+          mkdir -p /tmp/keep
+          cp public/index.html /tmp/keep/index.html
+          cp src/index.tsx /tmp/keep/index.tsx
+          wc -c public/index.html src/index.tsx
+
+      - name: ビルド（配信と同じ順番で）
+        run: |
+          npm ci --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+          cp -f public/*.js dist/ 2>/dev/null || true
+
+      - name: あてたファイルを戻して、差分が想定どおりのままか見る
+        run: |
+          cp -f /tmp/keep/index.html public/index.html
+          cp -f /tmp/keep/index.tsx src/index.tsx
+          CHANGED=$(git diff --name-only -- src public scripts .github package.json package-lock.json | sort | tr '\n' ' ')
+          echo "changed(src): $CHANGED"
+          if [ "$CHANGED" != "public/index.html src/index.tsx " ]; then
+            echo "::error::ビルドのあとで思っていないファイルが変わっています。中止します。"; exit 1
+          fi
+
+      - name: 配信HTMLの構文検査（教師ページ側）
+        run: node scripts/render_check.mjs
+
+      - name: 配信HTMLの構文検査（児童ページ側・この便では必須）
+        run: node scripts/render_check_child.mjs
+
+      - name: 組み上がった worker に打ち直しが入っていること
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          w = open('dist/_worker.js', encoding='utf-8', errors='replace').read()
+          bad = False
+          for k, least in [('__SESSLIVE_V1__', 1), ('SESSION_MAX_AGE', 1)]:
+              n = w.count(k)
+              print('worker %-20s %d (1件以上)' % (k, n))
+              if n < least:
+                  print('::error::worker に %s がありません' % k); bad = True
+          if bad: sys.exit(1)
+          print('worker %d 文字。' % len(w))
+          PYEOF
+
+      - name: 配信HTMLで中身を確かめる
+        run: |
+          cat > /tmp/verify.mjs <<'JSEOF'
+          import fs from 'fs';
+          const mod = await import(process.cwd() + '/dist/_worker.js');
+          const env = { ASSETS: { fetch: async (req) => {
+            const u = new URL(typeof req === 'string' ? req : req.url);
+            const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname;
+            try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }); }
+            catch (e) { return new Response('', { status: 404 }); } } } };
+          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} });
+          const html = await res.text();
+          const count = (s) => html.split(s).length - 1;
+          const need = {
+            '1 番兵': ['__SESSLIVE_V1__', 1],
+            '2 403の見分け': ['if (e && e.status === 403)', 1],
+            '3 ログインへ送る': ["location.href = '/login'", 1],
+            '4 もとのネットワークエラーも残っていること': ['ネットワークエラーで提出できませんでした', 1],
+            '5 前便の番兵(復習の応急処置)': ['__REVIEW_BADANS_A1__', 1],
+            '6 前便の番兵(選択肢の保存)': ['__REVIEW_BCD_V1__', 3],
+            '7 前便の番兵(進化の演出)': ['EVO_SHOW_V6', 4],
+          };
+          for (const k of Object.keys(need)) {
+            const [s, want] = need[k];
+            const n = count(s);
+            console.log('  ' + k + ': ' + n + ' 件（想定 ' + want + '）');
+            if (n !== want) throw new Error('配信HTMLの「' + k + '」が ' + n + ' 件（想定 ' + want + '）');
+          }
+          // 家庭学習の提出そのものが生きていること
+          for (const s of ['/api/homework/submit', 'hsSubmitAndExport', 'hsGrantRewards']) {
+            const n = count(s);
+            console.log('  家庭学習 ' + s + ': ' + n + ' 件（1件以上）');
+            if (n < 1) throw new Error('家庭学習の ' + s + ' が消えました');
+          }
+          console.log('配信HTML ' + html.length + ' 文字。想定どおり。');
+          JSEOF
+          node /tmp/verify.mjs
+
+      - name: 安全マーカーの生存確認
+        run: |
+          python3 - <<'PYEOF'
+          import sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          h = open('public/index.html', encoding='utf-8').read()
+          bad = False
+          for k in ['cannot_trade_special', 'genElectric6', 'if (m.uncapturable) continue;',
+                    '__WORLD_V3__', 'WARMIX', '_hash', 'registerMi(app)', 'registerQrHunt(app)',
+                    'OCTGACHA_V1', "app.post('/api/homework/submit'", "app.get('/api/homework/my'"]:
+              n = s.count(k)
+              print('src  %-40s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          for k in ['window.monSpriteHtml', 'monShinySet', 'WILDIMG_V2', 'pveGradeSelectorWrap',
+                    '__REVIEW_BADANS_A1__', '__PVE_GRADE_LOCK_V1__', '二酸化炭素が発生',
+                    '__BATTLEUI_FIX_V1__', '__KUKU_UNIFY_V1__']:
+              n = h.count(k)
+              print('html %-40s %d' % (k, n))
+              if n < 1:
+                  print('::error::安全マーカー %s が消えました' % k); bad = True
+          if bad: sys.exit(1)
+          PYEOF
+
+      - name: チェーン件数が据え置きであること
+        env:
+          CHAIN_BEFORE: ${{ inputs.chain_before }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, re, sys
+          s = open('src/index.tsx', encoding='utf-8').read()
+          a = s.find("app.get('/'"); b = s.find("app.get('/logout'")
+          n = len(re.findall(r'\.replace\(', s[a:b]))
+          want = int(os.environ['CHAIN_BEFORE'])
+          print('チェーン件数: %d（想定 %d）' % (n, want))
+          if n != want:
+              print('::error::チェーン件数が動きました'); sys.exit(1)
+          PYEOF
+
+      - name: record HEAD after
+        run: |
+          git --no-pager diff --stat
+          wc -c public/index.html src/index.tsx
+
+      - name: commit and push
+        run: |
+          git add public/index.html src/index.tsx
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "SESSLIVE_V1: セッションを使うたびに延ばす＋403は「もう一度ログイン」に（2か所・チェーン${{ inputs.chain_before }}->据え置き）"
+          git push origin HEAD:main
