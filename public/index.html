@@ -45484,6 +45484,14 @@ async function hsSubmitAndExport(){
     } catch(e) {
       // 提出失敗時はローカル保存のみ
       console.warn('[homework] DB submit failed:', e);
+      /* __SESSLIVE_V1__ 403（ログインが切れている）と、それ以外の通信失敗を分ける。
+         403 のときは子どもが自分で直せるよう、ログイン画面へ送る。 */
+      if (e && e.status === 403) {
+        alert('⚠️ ログインの有効期限が切れていました。\nもう一度 ログインしてね。\n書いたことは消えていません。');
+        try { location.href = '/login'; } catch (_e) {}
+        if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
+        return;
+      }
       alert('⚠️ ネットワークエラーで提出できませんでした。\n時間をおいて再提出してください。');
       if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
       return;

@@ -390,6 +390,32 @@ app.use('/api/*', async (c, next) => {
     isActive: !!sess.isActive,
   })
 
+  /* __SESSLIVE_V1__ 使っているあいだはセッションを延ばす（スライド式）。
+     署名のしかたも秘密鍵も Cookie の属性も、ログイン時とまったく同じ。
+     打ち直しに失敗しても、いまの Cookie はそのまま残す（何もしないだけ）。
+     1日に1回しか打ち直さないので、Set-Cookie が毎回つくことはない。 */
+  try {
+    const _ageSec = sess.iat ? (Math.floor(Date.now() / 1000) - sess.iat) : null
+    if (_ageSec !== null && _ageSec > 24 * 60 * 60) {
+      const _fresh = await makeSession(secret, {
+        id: sess.id,
+        role: sess.role,
+        loginId: sess.loginId,
+        isActive: !!sess.isActive,
+        iat: Math.floor(Date.now() / 1000),
+      })
+      if (_fresh) {
+        setCookie(c, 'session', _fresh, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'Lax',
+          path: '/',
+          maxAge: 60 * 60 * 24 * 30,
+        })
+      }
+    }
+  } catch (e) { /* 延ばせなくても、いまのセッションは生きたまま */ }
+
   return next()
 })
 
