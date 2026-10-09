@@ -55873,9 +55873,38 @@ async function _checkContactBadge(){
     } catch (e) { return null; }
     return n > 0 ? m : null;
   }
+  /* __REVIEW_MATH_V1__ 計算式の検算。確実に合っていないと分かったときだけ true。
+     検算できないものは nullを返して、今までどおりの判定に渡す。 */
+  function _revMathBad(x) {
+    try {
+      var q = String((x && x.q) == null ? '' : x.q);
+      var a = String((x && x.ans) == null ? '' : x.ans).trim();
+      /* 日本語入りは式ではない（「あまり」の連結仕様もここで除外） */
+      if (/[぀-ゟ゠-ヿ一-鿿]/.test(q)) return null;
+      if (q.indexOf('□') >= 0) return null;
+      if (!/^-?[0-9]+(\.[0-9]+)?$/.test(a)) return null;
+      var e = q.replace(/[\s　]/g, '')
+               .replace(/[＋]/g, '+')
+               .replace(/[－−ー]/g, '-')
+               .replace(/[×✕✖]/g, '*')
+               .replace(/[÷]/g, '/')
+               .replace(/[＝]/g, '=');
+      e = e.replace(/=[?？]?$/, '').replace(/[?？]$/, '');
+      /* 数と四則だけの、かっこの無い式に限る */
+      if (!/^[0-9]+(\.[0-9]+)?([+\-*\/][0-9]+(\.[0-9]+)?){1,3}$/.test(e)) return null;
+      var v;
+      try { v = Function('"use strict";return (' + e + ')')(); } catch (e2) { return null; }
+      if (typeof v !== 'number' || !isFinite(v)) return null;
+      if (Math.abs(v - parseFloat(a)) < 1e-9) return null;   /* 合っている */
+      return true;                                           /* 合っていない */
+    } catch (e3) { return null; }
+  }
+  window._revMathBad = _revMathBad;
+
   window._revOK = function(x){
     try {
       if (!x) { return false; }
+      if (_revMathBad(x) === true) { return false; }
       var a = String(x.ans == null ? '' : x.ans);
       if (!/^[0-3]$/.test(a)) { return true; }
       var q = String(x.q == null ? '' : x.q);
