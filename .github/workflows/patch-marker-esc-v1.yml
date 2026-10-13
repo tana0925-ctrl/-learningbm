@@ -1,0 +1,125 @@
+name: patch-marker-esc-v1
+
+# MARKER_ESC_V1 今日のひと往復 ③の取り込みで、AIが目印の前に \ を付けた返事
+#   （例: \=== [KARTE:...] A07 ===、日本語Windowsでは ¥ 表示）を読めるようにする。
+# さわるのは public/teacher-ai.js だけ。src/index.tsx・public/index.html・D1 は触らない。
+# Deploy は自動で起きないので、このあと deploy.yml を手で流す。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: write helpers
+        run: |
+          mkdir -p /tmp/mk
+          cat > /tmp/mk/patch.py <<'PYEOF'
+          import sys
+          p = 'public/teacher-ai.js'
+          s = open(p, encoding='utf-8').read()
+          if 'MARKER_ESC_V1' in s:
+              print('already applied'); sys.exit(0)
+          R = []
+          R.append(("""  s = s.replace(/^[\\s　>＞#＃*＊・`\\-–—]+/, '');
+            s = s.replace(/[\\s　*＊#＃`]+$/, '');
+            return s;
+          }""", """  // MARKER_ESC_V1 AIがMarkdownの書き方で「\\===」「\\[」のように前へ \\ を足すことがある（日本語Windowsでは ¥ に見える）
+            s = s.replace(/^[\\s　>＞#＃*＊・`\\-–—\\\\¥￥＼_＿~～]+/, '');
+            s = s.replace(/[\\s　*＊#＃`\\\\¥￥＼_＿~～]+$/, '');
+            return s;
+          }"""))
+          R.append(("""  if (!s) return null;
+            s = s.replace(/^[=＝]+[\\s　]*/, '');""", """  if (!s) return null;
+            s = s.replace(/[\\\\¥￥＼]/g, '');   /* MARKER_ESC_V1 目印の中の \\ ¥ はすべて捨てる（目印にはもともと無い文字） */
+            s = s.replace(/^[=＝]+[\\s　]*/, '');"""))
+          R.append(("""  for (var i = 0; i < lines.length; i++) {
+              var mk = matchMarker(lines[i]);""", """  for (var i = 0; i < lines.length; i++) {
+              if (isFenceLine(lines[i])) continue;   /* MARKER_ESC_V1 コードブロックの囲み行は読まない */
+              var mk = matchMarker(lines[i]);"""))
+          R.append(("""      body: b.lines.join(NL).replace(/^\\s+|\\s+$/g, '')
+              });""", """      body: unEscMd(b.lines.join(NL)).replace(/^\\s+|\\s+$/g, '')
+              });"""))
+          R.append(("""// 目印ごとに切り分ける。""", """// MARKER_ESC_V1 「```」「```text」「~~~」だけの行（コードブロックの囲み）
+          function isFenceLine(line) {
+            return /^[\\s　>]*(```|~~~|｀｀｀)[A-Za-z0-9_+\\-]*[\\s　]*$/.test(String(line == null ? '' : line));
+          }
+          // MARKER_ESC_V1 本文の Markdown エスケープ（\\* \\- \\# \\= など）をもとの記号にもどす
+          function unEscMd(t) {
+            return String(t == null ? '' : t).replace(/[\\\\¥￥]([\\\\`*_{}\\[\\]()#+\\-.!>~|=＝])/g, '$1');
+          }
+
+          // 目印ごとに切り分ける。"""))
+          for a, b in R:
+              n = s.count(a)
+              if n != 1:
+                  print('::error::anchor count %d: %r' % (n, a[:60])); sys.exit(1)
+          for a, b in R:
+              s = s.replace(a, b)
+          open(p, 'w', encoding='utf-8', newline='').write(s)
+          print('patched')
+          PYEOF
+          cat > /tmp/mk/test.js <<'JSEOF'
+          const fs=require('fs');
+          const src=fs.readFileSync(process.argv[2],'utf8');
+          const a=src.indexOf('  function parseBlocks(raw)'), b=src.indexOf('function normId(s)');
+          if(a<0||b<0) throw new Error('parser not found');
+          const m={};new Function('module','var NL="\\n";'+src.slice(a,b)+';module.exports={_taiParse};')(m);
+          const P=m.exports._taiParse;
+          const uuid=i=>('843a1edc-'+String(i).padStart(4,'0')+'-4abc-9def-0123456789ab');
+          function sample(style){const out=[];let n=0;
+           for(let i=1;i<=19;i++){const A='A'+String(i).padStart(2,'0');
+            for(const k of ['DAILY','KARTE','SUGGEST']){if(n>=55)break;n++;
+             const id=k==='DAILY'?'hw'+i:uuid(i);
+             const mk=k==='DAILY'?'=== ['+k+':'+id+'] '+A+'｜2026-10-12 ===':'=== ['+k+':'+id+'] '+A+' ===';
+             out.push(style(mk),'',A+'さん、よくがんばったね\\! 計算 \\*2 も OK。','');}}
+           return out.join('\r\n');}
+          const styles={plain:s=>s,backslash:s=>'\\'+s,yen:s=>'¥'+s,
+           escBr:s=>'\\'+s.replace('[','\\[').replace(']','\\]'),bold:s=>'**'+s+'**',h3:s=>'### '+s,
+           quote:s=>'> \\'+s,code:s=>'`'+s+'`',dash:s=>'- '+s,zen:s=>'　'+s.replace(/===/g,'＝＝＝')+'  ',
+           trailBs:s=>'\\'+s.replace(/ ===$/,' \\===')};
+          let bad=0;
+          for(const [nm,f] of Object.entries(styles)){
+           let t=sample(f); if(nm==='code'||nm==='backslash') t='```text\n'+t+'\n```';
+           const r=P(t); const empty=r.blocks.filter(x=>!x.body||/[\\¥]/.test(x.body)).length;
+           const ok=r.blocks.length===55&&r.orphans.length===0&&empty===0;
+           console.log((ok?'OK ':'NG ')+nm+' blocks='+r.blocks.length+' orphans='+r.orphans.length+' badBody='+empty);
+           if(!ok)bad++;}
+          const s2=P('\\=== [KARTE:...] === … 個人カルテ\n\\=== [KARTE:abc] A01 ===\nよし\n'+'='.repeat(50)+'\n▼ 児童データ\nxxx');
+          if(!(s2.blocks.length===2&&s2.blocks[0].isSample&&s2.blocks[1].body==='よし'&&s2.orphans.length===1)){console.log('NG sample/data');bad++;}else console.log('OK sample/data');
+          process.exit(bad?1:0);
+          JSEOF
+      - name: "before - old parser fails on backslash markers (expected)"
+        run: |
+          cp public/teacher-ai.js /tmp/mk/old.js
+          if grep -q MARKER_ESC_V1 /tmp/mk/old.js; then echo already; else ! node /tmp/mk/test.js /tmp/mk/old.js; fi
+      - name: apply (fail-closed) and idempotency
+        run: |
+          python3 /tmp/mk/patch.py
+          python3 /tmp/mk/patch.py
+      - name: only public/teacher-ai.js changed
+        run: |
+          CHANGED=$(git diff --name-only | tr '\n' ' ')
+          echo "changed: $CHANGED"
+          if [ -n "$CHANGED" ] && [ "$CHANGED" != "public/teacher-ai.js " ]; then echo "::error::unexpected"; exit 1; fi
+      - name: syntax check
+        run: node -e "new Function(require('fs').readFileSync('public/teacher-ai.js','utf8'))"
+      - name: test 55 markers in 11 styles
+        run: node /tmp/mk/test.js public/teacher-ai.js
+      - name: commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/teacher-ai.js
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "MARKER_ESC_V1: AIの返事で目印の前に \\ や ¥ が付いても取り込めるようにする（teacher-ai.js のみ・55欄x11通りで確認・チェーン据え置き）"
+          git pull --rebase origin main
+          git push origin HEAD:main
