@@ -1279,8 +1279,9 @@ function reEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function stripDeco(line) {
   var s = String(line == null ? '' : line);
   s = s.replace(/[​﻿]/g, '');
-  s = s.replace(/^[\s　>＞#＃*＊・`\-–—]+/, '');
-  s = s.replace(/[\s　*＊#＃`]+$/, '');
+  // MARKER_ESC_V1 AIがMarkdownの書き方で「\===」「\[」のように前へ \ を足すことがある（日本語Windowsでは ¥ に見える）
+  s = s.replace(/^[\s　>＞#＃*＊・`\-–—\\¥￥＼_＿~～]+/, '');
+  s = s.replace(/[\s　*＊#＃`\\¥￥＼_＿~～]+$/, '');
   return s;
 }
 
@@ -1288,6 +1289,7 @@ function stripDeco(line) {
 function matchMarker(line) {
   var s = stripDeco(line);
   if (!s) return null;
+  s = s.replace(/[\\¥￥＼]/g, '');   /* MARKER_ESC_V1 目印の中の \ ¥ はすべて捨てる（目印にはもともと無い文字） */
   s = s.replace(/^[=＝]+[\s　]*/, '');
   var m = s.match(/^[\[［]\s*([^\]］]{1,160}?)\s*[\]］]([\s\S]*)$/);
   if (!m) return null;
@@ -1339,6 +1341,15 @@ function isDataLine(line) {
   return false;
 }
 
+// MARKER_ESC_V1 「```」「```text」「~~~」だけの行（コードブロックの囲み）
+function isFenceLine(line) {
+  return /^[\s　>]*(```|~~~|｀｀｀)[A-Za-z0-9_+\-]*[\s　]*$/.test(String(line == null ? '' : line));
+}
+// MARKER_ESC_V1 本文の Markdown エスケープ（\* \- \# \= など）をもとの記号にもどす
+function unEscMd(t) {
+  return String(t == null ? '' : t).replace(/[\\¥￥]([\\`*_{}\[\]()#+\-.!>~|=＝])/g, '$1');
+}
+
 // 目印ごとに切り分ける。
 // ★ 読み取れなかった塊は、直前の児童の本文に吸収させず orphans へよける。
 function _taiParse(raw) {
@@ -1349,6 +1360,7 @@ function _taiParse(raw) {
     if (t) orphans.push({ why: why, near: near || '', text: t });
   }
   for (var i = 0; i < lines.length; i++) {
+    if (isFenceLine(lines[i])) continue;   /* MARKER_ESC_V1 コードブロックの囲み行は読まない */
     var mk = matchMarker(lines[i]);
     if (mk) {
       if (cur) blocks.push(cur);
@@ -1371,7 +1383,7 @@ function _taiParse(raw) {
     out.push({
       kind: b.kind, idPart: b.idPart, after: b.after, isSample: b.isSample,
       marker: String(b.marker || '').replace(/^\s+|\s+$/g, ''),
-      body: b.lines.join(NL).replace(/^\s+|\s+$/g, '')
+      body: unEscMd(b.lines.join(NL)).replace(/^\s+|\s+$/g, '')
     });
   }
   return { blocks: out, orphans: orphans };
