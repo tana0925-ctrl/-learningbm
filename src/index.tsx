@@ -884,6 +884,19 @@ app.put('/api/student/progress', async (c) => {
         _inc._hwCoinsApplied = _srvHw
         saveJson = JSON.stringify(_inc)
       }
+      // 🐯 阪神マンのしつもんに答えたボーナス（MICHI_V1 / HANSHIN_Q_V1）：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
+      //    金額は hanshin_answer_rewards 台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。_hwCoinsApplied と同じ形。
+      const _srvHq = Number(_srv._hanshinCoinsApplied) || 0
+      const _cliHq = Number(_inc._hanshinCoinsApplied) || 0
+      if (_srvHq > _cliHq) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvHq - _cliHq)
+        _inc._hanshinCoinsApplied = _srvHq
+        saveJson = JSON.stringify(_inc)
+      } else if (_cliHq > _srvHq) {
+        // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
+        _inc._hanshinCoinsApplied = _srvHq
+        saveJson = JSON.stringify(_inc)
+      }
       // 👾 ステージ初クリアのボーナスコイン：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
       //    金額は defense_stage_rewards 台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。
       //    _contactCoinsApplied / _hwCoinsApplied とまったく同じ形。
@@ -3218,6 +3231,130 @@ app.put('/api/teacher/class/:classId/defprog-maxlv', async (c) => {
 
 // ══════ WARMIX_V1 クラスごとの「習ったところまで」（攻略モードの出題範囲） ══════
 // 児童データ(progress)には書かない。書くのは classes の unit_progress 列だけ。
+// ══════ HANSHIN_Q_V1（MICHI_V1）阪神マンのしつもんに子どもが答える ══════
+//  ・しつもんは、先生が④で公開したカルテ（ai_review_drafts の KARTE・published）の
+//    「▼考えてほしいこと」の1行。無ければ本文の最後の「？」の文。
+//  ・ボーナスは しつもん1つにつき1回だけ。hanshin_answer_rewards（question_id＋user_id が主キー）に
+//    素の INSERT が通ったときだけ、サーバーで progress に足す（予約→付与→失敗したら解放）。
+//    homework_rewards と同じ作法。金額はこの定数だけで決まる。クライアントの申告は使わない。
+//  ・表は migrations/0040_hanshin_answers.sql で作る（リクエストの途中では作らない）。
+const HANSHIN_ANSWER_COINS = 30
+const HANSHIN_ANSWER_MIN_CHARS = 5
+function hanshinQuestionOf(body: string): string {
+  const t = String(body || '').replace(/\r/g, '')
+  const lines = t.split('\n')
+  let inAsk = false
+  for (const raw of lines) {
+    const l = raw.replace(/^[\s\u3000*#>＃＊]+/, '').replace(/[\s\u3000*＊]+$/, '')
+    const m = l.match(/^▼[\s\u3000]*(.*)$/)
+    if (m) { inAsk = /考えて/.test(m[1]); continue }
+    if (inAsk && l) return l.slice(0, 120)
+  }
+  const main = t.split(/\n[ \u3000*#>]*▼/)[0]
+  const qi = main.lastIndexOf('？')
+  if (qi > 0) {
+    let st = 0
+    for (const mk of ['。', '！', '？', '\n']) { const p = main.lastIndexOf(mk, qi - 1); if (p + 1 > st) st = p + 1 }
+    const q = main.slice(st, qi + 1).trim()
+    if (q.length >= 6 && q.length <= 120) return q
+  }
+  return ''
+}
+app.get('/api/student/hanshin-question', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  if (u.role !== 'student') return c.json({ ok: true, question: null })
+  const row: any = await c.env.DB.prepare("SELECT id, body, week_key FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' AND published_at >= datetime('now','-21 days') ORDER BY published_at DESC LIMIT 1").bind(u.id).first<any>().catch(() => null)
+  const text = row ? hanshinQuestionOf(row.body) : ''
+  if (!row || !text) return c.json({ ok: true, question: null })
+  let answer = '', rewarded = false
+  try {
+    const a: any = await c.env.DB.prepare('SELECT answer FROM hanshin_answers WHERE question_id=? AND user_id=?').bind(row.id, u.id).first<any>()
+    answer = (a && a.answer) || ''
+    const r: any = await c.env.DB.prepare('SELECT coins FROM hanshin_answer_rewards WHERE question_id=? AND user_id=?').bind(row.id, u.id).first<any>()
+    rewarded = !!r
+  } catch (e) {}
+  return c.json({ ok: true, question: { id: row.id, text, weekKey: row.week_key || '' }, answer, rewarded, reward: HANSHIN_ANSWER_COINS, minChars: HANSHIN_ANSWER_MIN_CHARS })
+})
+app.post('/api/student/hanshin-answer', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  if (u.role !== 'student') return jsonError(c, 403, 'student_only')
+  const body: any = await c.req.json().catch(() => null)
+  const qid = String((body && body.questionId) || '')
+  const ans = String((body && body.answer) || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+  if (!qid) return jsonError(c, 400, 'question_required')
+  if (!ans) return jsonError(c, 400, 'empty')
+  const row: any = await c.env.DB.prepare("SELECT id, body, week_key FROM ai_review_drafts WHERE id=? AND target_id=? AND kind='KARTE' AND status='published' AND published_at >= datetime('now','-28 days') LIMIT 1").bind(qid, u.id).first<any>().catch(() => null)
+  const qtext = row ? hanshinQuestionOf(row.body) : ''
+  if (!row || !qtext) return jsonError(c, 404, 'question_not_found')
+  await c.env.DB.prepare("INSERT INTO hanshin_answers (question_id, user_id, week_key, question, answer, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now')) ON CONFLICT(question_id, user_id) DO UPDATE SET answer=excluded.answer, updated_at=datetime('now')")
+    .bind(qid, u.id, row.week_key || '', qtext, ans).run()
+  const chars = Array.from(ans.replace(/[\s\u3000]/g, '')).length
+  let rewardedNow = false, coins: number | null = null, applied: number | null = null
+  if (chars >= HANSHIN_ANSWER_MIN_CHARS) {
+    // 1) 枠の確保（主キー衝突＝もう付与済み）
+    let reserved = false
+    try {
+      await c.env.DB.prepare("INSERT INTO hanshin_answer_rewards (question_id, user_id, coins, created_at) VALUES (?, ?, ?, datetime('now'))").bind(qid, u.id, HANSHIN_ANSWER_COINS).run()
+      reserved = true
+    } catch (_e) { reserved = false }
+    if (reserved) {
+      // 2) サーバー側でコインを加算＋累計台帳を増やす
+      try {
+        const prog: any = await c.env.DB.prepare('SELECT state_json FROM progress WHERE user_id=?').bind(u.id).first<any>()
+        if (prog && prog.state_json) {
+          const state = JSON.parse(prog.state_json)
+          state.coins = (Number(state.coins) || 0) + HANSHIN_ANSWER_COINS
+          state._hanshinCoinsApplied = (Number(state._hanshinCoinsApplied) || 0) + HANSHIN_ANSWER_COINS
+          await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
+          rewardedNow = true; coins = state.coins; applied = state._hanshinCoinsApplied
+        }
+      } catch (e) { console.error('HANSHIN_Q_V1 reward apply error', e) }
+      // 3) 足せなかったら枠を解放（次に答えたときにやり直せる）
+      if (!rewardedNow) {
+        try { await c.env.DB.prepare('DELETE FROM hanshin_answer_rewards WHERE question_id=? AND user_id=?').bind(qid, u.id).run() } catch (_e) {}
+      }
+    }
+  }
+  let rewarded = rewardedNow
+  if (!rewarded) { try { rewarded = !!(await c.env.DB.prepare('SELECT 1 AS x FROM hanshin_answer_rewards WHERE question_id=? AND user_id=?').bind(qid, u.id).first<any>()) } catch (_e) {} }
+  return c.json({ ok: true, saved: true, rewardedNow, rewarded, reward: HANSHIN_ANSWER_COINS, coins, hanshinCoinsApplied: applied, tooShort: chars < HANSHIN_ANSWER_MIN_CHARS })
+})
+app.get('/api/teacher/class/:classId/hanshin-answers', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const cls: any = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!cls) return jsonError(c, 404, 'class_not_found')
+  let items: any[] = []
+  try {
+    const r = await c.env.DB.prepare("SELECT ha.user_id AS userId, us.name AS name, us.login_id AS loginId, ha.question AS question, ha.answer AS answer, ha.updated_at AS updatedAt, (rw.question_id IS NOT NULL) AS rewarded FROM hanshin_answers ha JOIN class_members cm ON cm.user_id = ha.user_id AND cm.class_id = ? JOIN users us ON us.id = ha.user_id LEFT JOIN hanshin_answer_rewards rw ON rw.question_id = ha.question_id AND rw.user_id = ha.user_id WHERE ha.updated_at >= datetime('now','-21 days') ORDER BY ha.updated_at DESC LIMIT 200").bind(classId).all<any>()
+    items = ((r && r.results) || []) as any[]
+  } catch (e) { console.error('HANSHIN_Q_V1 list', e) }
+  return c.json({ ok: true, items })
+})
+// MICHI_V1 学びの道しるべ：クラスで直近14日に修行されている単元と「習ったところまで」の設定。読むだけ。
+app.get('/api/teacher/class/:classId/karte-guide', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const row: any = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ? AND teacher_id = ? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!row) return jsonError(c, 404, 'class_not_found')
+  let unitProgress: any = null
+  try { unitProgress = row.up ? JSON.parse(row.up) : null } catch (e) { unitProgress = null }
+  let nowUnits: any[] = []
+  try {
+    const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
+    const r = await c.env.DB.prepare('SELECT lr.unit AS unit, COUNT(*) AS n, COUNT(DISTINCT lr.user_id) AS users FROM class_members cm JOIN learning_results lr ON lr.user_id = cm.user_id AND lr.answered_at >= ? WHERE cm.class_id = ? GROUP BY lr.unit ORDER BY users DESC, n DESC LIMIT 40').bind(since, classId).all<any>()
+    nowUnits = (((r && r.results) || []) as any[]).map((x: any) => ({ unit: String(x.unit || ''), n: Number(x.n || 0), users: Number(x.users || 0) }))
+  } catch (e) { console.error('MICHI_V1 karte-guide', e) }
+  return c.json({ ok: true, unitProgress, nowUnits })
+})
 app.get('/api/teacher/class/:classId/unit-progress', async (c) => {
   const u = requireTeacher(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -3544,7 +3681,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     `).bind(studentId).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
       SELECT unit, COUNT(*) as total, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as correct_count,
-             COUNT(DISTINCT question_id) as kinds,
+             COUNT(DISTINCT question_id) as kinds, MAX(answered_at) as last_at,
              SUM(CASE WHEN answered_at < ? THEN 1 ELSE 0 END) as early_total,
              SUM(CASE WHEN answered_at < ? AND is_correct=1 THEN 1 ELSE 0 END) as early_correct
       FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit ORDER BY total DESC
@@ -3667,6 +3804,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       kinds, repeatPer: kinds ? Math.round(Number(r.total || 0) / kinds * 10) / 10 : null,
       earlyTotal: eT, earlyRate: eT ? Math.round(eC / eT * 100) : null,
       lateTotal: lT, lateRate: lT ? Math.round(lC / lT * 100) : null,
+      lastAt: r.last_at || null,   // MICHI_V1 まずここから・道順マップ用
     }
   })
 
@@ -3772,10 +3910,12 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   } catch (e) {}
   // 前回のカルテの最後の問いかけ。紙の上でも「あれ、どうなった？」が見えるようにする。
   let prevAsk = ''
+  let karteHist: any[] = []   // MICHI_V1 先週の「これやってみる？」を紙に出すため
   try {
-    const _pv = await c.env.DB.prepare("SELECT body FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 2").bind(studentId).all<any>()
+    const _pv = await c.env.DB.prepare("SELECT body, week_key, published_at FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 3").bind(studentId).all<any>()
     const _pvr = (((_pv && _pv.results) || []) as any[])
-    const _pb = String((_pvr[1] && _pvr[1].body) || '')
+    karteHist = _pvr.map((r: any) => ({ weekKey: r.week_key || '', body: String(r.body || ''), publishedAt: r.published_at || '' }))
+    const _pb = String((_pvr[1] && _pvr[1].body) || '').split(/\n[ \u3000*#>]*▼/)[0]
     const _qi = _pb.lastIndexOf('？')
     if (_qi > 0) {
       let st = 0
@@ -3784,6 +3924,11 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       if (q.length >= 6 && q.length <= 60) prevAsk = q
     }
   } catch (e) {}
+
+  let hanshinAnswers: any[] = []   // HANSHIN_Q_V1 阪神マンのしつもんへの本人の返事
+  try { const _ha = await c.env.DB.prepare('SELECT question, answer, week_key, updated_at FROM hanshin_answers WHERE user_id=? ORDER BY updated_at DESC LIMIT 3').bind(studentId).all<any>(); hanshinAnswers = (((_ha && _ha.results) || []) as any[]).map((r: any) => ({ question: r.question || '', answer: r.answer || '', weekKey: r.week_key || '', updatedAt: r.updated_at || '' })) } catch (e) {}
+  let michiClassId = ''   // MICHI_V1
+  try { const _mc = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); michiClassId = (_mc && _mc.class_id) || '' } catch (e) {}
 
   return c.json({
     ok: true,
@@ -3806,6 +3951,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     recentSubmissions: subs.slice(0, 15),
     planSuggestion, mi: miInfo, aiComment: aiComment2, aiCommentMeta,
     lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
+    karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
     testScores,
     records,
     teacherNotes,
@@ -4916,6 +5062,8 @@ app.get('/api/student/my-karte', async (c) => {
   try {
     const r = await c.env.DB.prepare('SELECT comment FROM student_ai_comments WHERE user_id=? LIMIT 1').bind(u.id).first<any>()
     teacherMessage = (r && r.comment) ? String(r.comment) : ''
+    // MICHI_V1 「▼おうちの人へ」は紙の切り取り線の下だけ。子どもの画面には出さない。
+    teacherMessage = teacherMessage.replace(/\n?[ \u3000*#>]*▼[ \u3000]*おうちの人へ[^\n]*(\n(?![ \u3000*#>]*▼)[^\n]*)*/g, '').replace(/\s+$/, '')
   } catch (e) {}
 
   // 今週（日本時間の月〜金）
@@ -9502,6 +9650,7 @@ app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch
 for (const _f of _g8files) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
 const _g8xfiles = ['g8xmath.js','g8xeng.js','g8xsci.js','g8xsoc.js','g8xjp.js']
 for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
+app.get('/karte-michi.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/karte-michi.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MICHI_V1
 app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-ai.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
@@ -16545,6 +16694,7 @@ function _faKarteGraphs(d){
     </script>
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=13"></script>
+    <script src="/karte-michi.js?v=1"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）

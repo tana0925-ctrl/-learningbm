@@ -243,6 +243,104 @@ await t('12 既存の補填（連絡帳・MI・かけら）が壊れていない
   eq(s.lab.shards, 7, 'かけらの補填')
 })
 
+// ── 🐯 阪神マンのしつもん（HANSHIN_Q_V1）────────────────────────
+//   公開したカルテの「▼考えてほしいこと」に答えると、しつもん1つにつき1回だけ 30コイン。
+function publishKarte(w, id = 'kq-1', who = null) {
+  const body = 'よう がんばったな。\n\n▼考えてほしいこと\n木曜にとけたとき、9月と何がちがったんやろ？\n▼これやってみる？\n・水曜に わり算 3問 やってみる？'
+  w.db._run("INSERT INTO ai_review_drafts (id, teacher_id, class_id, week_key, kind, target_id, body, status, created_at, published_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))",
+    id, w.teacher.id, 'cls-1', '2026-W42', 'KARTE', who || w.student.id, body, 'published')
+}
+
+await t('13 しつもんに5文字以上で答える → 30コイン・台帳1行・しつもんは▼から取る', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w)
+  const q = await w.call('GET', '/api/student/hanshin-question', { user: w.student })
+  eq(q.status, 200, 'status')
+  eq(q.json.question.text, '木曜にとけたとき、9月と何がちがったんやろ？', 'しつもんの文')
+  const r = await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'ゆっくり書いたから' } })
+  eq(r.status, 200, 'status')
+  eq(r.json.rewardedNow, true, '今回付与')
+  const s = w.getState()
+  eq(s.coins, 1030, 'DBのコイン')
+  eq(s._hanshinCoinsApplied, 30, 'DBの付与台帳')
+  eq(w.db._all('SELECT * FROM hanshin_answer_rewards').length, 1, '台帳の行数')
+})
+
+await t('14 連打・書きなおし・同時送信でも30しか付かない（答えは最新に上書き）', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w)
+  await Promise.all([0, 1, 2, 3].map((i) => w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'こたえ その' + i } })))
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'かきなおした こたえ' } })
+  const s = w.getState()
+  eq(s.coins, 1030, 'コイン')
+  eq(s._hanshinCoinsApplied, 30, '台帳の累計')
+  eq(w.db._all('SELECT * FROM hanshin_answer_rewards').length, 1, '台帳の行数')
+  eq(w.db._get('SELECT answer FROM hanshin_answers WHERE question_id=?', 'kq-1').answer, 'かきなおした こたえ', '答えは最新')
+})
+
+await t('15 4文字以下は保存だけ（コインなし）→ あとで5文字以上にすると1回だけ付く', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w)
+  const r1 = await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'う ん' } })
+  eq(r1.json.rewardedNow, false, '短いときは付与なし')
+  eq(r1.json.tooShort, true, 'tooShort')
+  eq(w.getState().coins, 1000, '短いときのコイン')
+  const r0 = await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: '   ' } })
+  eq(r0.status, 400, '空欄は400')
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'じぶんで かんがえた' } })
+  eq(w.getState().coins, 1030, '5文字以上で付与')
+})
+
+await t('16 古い端末の全置換保存 → 補填される／台帳の水増しは元に戻る', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w)
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'ゆっくり書いたから' } })
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1000 }) } })
+  eq(w.getState().coins, 1030, '補填後のコイン')
+  eq(w.getState()._hanshinCoinsApplied, 30, '台帳')
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1030, _hanshinCoinsApplied: 99999 }) } })
+  eq(w.getState().coins, 1030, '水増しでコインが増えない')
+  eq(w.getState()._hanshinCoinsApplied, 30, '台帳がサーバの値に戻る')
+  // 同じしつもんにもう一度答えても、補填後に二重にならない
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'もういちど こたえる' } })
+  eq(w.getState().coins, 1030, '二重付与なし')
+})
+
+await t('17 ほかの子のカルテ・未公開・クライアントの金額申告では付かない', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w, 'kq-other', 'stu-999')
+  w.db._run("INSERT INTO ai_review_drafts (id, teacher_id, class_id, week_key, kind, target_id, body, status, created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
+    'kq-draft', w.teacher.id, 'cls-1', '2026-W42', 'KARTE', w.student.id, '▼考えてほしいこと\nなにが ちがった？', 'draft')
+  const a = await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-other', answer: 'ほかの子のしつもん' } })
+  eq(a.status, 404, 'ほかの子のカルテは404')
+  const b = await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-draft', answer: 'みこうかいの しつもん' } })
+  eq(b.status, 404, '未公開は404')
+  publishKarte(w)
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'たくさんください', coins: 99999, reward: 99999 } })
+  eq(w.getState().coins, 1030, '申告した金額は使われない')
+  eq(w.db._all('SELECT * FROM hanshin_answer_rewards').length, 1, '台帳の行数')
+})
+
+await t('18 先生は答えられない・既存の返却ボーナスと共存する', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  publishKarte(w)
+  const r = await w.call('POST', '/api/student/hanshin-answer', { user: w.teacher, body: { questionId: 'kq-1', answer: 'せんせいが こたえる' } })
+  eq(r.status, 403, '先生は403')
+  await w.call('POST', '/api/teacher/homework/hw-1/return', { user: w.teacher, body: { comment: 'ok' } })
+  await w.call('POST', '/api/student/hanshin-answer', { user: w.student, body: { questionId: 'kq-1', answer: 'ゆっくり書いたから' } })
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1000 }) } })
+  const s = w.getState()
+  eq(s.coins, 1180, '150 + 30 が両方補填される')
+  eq(s._hwCoinsApplied, 150, '宿題台帳')
+  eq(s._hanshinCoinsApplied, 30, 'しつもん台帳')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

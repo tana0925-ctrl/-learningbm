@@ -87,5 +87,19 @@ CREATE TABLE trade_deliveries (
 CREATE TABLE learning_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, answered_at TEXT
 );
+CREATE TABLE ai_review_drafts (
+  id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL, class_id TEXT NOT NULL, week_key TEXT, kind TEXT NOT NULL,
+  target_id TEXT, target_name TEXT, ref_key TEXT, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT, published_at TEXT
+);
+CREATE TABLE hanshin_answers (
+  question_id TEXT NOT NULL, user_id TEXT NOT NULL, week_key TEXT, question TEXT, answer TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (question_id, user_id)
+);
+CREATE TABLE hanshin_answer_rewards (
+  question_id TEXT NOT NULL, user_id TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (question_id, user_id)
+);
 `
 
