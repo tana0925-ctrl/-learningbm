@@ -546,5 +546,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/index.tsx public/teacher-ai.js public/student-karte.js public/karte-michi.js migrations/0040_hanshin_answers.sql tests/coin_ledger.test.mjs tests/d1.mjs
           git commit -m "MICHI_V1: 印刷カルテを『学びの道しるべ』（A4両面・まずここから・道順マップ・グラフを戻す・おうちの人へは切り取り線の下）／AI指示の70〜100字を外す／HANSHIN_Q_V1: 阪神マンのしつもんに答えると1問1回だけ30コイン（台帳INSERT・migration 0040・テスト18/18）"
+          git checkout -- . && git clean -fdq -e node_modules
           git pull --rebase origin main
           git push origin HEAD:main
