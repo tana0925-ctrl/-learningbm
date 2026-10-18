@@ -1,0 +1,54 @@
+name: patch-newchars-v1 クラスの新キャラ7体（ID 1701〜1707・九九の野生）
+
+# NEWCHARS_V1
+#   ・public/index.html に新キャラ7体を足し、九九（kuku）の野生テーブルに入れる。
+#   ・public/mon/list.js に 1701〜1707 を足す（絵 public/mon/1701〜1707.png は先にアップロード済み）。
+#   ・src/index.tsx は1バイトも触らない（変わっていたら止まる）。交換禁止リストもそのまま。
+#   ・DDL は流さない。D1 には一切触らない。
+#   ・合格したらコミットして deploy.yml を起動する（GITHUB_TOKEN のコミットでは自動で動かないため）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 絵が7枚そろっているか
+        run: |
+          for i in 1701 1702 1703 1704 1705 1706 1707; do test -f public/mon/$i.png || { echo "::error::public/mon/$i.png が無い"; exit 1; }; done
+      - name: パッチを適用（あて先が1件でなければ中止）
+        run: python3 scripts/patch_newchars_v1.py
+      - name: src/index.tsx が変わっていないこと
+        run: git diff --quiet -- src/index.tsx || { echo "::error::src/index.tsx が変わっています"; exit 1; }
+      - name: ビルド
+        run: |
+          npm install --no-audit --no-fund
+          python3 scripts/inject-rt.py
+          npm run build
+      - name: /mon/ が そのまま配る側に入ったままか
+        run: python3 scripts/check_mon_routes_v1.py
+      - name: 配信HTMLのJSを構文チェック（教師画面など）
+        run: node scripts/render_check.mjs
+      - name: 配信HTMLのJSを構文チェック（児童ページ）
+        run: node scripts/render_check_child.mjs
+      - name: 新キャラの登録・九九の出現・進化・入手方法の表示を確認
+        run: node scripts/check_newchars_v1.mjs
+      - name: コミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html public/mon/list.js
+          git diff --staged --quiet && echo "No changes" || (git commit -m "NEWCHARS_V1 クラスの新キャラ7体（1701〜1707）を九九の野生に追加（index.tsx 非接触・交換リスト非接触）" && git push)
+      - name: デプロイを起動
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml --ref main
