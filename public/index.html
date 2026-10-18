@@ -10506,12 +10506,94 @@ MONSTERS.push({
     desc: '沖縄のハイビスカスが咲く南風の守り神。敵の守りを崩す。'
 });
 
+// === NEWCHARS_V1 クラスの子どもたちが考えた新キャラ（ID 1701〜1707） ===
+// 入手: 算数2年「九九バトルフィールド」の野生（WILD_AREA_POOLS.kuku）。ミッキ(1703)はミッニの進化のみ。
+// artBy: 作者クレジット用のニックネーム（いまは表示しない。子どもの実名は入れない）。
+MONSTERS.push({
+    id: 1701, name: 'ミニドラゴン', sprite: '🐲',
+    hp: 145, atk: 38, def: 30, spd: 32, buff: 'attack', elementType: 'dragon',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'ちびドラパンチ', type: 'normal', pow: 13, acc: 0.97, element: 'dragon', desc: '' },
+        { name: 'トゲトゲしっぽ', type: 'heavy', pow: 28, acc: 0.72, element: 'dragon', desc: '' },
+        { name: 'あいぼうボール', type: 'unique', pow: 14, acc: 0.9, effect: 'aoe', desc: '全体攻撃' }
+    ],
+    desc: 'まだ小さいドラゴン。背中のまるい友だちを守るときだけ、本気のほのおをはく。'
+});
+MONSTERS.push({
+    id: 1702, name: 'ミッニ', sprite: '🐱',
+    hp: 135, atk: 34, def: 24, spd: 42, buff: 'speed', elementType: 'flying',
+    stage: 1, evoLevel: 18, nextId: 1703, gacha: false, artBy: null,
+    skills: [
+        { name: 'かぜねこダッシュ', type: 'normal', pow: 12, acc: 0.98, element: 'flying', desc: '' },
+        { name: 'つむじ風キック', type: 'heavy', pow: 26, acc: 0.74, element: 'flying', desc: '' },
+        { name: 'みどりのわっか', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_speed', desc: '自分のすばやさUP' }
+    ],
+    desc: '走ると 風の子が ついてくる。風を たくさん あつめると、まんまるの ミッキに なるらしい。'
+});
+MONSTERS.push({
+    id: 1703, name: 'ミッキ', sprite: '🐻',
+    hp: 250, atk: 62, def: 50, spd: 60, buff: 'speed', elementType: 'flying',
+    stage: 2, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'ころころかぜアタック', type: 'normal', pow: 15, acc: 0.97, element: 'flying', desc: '' },
+        { name: 'まんまる突風', type: 'heavy', pow: 34, acc: 0.74, element: 'flying', desc: '' },
+        { name: 'まんまるスマイル', type: 'unique', pow: 0, acc: 1.0, effect: 'heal_self', desc: '自分のHPを回復' }
+    ],
+    desc: 'おなかに 風をためて まんまるに なった。ふわっと うかんで、いつも にこにこ。'
+});
+MONSTERS.push({
+    id: 1704, name: 'リトルグリーン', sprite: '🟢',
+    hp: 175, atk: 44, def: 34, spd: 40, buff: 'lucky', elementType: 'psychic',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'みどりのみつめビーム', type: 'normal', pow: 13, acc: 0.97, element: 'psychic', desc: '' },
+        { name: 'アンテナでんぱ', type: 'unique', pow: 0, acc: 0.8, effect: 'stun', desc: '相手をしびれさせる' },
+        { name: 'まるまるガード', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_def', desc: '自分のぼうぎょUP' }
+    ],
+    desc: '3つの目で まえ・よこ・うしろを いっぺんに見る。小さいけれど、みどりの元気は だれにも負けない。'
+});
+MONSTERS.push({
+    id: 1705, name: 'もちいぬ', sprite: '🐩',
+    hp: 180, atk: 40, def: 40, spd: 38, buff: 'guard', elementType: 'fairy',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'もふもふタックル', type: 'normal', pow: 12, acc: 0.98, element: 'fairy', desc: '' },
+        { name: 'みかんころがし', type: 'heavy', pow: 27, acc: 0.74, desc: '' },
+        { name: 'もちもちヒール', type: 'unique', pow: 0, acc: 1.0, effect: 'heal_self', desc: '自分のHPを回復' }
+    ],
+    desc: '頭の みかんは 落としたことがない。お正月が いちばん好き。'
+});
+MONSTERS.push({
+    id: 1706, name: 'ちゅにごん', sprite: '🐬',
+    hp: 220, atk: 52, def: 40, spd: 50, buff: 'speed', elementType: 'water',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'ツノツノアタック', type: 'normal', pow: 14, acc: 0.97, element: 'water', desc: '' },
+        { name: 'ほしくずスプラッシュ', type: 'unique', pow: 16, acc: 0.9, effect: 'aoe', element: 'water', desc: '全体攻撃' },
+        { name: 'ひれウイング', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_speed', desc: '自分のすばやさUP' }
+    ],
+    desc: '星の夜にだけ 海から 顔を出す。まつ毛が 自まん。'
+});
+MONSTERS.push({
+    id: 1707, name: 'ドララくん', sprite: '🐨',
+    hp: 230, atk: 50, def: 44, spd: 46, buff: 'lucky', elementType: 'normal',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'ユーカリパンチ', type: 'normal', pow: 14, acc: 0.97, desc: '' },
+        { name: 'スターウェーブ', type: 'heavy', pow: 30, acc: 0.74, desc: '' },
+        { name: 'おうえんフラッグ', type: 'unique', pow: 0, acc: 1.0, effect: 'buff_atk_all', desc: '味方全体のこうげきUP' }
+    ],
+    desc: '旗を ふると みんなが 元気になる。自分が つかれていることに 気づかない。'
+});
+// === /NEWCHARS_V1 ===
+
 // 野生出現テーブル（地方→エリア→深さ）
 // depth: 1=近場, 2=奥地, 3=最深部
 const WILD_AREA_POOLS = {
     // 算数地方
     rounding:   { 1: [NW(0), NW(3), NW(8), 1048],   2: [NW(1), NW(4), NW(9), 1049],      3: [NW(2), NW(10), NW(32), 1050] },
-    kuku:       { 1: [NW(5), NW(6), 1051],        2: [NW(7), NW(9), 1052],          3: [NW(10), NW(2), 1053] },
+    kuku:       { 1: [NW(5), NW(6), 1051, 1701, 1702], 2: [NW(7), NW(7), NW(9), NW(9), 1052, 1052, 1701, 1701, 1702, 1702, 1704, 1705], 3: [NW(10), NW(10), NW(10), NW(10), NW(2), NW(2), NW(2), NW(2), 1053, 1053, 1053, 1053, 1701, 1701, 1701, 1701, 1702, 1702, 1702, 1702, 1704, 1704, 1705, 1705, 1706, 1707] }, // NEWCHARS_V1 くじの枚数で出やすさを調整（ふつう>レア>特別）
     division:   { 1: [NW(7), NW(8), 1069],        2: [NW(4), NW(9), 1070],          3: [NW(10), NW(32), 1071] },
     'long-division': { 1: [NW(7), NW(8), NW(27), 1054],  2: [NW(4), NW(9), NW(29), 1055],    3: [NW(10), NW(32), NW(2), 1056] },
     decimal:    { 1: [NW(27), NW(28), 1057],      2: [NW(29), NW(27), 1058],         3: [NW(30), NW(28), 1059] },
