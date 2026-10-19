@@ -313,7 +313,7 @@
     if (!step) return out;
     var fw = favWeekdays(d);
     var day1 = fw.length ? WD[fw[0]] + '曜に' : 'あしたか あさってに';
-    out.push(day1 + '、「' + step.info.name + '」を 5問 やってみる？');
+    out.push('「' + step.info.name + '」から はじめてみる？');   /* MICHI_V2B 曜日・問題数は本人が決める */
     var sg = Number((d.student && d.student.grade) || 0) || null;
     var o = null;
     // 2つめ：さいきん（8週間以内）さわった 学年に近い単元。なければ、いま学年で習っているところ（ちがう教科を先に）
@@ -327,8 +327,8 @@
       if (nw.length) o = nw[0].inf;
     }
     var day2 = fw.length > 1 ? WD[fw[1]] + '曜に' : '週の後半に';
-    if (o) out.push(day2 + '、10分だけ「' + o.name + '」を やってみる？');
-    else out.push(day2 + '、10分だけ 好きな単元を 1つ やってみる？');
+    if (o) out.push('「' + o.name + '」の つづきも いいかも');
+    else out.push('すきな単元を 1つ えらんで やってみる？');
     return out;
   }
 
@@ -692,7 +692,8 @@
     var cd = canDo(d);
     var hn = hints(d);
     var pr = lastPromise(d);
-    var tries = (ai && ai.tries.length) ? ai.tries.slice(0, 3) : fallbackTries(d, step, guide);
+    /* MICHI_V2B 曜日・問題数をこちらで決める案は出さない。AIの選択肢が無い週は、おもての「えらべる3つの道」だけにする。 */
+    var tries = (ai && ai.tries.length) ? ai.tries.slice(0, 3) : (reco ? [] : fallbackTries(d, step, guide));
     tries = tries.map(function (t) { return cut(t, 38); });
 
     var F = [], B = [];
@@ -759,7 +760,7 @@
     tries.forEach(function (t) { th += '<div class="ch"><span class="box"></span>' + esc(t) + '</div>'; });
     th += '<div class="ch"><span class="box"></span>じぶんで決める：<span style="display:inline-block;width:62%;border-bottom:1.5px dashed #94a3b8">&nbsp;</span></div>';
     th += '<div style="margin-top:4px;font-size:11.5px;color:#9f1239"><b>やり方も えらべるよ</b>（どれでもOK）<span class="circ">アプリの修行</span><span class="circ">ノートに書く</span><span class="circ">おうちの人に 問題を出してもらう</span></div></div>';
-    B.push(th);
+    if (tries.length) B.push(th);
     if (cd.head || cd.lines.length) {
       var ch2 = '<div class="sec" style="border-color:#bbf7d0;background:#f0fdf4"><h2>🌟 できるようになったこと・やったこと</h2>';
       if (cd.head) ch2 += '<div style="font-size:12.5px;color:#15803d;font-weight:700">' + esc(cd.head) + '</div>';
