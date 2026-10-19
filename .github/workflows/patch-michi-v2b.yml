@@ -1,0 +1,82 @@
+name: patch-michi-v2b
+
+# MICHI_V2B 曜日・問題数をこちらで決める案を出さない（AIの指示と、機械で作る「これやってみる？」）。
+#  ・public/karte-michi.js と public/teacher-ai.js だけ。Deploy はこのあと手で流す。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: apply patch (fail-closed)
+        run: |
+          if grep -q MICHI_V2B public/karte-michi.js; then echo "already applied"; echo "SKIP=1" >> $GITHUB_ENV; exit 0; fi
+          cat > /tmp/p.b64 <<'B64EOF'
+          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
+          4Is6EcOB8O885X6piUXutv0P7fCyiGAXAAA=
+          B64EOF
+          tr -d ' \n' < /tmp/p.b64 | base64 -d | gunzip > /tmp/p.patch
+          git apply --check /tmp/p.patch
+          git apply /tmp/p.patch
+          for f in public/karte-michi.js public/teacher-ai.js; do node -e "new Function(require('fs').readFileSync('$f','utf8'))" && echo "ok $f"; done
+          CH=$(git diff --name-only | sort | tr '\n' ' '); echo "$CH"; test "$CH" = "public/karte-michi.js public/teacher-ai.js "
+      - name: commit and push
+        if: env.SKIP != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/karte-michi.js public/teacher-ai.js
+          git commit -m "MICHI_V2B: 曜日・問題数をこちらで決める案を出さない（AI指示の例と、機械で作る『これやってみる？』を直す・2ファイル）"
+          git pull --rebase origin main
+          git push origin HEAD:main
