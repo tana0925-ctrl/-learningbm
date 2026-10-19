@@ -118,6 +118,62 @@
     } catch (e) {}
   }
 
+  // ══════ MICHI_V2 🧭 えらべる3つの道（紙のカルテと同じおすすめ）＋「このおすすめ、どう思う？」══════
+  //  ・おすすめは先生が印刷したときにサーバーへ保存されたもの。ここでは表示して、返事を送るだけ。
+  //  ・返事は次の週のおすすめに使う（かんたん→1つ先へ／むずかしい→1つ前へ）。コインは付かない。
+  var _rc = null;
+  var FBL = [['fit', 'ぴったり'], ['easy', 'かんたんすぎ'], ['hard', 'むずかしすぎ'], ['other', 'ちがうのがいい']];
+  function ensureRCard() {
+    var el = document.getElementById('michiRecoCard');
+    if (el) return el;
+    var host = document.getElementById('homeReviewSuggest');
+    if (!host || !host.parentNode) return null;
+    el = document.createElement('div');
+    el.id = 'michiRecoCard';
+    el.style.display = 'none';
+    el.style.marginBottom = '10px';
+    host.parentNode.insertBefore(el, host);
+    return el;
+  }
+  function renderR(d) {
+    var el = ensureRCard();
+    if (!el) return;
+    if (!d || !d.ok || !d.reco || !d.reco.a) { el.style.display = 'none'; return; }
+    _rc = d;
+    var r = d.reco;
+    var h = '<div class="rounded-xl border-2 border-orange-300 bg-orange-50 p-3">'
+      + '<div class="text-sm font-bold text-orange-800">🧭 えらべる 3つの道 <span class="text-xs font-normal">（どれでも いいよ）</span></div>'
+      + '<div class="mt-1 text-sm text-gray-800"><b>🅰 もう一度 かためる</b>：「' + esc(r.a.name) + '」<div class="text-xs text-orange-900">' + esc(r.a.entry || '') + '</div><div class="text-xs text-orange-800">💡' + esc(r.a.why || '') + '</div></div>';
+    if (r.b) h += '<div class="mt-1 text-sm text-gray-800"><b>🅱 つぎに すすむ</b>：「' + esc(r.b.name) + '」<div class="text-xs text-orange-900">' + esc(r.b.entry || '') + '</div><div class="text-xs text-orange-800">💡' + esc(r.b.why || '') + '</div></div>';
+    h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：やりたい ところから でも OK</div>';
+    h += '<div class="mt-2 text-xs font-bold text-orange-800">このおすすめ、どう思う？</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
+    for (var i = 0; i < FBL.length; i++) {
+      var on = d.feedback === FBL[i][0];
+      h += '<button type="button" data-fb="' + FBL[i][0] + '" class="michiFbBtn rounded-full px-3 py-1 text-xs font-bold ' + (on ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-300') + '">' + FBL[i][1] + '</button>';
+    }
+    h += '</div><div id="michiFbMsg" class="text-xs text-orange-800 mt-1">' + (d.feedback ? 'おくったよ。つぎの おすすめに いかすね（かえても いいよ）' : '') + '</div></div>';
+    el.innerHTML = h;
+    el.style.display = '';
+    var bs = el.querySelectorAll('.michiFbBtn');
+    for (var j = 0; j < bs.length; j++) bs[j].onclick = function () { sendFb(this.getAttribute('data-fb')); };
+  }
+  function sendFb(choice) {
+    var msg = document.getElementById('michiFbMsg');
+    if (msg) msg.textContent = 'おくっています…';
+    fetch('/api/student/karte-reco-feedback', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choice: choice }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok && _rc) { _rc.feedback = choice; renderR(_rc); } else if (msg) msg.textContent = 'おくれなかったよ。もう一度 おしてみてね'; })
+      .catch(function () { if (msg) msg.textContent = 'おくれなかったよ。もう一度 おしてみてね'; });
+  }
+  function loadR() {
+    try {
+      fetch('/api/student/karte-reco', { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { renderR(d); })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
   function ensureCard() {
     var el = document.getElementById('myKarteCard');
     if (el) return el;
@@ -224,6 +280,7 @@
         .then(function (res) { return res.json(); })
         .then(function (d) { _busy = false; render(d); })
         .then(function () { loadQ(); })   // HANSHIN_Q_V1
+        .then(function () { loadR(); })   // MICHI_V2
         .catch(function () { _busy = false; hide(); });
     } catch (e) { _busy = false; }
   }

@@ -3260,6 +3260,68 @@ function hanshinQuestionOf(body: string): string {
   }
   return ''
 }
+// ══════ MICHI_V2 えらべる3つの道：紙にのせた「おすすめ」を保存し、子どもが「どう思う？」に答える ══════
+//  ・おすすめ（どの単元から・🅰🅱）は先生の画面で記録から作り、印刷のときに karte_recos へ保存する。
+//    先生が差しかえたもの（source='teacher'）は、7日間は自動で上書きしない。
+//  ・子どもの返事（ぴったり／かんたんすぎ／むずかしすぎ／ちがうのがいい）は karte_reco_feedback へ。
+//    次の週のおすすめを作るときに使う（かんたん→1つ先へ／むずかしい→1つ前へ）。コインは付けない。
+//  ・表は migrations/0041_karte_recos.sql で作る（リクエストの途中では作らない）。
+const MICHI_FEEDBACK_CHOICES = ['fit', 'easy', 'hard', 'other']
+app.post('/api/teacher/karte-recos', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body: any = await c.req.json().catch(() => null)
+  const items: any[] = (body && Array.isArray(body.items)) ? body.items.slice(0, 80) : []
+  let saved = 0, skipped = 0
+  for (const it of items) {
+    const uid = String((it && it.userId) || '')
+    const wk = String((it && it.weekKey) || '').slice(0, 20)
+    const src = (it && it.source === 'teacher') ? 'teacher' : 'auto'
+    const json = JSON.stringify((it && it.reco) || null)
+    if (!uid || json.length > 6000) { skipped++; continue }
+    const own: any = u.role === 'admin'
+      ? await c.env.DB.prepare('SELECT id FROM users WHERE id=? LIMIT 1').bind(uid).first<any>()
+      : await c.env.DB.prepare('SELECT cm.user_id AS id FROM class_members cm JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ? WHERE cm.user_id = ? LIMIT 1').bind(u.id, uid).first<any>()
+    if (!own) { skipped++; continue }
+    if (src === 'auto') {
+      const cur: any = await c.env.DB.prepare("SELECT source FROM karte_recos WHERE user_id=? AND source='teacher' AND updated_at >= datetime('now','-7 days') LIMIT 1").bind(uid).first<any>().catch(() => null)
+      if (cur) { skipped++; continue }
+    }
+    await c.env.DB.prepare("INSERT INTO karte_recos (user_id, week_key, reco_json, source, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET week_key=excluded.week_key, reco_json=excluded.reco_json, source=excluded.source, updated_by=excluded.updated_by, updated_at=datetime('now')")
+      .bind(uid, wk, json, src, u.id).run()
+    saved++
+  }
+  return c.json({ ok: true, saved, skipped })
+})
+app.get('/api/student/karte-reco', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  if (u.role !== 'student') return c.json({ ok: true, reco: null })
+  const row: any = await c.env.DB.prepare("SELECT week_key, reco_json, updated_at FROM karte_recos WHERE user_id=? AND updated_at >= datetime('now','-21 days') LIMIT 1").bind(u.id).first<any>().catch(() => null)
+  if (!row) return c.json({ ok: true, reco: null })
+  let reco: any = null
+  try { reco = JSON.parse(row.reco_json || 'null') } catch (e) {}
+  if (!reco) return c.json({ ok: true, reco: null })
+  const fb: any = await c.env.DB.prepare('SELECT choice FROM karte_reco_feedback WHERE user_id=? AND reco_week=? LIMIT 1').bind(u.id, row.week_key || '').first<any>().catch(() => null)
+  return c.json({ ok: true, weekKey: row.week_key || '', reco, feedback: (fb && fb.choice) || '' })
+})
+app.post('/api/student/karte-reco-feedback', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  if (u.role !== 'student') return jsonError(c, 403, 'student_only')
+  const body: any = await c.req.json().catch(() => null)
+  const choice = String((body && body.choice) || '')
+  if (MICHI_FEEDBACK_CHOICES.indexOf(choice) < 0) return jsonError(c, 400, 'bad_choice')
+  const row: any = await c.env.DB.prepare("SELECT week_key, reco_json FROM karte_recos WHERE user_id=? AND updated_at >= datetime('now','-21 days') LIMIT 1").bind(u.id).first<any>().catch(() => null)
+  if (!row) return jsonError(c, 404, 'reco_not_found')
+  let reco: any = null
+  try { reco = JSON.parse(row.reco_json || 'null') } catch (e) {}
+  const subj = String((reco && reco.subj) || '').slice(0, 20)
+  const unit = String((reco && reco.anchor) || '').slice(0, 60)
+  await c.env.DB.prepare("INSERT INTO karte_reco_feedback (user_id, reco_week, choice, subj, unit, created_at) VALUES (?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id, reco_week) DO UPDATE SET choice=excluded.choice, subj=excluded.subj, unit=excluded.unit, created_at=datetime('now')")
+    .bind(u.id, row.week_key || '', choice, subj, unit).run()
+  return c.json({ ok: true, choice })
+})
 app.get('/api/student/hanshin-question', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -3927,6 +3989,17 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
 
   let hanshinAnswers: any[] = []   // HANSHIN_Q_V1 阪神マンのしつもんへの本人の返事
   try { const _ha = await c.env.DB.prepare('SELECT question, answer, week_key, updated_at FROM hanshin_answers WHERE user_id=? ORDER BY updated_at DESC LIMIT 3').bind(studentId).all<any>(); hanshinAnswers = (((_ha && _ha.results) || []) as any[]).map((r: any) => ({ question: r.question || '', answer: r.answer || '', weekKey: r.week_key || '', updatedAt: r.updated_at || '' })) } catch (e) {}
+  // MICHI_V2 直近14日の単元ごとの記録（えらべる3つの道の「💡わけ」用）。answered_at の範囲でしぼるので索引が効く。
+  let recentUnits: any[] = []
+  try {
+    const _r14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
+    const _ru = await c.env.DB.prepare('SELECT unit, COUNT(*) AS n, SUM(is_correct) AS c, MIN(answered_at) AS first_at, MAX(answered_at) AS last_at FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit ORDER BY last_at DESC LIMIT 40').bind(studentId, _r14).all<any>()
+    recentUnits = (((_ru && _ru.results) || []) as any[]).map((r: any) => ({ unit: String(r.unit || ''), n: Number(r.n || 0), c: Number(r.c || 0), firstAt: r.first_at || '', lastAt: r.last_at || '' }))
+  } catch (e) {}
+  // MICHI_V2 前に紙にのせた「おすすめ」と、子どもの「このおすすめ、どう思う？」の返事
+  let karteReco: any = null, recoFeedback: any = null
+  try { const _kr: any = await c.env.DB.prepare('SELECT week_key, reco_json, source, updated_at FROM karte_recos WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); if (_kr) { let _rj: any = null; try { _rj = JSON.parse(_kr.reco_json || 'null') } catch (_e) {} karteReco = { weekKey: _kr.week_key || '', reco: _rj, source: _kr.source || 'auto', updatedAt: _kr.updated_at || '' } } } catch (e) {}
+  try { const _kf: any = await c.env.DB.prepare('SELECT reco_week, choice, subj, unit, created_at FROM karte_reco_feedback WHERE user_id=? ORDER BY created_at DESC LIMIT 1').bind(studentId).first<any>(); if (_kf) recoFeedback = { recoWeek: _kf.reco_week || '', choice: _kf.choice || '', subj: _kf.subj || '', unit: _kf.unit || '', createdAt: _kf.created_at || '' } } catch (e) {}
   let michiClassId = ''   // MICHI_V1
   try { const _mc = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); michiClassId = (_mc && _mc.class_id) || '' } catch (e) {}
 
@@ -3952,6 +4025,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     planSuggestion, mi: miInfo, aiComment: aiComment2, aiCommentMeta,
     lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
+    recentUnits, karteReco, recoFeedback,                 // MICHI_V2
     testScores,
     records,
     teacherNotes,

@@ -341,6 +341,49 @@ await t('18 先生は答えられない・既存の返却ボーナスと共存�
   eq(s._hanshinCoinsApplied, 30, 'しつもん台帳')
 })
 
+// ── 🧭 えらべる3つの道（MICHI_V2）：おすすめの保存と「どう思う？」──────────
+const RECO = { v: 2, subj: 'math', subjName: '算数', anchor: 'm6-ratio', a: { id: 'm6-ratio', name: '比' }, b: { id: 'm6-circle', name: '円の面積' }, weekKey: '2026-W43' }
+
+await t('19 先生が自分のクラスの子のおすすめを保存 → 子どもが読めて「どう思う？」を送れる（上書き1行・コインなし）', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  const s1 = await w.call('POST', '/api/teacher/karte-recos', { user: w.teacher, body: { items: [{ userId: w.student.id, weekKey: '2026-W43', reco: RECO, source: 'auto' }] } })
+  eq(s1.json.saved, 1, '保存した数')
+  const g = await w.call('GET', '/api/student/karte-reco', { user: w.student })
+  eq(g.json.reco.a.name, '比', 'おすすめが読める')
+  const f1 = await w.call('POST', '/api/student/karte-reco-feedback', { user: w.student, body: { choice: 'easy' } })
+  eq(f1.status, 200, 'status')
+  await w.call('POST', '/api/student/karte-reco-feedback', { user: w.student, body: { choice: 'hard' } })
+  const rows = w.db._all('SELECT * FROM karte_reco_feedback')
+  eq(rows.length, 1, '1週1行')
+  eq(rows[0].choice, 'hard', '最新に上書き')
+  eq(rows[0].unit, 'm6-ratio', 'どの単元への返事か')
+  eq(w.getState().coins, 1000, 'コインは動かない')
+  const bad = await w.call('POST', '/api/student/karte-reco-feedback', { user: w.student, body: { choice: 'coins' } })
+  eq(bad.status, 400, 'ほかの値は400')
+})
+
+await t('20 ほかの先生のクラスの子には保存できない・おすすめが無ければ返事は404', async () => {
+  const w = await newWorld()
+  const other = { id: 'tea-2', role: 'teacher', loginId: 'other' }
+  w.db._run("INSERT INTO teacher_accounts (id, login_id, name, school) VALUES (?,?,?,?)", other.id, 'other', 'ほか', 'テスト小')
+  const r = await w.call('POST', '/api/teacher/karte-recos', { user: other, body: { items: [{ userId: w.student.id, weekKey: '2026-W43', reco: RECO }] } })
+  eq(r.json.saved, 0, '保存されない')
+  eq(w.db._all('SELECT * FROM karte_recos').length, 0, '表は空')
+  const f = await w.call('POST', '/api/student/karte-reco-feedback', { user: w.student, body: { choice: 'fit' } })
+  eq(f.status, 404, 'おすすめが無いと404')
+})
+
+await t('21 先生が差しかえたおすすめは、印刷の自動保存で上書きされない', async () => {
+  const w = await newWorld()
+  await w.call('POST', '/api/teacher/karte-recos', { user: w.teacher, body: { items: [{ userId: w.student.id, weekKey: '2026-W43', reco: { ...RECO, anchor: 'm6-circle' }, source: 'teacher' }] } })
+  const r = await w.call('POST', '/api/teacher/karte-recos', { user: w.teacher, body: { items: [{ userId: w.student.id, weekKey: '2026-W43', reco: RECO, source: 'auto' }] } })
+  eq(r.json.skipped, 1, '自動は見送り')
+  const row = w.db._get('SELECT source, reco_json FROM karte_recos WHERE user_id=?', w.student.id)
+  eq(row.source, 'teacher', '先生のまま')
+  eq(JSON.parse(row.reco_json).anchor, 'm6-circle', '先生が選んだ単元のまま')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

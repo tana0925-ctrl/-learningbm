@@ -101,5 +101,13 @@ CREATE TABLE hanshin_answer_rewards (
   question_id TEXT NOT NULL, user_id TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (question_id, user_id)
 );
+CREATE TABLE karte_recos (
+  user_id TEXT PRIMARY KEY, week_key TEXT, reco_json TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'auto',
+  updated_by TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE karte_reco_feedback (
+  user_id TEXT NOT NULL, reco_week TEXT NOT NULL, choice TEXT NOT NULL, subj TEXT, unit TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, reco_week)
+);
 `
 

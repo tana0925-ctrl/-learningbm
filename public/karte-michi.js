@@ -1,5 +1,5 @@
 /* ===================================================================
-   karte-michi.js : 🧭 学びの道しるべ（印刷カルテ・A4両面）  MICHI_V1 2026-10
+   karte-michi.js : 🧭 学びの道しるべ（印刷カルテ・A4両面）  MICHI_V1 / MICHI_V2 2026-10
    -------------------------------------------------------------------
    ・先生用ページの _buildKarteHtml を、この形に差しかえる。
      もとの関数はそのまま残し、まず もとの紙を作ってから 中の欄を取り出して並べ直す。
@@ -404,6 +404,268 @@
     return sec.outerHTML;
   }
 
+  // ═════════ MICHI_V2 えらべる3つの道（2026-10）═════════
+  //  ・🅰 もう一度かためる／🅱 つぎに進む／🅲 じぶんで決める。どれを選ぶか・いつ・どれくらいは本人が○。
+  //  ・💡わけ は記録から機械的に作る（期間と問題数つき）。記録の量も ◎○△ で出す。
+  //  ・その教科の直近2週間が10問未満の子は、個別に推しはからず「教科書の順番」をスタート地点にする。
+  //    先生が「いま授業でやっている単元」を設定する口は無いので、学年の標準的な進み方（下の表）で代用する。
+  //  ・前の週の「このおすすめ、どう思う？」が かんたん→1つ先へ／むずかしい→1つ前へ ずらす。
+  //  ・先生が差しかえたおすすめ（source='teacher'）は、それを使う。
+  //  ・順位・平均・ほかの子との比較は出さない。比べるのは前のその子だけ。
+  var MATH_PACE_ORDER = {
+    1: ['m1-add-no', 'm1-sub-no', 'm1-3num', 'm1-add-cy', 'm1-sub-bo'],
+    2: ['m2-add2', 'm2-sub2', 'm2-length', 'm2-kuku'],
+    3: ['m3-div0', 'm3-divR', 'm3-large', 'm3-mul1', 'm3-weight'],
+    4: ['division', 'long-division', 'rounding', 'brackets', 'area', 'decimal', 'fraction-mixed'],
+    5: ['m5-volume', 'm5-dec-mul', 'm5-dec-div', 'm5-polygon', 'm5-frac-eq', 'm5-avg', 'm5-unit-qty', 'm5-speed', 'm5-percent'],
+    6: ['m6-expression', 'm6-frac-int', 'm6-frac-mul', 'm6-frac-div', 'm6-frac-mixed', 'm6-frac-triple', 'm6-frac-dec', 'm6-ratio', 'm6-circle', 'm6-proportion']
+  };
+  // 月ごとの「だいたい いま授業でやっているところ」（一般的な年間指導計画から。学校ごとにずれるので目安）
+  var MATH_PACE_MONTH = {
+    1: { 4: 'm1-add-no', 5: 'm1-add-no', 6: 'm1-add-no', 7: 'm1-sub-no', 8: 'm1-sub-no', 9: 'm1-sub-no', 10: 'm1-3num', 11: 'm1-add-cy', 12: 'm1-sub-bo', 1: 'm1-sub-bo', 2: 'm1-sub-bo', 3: 'm1-sub-bo' },
+    2: { 4: 'm2-add2', 5: 'm2-sub2', 6: 'm2-length', 7: 'm2-length', 8: 'm2-length', 9: 'm2-length', 10: 'm2-kuku', 11: 'm2-kuku', 12: 'm2-kuku', 1: 'm2-kuku', 2: 'm2-kuku', 3: 'm2-kuku' },
+    3: { 4: 'm3-div0', 5: 'm3-div0', 6: 'm3-divR', 7: 'm3-large', 8: 'm3-large', 9: 'm3-mul1', 10: 'm3-mul1', 11: 'm3-weight', 12: 'm3-weight', 1: 'm3-weight', 2: 'm3-weight', 3: 'm3-weight' },
+    4: { 4: 'division', 5: 'long-division', 6: 'long-division', 7: 'long-division', 8: 'long-division', 9: 'long-division', 10: 'rounding', 11: 'brackets', 12: 'area', 1: 'decimal', 2: 'decimal', 3: 'fraction-mixed' },
+    5: { 4: 'm5-volume', 5: 'm5-dec-mul', 6: 'm5-dec-div', 7: 'm5-polygon', 8: 'm5-polygon', 9: 'm5-frac-eq', 10: 'm5-avg', 11: 'm5-unit-qty', 12: 'm5-speed', 1: 'm5-percent', 2: 'm5-percent', 3: 'm5-percent' },
+    6: { 4: 'm6-expression', 5: 'm6-expression', 6: 'm6-frac-mul', 7: 'm6-frac-div', 8: 'm6-frac-div', 9: 'm6-ratio', 10: 'm6-circle', 11: 'm6-proportion', 12: 'm6-proportion', 1: 'm6-proportion', 2: 'm6-proportion', 3: 'm6-proportion' }
+  };
+  var SUBJ_LIST = ['math', 'japanese', 'social', 'science'];
+  // 教科の中の順番（算数は上の標準の順番、ほかの教科はアプリの単元の並び）。学年をまたいで1本につなぐ。
+  function subjOrder(subj) {
+    var out = [];
+    if (subj === 'math') { for (var g = 1; g <= 6; g++) out = out.concat(MATH_PACE_ORDER[g]); return out; }
+    var C = _cur || global.CURRICULUM;
+    var sub = C && C[subj];
+    if (!sub || !sub.grades) return out;
+    Object.keys(sub.grades).map(Number).sort(function (a, b) { return a - b; }).forEach(function (g) {
+      if (g > 6) return;
+      (sub.grades[g].units || []).forEach(function (u) { out.push(u.id); });
+    });
+    return out;
+  }
+  function jstNowM() { var n = new Date(); return new Date(n.getTime() + n.getTimezoneOffset() * 60000 + 9 * 3600000); }
+  function md(iso) { var t = Date.parse(String(iso || '')); if (isNaN(t)) return ''; var x = new Date(t + 9 * 3600000); return (x.getUTCMonth() + 1) + '/' + x.getUTCDate(); }
+  function isoWeekKey(dt) {
+    var x = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); var dn = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dn + 3);
+    var f = new Date(x.getFullYear(), 0, 4); var fn = (f.getDay() + 6) % 7; f.setDate(f.getDate() - fn + 3);
+    var w = 1 + Math.round((x.getTime() - f.getTime()) / (7 * 86400000)); return x.getFullYear() + '-W' + (w < 10 ? '0' + w : '' + w);
+  }
+  function mastered(sm, id) { var s = sm[id]; return !!(s && Number(s.total) >= 10 && Number(s.rate) >= 80); }
+  function entryOf(inf) { return 'アプリ：修行 ▶ ' + inf.subjName + ' ▶ ' + inf.gradeLabel + ' ▶「' + inf.name + '」'; }
+
+  function computeReco(d) {
+    var sg = Number((d.student && d.student.grade) || 0) || null;
+    if (!sg || sg > 6) return null;
+    var sm = subjMap(d);
+    var ru = {}; (d.recentUnits || []).forEach(function (r) { ru[String(r.unit)] = r; });
+    // 教科ごとの直近2週間の問題数
+    var tot = {}; SUBJ_LIST.forEach(function (k) { tot[k] = 0; });
+    (d.recentUnits || []).forEach(function (r) { var inf = unitInfo(r.unit); if (inf && tot[inf.subj] != null && inf.grade <= sg + 1) tot[inf.subj] += Number(r.n || 0); });
+    var override = null;
+    try {
+      var kr = d.karteReco;
+      if (kr && kr.source === 'teacher' && kr.reco && kr.reco.anchor && daysAgo(String(kr.updatedAt).replace(' ', 'T') + 'Z') <= 10) override = kr.reco;
+    } catch (e) {}
+    var subj, rich, anchor, note = '';
+    if (override && unitInfo(override.anchor)) {
+      subj = unitInfo(override.anchor).subj; anchor = override.anchor; rich = (tot[subj] || 0) >= 10;
+    } else {
+      if (tot.math >= 10) subj = 'math';
+      else { subj = null; SUBJ_LIST.forEach(function (k) { if (k !== 'math' && tot[k] >= 10 && (!subj || tot[k] > tot[subj])) subj = k; }); }
+      rich = !!subj;
+      if (!subj) subj = 'math';
+    }
+    var order = subjOrder(subj);
+    var gradeOf = function (id) { var inf = unitInfo(id); return inf ? inf.grade : 99; };
+    var A, Bn, why = { a: '', b: '' };
+    if (!anchor && rich) {
+      var cand = (d.recentUnits || []).filter(function (r) { var inf = unitInfo(r.unit); return inf && inf.subj === subj && Number(r.n) >= 5 && order.indexOf(inf.id) >= 0; });
+      var on = cand.filter(function (r) { return gradeOf(r.unit) === sg; });
+      var weak = on.filter(function (r) { return Number(r.c) / Number(r.n) < 0.8; });
+      var pick = weak[0] || on[0] || cand.filter(function (r) { return gradeOf(r.unit) <= sg; })[0] || null;
+      if (pick) anchor = String(pick.unit); else rich = false;
+    }
+    if (!rich && !anchor) {
+      // 記録が少ない：教科書の順番どおり（算数の標準の進み方。いまの月の単元と、その1つ前）
+      subj = 'math'; order = subjOrder('math');
+      var mo = jstNowM().getMonth() + 1;
+      var cur = (MATH_PACE_MONTH[sg] || {})[mo] || MATH_PACE_ORDER[sg][0];
+      var ci = order.indexOf(cur);
+      A = order[Math.max(0, ci - 1)]; Bn = cur; anchor = cur;
+    }
+    // 前の週の返事でずらす（同じ教科のときだけ）
+    var fb = d.recoFeedback;
+    if (!override && fb && fb.unit && fb.subj === subj && daysAgo(String(fb.createdAt).replace(' ', 'T') + 'Z') <= 14) {
+      var fi = order.indexOf(fb.unit);
+      if (fi >= 0 && fb.choice === 'easy' && fi + 1 < order.length) { anchor = order[fi + 1]; A = null; Bn = null; note = '先週「かんたんすぎ」だったので、1つ先に すすめたよ'; }
+      else if (fi >= 0 && fb.choice === 'hard' && fi - 1 >= 0) { anchor = order[fi - 1]; A = null; Bn = null; note = '先週「むずかしすぎ」だったので、1つ前から にしたよ'; }
+      else if (fb.choice === 'other') note = '先週「ちがうのがいい」だったので、🅲 で じぶんで 決めてみてね';
+    }
+    if (!A || !Bn) {
+      var ai = order.indexOf(anchor);
+      A = anchor;
+      Bn = null;
+      for (var j = ai + 1; j < order.length; j++) { if (!mastered(sm, order[j]) && gradeOf(order[j]) <= sg) { Bn = order[j]; break; } }
+      if (!Bn) { for (var j2 = 0; j2 < order.length; j2++) { if (order[j2] !== A && gradeOf(order[j2]) === sg && !mastered(sm, order[j2])) { Bn = order[j2]; break; } } }
+    }
+    var iA = unitInfo(A), iB = Bn ? unitInfo(Bn) : null;
+    if (!iA) return null;
+    var rA = ru[A], rB = Bn ? ru[Bn] : null;
+    var period = function (r) { return r ? '（' + md(r.firstAt) + '〜' + md(r.lastAt) + '）' : ''; };
+    if (rA && Number(rA.n) > 0) {
+      var wrong = Number(rA.n) - Number(rA.c);
+      why.a = wrong >= 2 ? ('「' + iA.name + '」で ' + rA.n + '問中 ' + wrong + '問 まちがえていたよ' + period(rA)) : ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できていたよ' + period(rA) + '。しっかり かためるのも いいかも');
+    } else if (sm[A] && Number(sm[A].total) > 0) {
+      why.a = '「' + iA.name + '」は これまで ' + sm[A].total + '問 とりくんでいるよ';
+    } else {
+      why.a = rich ? '「' + iA.name + '」は つぎに むかう 前の 土台だよ' : '「' + iA.name + '」は 教科書で 1つ前に 習う ところだよ';
+    }
+    if (iB) {
+      if (!rich && Bn === anchor) why.b = '「' + iB.name + '」は 教科書の 順番で、いま ' + iB.gradeLabel + 'で 習う ころの 単元だよ';
+      else if (rB && Number(rB.n) > 0) why.b = '「' + iB.name + '」は さいきん ' + rB.n + '問。つづきから すすめるよ';
+      else if (sm[Bn] && Number(sm[Bn].total) > 0) why.b = '「' + iB.name + '」は これまで ' + sm[Bn].total + '問。つづきから すすめるよ';
+      else why.b = '「' + iB.name + '」は 「' + iA.name + '」の つぎに 習う 単元だよ';
+    }
+    var n14 = tot[subj] || 0;
+    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : (!rich ? '△ まだ記録が少ないので、教科書の順番どおりの おすすめだよ' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
+    return {
+      v: 2, subj: subj, subjName: iA.subjName, anchor: A, here: (rich || override) ? A : (Bn || A), rich: rich, override: !!override,
+      a: { id: A, name: iA.name, entry: entryOf(iA), why: why.a },
+      b: iB ? { id: Bn, name: iB.name, entry: entryOf(iB), why: why.b } : null,
+      mark: mark, note: note, weekKey: isoWeekKey(jstNowM())
+    };
+  }
+  global.michiComputeReco = computeReco;
+
+  // すすみぐあいマップ：できた✓／いまここ📍／つぎ の3まいだけ（🅰🅱と同じ教科）
+  function progressMap(d, reco) {
+    if (!reco) return '';
+    var here = reco.here || reco.anchor;
+    var sm = subjMap(d), order = subjOrder(reco.subj), i = order.indexOf(here);
+    var cards = [];
+    if (i > 0 && mastered(sm, order[i - 1])) cards.push({ k: 'done', id: order[i - 1] });
+    cards.push({ k: 'here', id: here });
+    if (reco.b && reco.b.id !== here) cards.push({ k: 'next', id: reco.b.id });
+    else if (i >= 0 && i + 1 < order.length) cards.push({ k: 'next', id: order[i + 1] });
+    var LAB = { done: 'できた ✓', here: 'いま ここ 📍', next: 'つぎ' };
+    var h = '<div class="sec mp"><h2 style="color:#075985">📍 ' + esc(reco.subjName) + 'の すすみぐあい <span style="font-size:11px;font-weight:600;color:#0369a1">（左から じゅんばんに すすむよ）</span></h2><div class="mr">';
+    cards.forEach(function (c, k) {
+      var inf = unitInfo(c.id) || { name: c.id };
+      var m = String(inf.name).match(/^(.*?)\s*\((.*)\)$/);
+      if (k) h += '<div class="mar">▶</div>';
+      h += '<div class="mc ' + c.k + '"><div class="ml">' + LAB[c.k] + '</div><div class="mb"><span class="mn">' + esc(m ? m[1] : inf.name) + '</span>' + (m ? '<span class="ms">（' + esc(m[2]) + '）</span>' : '') + '</div></div>';
+    });
+    return h + '</div></div>';
+  }
+
+  function pathsHtml(reco, stalled) {
+    var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ。どれに する？）</span></h2>';
+    h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 62)) + '</div></div></div>';
+    if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 62)) + '</div></div></div>';
+    h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
+    h += '<div class="pm">' + esc(reco.mark) + (reco.note ? '　／　' + esc(reco.note) : '') + '</div>';
+    h += '<div class="pr"><b>えらんだのは</b><span class="circ">A</span><span class="circ">B</span><span class="circ">C</span>　<b>そのわけ：</b><span class="bl" style="width:250px">&nbsp;</span></div>';
+    h += '<div class="pr"><b>いつ？</b>' + ['月', '火', '水', '木', '金'].map(function (x) { return '<span class="cc">' + x + '</span>'; }).join('') + '　<b>どれくらい？</b>' + ['3問', '5問', '10問'].map(function (x) { return '<span class="circ">' + x + '</span>'; }).join('') + '<span style="font-size:10.5px;color:#9a3412">（じぶんで ○）</span></div>';
+    h += '<div class="pr">👣 <b>はじめの一歩</b>：まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）' + (stalled ? '。1問 すすんだら それで 前進やで' : '') + '</div>';
+    h += '<div class="pr">🛟 <b>こまったら作戦</b>：もし わからない問題が出たら→<span class="circ sm">ヒントを見る</span><span class="circ sm">友だちに聞く</span><span class="circ sm">先生に聞く</span><span class="circ sm">家の人に聞く</span></div>';
+    h += '<div class="pr pf"><b>このおすすめ、どう思う？</b><span class="bx">□ぴったり</span><span class="bx">□かんたんすぎ</span><span class="bx">□むずかしすぎ</span><span class="bx">□ちがうのがいい</span></div>';
+    return h + '</div>';
+  }
+
+  // 印刷のときに おすすめを保存（子どもの「わたしのカルテ」で「どう思う？」に答えられるように）
+  var _recoQ = [], _recoT = null;
+  function queueReco(userId, reco) {
+    if (!userId || !reco || reco.override) return;
+    _recoQ.push({ userId: userId, weekKey: reco.weekKey, reco: reco, source: 'auto' });
+    if (_recoT) clearTimeout(_recoT);
+    _recoT = setTimeout(flushReco, 1200);
+  }
+  function flushReco() {
+    _recoT = null;
+    if (!_recoQ.length) return;
+    var items = _recoQ.splice(0, 80);
+    try { fetch('/api/teacher/karte-recos', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: items }) }).catch(function () {}); } catch (e) {}
+    if (_recoQ.length) _recoT = setTimeout(flushReco, 500);
+  }
+  global.michiSaveReco = function (userId, reco, source) {
+    return fetch('/api/teacher/karte-recos', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ userId: userId, weekKey: reco.weekKey, reco: reco, source: source || 'teacher' }] }) }).then(function (r) { return r.json(); });
+  };
+  var CSS2 = [
+    '.first .pw{display:flex;gap:7px;align-items:flex-start;margin:3px 0;font-size:12.5px;line-height:1.45;}',
+    '.first .pk{font-size:17px;line-height:1.1;} .first .pe{font-size:11px;color:#7c2d12;} .first .py{font-size:11px;color:#9a3412;}',
+    '.first .pm{font-size:11px;color:#475569;margin:3px 0 2px;} .first .pr{font-size:12px;margin:4px 0;}',
+    '.first .cc{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1.5px solid #fb923c;border-radius:50%;margin-left:4px;font-size:11.5px;font-weight:800;color:#9a3412;}',
+    '.first .bl{display:inline-block;border-bottom:1.5px dashed #94a3b8;margin-left:4px;}',
+    '.first .bx{margin-left:8px;font-size:12px;} .first .pf{border-top:1px dashed #fdba74;padding-top:4px;} .first .circ.sm{font-size:10.5px;padding:0 6px;margin-left:3px;}',
+    '.mp{border-color:#bae6fd !important;background:#f0f9ff;} .mr{display:flex;align-items:stretch;gap:6px;}',
+    '.mar{align-self:center;font-size:16px;color:#7dd3fc;font-weight:900;}',
+    '.mc{flex:1;border-radius:10px;overflow:hidden;background:#fff;border:2px solid #e2e8f0;text-align:center;}',
+    '.mc .ml{font-size:13.5px;font-weight:900;padding:3px 0;color:#fff;} .mc.done .ml{background:#16a34a;} .mc.here .ml{background:#f59e0b;} .mc.next .ml{background:#64748b;}',
+    '.mc.here{border:3px solid #f59e0b;} .mc .mb{padding:5px 4px 6px;} .mc .mn{display:block;font-size:15px;font-weight:900;color:#1e293b;} .mc .ms{display:block;font-size:10px;color:#64748b;}'
+  ].join('\n');
+
+  // ───────── 先生の画面：印刷の前に おすすめを確認・差しかえ ─────────
+  function recoPanel() {
+    var st = document.getElementById('allAiStatus');
+    if (!st || document.getElementById('michiRecoBtn')) return;
+    var b = document.createElement('button');
+    b.id = 'michiRecoBtn'; b.type = 'button';
+    b.textContent = '🧭 印刷の前に「えらべる3つの道」を確認・差しかえ';
+    b.className = 'bg-orange-500 text-white rounded-lg px-3 py-1.5 text-xs font-bold shadow ml-2';
+    b.onclick = openRecoPanel;
+    st.parentNode.insertBefore(b, st);
+  }
+  async function openRecoPanel() {
+    var box = document.getElementById('michiRecoBox');
+    var st = document.getElementById('allAiStatus');
+    if (!box) { box = document.createElement('div'); box.id = 'michiRecoBox'; box.className = 'mt-2 bg-orange-50 border-2 border-orange-300 rounded-xl p-3 text-sm'; st.parentNode.insertBefore(box, st.nextSibling); }
+    var students = global._lastStudentSummaries || [];
+    if (!students.length) { box.innerHTML = '先に児童一覧を表示してください'; return; }
+    box.innerHTML = '読み込み中...';
+    await preloadAll();
+    var rows = [];
+    for (var i = 0; i < students.length; i++) {
+      var s = students[i];
+      try {
+        var r = await fetch('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(s.userId || s.name), { credentials: 'same-origin' });
+        var d = await r.json();
+        if (d && d.ok) rows.push({ s: s, d: d, reco: computeReco(d) });
+      } catch (e) {}
+      box.innerHTML = '読み込み中...(' + (i + 1) + '/' + students.length + ')';
+    }
+    var FB = { fit: 'ぴったり', easy: 'かんたんすぎ', hard: 'むずかしすぎ', other: 'ちがうのがいい' };
+    var h = '<div class="font-bold text-orange-800 mb-1">🧭 えらべる3つの道（印刷の前に確認）</div><div class="text-[11px] text-slate-600 mb-2">「いまここ（🅰）」を変えて［この子だけ保存］を押すと、7日間はその単元で印刷します（🅱はその次の単元になります）。◎○は記録から、△は教科書の順番どおり、✎は先生が選んだものです。</div>';
+    h += '<div class="overflow-x-auto"><table class="text-xs w-full"><tr class="text-left text-slate-500"><th>名前</th><th>教科</th><th>🅰 いまここ</th><th>🅱 つぎ</th><th>記録</th><th>子どもの声（先週）</th><th></th></tr>';
+    rows.forEach(function (x, k) {
+      var nm = (typeof global.resolveStudentName === 'function') ? global.resolveStudentName(x.s.loginId, x.s.name) : (x.s.name || '');
+      var rc = x.reco;
+      var fb = x.d.recoFeedback && FB[x.d.recoFeedback.choice] ? FB[x.d.recoFeedback.choice] : '';
+      h += '<tr class="border-t"><td class="py-1 pr-2 font-bold">' + esc(nm) + '</td>';
+      if (!rc) { h += '<td colspan="6" class="text-slate-400">学年が登録されていないため作れません</td></tr>'; return; }
+      var sg = Number((x.d.student && x.d.student.grade) || 0);
+      var opts = '';
+      SUBJ_LIST.forEach(function (sk) {
+        subjOrder(sk).forEach(function (id) { var inf = unitInfo(id); if (inf && inf.grade <= sg && inf.grade >= sg - 1) opts += '<option value="' + esc(id) + '"' + (id === rc.anchor ? ' selected' : '') + '>' + esc(inf.subjName + '・' + inf.gradeLabel + '・' + inf.name) + '</option>'; });
+      });
+      h += '<td>' + esc(rc.subjName) + '</td><td><select data-k="' + k + '" class="michiSel border rounded p-0.5 max-w-[14rem]">' + opts + '</select></td><td>' + esc(rc.b ? rc.b.name : '－') + '</td><td>' + esc(rc.mark.slice(0, 1)) + '</td><td>' + esc(fb) + '</td>';
+      h += '<td><button type="button" data-k="' + k + '" class="michiSave bg-orange-500 text-white rounded px-2 py-0.5">この子だけ保存</button> <span class="michiMsg text-[10px]" data-k="' + k + '"></span></td></tr>';
+    });
+    h += '</table></div>';
+    box.innerHTML = h;
+    var btns = box.querySelectorAll('.michiSave');
+    for (var q = 0; q < btns.length; q++) btns[q].onclick = function () {
+      var k = Number(this.getAttribute('data-k')); var x = rows[k];
+      var sel = box.querySelector('.michiSel[data-k="' + k + '"]'); var msg = box.querySelector('.michiMsg[data-k="' + k + '"]');
+      var d2 = JSON.parse(JSON.stringify(x.d));
+      d2.karteReco = { source: 'teacher', reco: { anchor: sel.value }, updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+      var rc2 = computeReco(d2);
+      if (!rc2) { msg.textContent = '作れませんでした'; return; }
+      msg.textContent = '保存中...';
+      global.michiSaveReco(x.s.userId, rc2, 'teacher').then(function (j) { msg.textContent = (j && j.ok && j.saved) ? '✓ 保存（🅱 ' + (rc2.b ? rc2.b.name : '－') + '）' : '保存できませんでした'; }).catch(function () { msg.textContent = '保存できませんでした'; });
+    };
+  }
+  setInterval(function () { try { recoPanel(); } catch (e) {} }, 3000);
+
   function compose(baseHtml) {
     var d = global._faData || {};
     var doc = new DOMParser().parseFromString(baseHtml, 'text/html');
@@ -423,7 +685,10 @@
 
     var guide = _guide[d.classId] || null;
     var step = firstStep(d, guide);
-    var map = mathMap(d, step, guide);
+    var reco = null;
+    try { reco = computeReco(d); } catch (e) { reco = null; }   /* MICHI_V2 */
+    var map = reco ? null : mathMap(d, step, guide);
+    if (reco) { try { queueReco((d.student && d.student.id) || '', reco); } catch (e) {} }
     var cd = canDo(d);
     var hn = hints(d);
     var pr = lastPromise(d);
@@ -433,7 +698,10 @@
     var F = [], B = [];
     // ── おもて ──
     F.push('<div class="mh"><div><h1>🧭 学びの道しるべ</h1><div class="nm">' + esc(nm) + '</div></div><div class="pd">' + esc(pd) + '</div></div>');
-    if (step) {
+    if (reco) {   /* MICHI_V2 えらべる3つの道 ＋ すすみぐあいマップ */
+      F.push(pathsHtml(reco, step && step.stalled));
+      F.push(progressMap(d, reco));
+    } else if (step) {
       var p = step.info;
       var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 まずここから（' + (step.thin ? '今日' : '今週') + 'の さいしょの1歩）</h2>';
       h += '<div class="path"><span class="mchip">アプリの 🏋️修行</span><span class="arr">→</span><span class="mchip">' + esc(p.icon) + esc(p.subjName) + '</span><span class="arr">→</span><span class="mchip">' + esc(p.gradeLabel) + '</span><span class="arr">→</span><span class="mchip goal">「' + esc(p.name) + '」を ' + step.amount + '</span></div>';
@@ -462,6 +730,7 @@
       F.push(mh);
     }
     if (secWeek) F.push(capWeekSec(secWeek));
+    var prHtml = '';
     if (pr) {
       var ph = '<div class="sec" style="border-color:#e9d5ff;background:#faf5ff"><h2>🔁 先週の「やってみる」どうだった？</h2>';
       if (pr.tries.length) {
@@ -472,7 +741,7 @@
         ph += '<div style="font-size:12.5px">先週きかれたこと …「' + esc(cut(pr.ask, 60)) + '」 どうやった？</div>';
       }
       ph += '</div>';
-      F.push(ph);
+      if (reco) prHtml = ph; else F.push(ph);   /* MICHI_V2 おもてが いっぱいなので うらへ */
     }
     if (ai && ai.main) {
       var hh = '<div class="sec"><h2>🐯 阪神マンから</h2><div style="font-size:12.5px;color:#334155;white-space:pre-wrap">' + esc(cut(ai.main.replace(/\n+/g, ' '), 300)) + '</div>';
@@ -485,6 +754,7 @@
     }
 
     // ── うら ──
+    if (prHtml) B.push(prHtml);
     var th = '<div class="sec" style="border-color:#fda4af;background:#fff1f2"><h2>✏️ これやってみる？（1つ えらんで □ に○）</h2>';
     tries.forEach(function (t) { th += '<div class="ch"><span class="box"></span>' + esc(t) + '</div>'; });
     th += '<div class="ch"><span class="box"></span>じぶんで決める：<span style="display:inline-block;width:62%;border-bottom:1.5px dashed #94a3b8">&nbsp;</span></div>';
@@ -512,7 +782,7 @@
         '<div style="font-size:9.5px;color:#94a3b8;margin-top:2px">' + esc(nm) + '／学びの道しるべ</div></div>');
     }
 
-    var html = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>学びの道しるべ</title><style>' + baseCss + '\n' + CSS + '</style></head><body>' +
+    var html = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>学びの道しるべ</title><style>' + baseCss + '\n' + CSS + '\n' + CSS2 + '</style></head><body>' +
       '<div class="wrap"><div class="pg">' + F.join('') + '</div><div class="pg last">' + B.join('') + '<div class="foot">LearningBM ／ 学びの道しるべ</div></div></div>' + FIT + '</body></html>';
     return html;
   }
