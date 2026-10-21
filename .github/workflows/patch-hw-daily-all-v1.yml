@@ -1,0 +1,141 @@
+name: patch-hw-daily-all-v1
+
+# HW_DAILY_ALL_V1 今日のひと往復：家庭学習コメントの取りこぼしを直す（public/teacher-ai.js だけ）。
+#  ・コピーの対象を「1人1件（いちばん新しい分）」→「未返却ぜんぶ（直近35日・1人5件まで・古い日から）」
+#  ・取り込みのあと「未返却なのに下書きが無い提出」を一覧で出し、その分だけもう一度コピーできる
+#  Deploy はこのあと手で流す。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: apply patch (fail-closed)
+        run: |
+          if grep -q HW_DAILY_ALL_V1 public/teacher-ai.js; then echo "already applied"; echo "SKIP=1" >> $GITHUB_ENV; exit 0; fi
+          cat > /tmp/p.b64 <<'B64EOF'
+          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
+          SbklP/gViHf4X2LhlaX/BcNCqrQlPQAA
+          B64EOF
+          tr -d ' \n' < /tmp/p.b64 | base64 -d | gunzip > /tmp/p.patch
+          git apply --check /tmp/p.patch
+          git apply /tmp/p.patch
+          node -e "new Function(require('fs').readFileSync('public/teacher-ai.js','utf8'))" && echo "ok syntax"
+          CH=$(git diff --name-only | sort | tr '\n' ' '); echo "$CH"; test "$CH" = "public/teacher-ai.js "
+      - name: commit and push
+        if: env.SKIP != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/teacher-ai.js
+          git commit -m "HW_DAILY_ALL_V1: ひと往復の家庭学習コメントを未返却ぜんぶ対象に＋入らなかった提出の一覧ともう一度コピー（teacher-ai.js のみ）"
+          git pull --rebase origin main
+          git push origin HEAD:main
