@@ -117,12 +117,24 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       return o;
     } catch (e) { return null; }
   }
-  function cacheSet(key, text, blocks, noMaterial, peopleWords) {
+  function cacheSet(key, text, blocks, noMaterial, peopleWords, dailyExp) {
     try {
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, peopleWords: peopleWords || 0, at: Date.now()
+        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, peopleWords: peopleWords || 0, at: Date.now(), dailyExp: dailyExp || []
       }));
     } catch (e) {}
+  }
+  // HW_DAILY_ALL_V1 「①で渡した DAILY の欄」の控え（取り込み後の照合用・このブラウザだけ）
+  var DAILY_EXP_KEY = 'taiDailyExpect';
+  function dailyExpSet(cid, list, retry) {
+    try { sessionStorage.setItem(DAILY_EXP_KEY, JSON.stringify({ cid: cid, list: list || [], retry: !!retry, at: Date.now() })); } catch (e) {}
+  }
+  function dailyExpGet(cid) {
+    try {
+      var o = JSON.parse(sessionStorage.getItem(DAILY_EXP_KEY) || 'null');
+      if (o && o.cid === cid && Array.isArray(o.list)) return o;
+    } catch (e) {}
+    return null;
   }
   function cacheClear() { try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {} }
   // _aiBodyLines() の出力を軽くする。
@@ -387,6 +399,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
         // 2026-09-29: 取り置きの文を渡したときは「いつ作った文か」を必ず出し、
         //   そのあと新しく出した子がいれば、その場で作り直せるようにする。
         window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, cachedAt: hit.at || 0, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
+        if (hit.dailyExp) dailyExpSet(cid, hit.dailyExp, false);
         copyText(hit.text);
         taiWarnIfStale(cid, hit.at || 0);
         return;
@@ -417,6 +430,12 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     if (oneId) {
       roster = roster.filter(function (r) { return String(r.userId) === oneId; });
       if (!roster.length) { sayOne('その児童が名簿に見つかりません'); window.__taiBusy = false; return; }
+    }
+    var retryUids = null;
+    if (opts.onlyHwUids && opts.onlyHwUids.length) {
+      retryUids = {}; opts.onlyHwUids.forEach(function (x) { retryUids[String(x)] = 1; });
+      roster = roster.filter(function (r) { return retryUids[String(r.userId)]; });
+      if (!roster.length) { say('その子たちが名簿に見つかりません'); window.__taiBusy = false; return; }
     }
 
     var wk = weekKey();
@@ -523,6 +542,7 @@ out.push('  タイプ分けをしない、は変わりません。理由は前�
 out.push('');
 out.push('【目印の種類】');
     if (want.daily)   out.push('・=== [DAILY:...] === … その日の家庭学習への先生コメント。1〜2文、40字以内。子ども向け。');
+    if (want.daily)   out.push('    ※同じ子に DAILY の目印が2つ以上あることがあります。目印ごとに、その日の中身に合わせて別々に書く。1つも飛ばさない。');
     if (want.karte)   out.push('・=== [KARTE:...] === … 阪神マンから本人へのひとこと。子ども向け。');
     if (want.karte) {
       out.push('    ※阪神マンのひとこと（大事）:');
@@ -895,17 +915,32 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     plans.forEach(function (p) { planByUser[p.userId] = p; });
 
     // 未返却の家庭学習（DAILY用）
-    var hwByUser = {};
+    // HW_DAILY_ALL_V1 2026-10-21: 以前は「1人1件（いちばん新しいもの）」だけを渡していたため、
+    //   2日分以上たまっている子は古い日の欄が作られず、コメント下書きが入らなかった
+    //   （本番 10/5〜10/19 で 36件。全員「その後に新しい提出がある子」の古い日の分）。
+    //   いまは「未返却ぜんぶ（直近35日）」を対象にし、1人5件まで・古い日から順に渡す。
+    //   読み取りは unreturned=1 なので未返却の行だけ（件数で押し出されない）。
+    var hwByUser = {}, hwOver = 0, HW_PER_KID = 5;
+    var onlyHw = null;
+    if (opts.onlyHwIds && opts.onlyHwIds.length) { onlyHw = {}; opts.onlyHwIds.forEach(function (x) { onlyHw[String(x)] = 1; }); }
     if (want.daily) {
       try {
-        var hd = await getJson('/api/teacher/homework?classId=' + encodeURIComponent(cid));
-        (hd && hd.submissions || []).forEach(function (s) {
-          if (s.returnedAt) return;                 // 返却済みは対象外
-          if (hwByUser[s.userId]) return;           // 1人1件（いちばん新しいもの）
-          hwByUser[s.userId] = s;
+        var _from = fmtDay(new Date(jstNow().getTime() - 35 * 86400000));
+        var hd = await getJson('/api/teacher/homework?classId=' + encodeURIComponent(cid) + '&unreturned=1&from=' + _from);
+        var _hs = (hd && hd.submissions || []).filter(function (s) {
+          if (s.returnedAt) return false;           // 返却済みは対象外
+          if (s.restDay) return false;              // おやすみの記録はコメント欄を作らない（今までどおり）
+          if (onlyHw && !onlyHw[String(s.id)]) return false;
+          return true;
+        }).sort(function (a, b) { return String(a.dayKey) < String(b.dayKey) ? -1 : String(a.dayKey) > String(b.dayKey) ? 1 : 0; });
+        _hs.forEach(function (s) {
+          var arr = hwByUser[s.userId] || (hwByUser[s.userId] = []);
+          if (arr.length >= HW_PER_KID) { hwOver++; return; }
+          arr.push(s);
         });
       } catch (e) {}
     }
+    var _dailyExp = [];
 
     // 単元→教科 の対応表（unit-analytics の unitInfo）
     var unitInfo = (unitAna && unitAna.unitInfo) || {};
@@ -1014,9 +1049,10 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       }
 
       // まだ返していない家庭学習
-      var hw = hwByUser[st.userId];
-      if (hw) {
-        out.push('・まだ返していない家庭学習（' + (hw.dayKey || '') + '）');
+      var hwList = hwByUser[st.userId] || [];
+      for (var _hi = 0; _hi < hwList.length; _hi++) {
+        var hw = hwList[_hi];
+        out.push('・まだ返していない家庭学習（' + (hw.dayKey || '') + '）' + (hwList.length > 1 ? '※DAILY の目印はこの日の分' : ''));
         if (hw.aim)            out.push('　めあて: ' + hw.aim);
         if (hw.todo)           out.push('　やったこと: ' + hw.todo);
         if (hw.why)            out.push('　えらんだ理由: ' + hw.why);
@@ -1226,9 +1262,13 @@ try {
 
       // ---- 書いてほしい欄（目印） ----
       out.push('');
-      if (want.daily && hw && !hw.restDay) {
-        out.push('=== [DAILY:' + hw.id + '] ' + nm + '｜' + (hw.dayKey || '') + ' ===');
-        out.push('');
+      if (want.daily) {
+        (hwByUser[st.userId] || []).forEach(function (h1) {
+          if (h1.restDay) return;
+          out.push('=== [DAILY:' + h1.id + '] ' + nm + '｜' + (h1.dayKey || '') + ' ===');
+          out.push('');
+          _dailyExp.push({ id: String(h1.id), uid: String(st.userId), day: String(h1.dayKey || '') });
+        });
       }
       if (want.karte)   { out.push('=== [KARTE:' + sid + '] ' + nm + ' ==='); out.push(''); }
       if (want.plan && planLines.length)  { out.push('=== [PLAN:' + sid + '] ' + nm + ' ==='); out.push(''); }
@@ -1274,7 +1314,11 @@ try {
       }
     } catch (e) {}
     window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false, noMaterial: pickNone, peopleWords: _pn };
-    if (!oneId) cacheSet(_ckey, _txt, _blocks, pickNone, _pn);
+    // HW_DAILY_ALL_V1 渡した DAILY の欄を覚えておき、取り込みのあとで「入らなかった提出」を出す
+    if (!oneId) dailyExpSet(cid, _dailyExp, !!retryUids);
+    if (!oneId && !retryUids) cacheSet(_ckey, _txt, _blocks, pickNone, _pn, _dailyExp);
+    if (retryUids) say('✓ コメントが入らなかった ' + _dailyExp.length + '件ぶんをコピーしました。AIに貼って、返事を下の欄へ（いまある下書きは消さずに追加します）');
+    if (want.daily && hwOver) { try { var _st = $('taiStatus'); if (_st) _st.textContent = (_st.textContent || '') + '　※未返却が6件以上の子がいたので、古い日から5件ずつ渡しました（のこり' + hwOver + '件は次の回に）'; } catch (e) {} }
     window.__taiBusy = false;
     copyText(_txt);
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
@@ -1565,6 +1609,13 @@ async function taiImport(opts) {
   _rosterCache[cid] = _rosterPeople;
 
   var parsed = _taiParse(raw);
+  // HW_DAILY_ALL_V1 「入らなかった分だけ もう一度コピー」の返事なら、いまの下書きを消さずに追加する
+  var _exp = dailyExpGet(cid);
+  if (!appendMode && _exp && _exp.retry && parsed.blocks.length) {
+    var _ok = {}; _exp.list.forEach(function (x) { _ok[x.id] = 1; });
+    var _allIn = parsed.blocks.every(function (b) { return b.kind === 'DAILY' && _ok[String(b.idPart)]; });
+    if (_allIn) appendMode = true;
+  }
   var items = [], holds = [];
   function hold(why, marker, detail) { holds.push({ why: why, marker: marker || '', detail: detail || '' }); }
 
@@ -1629,7 +1680,7 @@ async function taiImport(opts) {
       if (_o && _o.blocks) _expect = Number(_o.blocks) || 0;
     } catch (e) {}
   }
-  if (!appendMode && _expect && parsed.blocks.length < _expect) {
+  if (!appendMode && !(_exp && _exp.retry) && _expect && parsed.blocks.length < _expect) {
     hold('①で渡した欄は ' + _expect + '個ですが、返事から読み取れた欄は ' + parsed.blocks.length + '個です。目印が消えて、前の子の文にくっついているおそれがあります', '', '');
   }
   var risky = 0;
@@ -1639,6 +1690,7 @@ async function taiImport(opts) {
 
   if (!items.length) {
     showHolds(holds);
+    showDailyMissing(cid, _exp, items, nameMap, opts.append);
     say2('取り込めるものがありませんでした（読めた目印 ' + parsed.blocks.length + '件 ／ 保留 ' + holds.length + '件）');
     return;
   }
@@ -1648,12 +1700,67 @@ async function taiImport(opts) {
   });
   if (!res || !res.ok) { say2('下書きの保存に失敗しました'); return; }
   showHolds(holds);
+  showDailyMissing(cid, _exp, items, nameMap, opts.append);
   say2('✓ ' + res.saved + '件を下書きに' + (appendMode ? '追加' : '取り込み') + 'ました。' +
     (holds.length ? '⚠ ' + holds.length + '件は割り当てず保留しました（上の赤い枠）。' : '') +
     (risky ? '⚠ ' + risky + '件にほかの子の名前が入っている可能性があります。' : '') +
     '下の「④ 先生が確認して公開」を見てください');
   if (ta) ta.value = '';
   taiLoadDrafts();
+}
+
+// HW_DAILY_ALL_V1 取り込みのあとで「まだ返していないのに、コメント下書きが入っていない提出」を一覧にする。
+//   ①で渡したかどうかに関係なく、データベースの今の状態で数える（原因がほかにあっても先生が気づける）。
+//   読むのは「未返却だけ（直近35日）」と「DAILY の下書きだけ」の2回。どちらも軽い。
+//   先生の画面だけに出す。子どもには何も届かない（公開は今までどおり④で先生が押したときだけ）。
+var _dailyMissing = [];
+async function showDailyMissing(cid, exp, items, nameMap, oneBox) {
+  if (!cid) return;
+  var el = $('taiDailyMissBox');
+  if (!el) {
+    var anchor = $('taiHoldBox') || $('taiStatus') || $('taiDraftList');
+    if (!anchor || !anchor.parentNode) return;
+    el = document.createElement('div');
+    el.id = 'taiDailyMissBox';
+    el.className = 'mt-2';
+    anchor.parentNode.insertBefore(el, anchor.nextSibling);
+  }
+  var subs = [], drafts = [];
+  try {
+    var _from = fmtDay(new Date(jstNow().getTime() - 35 * 86400000));
+    var hd = await getJson('/api/teacher/homework?classId=' + encodeURIComponent(cid) + '&unreturned=1&from=' + _from);
+    subs = (hd && hd.submissions) || [];
+    var dd = await getJson('/api/teacher/ai-drafts?classId=' + encodeURIComponent(cid) + '&status=draft&kind=DAILY');
+    drafts = (dd && dd.drafts) || [];
+  } catch (e) { return; }
+  var has = {};
+  drafts.forEach(function (d) { if (d.refKey) has[String(d.refKey)] = 1; });
+  _dailyMissing = [];
+  subs.forEach(function (x) {
+    if (x.returnedAt || x.restDay) return;
+    if (has[String(x.id)]) return;
+    _dailyMissing.push({ id: String(x.id), uid: String(x.userId), day: String(x.dayKey || ''),
+      nm: (nameMap && nameMap[x.userId]) || nameOf(x.loginId, x.studentName) || '（名簿外）' });
+  });
+  _dailyMissing.sort(function (p, q) { return p.day < q.day ? -1 : p.day > q.day ? 1 : 0; });
+  if (!_dailyMissing.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  var h = '<div class="rounded-lg border-2 border-amber-400 bg-amber-50 p-2">' +
+    '<div class="text-xs font-black text-amber-800">⚠ まだ返していないのに、コメント下書きが入っていない家庭学習（' + _dailyMissing.length + '件）</div>' +
+    '<div class="text-[11px] text-amber-800 mb-1">コピーのあとに出された分・AIの返事に無かった分・目印がくずれた分など。下のボタンで、この分だけもう一度コピーできます（いまの下書きは消えません）。</div>' +
+    '<ul class="text-[11px] text-amber-900 list-disc pl-4">';
+  _dailyMissing.forEach(function (x) { h += '<li>' + esc(x.nm) + '｜' + esc(x.day) + '</li>'; });
+  h += '</ul><button type="button" onclick="taiDailyRetryCopy()" ' +
+    'style="margin-top:4px;background:#d97706;color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer">' +
+    '📋 入らなかった分だけ もう一度コピー</button></div>';
+  el.innerHTML = h;
+  el.style.display = '';
+}
+async function taiDailyRetryCopy() {
+  if (!_dailyMissing.length) { say('入らなかった提出はありません'); return; }
+  var ids = _dailyMissing.map(function (x) { return x.id; });
+  var uids = {}; _dailyMissing.forEach(function (x) { uids[x.uid] = 1; });
+  say('入らなかった分を作っています…');
+  await taiCopyAll({ onlyKind: 'DAILY', onlyHwIds: ids, onlyHwUids: Object.keys(uids) });
 }
 
 // ===================================================================
@@ -1956,6 +2063,7 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
   window.taiOneOpen = taiOneOpen;
   window.taiOneCopy = taiOneCopy;
   window.taiOneImport = taiOneImport;
+  window.taiDailyRetryCopy = taiDailyRetryCopy;
 
   // ---------- 初期化 ----------
   // 金曜日は「週の振り返りの返却」を既定でONにし、その旨を画面に出す（先生は外せる）
