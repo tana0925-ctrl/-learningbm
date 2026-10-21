@@ -897,6 +897,19 @@ app.put('/api/student/progress', async (c) => {
         _inc._hanshinCoinsApplied = _srvHq
         saveJson = JSON.stringify(_inc)
       }
+      // ✍️ 週の振り返りを書いたボーナス（WEEKREF_V1）：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
+      //    金額は week_ref_rewards 台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。_hanshinCoinsApplied と同じ形。
+      const _srvWr = Number(_srv._weekRefCoinsApplied) || 0
+      const _cliWr = Number(_inc._weekRefCoinsApplied) || 0
+      if (_srvWr > _cliWr) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvWr - _cliWr)
+        _inc._weekRefCoinsApplied = _srvWr
+        saveJson = JSON.stringify(_inc)
+      } else if (_cliWr > _srvWr) {
+        // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
+        _inc._weekRefCoinsApplied = _srvWr
+        saveJson = JSON.stringify(_inc)
+      }
       // 👾 ステージ初クリアのボーナスコイン：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
       //    金額は defense_stage_rewards 台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。
       //    _contactCoinsApplied / _hwCoinsApplied とまったく同じ形。
@@ -6710,6 +6723,140 @@ app.get('/api/student/growth-story', async (c) => {
   try { if (_growthCache.size > 800) _growthCache.clear(); _growthCache.set(u.id, { at: Date.now(), body: _gBody }) } catch (e) {}
   return c.json(_gBody)
 })
+// ══════ WEEKREF_V1 週の振り返り：書いたら小さなボーナス／先生の「ひと往復」用の読み取り ══════
+//  ・ボーナスは 1週につき1回だけ。week_ref_rewards（week_key＋user_id が主キー）に素の INSERT が
+//    通ったときだけ、サーバーで progress にコインを足す（予約→付与→失敗したら解放）。
+//    hanshin_answer_rewards と同じ作法。金額はこの定数だけで決まる。クライアントの申告は使わない。
+//  ・もらえるのは「いまの週」（日本時間・朝8:30前は前の日あつかい）のぶんだけ。昔の週を送っても付かない。
+//  ・足すときは json_set で coins と _weekRefCoinsApplied を同じだけ動かす（PUT の補填と矛盾しない）。
+//  ・表は migrations/0042_week_ref_rewards.sql で作る（リクエストの途中では作らない）。
+const WEEK_REF_BONUS_COINS = 20
+const WEEK_REF_MIN_CHARS = 5
+function weekRefIsoKey(d: Date): string {
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7))
+  const ys = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1))
+  const wn = Math.ceil((((tmp.getTime() - ys.getTime()) / 86400000) + 1) / 7)
+  return `${tmp.getUTCFullYear()}-W${String(wn).padStart(2, '0')}`
+}
+function weekRefAllowedKeys(nowMs?: number): string[] {
+  const n = typeof nowMs === 'number' ? nowMs : Date.now()
+  const a = weekRefIsoKey(new Date(n + 9 * 3600000 - 8.5 * 3600000))   // 子どもの画面と同じ（朝8:30前は前の日）
+  const b = weekRefIsoKey(new Date(n + 9 * 3600000))                   // 日本時間のカレンダーどおり
+  return a === b ? [a] : [a, b]
+}
+function weekRefChars(...parts: any[]): number {
+  return Array.from(parts.map((x) => String(x || '')).join('').replace(/[\s　]/g, '')).length
+}
+function weekRefFri(plansJson: string): string {
+  try {
+    const o = JSON.parse(plansJson || '{}')
+    let v: any = o && o.fri
+    if (v === undefined) { const ks = Object.keys(o || {}).filter((k) => k !== '_modified'); v = ks[4] ? o[ks[4]] : '' }
+    return (v && typeof v === 'object') ? String(v.reflection || '') : ''
+  } catch (_e) { return '' }
+}
+async function weekRefGrant(env: any, userId: string, weekKey: string) {
+  const out: any = { rewardedNow: false, coins: null, applied: null }
+  // 1) 枠の確保（主キー衝突＝もう付与済み）
+  let reserved = false
+  try {
+    await env.DB.prepare("INSERT INTO week_ref_rewards (week_key, user_id, coins, created_at) VALUES (?, ?, ?, datetime('now'))").bind(weekKey, userId, WEEK_REF_BONUS_COINS).run()
+    reserved = true
+  } catch (_e) { reserved = false }
+  if (!reserved) return out
+  // 2) サーバー側でコインを加算＋累計台帳を増やす（同じ額だけ）
+  try {
+    const r: any = await env.DB.prepare("UPDATE progress SET state_json = json_set(json_set(state_json, '$.coins', COALESCE(CAST(json_extract(state_json, '$.coins') AS INTEGER), 0) + ?), '$._weekRefCoinsApplied', COALESCE(CAST(json_extract(state_json, '$._weekRefCoinsApplied') AS INTEGER), 0) + ?), updated_at = datetime('now') WHERE user_id = ? AND json_valid(state_json)")
+      .bind(WEEK_REF_BONUS_COINS, WEEK_REF_BONUS_COINS, userId).run()
+    if (r && r.meta && Number(r.meta.changes) === 1) {
+      out.rewardedNow = true
+      const s2: any = await env.DB.prepare("SELECT CAST(json_extract(state_json, '$.coins') AS INTEGER) AS coins, CAST(json_extract(state_json, '$._weekRefCoinsApplied') AS INTEGER) AS applied FROM progress WHERE user_id=?").bind(userId).first<any>()
+      if (s2) { out.coins = Number(s2.coins); out.applied = Number(s2.applied) }
+    }
+  } catch (e) { console.error('WEEKREF_V1 grant error', e) }
+  // 3) 足せなかったら枠を解放（次に出したときにやり直せる）
+  if (!out.rewardedNow) {
+    try { await env.DB.prepare('DELETE FROM week_ref_rewards WHERE week_key=? AND user_id=?').bind(weekKey, userId).run() } catch (_e) {}
+  }
+  return out
+}
+// 児童：今週の振り返りを書いたか・ボーナスをもらったか（阪神マンの声かけと、欄の下の一言に使う）
+//   読むのは主キーで1行ずつ（最大3回）。
+app.get('/api/student/week-ref-status', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return c.json({ ok: true, student: false })
+  const allowed = weekRefAllowedKeys()
+  const want = String(c.req.query('weekKey') || '')
+  const wk = allowed.indexOf(want) >= 0 ? want : allowed[0]
+  let wrote = false, rewarded = false
+  try {
+    const r: any = await c.env.DB.prepare('SELECT good_point, improve_point, free_text FROM structured_reflections WHERE user_id=? AND week_key=? LIMIT 1').bind(u.id, wk).first<any>()
+    if (r && weekRefChars(r.free_text, r.good_point, r.improve_point) > 0) wrote = true
+  } catch (_e) {}
+  if (!wrote) {
+    try {
+      const p: any = await c.env.DB.prepare('SELECT plans_json FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(u.id, wk).first<any>()
+      if (p && weekRefChars(weekRefFri(p.plans_json)) > 0) wrote = true
+    } catch (_e) {}
+  }
+  try { rewarded = !!(await c.env.DB.prepare('SELECT 1 AS x FROM week_ref_rewards WHERE week_key=? AND user_id=?').bind(wk, u.id).first<any>()) } catch (_e) {}
+  return c.json({ ok: true, student: true, weekKey: wk, wrote, rewarded, reward: WEEK_REF_BONUS_COINS, minChars: WEEK_REF_MIN_CHARS })
+})
+// 先生：「今日のひと往復」用。指定した週（最大3週）の週の振り返りを、クラスぶんまとめて返す。
+//   ・週の計画の「🔄今週の振り返り」（plans_json の金曜 reflection と structured_reflections の自由欄・項目欄）
+//   ・家庭学習シートの「🌟週の振り返り」（その週の提出の weekly_reflection と、返却ずみかどうか）
+//   ・返却のようす（student_weekly_plans.reflection_returned_at）
+//   どれも class_members から索引で引く（全件スキャンにはならない。本番の1クラスで200行ほど）。
+app.get('/api/teacher/week-reflections', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
+  const weeks = String(c.req.query('weeks') || '').split(',').map((x) => x.trim()).filter((x) => /^\d{4}-W\d{2}$/.test(x)).slice(0, 3)
+  if (!weeks.length) return c.json({ ok: true, weeks: [], items: [] })
+  const ph = weeks.map(() => '?').join(',')
+  const by: Record<string, any> = {}
+  const slot = (uid: string, wk: string) => {
+    const k = uid + '|' + wk
+    if (!by[k]) by[k] = { userId: uid, weekKey: wk, planReflection: '', freeText: '', goodPoint: '', improvePoint: '', nextAction: '', hasPlanRow: false, returnedAt: 0, comment: '', hw: null }
+    return by[k]
+  }
+  const cut = (x: any, n: number) => String(x || '').slice(0, n)
+  try {
+    const r = await c.env.DB.prepare(`SELECT swp.user_id AS uid, swp.week_key AS wk, swp.plans_json AS pj, swp.reflection_comment AS rc, swp.reflection_returned_at AS ra FROM class_members cm JOIN student_weekly_plans swp ON swp.user_id = cm.user_id AND swp.week_key IN (${ph}) WHERE cm.class_id = ?`).bind(...weeks, classId).all<any>()
+    for (const row of (((r && r.results) || []) as any[])) {
+      const s1 = slot(String(row.uid), String(row.wk))
+      s1.hasPlanRow = true
+      s1.planReflection = cut(weekRefFri(row.pj), 600)
+      s1.returnedAt = Number(row.ra) || 0
+      s1.comment = cut(row.rc, 600)
+    }
+  } catch (e) { console.error('WEEKREF_V1 plans', e) }
+  try {
+    const r = await c.env.DB.prepare(`SELECT sr.user_id AS uid, sr.week_key AS wk, sr.good_point AS gp, sr.improve_point AS ip, sr.next_action AS na, sr.free_text AS ft FROM class_members cm JOIN structured_reflections sr ON sr.user_id = cm.user_id AND sr.week_key IN (${ph}) WHERE cm.class_id = ?`).bind(...weeks, classId).all<any>()
+    for (const row of (((r && r.results) || []) as any[])) {
+      const s1 = slot(String(row.uid), String(row.wk))
+      s1.freeText = cut(row.ft, 600); s1.goodPoint = cut(row.gp, 300); s1.improvePoint = cut(row.ip, 300); s1.nextAction = cut(row.na, 60)
+    }
+  } catch (e) { console.error('WEEKREF_V1 structured', e) }
+  try {
+    const sorted = weeks.slice().sort()
+    const from = getMondayFromWeekKey(sorted[0]).toISOString().slice(0, 10)
+    const to = new Date(getMondayFromWeekKey(sorted[sorted.length - 1]).getTime() + 6 * 86400000).toISOString().slice(0, 10)
+    const r = await c.env.DB.prepare("SELECT hs.id AS id, hs.user_id AS uid, hs.day_key AS dk, hs.weekly_reflection AS wr, hs.returned_at AS ra FROM class_members cm JOIN homework_submissions hs ON hs.user_id = cm.user_id AND hs.day_key >= ? AND hs.day_key <= ? WHERE cm.class_id = ? AND hs.weekly_reflection IS NOT NULL AND hs.weekly_reflection <> ''").bind(from, to, classId).all<any>()
+    for (const row of (((r && r.results) || []) as any[])) {
+      const wk = weekRefIsoKey(new Date(String(row.dk) + 'T00:00:00Z'))
+      if (weeks.indexOf(wk) < 0) continue
+      const s1 = slot(String(row.uid), wk)
+      if (s1.hw && String(s1.hw.dayKey) > String(row.dk)) continue
+      s1.hw = { id: String(row.id), dayKey: String(row.dk), text: cut(row.wr, 600), returnedAt: Number(row.ra) || 0 }
+    }
+  } catch (e) { console.error('WEEKREF_V1 homework', e) }
+  const items = Object.keys(by).map((k) => by[k]).filter((x: any) => x.planReflection || x.freeText || x.goodPoint || x.improvePoint || x.nextAction || (x.hw && x.hw.text))
+  return c.json({ ok: true, weeks, items })
+})
 app.post('/api/student/weekly-reflection', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
@@ -6777,7 +6924,24 @@ app.post('/api/student/weekly-reflection', async (c) => {
       }
     }
   } catch (_e) {}
-  return c.json({ ok: true, reflectionShards })
+  // WEEKREF_V1 週の振り返りのボーナス（1週1回・5文字以上・いまの週だけ・児童だけ）
+  const weekRefBonus: any = { eligible: false, rewardedNow: false, rewarded: false, tooShort: false, reward: WEEK_REF_BONUS_COINS, minChars: WEEK_REF_MIN_CHARS }
+  try {
+    if (u.role === 'student' && /^\d{4}-W\d{2}$/.test(weekKey) && weekRefAllowedKeys().indexOf(weekKey) >= 0) {
+      const chars = weekRefChars(freeText, goodPoint, improvePoint)
+      weekRefBonus.tooShort = chars < WEEK_REF_MIN_CHARS
+      if (chars >= WEEK_REF_MIN_CHARS) {
+        weekRefBonus.eligible = true
+        const g = await weekRefGrant(c.env, u.id, weekKey)
+        weekRefBonus.rewardedNow = !!g.rewardedNow
+        weekRefBonus.coins = g.coins
+        weekRefBonus.weekRefCoinsApplied = g.applied
+      }
+      weekRefBonus.rewarded = weekRefBonus.rewardedNow
+      if (!weekRefBonus.rewarded) { try { weekRefBonus.rewarded = !!(await c.env.DB.prepare('SELECT 1 AS x FROM week_ref_rewards WHERE week_key=? AND user_id=?').bind(weekKey, u.id).first<any>()) } catch (_e) {} }
+    }
+  } catch (_e) {}
+  return c.json({ ok: true, reflectionShards, weekRefBonus })
 })
 
 // 生徒：自分の構造化ふりかえりを取得
@@ -7080,7 +7244,16 @@ app.post('/api/teacher/reflection-comments', async (c) => {
       ? await c.env.DB.prepare('SELECT 1 FROM class_members WHERE user_id=? LIMIT 1').bind(sid).first<any>()
       : await c.env.DB.prepare('SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, sid).first<any>()
     if (!own) continue
-    const row = await c.env.DB.prepare('SELECT id, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, weekKey).first<any>()
+    // WEEKREF_V1 どの週の振り返りへの返事かを1件ずつ受け取る（先週・2週前の分を月曜に返せるように）
+    const wk1 = /^\d{4}-W\d{2}$/.test(String(it.weekKey || '')) ? String(it.weekKey) : weekKey
+    let row = await c.env.DB.prepare('SELECT id, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, wk1).first<any>()
+    if (!row) {
+      // 計画の行が無く、振り返りだけ書いてある週（まれ）。返事を置く行を作る。
+      const hasRef = await c.env.DB.prepare('SELECT 1 AS x FROM structured_reflections WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, wk1).first<any>().catch(() => null)
+      if (!hasRef) continue
+      await c.env.DB.prepare('INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at) VALUES (?,?,?,?)').bind(sid, wk1, '{}', Date.now()).run()
+      row = await c.env.DB.prepare('SELECT id, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(sid, wk1).first<any>()
+    }
     if (!row || row.reflection_returned_at) continue
     await c.env.DB.prepare('UPDATE student_weekly_plans SET reflection_comment=?, reflection_returned_at=?, reflection_reward_coins=? WHERE id=?').bind(comment, Date.now(), 300, row.id).run()
     saved++
@@ -9726,6 +9899,7 @@ const _g8xfiles = ['g8xmath.js','g8xeng.js','g8xsci.js','g8xsoc.js','g8xjp.js']
 for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
 app.get('/karte-michi.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/karte-michi.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MICHI_V1
 app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-ai.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -9945,6 +10119,8 @@ app.get('/', async (c) => {
       t = t.replace("function genWorld6(){return _pickBank(_SS.world6);}", "function genWorld6(){return _pickBank([{q:'🌍 アメリカ合衆国の首都はどこ？',correct:'ワシントンD.C.',wrongs:['ニューオーリンズ','サンフランシスコ','フィラデルフィア']},{q:'🌍 アメリカ合衆国で\\nおもに使われている言語は？',correct:'英語',wrongs:['スペイン語','フランス語','ドイツ語']},{q:'🌍 アメリカの農業の特色は？',correct:'広い農地で大型機械を使って行う',wrongs:['せまい農地で手作業を中心に行う','水田が耕地の大部分をしめる','山の斜面のだんだん畑が中心']},{q:'🌍 日本がアメリカから\\n多く輸入している農産物は？',correct:'とうもろこしや大豆',wrongs:['さとうきびやバナナ','コーヒー豆やカカオ豆','オリーブやぶどう']},{q:'🌍 アメリカの小学校で\\nよく見られるようすは？',correct:'スクールバスで通学する子が多い',wrongs:['決められた制服を着て通学する子が多い','そうじの時間が毎日ある','給食当番が配ぜんを行う']},{q:'🌍 さまざまな民族が\\nともに暮らすアメリカの社会を何という？',correct:'多民族社会',wrongs:['単一民族社会','鎖国した社会','農村中心の社会']},{q:'🌍 中国の首都はどこ？',correct:'ペキン',wrongs:['シャンハイ','ホンコン','ソウル']},{q:'🌍 中国でおもに使われている文字は？',correct:'漢字',wrongs:['ハングル','アルファベット','アラビア文字']},{q:'🌍 中国から日本に\\n多く輸入されているものは？',correct:'衣類や機械類',wrongs:['原油や天然ガス','鉄鉱石や石炭','小麦や牛肉']},{q:'🌍 中国の代表的な料理として\\n知られているものは？',correct:'ぎょうざやチャーハン',wrongs:['キムチやビビンバ','タコスやトルティーヤ','ナンやカレー']},{q:'🌍 中国で古くからの暦にもとづいて\\n祝われる正月を何という？',correct:'春節',wrongs:['七夕','感謝祭','イースター']},{q:'🌍 中国は日本から見て\\nどの方角にある？',correct:'西',wrongs:['東','南','北']},{q:'🌍 大韓民国の首都はどこ？',correct:'ソウル',wrongs:['ペキン','ハノイ','マニラ']},{q:'🌍 韓国で使われている文字は？',correct:'ハングル',wrongs:['アルファベット','アラビア文字','キリル文字']},{q:'🌍 韓国の食事でよく使われ\\n日本とちがうところは？',correct:'金属のはしとスプーンを使う',wrongs:['木のはしだけを使って食べる','ナイフとフォークを使って食べる','手を使って直接食べる']},{q:'🌍 韓国の代表的な\\nつけもの料理は？',correct:'キムチ',wrongs:['ぬかづけ','ザワークラウト','ピクルス']},{q:'🌍 韓国は日本から見て\\nどこにある？',correct:'西どなりの朝鮮半島にある',wrongs:['東どなりの太平洋上にある','南のはるか遠くの島にある','北の広い大陸の内陸にある']},{q:'🌍 ブラジルでおもに\\n使われている言語は？',correct:'ポルトガル語',wrongs:['スペイン語','イタリア語','フランス語']},{q:'🌍 ブラジルに広がる\\n世界最大の熱帯雨林は？',correct:'アマゾン',wrongs:['サハラ','ゴビ','ヒマラヤ']},{q:'🌍 ブラジルで毎年行われる\\n有名な祭りは？',correct:'カーニバル',wrongs:['ハロウィン','オクトーバーフェスト','ホーリー']},{q:'🌍 日本からブラジルへ移り住んだ人や\\nその子孫を何という？',correct:'日系人',wrongs:['帰国子女','留学生','旅行者']},{q:'🌍 ブラジルから日本に\\n多く輸入されている農産物は？',correct:'コーヒー豆',wrongs:['オリーブ','ぶどう','なつめやし']},{q:'🌍 サウジアラビアの人々が\\n多く信仰している宗教は？',correct:'イスラム教',wrongs:['キリスト教','仏教','ヒンドゥー教']},{q:'🌍 日本がサウジアラビアから\\n多く輸入しているものは？',correct:'石油',wrongs:['石炭','鉄鉱石','木材']},{q:'🌍 イスラム教の人々が\\n礼拝を行う建物を何という？',correct:'モスク',wrongs:['仏教寺院','キリスト教会','神社']},{q:'🌍 イスラム教で食べることが\\n禁じられている肉は？',correct:'ぶた肉',wrongs:['牛肉','とり肉','ひつじ肉']},{q:'🌍 サウジアラビアの国土の\\n多くをしめる地形は？',correct:'砂漠',wrongs:['森林','氷河','湿地']},{q:'🌍 国際連合の本部がある\\n都市はどこ？',correct:'ニューヨーク',wrongs:['アムステルダム','ブエノスアイレス','ヨハネスブルク']},{q:'🌍 国際連合がつくられた\\nいちばんの目的は？',correct:'世界の平和と安全を守ること',wrongs:['貿易の利益を大きくすること','強い国の力をさらに高めること','各国の軍隊を強くすること']},{q:'🌍 世界の子どもの命と健康を守る\\n活動をしている国連の機関は？',correct:'ユニセフ',wrongs:['ユネスコ','WTO','IOC']},{q:'🌍 教育・科学・文化を通じて\\n平和をつくる国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WTO','IOC']},{q:'🌍 世界遺産の登録を\\n行っている国連の機関は？',correct:'ユネスコ',wrongs:['ユニセフ','WHO','IOC']},{q:'🌍 世界の人々の健康を守る\\n活動をしている国連の機関は？',correct:'WHO',wrongs:['ユニセフ','ユネスコ','IOC']},{q:'🌍 加盟国のすべてが参加して\\n話し合う国連の場を何という？',correct:'総会',wrongs:['安全保障理事会','事務局','国際司法裁判所']},{q:'🌍 世界の平和と安全に\\nおもな責任をもつ国連の機関は？',correct:'安全保障理事会',wrongs:['国際司法裁判所','国連教育科学文化機関','国連児童基金']},{q:'🌍 2030年までに世界で達成しようと\\n国連が決めた目標を何という？',correct:'SDGs',wrongs:['ODA','NGO','GDP']},{q:'🌍 SDGsは、いくつの目標から\\nできている？',correct:'17',wrongs:['7','27','47']},{q:'🌍 日本の政府が発展途上国を助けるために\\n行っている援助を何という？',correct:'ODA',wrongs:['NGO','WHO','GDP']},{q:'🌍 政府ではなく民間の人々がつくり\\n国際協力を行う団体を何という？',correct:'NGO',wrongs:['ODA','GDP','IOC']},{q:'🌍 発展途上国へ行き\\n技術や知識を伝える日本の人たちは？',correct:'青年海外協力隊',wrongs:['日本赤十字社','国際交流基金','日本オリンピック委員会']},{q:'🌍 戦争や紛争のために自分の国を\\nはなれた人々を何という？',correct:'難民',wrongs:['移民','留学生','旅行者']},{q:'🌍 国際協力で大切な\\n考え方として正しいのは？',correct:'たがいの文化を尊重し合うこと',wrongs:['自分の国のやり方に合わせさせること','ゆたかな国だけで決めること','他の国と関わりを持たないこと']},{q:'🌍 日本が国際連合に\\n加盟したのはいつごろ？',correct:'第二次世界大戦が終わったあと',wrongs:['第一次世界大戦が始まるより前','江戸時代が終わるころ','明治時代が始まったころ']},{q:'🌍 日本が国際社会で果たしている\\n役割として正しいのは？',correct:'平和の実現に向けた協力や支援',wrongs:['他の国の政治を支配すること','武力によって紛争を解決すること','貿易をやめて孤立すること']},{q:'🌍 世界でいちばん面積が\\n大きい大陸は？',correct:'ユーラシア大陸',wrongs:['アフリカ大陸','北アメリカ大陸','南アメリカ大陸']},{q:'🌍 世界でいちばん面積が\\n大きい海は？',correct:'太平洋',wrongs:['大西洋','インド洋','北極海']},{q:'🌍 地球全体の気温が\\n高くなっていく問題を何という？',correct:'地球温暖化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 森林が減り土地があれて\\n広がっていく問題を何という？',correct:'砂漠化',wrongs:['オゾン層の破壊','海洋プラスチック汚染','酸性雨の増加']},{q:'🌍 温室効果ガスを減らすために\\n大切な取り組みは？',correct:'再生可能エネルギーを増やすこと',wrongs:['石炭や石油をもっと燃やすこと','森林を切りひらいて広げること','電気を使う量をふやし続けること']},{q:'🌍 世界の国々が協力して\\n環境問題に取り組む理由は？',correct:'一つの国だけでは解決できないから',wrongs:['一部の大きな国だけが困っているから','決まりを作ることが目的だから','他の国の産業を止めたいから']}]);}")/* SHINY_YEARROUND_V1 */.replace('                    if (_shCap && typeof isSummerFestSeason === \'function\' && isSummerFestSeason() && Math.random() < SHINY_RATE) {\n                        battle.enemyShiny = true;\n                        _sh0.shiny = true;\n                        try { if (window._sf26ReportShiny) window._sf26ReportShiny(_shm); } catch(e) {}\n                    }', '                    if (_shCap && window.__shinyWildRoll && window.__shinyWildRoll()) {\n                        battle.enemyShiny = true;\n                        _sh0.shiny = true;\n                        try { if (window.__shinyEncounter) window.__shinyEncounter(); } catch(e) {}\n                    }').replace('// ✨ 色違いを永続保存（state_json の player.monsters と box に shiny:true）\n                    try { if (battle.enemyShiny) { if (!player.monsters[enemy.id]) player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) }; player.monsters[enemy.id].shiny = true; if (typeof boxEntry === \'object\' && boxEntry) boxEntry.shiny = true; } } catch(e){}', '// ✨ 色違いを永続保存（state_json の player.monsters と box に shiny:true）\n                    try { if (battle.enemyShiny) { if (!player.monsters[enemy.id]) player.monsters[enemy.id] = { level: captureLvl, exp: 0, nextExp: calculateNextExp(captureLvl) }; player.monsters[enemy.id].shiny = true; if (typeof boxEntry === \'object\' && boxEntry) boxEntry.shiny = true; } } catch(e){}\n                    try { if (battle.enemyShiny && window._shinyCaught) window._shinyCaught(enemy.name); } catch(e){}').replace('</body>', '<script src="/shiny-news.js?v=1"></script></body>')
       // HS_NEXT_RECALL_V1_WIRED 入力の すぐ上に まえの「つぎにすること」を 出すだけ。中身は public/hs_next_recall.js。
       t = t.replace('</body>', '<script src="/hs_next_recall.js?v=1"></script></body>')
+      // ✍️ WEEKREF_V1 週の振り返り：阪神マンの声かけ・書き出しのヒント・ボーナスの表示・2週前の返事。中身は public/weekref.js。
+      t = t.replace('</body>', '<script src="/weekref.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")

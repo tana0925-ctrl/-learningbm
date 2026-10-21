@@ -70,7 +70,8 @@ CREATE TABLE class_members (
 CREATE TABLE homework_submissions (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT, title TEXT, body TEXT,
   photo_key TEXT, work_photo_key TEXT DEFAULT '', teacher_id TEXT, teacher_comment TEXT,
-  has_physical INTEGER DEFAULT 0, returned_at INTEGER, created_at TEXT DEFAULT (datetime('now'))
+  has_physical INTEGER DEFAULT 0, returned_at INTEGER, created_at TEXT DEFAULT (datetime('now')),
+  day_key TEXT, weekly_reflection TEXT DEFAULT ''
 );
 CREATE TABLE contact_notes (
   id TEXT PRIMARY KEY, class_id TEXT, day_key TEXT, body TEXT,
@@ -104,6 +105,23 @@ CREATE TABLE hanshin_answer_rewards (
 CREATE TABLE karte_recos (
   user_id TEXT PRIMARY KEY, week_key TEXT, reco_json TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'auto',
   updated_by TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE structured_reflections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, week_key TEXT NOT NULL,
+  concentration INTEGER NOT NULL DEFAULT 2, good_point TEXT NOT NULL DEFAULT '', improve_point TEXT NOT NULL DEFAULT '',
+  next_action TEXT NOT NULL DEFAULT '', free_text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+  UNIQUE(user_id, week_key)
+);
+CREATE TABLE student_weekly_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, week_key TEXT NOT NULL, plans_json TEXT DEFAULT '{}',
+  updated_at INTEGER NOT NULL DEFAULT 0, plan_approved INTEGER DEFAULT 0, plan_approved_at INTEGER DEFAULT 0,
+  plan_reward_coins INTEGER DEFAULT 5, reflection_comment TEXT DEFAULT '', reflection_returned_at INTEGER DEFAULT 0,
+  reflection_reward_coins INTEGER DEFAULT 5, revision_count INTEGER NOT NULL DEFAULT 0, plan_ai_comment TEXT,
+  plan_ai_comment_at TEXT, plan_suggestion TEXT, plan_suggestion_at TEXT, UNIQUE(user_id, week_key)
+);
+CREATE TABLE week_ref_rewards (
+  week_key TEXT NOT NULL, user_id TEXT NOT NULL, coins INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (week_key, user_id)
 );
 CREATE TABLE karte_reco_feedback (
   user_id TEXT NOT NULL, reco_week TEXT NOT NULL, choice TEXT NOT NULL, subj TEXT, unit TEXT,

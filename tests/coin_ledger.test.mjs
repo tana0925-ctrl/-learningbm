@@ -384,6 +384,129 @@ await t('21 先生が差しかえたおすすめは、印刷の自動保存で�
   eq(JSON.parse(row.reco_json).anchor, 'm6-circle', '先生が選んだ単元のまま')
 })
 
+// ── ✍️ 週の振り返りのボーナス（WEEKREF_V1）────────────────────────
+//   1週につき1回・5文字以上・いまの週（日本時間・朝8:30前は前の日）だけ 20コイン。
+function wrIsoKey(d) {
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7))
+  const ys = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1))
+  const wn = Math.ceil((((tmp.getTime() - ys.getTime()) / 86400000) + 1) / 7)
+  return `${tmp.getUTCFullYear()}-W${String(wn).padStart(2, '0')}`
+}
+const WR_NOW = wrIsoKey(new Date(Date.now() + 9 * 3600000 - 8.5 * 3600000))
+const WR_OLD = wrIsoKey(new Date(Date.now() + 9 * 3600000 - 8.5 * 3600000 - 21 * 86400000))
+const sendRef = (w, text, weekKey = WR_NOW, user = null) =>
+  w.call('POST', '/api/student/weekly-reflection', { user: user || w.student, body: { weekKey, dayKey: '2026-10-23', freeText: text } })
+
+await t('22 週の振り返りを5文字以上で出す → 20コイン・台帳1行・自由欄が保存される', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  const r = await sendRef(w, '今週は漢字をがんばった')
+  eq(r.status, 200, 'status')
+  eq(r.json.weekRefBonus.rewardedNow, true, '今回付与')
+  eq(r.json.weekRefBonus.reward, 20, '金額は定数')
+  const s = w.getState()
+  eq(s.coins, 1020, 'DBのコイン')
+  eq(s._weekRefCoinsApplied, 20, 'DBの付与台帳')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳の行数')
+  eq(w.db._get('SELECT free_text FROM structured_reflections WHERE user_id=? AND week_key=?', w.student.id, WR_NOW).free_text, '今週は漢字をがんばった', '自由欄')
+  const st = await w.call('GET', '/api/student/week-ref-status?weekKey=' + WR_NOW, { user: w.student })
+  eq(st.json.wrote, true, '書いた'); eq(st.json.rewarded, true, 'もらった')
+})
+
+await t('23 連打・書きなおし・同時送信でも20しか付かない（1週1回）', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  await Promise.all([0, 1, 2, 3].map((i) => sendRef(w, 'ふりかえり その' + i + ' です')))
+  const r = await sendRef(w, 'かきなおした ふりかえり')
+  eq(r.json.weekRefBonus.rewardedNow, false, '2回目は付与なし')
+  eq(r.json.weekRefBonus.rewarded, true, 'もらいずみ')
+  const s = w.getState()
+  eq(s.coins, 1020, 'コイン')
+  eq(s._weekRefCoinsApplied, 20, '台帳の累計')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳の行数')
+})
+
+await t('24 4文字以下は保存だけ（コインなし）→ あとで5文字以上にすると1回だけ付く', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  const r1 = await sendRef(w, 'た の し')
+  eq(r1.json.weekRefBonus.rewardedNow, false, '短いときは付与なし')
+  eq(r1.json.weekRefBonus.tooShort, true, 'tooShort')
+  eq(w.getState().coins, 1000, '短いときのコイン')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 0, '台帳は空')
+  await sendRef(w, 'たのしかった 算数')
+  eq(w.getState().coins, 1020, '5文字以上で付与')
+})
+
+await t('25 昔の週・おかしな週キー・先生・金額の申告では付かない', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  const a = await sendRef(w, '3週間まえの ふりかえり', WR_OLD)
+  eq(a.json.weekRefBonus.rewardedNow, false, '昔の週は付かない')
+  const b = await sendRef(w, '日付の形の ふりかえり', '2026-10-23')
+  eq(b.json.weekRefBonus.rewardedNow, false, '日付キーは付かない')
+  const c = await sendRef(w, 'せんせいが かいた ふりかえり', WR_NOW, w.teacher)
+  eq(c.json.weekRefBonus.rewardedNow, false, '先生は付かない')
+  eq(w.getState().coins, 1000, 'ここまでコインは動かない')
+  await w.call('POST', '/api/student/weekly-reflection', { user: w.student, body: { weekKey: WR_NOW, freeText: 'たくさん ください', coins: 99999, reward: 99999 } })
+  eq(w.getState().coins, 1020, '申告した金額は使われない')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳の行数')
+})
+
+await t('26 古い端末の全置換保存 → 補填される／台帳の水増しは元に戻る／ほかのボーナスと共存', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  await sendRef(w, '今週は計算をがんばった')
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1000 }) } })
+  eq(w.getState().coins, 1020, '補填後のコイン')
+  eq(w.getState()._weekRefCoinsApplied, 20, '台帳')
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1020, _weekRefCoinsApplied: 99999 }) } })
+  eq(w.getState().coins, 1020, '水増しでコインが増えない')
+  eq(w.getState()._weekRefCoinsApplied, 20, '台帳がサーバの値に戻る')
+  // 画面がサーバの返事を写した端末（coins+20・台帳20）が保存しても二重にならない
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1020, _weekRefCoinsApplied: 20 }) } })
+  eq(w.getState().coins, 1020, '写した端末の保存で二重にならない')
+  // 宿題の返却ボーナスと同時に補填される
+  await w.call('POST', '/api/teacher/homework/hw-1/return', { user: w.teacher, body: { comment: 'ok' } })
+  await w.call('PUT', '/api/student/progress', { user: w.student, body: { state: smallState({ coins: 1000 }) } })
+  const s = w.getState()
+  eq(s.coins, 1170, '150 + 20 が両方補填される')
+  eq(s._hwCoinsApplied, 150, '宿題台帳')
+  eq(s._weekRefCoinsApplied, 20, '振り返り台帳')
+})
+
+await t('27 先生：先週の振り返り（自由欄・🌟）を読める → 先週の週へ返せる・ほかの先生は読めない', async () => {
+  const w = await newWorld()
+  const lastWk = wrIsoKey(new Date(Date.now() + 9 * 3600000 - 7 * 86400000))
+  w.db._run("INSERT INTO structured_reflections (user_id, week_key, free_text, created_at) VALUES (?,?,?,?)", w.student.id, lastWk, '先週は毎日やれた', Date.now())
+  w.db._run("INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at) VALUES (?,?,?,?)", w.student.id, lastWk, JSON.stringify({ mon: 'かんじ', fri: { free: '', reflection: '先週は毎日やれた' } }), Date.now())
+  // 家庭学習シートの🌟（その週の金曜の提出）
+  const _m = lastWk.match(/^(\d{4})-W(\d{2})$/); const _j4 = new Date(Date.UTC(Number(_m[1]), 0, 4)); const _dw = _j4.getUTCDay() || 7
+  const friDay = new Date(_j4.getTime() + ((1 - _dw) + (Number(_m[2]) - 1) * 7 + 4) * 86400000).toISOString().slice(0, 10)
+  w.db._run("INSERT INTO homework_submissions (id, user_id, class_id, title, day_key, weekly_reflection) VALUES (?,?,?,?,?,?)", 'hw-fri', w.student.id, 'cls-1', 'しゅくだい', friDay, '金曜に書いた🌟')
+  const r = await w.call('GET', '/api/teacher/week-reflections?classId=cls-1&weeks=' + lastWk, { user: w.teacher })
+  eq(r.status, 200, 'status')
+  eq(r.json.items.length, 1, '1人ぶん')
+  eq(r.json.items[0].hw && r.json.items[0].hw.text, '金曜に書いた🌟', '🌟も読む')
+  eq(r.json.items[0].hw && r.json.items[0].hw.returnedAt, 0, '🌟はまだ返していない')
+  eq(r.json.items[0].freeText, '先週は毎日やれた', '自由欄を読む')
+  eq(r.json.items[0].planReflection, '先週は毎日やれた', '計画の画面の振り返り')
+  eq(r.json.items[0].returnedAt, 0, 'まだ返していない')
+  const p = await w.call('POST', '/api/teacher/reflection-comments', { user: w.teacher, body: { weekKey: WR_NOW, comments: [{ studentId: w.student.id, comment: 'よくがんばったね', weekKey: lastWk }] } })
+  eq(p.json.saved, 1, '先週へ返せた')
+  const row = w.db._get('SELECT reflection_comment, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key=?', w.student.id, lastWk)
+  eq(row.reflection_comment, 'よくがんばったね', '返事')
+  ok(Number(row.reflection_returned_at) > 0, '返却ずみ')
+  const p2 = await w.call('POST', '/api/teacher/reflection-comments', { user: w.teacher, body: { comments: [{ studentId: w.student.id, comment: 'にどめ', weekKey: lastWk }] } })
+  eq(p2.json.saved, 0, '二重に返さない')
+  const other = { id: 'tea-2', role: 'teacher', loginId: 'other' }
+  w.db._run("INSERT INTO teacher_accounts (id, login_id, name, school) VALUES (?,?,?,?)", other.id, 'other', 'ほか', 'テスト小')
+  const o = await w.call('GET', '/api/teacher/week-reflections?classId=cls-1&weeks=' + lastWk, { user: other })
+  eq(o.status, 404, 'ほかの先生は404')
+  eq(w.getState(), null, 'コインは動かない（progress 行なし）')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

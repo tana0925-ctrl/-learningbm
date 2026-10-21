@@ -97,6 +97,60 @@ function isoWeekOf(ymd) {
   var w = 1 + Math.round((x.getTime() - f.getTime()) / (7 * 86400000));
   return x.getFullYear() + '-W' + (w < 10 ? '0' + w : '' + w);
 }
+/* WEEKREF_V1 2026-10-22 週の振り返りを「まだ返していない直近の週」から選ぶ。
+   以前は「その週のうちに書いた子だけ」を対象にしていたため、金曜の授業中（まだだれも書いていない）
+   にコピーすると0人、月曜には先週の分が対象から外れて、1か月で2人分しか返せていなかった。
+   いまは 先週・2週前（金〜日は今週も）の中から、書いてあって まだ返していない いちばん新しい週を1つ選ぶ。
+   自由欄（ほとんどの子はここだけ書く）も項目欄も、家庭学習シートの🌟も読む。 */
+function wkMonday(wk) {
+  var m = String(wk || '').match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return null;
+  var j4 = new Date(Date.UTC(Number(m[1]), 0, 4));
+  var dw = j4.getUTCDay() || 7;
+  return new Date(j4.getTime() + ((1 - dw) + (Number(m[2]) - 1) * 7) * 86400000);
+}
+function wkYmd(d) { var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()); }
+function wkShift(wk, n) { var mo = wkMonday(wk); return mo ? isoWeekOf(wkYmd(new Date(mo.getTime() + n * 7 * 86400000))) : ''; }
+function wkDays(wk) { var mo = wkMonday(wk), o = []; if (!mo) return o; for (var i = 0; i < 5; i++) o.push(wkYmd(new Date(mo.getTime() + i * 86400000))); return o; }
+function wkLabel(wk) { var d = wkDays(wk); return d.length ? (jaDay(d[0]) + '〜' + jaDay(d[4]) + 'の週') : String(wk || ''); }
+function reflWeeks() {
+  var cur = '';
+  try { cur = (typeof getWeekKeyLocal === 'function') ? getWeekKeyLocal() : ''; } catch (e) {}
+  if (!cur) return [];
+  var dw = jstNow().getDay(), ws = [];
+  if (dw === 5 || dw === 6 || dw === 0) ws.push(cur);   // 金〜日は、今週もう書いた子の分も
+  ws.push(wkShift(cur, -1));
+  ws.push(wkShift(cur, -2));
+  return ws.filter(function (x) { return !!x; });
+}
+function reflHas(it) {
+  if (!it) return false;
+  return !!(String(it.planReflection || '').trim() || String(it.freeText || '').trim() ||
+    String(it.goodPoint || '').trim() || String(it.improvePoint || '').trim() || String(it.nextAction || '').trim());
+}
+var _reflCache = null;
+async function loadReflTargets(cid, force) {
+  if (!force && _reflCache && _reflCache.cid === cid && (Date.now() - _reflCache.at) < 60000) return _reflCache;
+  var ws = reflWeeks();
+  var out = { cid: cid, at: Date.now(), ws: ws, byUser: {}, pick: {}, ok: false };
+  if (!cid || !ws.length) return out;
+  try {
+    var r = await fetch('/api/teacher/week-reflections?classId=' + encodeURIComponent(cid) + '&weeks=' + encodeURIComponent(ws.join(',')), { credentials: 'include' });
+    var d = await r.json().catch(function () { return null; });
+    if (d && d.ok) {
+      out.ok = true;
+      (d.items || []).forEach(function (it) { (out.byUser[it.userId] = out.byUser[it.userId] || {})[it.weekKey] = it; });
+      Object.keys(out.byUser).forEach(function (uid) {
+        for (var i = 0; i < ws.length; i++) {
+          var it = out.byUser[uid][ws[i]];
+          if (it && reflHas(it) && !it.returnedAt) { out.pick[uid] = it; break; }
+        }
+      });
+    }
+  } catch (e) {}
+  _reflCache = out;
+  return out;
+}
 var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
   // ---- コピー結果のキャッシュ ----
@@ -117,17 +171,18 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       return o;
     } catch (e) { return null; }
   }
-  function cacheSet(key, text, blocks, noMaterial, peopleWords, dailyExp) {
+  function cacheSet(key, text, blocks, noMaterial, peopleWords, dailyExp, reflExp) {
     try {
       sessionStorage.setItem(CACHE_KEY, JSON.stringify({
-        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, peopleWords: peopleWords || 0, at: Date.now(), dailyExp: dailyExp || []
+        key: key, text: text, blocks: blocks, noMaterial: noMaterial || 0, peopleWords: peopleWords || 0, at: Date.now(), dailyExp: dailyExp || [], reflExp: reflExp || null
       }));
     } catch (e) {}
   }
   // HW_DAILY_ALL_V1 「①で渡した DAILY の欄」の控え（取り込み後の照合用・このブラウザだけ）
   var DAILY_EXP_KEY = 'taiDailyExpect';
-  function dailyExpSet(cid, list, retry) {
-    try { sessionStorage.setItem(DAILY_EXP_KEY, JSON.stringify({ cid: cid, list: list || [], retry: !!retry, at: Date.now() })); } catch (e) {}
+  function dailyExpSet(cid, list, retry, refl) {
+    // WEEKREF_V1 refl … ①で渡した REFLECT の欄（[{uid, wk}]）。null のときは振り返りを入れなかった回
+    try { sessionStorage.setItem(DAILY_EXP_KEY, JSON.stringify({ cid: cid, list: list || [], retry: !!retry, at: Date.now(), refl: refl || null })); } catch (e) {}
   }
   function dailyExpGet(cid) {
     try {
@@ -387,19 +442,23 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       reflect: opt('taiOptReflect'),
       suggest: opt('taiOptSuggest')
     };
+    if (opts.onlyKinds && opts.onlyKinds.length) {   // WEEKREF_V1 入らなかった分だけ もう一度コピー
+      want = { daily: opts.onlyKinds.indexOf('DAILY') >= 0, karte: false, classOv: false, report: false,
+               plan: false, reflect: opts.onlyKinds.indexOf('REFLECT') >= 0, suggest: false };
+    }
     if (!want.daily && !want.karte && !want.classOv && !want.report &&
         !want.plan && !want.reflect && !want.suggest) {
       say('「今回ふくめるもの」を1つ以上えらんでください'); return;
     }
     // ★ 同じ条件で今日すでに作ってあるなら、データベースを読まずにそのまま使う
     var _ckey = cacheKeyOf(cid, want);
-    if (!oneId && !window.__taiForceRefresh) {
+    if (!oneId && !opts.retryMode && !window.__taiForceRefresh) {
       var hit = cacheGet(_ckey);
       if (hit && hit.text) {
         // 2026-09-29: 取り置きの文を渡したときは「いつ作った文か」を必ず出し、
         //   そのあと新しく出した子がいれば、その場で作り直せるようにする。
         window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, cachedAt: hit.at || 0, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
-        if (hit.dailyExp) dailyExpSet(cid, hit.dailyExp, false);
+        if (hit.dailyExp) dailyExpSet(cid, hit.dailyExp, false, hit.reflExp || null);
         copyText(hit.text);
         taiWarnIfStale(cid, hit.at || 0);
         return;
@@ -507,10 +566,13 @@ out.push('   - 「◯◯タイプ」「◯◯型」のような決めつけ・�
 out.push('   - 点が低い項目を「苦手」と決めつけない。');
 out.push('   - MIだけを根拠にしない。ほかのデータと重なったときだけ、きっかけとして使う。');
 out.push('   - MIしらべが無い子には、そのことに触れない（「受けていないので分からない」等は書かない）。');
-    if (isFri) {
-      out.push('11. 今日は金曜日です。児童ごとの【先週（' + weekLabel + '）】に、その週の記録と振り返りを');
-      out.push('   入れてあります。REFLECT には、その1週間の流れ（月曜からどう変わったか）を');
-      out.push('   ふまえた返却コメントを書いてください。1日だけを見て書かないこと。');
+    if (want.reflect) {   // WEEKREF_V1
+      out.push('11. REFLECT は、目印に書いてある週の「週の振り返り」への返事です（多くは先週の分）。');
+      out.push('   その子のデータの「・週の振り返り（…）」を土台に、その1週間の流れ（月曜からどう変わったか）も');
+      out.push('   ふまえて書く。1日だけを見て書かないこと。本人が書いたことばを「 」で1つ引用してよい。');
+      out.push('   🌟（家庭学習シートの週の振り返り）に「もう返事ずみ」とあるときは、同じことをくり返さない。');
+      out.push('   「DAILY ではふれず」とある子は、🌟の中身もこの REFLECT でまとめて返す（DAILY はその日の学習だけ）。');
+      out.push('   目印の行の「｜2026-W42」のような週の部分も、1文字も変えずに残す。');
     }
     out.push('');
     out.push('');
@@ -692,7 +754,7 @@ out.push('     回数の多さを否定的に書かない。触れるなら「�
 out.push('   - テストの点数・得点率・順位には いっさい触れない。ほかの子とも比べない。');
 out.push('   - 全部で3行以内・150字以内。');
 }
-    if (want.reflect) out.push('・=== [REFLECT:...] === … 今週の振り返りへの返却コメント。2〜3文。子ども向け。');
+    if (want.reflect) out.push('・=== [REFLECT:...] === … 週の振り返り（目印に書いてある週）への返却コメント。2〜3文。子ども向け。');
     if (want.suggest) {
 out.push('・=== [SUGGEST:...] === … 今週のおすすめ。1〜2つだけ。子ども向け。');
 out.push('   ※今週のおすすめのきまり（大事）:');
@@ -941,6 +1003,15 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       } catch (e) {}
     }
     var _dailyExp = [];
+    // WEEKREF_V1 週の振り返り（まだ返していない直近の週）。家庭学習シートの🌟と二重に返さないためにも使う。
+    var _refl = { byUser: {}, pick: {}, ok: false }, _reflExp = [];
+    var onlyRefl = null;
+    if (opts.onlyReflUids && opts.onlyReflUids.length) { onlyRefl = {}; opts.onlyReflUids.forEach(function (x) { onlyRefl[String(x)] = 1; }); }
+    if (want.reflect || want.daily || want.karte || want.suggest) {
+      say('週の振り返りを読んでいます...');
+      _refl = await loadReflTargets(cid, true);
+    }
+    var _reflDefer = !!(want.reflect || opts.retryMode);   // 🌟は REFLECT でまとめて返す
 
     // 単元→教科 の対応表（unit-analytics の unitInfo）
     var unitInfo = (unitAna && unitAna.unitInfo) || {};
@@ -1028,25 +1099,9 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
           planLines.forEach(function (l) { out.push('　' + l); });
           if (p.revisionCount) out.push('　（' + p.revisionCount + '回 考え直して書きなおしています）');
         }
-        if (reflText && String(reflText).trim()) {
-          out.push('・今週の振り返り（本人が書いたもの）: ' + reflText);
-        }
       }
 
-      // 今週の振り返り（項目式）
-      if (data && data.ok) {
-        try {
-          var refs = (data.reflections || []).filter(function (r) { return r.weekKey === wk; });
-          if (refs.length) {
-            weekRefl = refs[0];
-            out.push('・今週の振り返り（項目ごと）');
-            if (weekRefl.concentration != null && weekRefl.concentration !== '') out.push('　集中できた度合い: ' + weekRefl.concentration);
-            if (weekRefl.goodPoint) out.push('　よかったこと: ' + weekRefl.goodPoint);
-            if (weekRefl.improvePoint) out.push('　もっとよくしたいこと: ' + weekRefl.improvePoint);
-            if (weekRefl.nextAction) out.push('　来週やること: ' + weekRefl.nextAction);
-          }
-        } catch (e) {}
-      }
+      // （WEEKREF_V1 今週の振り返りは、下の「週の振り返り」の欄にまとめた）
 
       // まだ返していない家庭学習
       var hwList = hwByUser[st.userId] || [];
@@ -1061,19 +1116,68 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
         if (hw.weatherReason)  out.push('　ふりかえり: ' + hw.weatherReason);
         if (hw.nextImprove)    out.push('　次にがんばること: ' + hw.nextImprove);
         if (hw.parentComment)  out.push('　おうちの人から: ' + hw.parentComment);
+        if (hw.weeklyReflection && String(hw.weeklyReflection).trim()) {   // WEEKREF_V1 二重に返さない
+          var _pk2 = _refl.pick ? _refl.pick[st.userId] : null;
+          if (_reflDefer && _pk2 && _pk2.weekKey === isoWeekOf(hw.dayKey)) out.push('　🌟週の振り返り: （この週の振り返りは REFLECT でまとめて返します。DAILY ではふれない）');
+          else out.push('　🌟週の振り返り（金曜）: ' + hw.weeklyReflection + '（DAILY の中で、これにも短くふれてよい）');
+        }
         if (hw.restDay)        out.push('　（おやすみの記録）');
       }
 
       // 先週のふりかえり（紙のカルテに載るのと同じ週のもの）
+// WEEKREF_V1 週の振り返り（週の計画の🔄＋家庭学習シートの🌟）。自由欄も項目欄も読む。
+//   9/9 にカルテで直したのと同じずれ（項目欄だけ見て自由欄を読まない）を、ここでも直した。
 try {
   var _lwk = isoWeekOf(weekDays[0]);
-  var _lref = null;
-  ((data && data.reflections) || []).forEach(function (r) { if (r && String(r.weekKey) === _lwk) _lref = r; });
-  if (_lref && (_lref.goodPoint || _lref.improvePoint || _lref.nextAction)) {
-    out.push('・先週のふりかえり（本人が書いたもの）');
-    if (_lref.goodPoint) out.push('  よかったこと: ' + _lref.goodPoint);
-    if (_lref.improvePoint) out.push('  もっとよくしたいこと: ' + _lref.improvePoint);
-    if (_lref.nextAction) out.push('  来週やること: ' + _lref.nextAction);
+  var _rAll = (_refl.byUser && _refl.byUser[st.userId]) || {};
+  var _rt = (want.reflect && _refl.pick) ? (_refl.pick[st.userId] || null) : null;
+  if (_rt && onlyRefl && !onlyRefl[String(st.userId)]) _rt = null;
+  var _hwIds = {};
+  (hwByUser[st.userId] || []).forEach(function (h0) { _hwIds[String(h0.id)] = 1; });
+  var _pushRefl = function (it, head, isTarget) {
+    out.push(head);
+    var ft = String(it.freeText || '').trim(), pr = String(it.planReflection || '').trim();
+    if (ft) out.push('　🔄 本人が書いたこと: ' + ft);
+    if (pr && pr !== ft) out.push('　🔄 本人が書いたこと' + (ft ? '（計画の画面）' : '') + ': ' + pr);
+    if (it.goodPoint) out.push('　よかったこと: ' + it.goodPoint);
+    if (it.improvePoint) out.push('　もっとよくしたいこと: ' + it.improvePoint);
+    if (it.nextAction) out.push('　来週やること: ' + it.nextAction);
+    if (it.hw && it.hw.text) {
+      var _hs2 = it.hw.returnedAt ? '家庭学習シートで先生からもう返事ずみ。同じことをくり返さない'
+        : (isTarget ? '同じ日の DAILY ではふれず、この REFLECT でまとめて返す' : 'まだ返していない');
+      out.push('　🌟 家庭学習シートの週の振り返り（' + it.hw.dayKey + '）: ' + it.hw.text + '（' + _hs2 + '）');
+    }
+  };
+  if (_rt) {
+    _pushRefl(_rt, '・週の振り返り（' + wkLabel(_rt.weekKey) + '・まだ返していない）※REFLECT はこれに返す', true);
+    if (_rt.weekKey !== _lwk) {
+      out.push('　※上の【先週（' + weekLabel + '）】とは別の週の振り返りです。');
+      var _td = wkDays(_rt.weekKey);
+      var _ts = ((data && data.recentSubmissions) || []).filter(function (r) { return _td.indexOf(r.day_key) >= 0; })
+        .sort(function (a2, b2) { return (a2.day_key < b2.day_key) ? -1 : 1; });
+      if (_ts.length) out.push('　その週の家庭学習: ' + _ts.map(function (r) {
+        var dd = new Date(r.day_key + 'T00:00:00Z');
+        var w = r.end_weather === 'sun' ? '☀' : r.end_weather === 'cloud' ? '☁' : r.end_weather === 'rain' ? '🌧' : '?';
+        return r.day_key.slice(5) + '(' + DOW_JA[dd.getUTCDay()] + ')' + w + (r.minutes || 0) + '分' + (r.todo ? ' ' + String(r.todo).slice(0, 30) : '');
+      }).join(' ／ '));
+      else out.push('　その週の家庭学習: （提出はありませんでした）');
+    }
+  }
+  var _lr = _rAll[_lwk];
+  if (_lr && reflHas(_lr) && !(_rt && _rt.weekKey === _lwk)) {
+    _pushRefl(_lr, '・先週のふりかえり（本人が書いたもの' + (_lr.returnedAt ? '・先生からもう返事ずみ' : '') + '）', false);
+  }
+  if (!_refl.ok) {
+    // 読めなかったときは、今までの材料（カルテの API）から先週の分だけ出す。自由欄も読む。
+    var _lref = null;
+    ((data && data.reflections) || []).forEach(function (r) { if (r && String(r.weekKey) === _lwk) _lref = r; });
+    if (_lref && (_lref.freeText || _lref.goodPoint || _lref.improvePoint || _lref.nextAction)) {
+      out.push('・先週のふりかえり（本人が書いたもの）');
+      if (_lref.freeText) out.push('  本人が書いたこと: ' + _lref.freeText);
+      if (_lref.goodPoint) out.push('  よかったこと: ' + _lref.goodPoint);
+      if (_lref.improvePoint) out.push('  もっとよくしたいこと: ' + _lref.improvePoint);
+      if (_lref.nextAction) out.push('  来週やること: ' + _lref.nextAction);
+    }
   }
 } catch (e) {}
 // MIしらべ（本人の自己申告。能力の判定ではない）
@@ -1272,9 +1376,12 @@ try {
       }
       if (want.karte)   { out.push('=== [KARTE:' + sid + '] ' + nm + ' ==='); out.push(''); }
       if (want.plan && planLines.length)  { out.push('=== [PLAN:' + sid + '] ' + nm + ' ==='); out.push(''); }
-      var hasRefl = !!(reflText && String(reflText).trim()) || !!weekRefl;
-      if (want.reflect && hasRefl && p && !p.reflectionReturnedAt) {
-        out.push('=== [REFLECT:' + sid + '] ' + nm + ' ==='); out.push('');
+      // WEEKREF_V1 まだ返していない直近の週の振り返りに返す。目印に週も書く（公開のときにその週へ返す）。
+      var _rtM = (want.reflect && _refl.pick) ? (_refl.pick[st.userId] || null) : null;
+      if (_rtM && onlyRefl && !onlyRefl[String(st.userId)]) _rtM = null;
+      if (_rtM) {
+        out.push('=== [REFLECT:' + sid + '] ' + nm + '｜' + _rtM.weekKey + ' ==='); out.push('');
+        _reflExp.push({ uid: String(st.userId), wk: String(_rtM.weekKey) });
       }
       if (want.suggest) { out.push('=== [SUGGEST:' + sid + '] ' + nm + ' ==='); out.push(''); }
       wCount++;
@@ -1315,9 +1422,9 @@ try {
     } catch (e) {}
     window.__taiLast = { chars: _txt.length, blocks: _blocks, cached: false, noMaterial: pickNone, peopleWords: _pn };
     // HW_DAILY_ALL_V1 渡した DAILY の欄を覚えておき、取り込みのあとで「入らなかった提出」を出す
-    if (!oneId) dailyExpSet(cid, _dailyExp, !!retryUids);
-    if (!oneId && !retryUids) cacheSet(_ckey, _txt, _blocks, pickNone, _pn, _dailyExp);
-    if (retryUids) say('✓ コメントが入らなかった ' + _dailyExp.length + '件ぶんをコピーしました。AIに貼って、返事を下の欄へ（いまある下書きは消さずに追加します）');
+    if (!oneId) dailyExpSet(cid, _dailyExp, !!retryUids, want.reflect ? _reflExp : null);
+    if (!oneId && !retryUids) cacheSet(_ckey, _txt, _blocks, pickNone, _pn, _dailyExp, want.reflect ? _reflExp : null);
+    if (retryUids) say('✓ 下書きが入らなかった ' + (_dailyExp.length + _reflExp.length) + '件ぶんをコピーしました。AIに貼って、返事を下の欄へ（いまある下書きは消さずに追加します）');
     if (want.daily && hwOver) { try { var _st = $('taiStatus'); if (_st) _st.textContent = (_st.textContent || '') + '　※未返却が6件以上の子がいたので、古い日から5件ずつ渡しました（のこり' + hwOver + '件は次の回に）'; } catch (e) {} }
     window.__taiBusy = false;
     copyText(_txt);
@@ -1613,11 +1720,25 @@ async function taiImport(opts) {
   var _exp = dailyExpGet(cid);
   if (!appendMode && _exp && _exp.retry && parsed.blocks.length) {
     var _ok = {}; _exp.list.forEach(function (x) { _ok[x.id] = 1; });
-    var _allIn = parsed.blocks.every(function (b) { return b.kind === 'DAILY' && _ok[String(b.idPart)]; });
+    var _okR = {}; (_exp.refl || []).forEach(function (x) { _okR[String(x.uid).toLowerCase()] = 1; });   // WEEKREF_V1
+    var _allIn = parsed.blocks.every(function (b) {
+      return (b.kind === 'DAILY' && _ok[String(b.idPart)]) || (b.kind === 'REFLECT' && _okR[String(b.idPart).toLowerCase()]);
+    });
     if (_allIn) appendMode = true;
   }
   var items = [], holds = [];
   function hold(why, marker, detail) { holds.push({ why: why, marker: marker || '', detail: detail || '' }); }
+  // WEEKREF_V1 REFLECT がどの週への返事か。目印の「｜2026-W42」→ ①の控え → いまの対象 の順に決める
+  var _rfx = null;
+  if (parsed.blocks.some(function (b) { return b.kind === 'REFLECT'; })) { try { _rfx = await loadReflTargets(cid); } catch (e) {} }
+  function reflWeekOf(b, uid) {
+    var m = String(b.after || '').match(/(\d{4})\s*[-－ー−]\s*[WＷwｗ]\s*(\d{1,2})/);
+    if (m) return m[1] + '-W' + (m[2].length < 2 ? '0' + m[2] : m[2]);
+    var wk2 = '';
+    ((_exp && _exp.refl) || []).forEach(function (x) { if (String(x.uid) === String(uid)) wk2 = x.wk; });
+    if (!wk2 && _rfx && _rfx.pick && _rfx.pick[uid]) wk2 = _rfx.pick[uid].weekKey;
+    return wk2;
+  }
 
   parsed.orphans.forEach(function (o) {
     hold(o.why, o.near, o.text.length > 140 ? o.text.slice(0, 140) + '…' : o.text);
@@ -1668,7 +1789,12 @@ async function taiImport(opts) {
         return;
       }
     }
-    items.push({ kind: b.kind, targetId: uid, targetName: expect, refKey: '', body: b.body });
+    var _rk = '';
+    if (b.kind === 'REFLECT') {
+      _rk = reflWeekOf(b, uid);
+      if (!_rk) { hold('振り返りの週が読み取れませんでした（目印の「｜2026-W42」のような部分が消えています）', label, ''); return; }
+    }
+    items.push({ kind: b.kind, targetId: uid, targetName: expect, refKey: _rk, body: b.body });
   });
 
   // ★ ①で渡した欄の数よりも読み取れた欄が少ないときは、目印が消えている
@@ -1714,6 +1840,7 @@ async function taiImport(opts) {
 //   読むのは「未返却だけ（直近35日）」と「DAILY の下書きだけ」の2回。どちらも軽い。
 //   先生の画面だけに出す。子どもには何も届かない（公開は今までどおり④で先生が押したときだけ）。
 var _dailyMissing = [];
+var _reflMissing = [];   // WEEKREF_V1
 async function showDailyMissing(cid, exp, items, nameMap, oneBox) {
   if (!cid) return;
   var el = $('taiDailyMissBox');
@@ -1743,12 +1870,29 @@ async function showDailyMissing(cid, exp, items, nameMap, oneBox) {
       nm: (nameMap && nameMap[x.userId]) || nameOf(x.loginId, x.studentName) || '（名簿外）' });
   });
   _dailyMissing.sort(function (p, q) { return p.day < q.day ? -1 : p.day > q.day ? 1 : 0; });
-  if (!_dailyMissing.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  // WEEKREF_V1 週の振り返りも同じように数える（①で振り返りを入れた回だけ）。
+  _reflMissing = [];
+  if (exp && exp.refl) {
+    try {
+      var rf = await loadReflTargets(cid, true);
+      var dr = await getJson('/api/teacher/ai-drafts?classId=' + encodeURIComponent(cid) + '&status=draft&kind=REFLECT');
+      var hasR = {};
+      ((dr && dr.drafts) || []).forEach(function (d) { if (d.targetId) hasR[String(d.targetId) + '|' + String(d.refKey || '')] = 1; });
+      var _pp = {}; (_rosterPeople || []).forEach(function (pp) { _pp[String(pp.uid)] = pp.name; });
+      Object.keys(rf.pick || {}).forEach(function (uid) {
+        var it = rf.pick[uid];
+        if (hasR[uid + '|' + it.weekKey] || hasR[uid + '|']) return;
+        _reflMissing.push({ uid: String(uid), wk: String(it.weekKey), nm: (nameMap && nameMap[uid]) || _pp[uid] || '（名簿外）' });
+      });
+    } catch (e) {}
+  }
+  if (!_dailyMissing.length && !_reflMissing.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   var h = '<div class="rounded-lg border-2 border-amber-400 bg-amber-50 p-2">' +
-    '<div class="text-xs font-black text-amber-800">⚠ まだ返していないのに、コメント下書きが入っていない家庭学習（' + _dailyMissing.length + '件）</div>' +
+    '<div class="text-xs font-black text-amber-800">⚠ まだ返していないのに、下書きが入っていないもの（家庭学習 ' + _dailyMissing.length + '件' + (exp && exp.refl ? '・週の振り返り ' + _reflMissing.length + '件' : '') + '）</div>' +
     '<div class="text-[11px] text-amber-800 mb-1">コピーのあとに出された分・AIの返事に無かった分・目印がくずれた分など。下のボタンで、この分だけもう一度コピーできます（いまの下書きは消えません）。</div>' +
     '<ul class="text-[11px] text-amber-900 list-disc pl-4">';
   _dailyMissing.forEach(function (x) { h += '<li>' + esc(x.nm) + '｜' + esc(x.day) + '</li>'; });
+  _reflMissing.forEach(function (x) { h += '<li>' + esc(x.nm) + '｜週の振り返り（' + esc(wkLabel(x.wk)) + '）</li>'; });
   h += '</ul><button type="button" onclick="taiDailyRetryCopy()" ' +
     'style="margin-top:4px;background:#d97706;color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer">' +
     '📋 入らなかった分だけ もう一度コピー</button></div>';
@@ -1756,11 +1900,13 @@ async function showDailyMissing(cid, exp, items, nameMap, oneBox) {
   el.style.display = '';
 }
 async function taiDailyRetryCopy() {
-  if (!_dailyMissing.length) { say('入らなかった提出はありません'); return; }
+  if (!_dailyMissing.length && !_reflMissing.length) { say('入らなかった分はありません'); return; }
   var ids = _dailyMissing.map(function (x) { return x.id; });
-  var uids = {}; _dailyMissing.forEach(function (x) { uids[x.uid] = 1; });
+  var ruids = _reflMissing.map(function (x) { return x.uid; });
+  var uids = {}; _dailyMissing.forEach(function (x) { uids[x.uid] = 1; }); _reflMissing.forEach(function (x) { uids[x.uid] = 1; });
+  var kinds = []; if (ids.length) kinds.push('DAILY'); if (ruids.length) kinds.push('REFLECT');
   say('入らなかった分を作っています…');
-  await taiCopyAll({ onlyKind: 'DAILY', onlyHwIds: ids, onlyHwUids: Object.keys(uids) });
+  await taiCopyAll({ onlyKinds: kinds, retryMode: true, onlyHwIds: ids.length ? ids : ['-'], onlyReflUids: ruids, onlyHwUids: Object.keys(uids) });
 }
 
 // ===================================================================
@@ -1822,7 +1968,7 @@ var KIND_JA = {
         '<span class="text-xs font-bold text-slate-700">' + esc(k.ja) + '</span>' +
         (x.targetName ? '<span class="text-xs text-slate-600">' + esc(x.targetName) + '</span>'
                       : '<span class="text-xs text-red-600 font-bold">氏名なし</span>') +
-        (x.refLabel ? '<span class="text-[10px] text-slate-400">' + esc(x.refLabel) + '</span>' : '') +
+        (function () { var _rl = x.refLabel || ((x.kind === 'REFLECT' && /^\d{4}-W\d{2}$/.test(String(x.refKey || ''))) ? wkLabel(x.refKey) : ''); return _rl ? '<span class="text-[10px] text-slate-400">' + esc(_rl) + '</span>' : ''; })() +
         '<span class="text-[10px] px-1.5 py-0.5 rounded ' + toCls + '">' + esc(k.badge) + '</span>' +
         '</div>';
       if (danger) {
@@ -1954,8 +2100,11 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
     }
     // --- 週の振り返りの返却 ---
     if (byKind.REFLECT) {
+      // WEEKREF_V1 下書きに覚えておいた週（先週・2週前など）へ返す。無ければ今までどおり今週。
       var r5 = await postJson('/api/teacher/reflection-comments', {
-        weekKey: wk, comments: byKind.REFLECT.map(function (x) { return { studentId: x.targetId, comment: x.body }; })
+        weekKey: wk, comments: byKind.REFLECT.map(function (x) {
+          return { studentId: x.targetId, comment: x.body, weekKey: (/^\d{4}-W\d{2}$/.test(String(x.refKey || '')) ? String(x.refKey) : wk) };
+        })
       });
       if (r5 && r5.ok) { byKind.REFLECT.forEach(function (x) { okIds.push(x.id); }); msgs.push('振り返り返却' + r5.saved + '人'); }
     }
@@ -2131,6 +2280,7 @@ async function taiShowMaterials(cid) {
     });
     ok = true;
   } catch (e) {}
+  try { var _rf3 = await loadReflTargets(cid); if (_rf3 && _rf3.ok) reflN = Object.keys(_rf3.pick || {}).length; } catch (e) {}   // WEEKREF_V1
   if (!ok) { el.style.display = 'none'; return; }
   var warn = !!(total && planN < total);
   var tone = warn ? 'amber' : 'emerald';
@@ -2139,7 +2289,7 @@ async function taiShowMaterials(cid) {
   h += '<ul class="text-[11px] text-' + tone + '-800 list-disc pl-4 mt-1 space-y-0.5">';
   h += '<li>今週の計画を書いているのは <b>' + total + '人中 ' + planN + '人</b> です（計画アドバイス）</li>';
   h += '<li>まだ返していない家庭学習は <b>' + hwN + '人ぶん</b> です（家庭学習コメント）</li>';
-  h += '<li>今週の振り返りを書いているのは <b>' + reflN + '人</b> です（振り返りの返却）</li>';
+  h += '<li>まだ返していない週の振り返りは <b>' + reflN + '人ぶん</b> です（振り返りの返却・先週と2週前まで）</li>';
   h += '</ul>';
   if (warn) {
     h += '<div class="text-[11px] font-bold text-amber-800 mt-1">全員ぶん出すなら、提出がそろってから①を押してください。いま押すと、書いている子のぶんしか出ません。</div>';
@@ -2149,10 +2299,25 @@ async function taiShowMaterials(cid) {
   el.style.display = '';
 }
 
-function applyFriday() {
-    if (!isFridayJst()) return;
+// WEEKREF_V1 金曜は今までどおりON。月〜木（と土日）も、先週の振り返りで まだ返していないものがあればON。
+var _friBusy = false;
+async function applyFriday() {
+  try {
     var cb = $('taiOptReflect');
-    if (!cb || cb.getAttribute('data-fri')) return;
+    if (!cb || cb.getAttribute('data-fri') === '1' || _friBusy) return;
+    var fri = isFridayJst(), n = 0;
+    if (!fri) {
+      var cid = classId();
+      if (!cid || cb.getAttribute('data-fri-cid') === cid) return;
+      cb.setAttribute('data-fri-cid', cid);
+      _friBusy = true;
+      var rf = await loadReflTargets(cid, true);
+      _friBusy = false;
+      if (classId() !== cid) return;
+      var lw = wkShift(weekKey(), -1);
+      Object.keys((rf && rf.pick) || {}).forEach(function (u2) { if (rf.pick[u2] && rf.pick[u2].weekKey === lw) n++; });
+      if (!n) return;
+    }
     cb.setAttribute('data-fri', '1');
     cb.checked = true;
     if ($('taiFriNote')) return;
@@ -2161,9 +2326,12 @@ function applyFriday() {
     var note = document.createElement('div');
     note.id = 'taiFriNote';
     note.className = 'bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-bold mb-2';
-    note.textContent = '📅 今日は金曜日です。「週の振り返りの返却」も入れてあります（コピーは1週間ぶん長くなります）。今週はやらない場合はチェックを外してください。';
+    note.textContent = fri
+      ? '📅 今日は金曜日です。「週の振り返りの返却」も入れてあります（まだ返していない直近の週の分）。今回やらない場合はチェックを外してください。'
+      : '📅 先週の振り返りで、まだ返していないものが ' + n + '人ぶんあります。「週の振り返りの返却」も入れてあります。今回やらない場合はチェックを外してください。';
     row.parentNode.insertBefore(note, row.nextSibling);
-  }
+  } catch (e) { _friBusy = false; }
+}
 
   var _lastCid = null;
   function init() {
@@ -2177,7 +2345,7 @@ function applyFriday() {
     // クラス一覧はあとから入るので、値が入ったタイミングで一度だけ読み込む
     setInterval(function () {
       var cid = classId();
-      if (cid && cid !== _lastCid) { _lastCid = cid; taiLoadDrafts(); }
+      if (cid && cid !== _lastCid) { _lastCid = cid; taiLoadDrafts(); applyFriday(); }
     }, 1200);
     taiLoadDrafts();
   }
