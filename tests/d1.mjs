@@ -86,7 +86,7 @@ CREATE TABLE trade_deliveries (
   recv_monster_json TEXT, status TEXT DEFAULT 'pending', delivered_at INTEGER
 );
 CREATE TABLE learning_results (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, answered_at TEXT
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, answered_at TEXT, unit TEXT, is_correct INTEGER DEFAULT 0
 );
 CREATE TABLE ai_review_drafts (
   id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL, class_id TEXT NOT NULL, week_key TEXT, kind TEXT NOT NULL,
@@ -126,6 +126,10 @@ CREATE TABLE week_ref_rewards (
 CREATE TABLE karte_reco_feedback (
   user_id TEXT NOT NULL, reco_week TEXT NOT NULL, choice TEXT NOT NULL, subj TEXT, unit TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, reco_week)
+);
+CREATE TABLE week_next_try (
+  user_id TEXT NOT NULL, week_key TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', unit_name TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, week_key)
 );
 `
 

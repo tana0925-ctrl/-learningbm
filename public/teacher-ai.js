@@ -573,6 +573,8 @@ out.push('   - MIしらべが無い子には、そのことに触れない（「
       out.push('   🌟（家庭学習シートの週の振り返り）に「もう返事ずみ」とあるときは、同じことをくり返さない。');
       out.push('   「DAILY ではふれず」とある子は、🌟の中身もこの REFLECT でまとめて返す（DAILY はその日の学習だけ）。');
       out.push('   目印の行の「｜2026-W42」のような週の部分も、1文字も変えずに残す。');
+      out.push('   「🎯 来週やってみたいこと」があれば、本人が自分で決めたことを応援する一言を入れる（「 」で引用してよい）。');  /* MAEJIBUN_V1 */
+      out.push('   曜日・問題数・やり方をこちらで決めない。命令しない。大きすぎても否定しない。');
     }
     out.push('');
     out.push('');
@@ -728,6 +730,9 @@ out.push('【目印の種類】');
       out.push('        やっていたら認める。やっていなくても責めない。記録から分からないときは、分かったふりをしない。');
       out.push('      - 【阪神マンのしつもんへの本人の返事】があれば、本文の中で必ず受けとめて返す（「 」で引用してよい）。');  /* HANSHIN_Q_V1 */
       out.push('        中身のよしあしは評価しない。書いてくれたこと自体をよろこび、そこから一歩ふかめる。');
+      out.push('      - 【本人が振り返りに書いた「来週やってみたいこと」】があれば、本人が自分で決めたこととして本文で受けとめる（「 」で引用してよい）。');  /* MAEJIBUN_V1 */
+      out.push('        紙の「🅲 じぶんで決める」にはそのことばが最初から入るので、▼これやってみる？ に同じことを書かない。');
+      out.push('        大きすぎるときも否定しない。「まずは〜から やってみる？」と小さな入り口を1つそえる程度にする。');
       out.push('      - 書き方の例（中身はその子に合わせて書きかえる。例をそのまま使わない）:');
       out.push('          （阪神マンの文）');
       out.push('          ▼考えてほしいこと');
@@ -1147,6 +1152,10 @@ try {
         : (isTarget ? '同じ日の DAILY ではふれず、この REFLECT でまとめて返す' : 'まだ返していない');
       out.push('　🌟 家庭学習シートの週の振り返り（' + it.hw.dayKey + '）: ' + it.hw.text + '（' + _hs2 + '）');
     }
+    if (it.nextTry && (it.nextTry.text || it.nextTry.unitName)) {   // MAEJIBUN_V1
+      var _ntt = String(it.nextTry.text || ''); if (window._qnMask) _ntt = window._qnMask(_ntt);
+      out.push('　🎯 来週やってみたいこと（本人が決めた）: ' + (it.nextTry.unitName ? '単元「' + it.nextTry.unitName + '」' : '') + (_ntt ? (it.nextTry.unitName ? '／' : '') + '「' + _ntt + '」' : ''));
+    }
   };
   if (_rt) {
     _pushRefl(_rt, '・週の振り返り（' + wkLabel(_rt.weekKey) + '・まだ返していない）※REFLECT はこれに返す', true);
@@ -1273,6 +1282,16 @@ try {
               if (window._qnMask) { _qq = window._qnMask(_qq); _aa = window._qnMask(_aa); }
               out.push('・' + String(qa.updatedAt || '').slice(0, 10) + ' しつもん「' + _qq + '」→ 返事「' + _aa + '」');
             });
+          }
+        } catch (e) {}
+        /* MAEJIBUN_V1 振り返りに本人が書いた「来週やってみたいこと」。紙の🅲に入る。阪神マンが拾えるように渡す。 */
+        try {
+          var _nt = data && data.nextTry;
+          if (_nt && (_nt.text || _nt.unitName)) {
+            var _ntx = String(_nt.text || ''); if (window._qnMask) _ntx = window._qnMask(_ntx);
+            out.push('');
+            out.push('【本人が振り返りに書いた「来週やってみたいこと」（' + (_nt.weekKey ? wkLabel(_nt.weekKey) + 'の振り返り' : '最近の振り返り') + '・紙の🅲じぶんで決める に入ります）】');
+            out.push('・' + (_nt.unitName ? '単元「' + _nt.unitName + '」' : '') + (_ntx ? (_nt.unitName ? '／' : '') + '「' + _ntx + '」' : ''));
           }
         } catch (e) {}
         /* KARTE_VARY_V2 6週より前の「たな卸し」。本文は渡さない。

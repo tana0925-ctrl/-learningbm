@@ -3316,7 +3316,8 @@ app.get('/api/student/karte-reco', async (c) => {
   try { reco = JSON.parse(row.reco_json || 'null') } catch (e) {}
   if (!reco) return c.json({ ok: true, reco: null })
   const fb: any = await c.env.DB.prepare('SELECT choice FROM karte_reco_feedback WHERE user_id=? AND reco_week=? LIMIT 1').bind(u.id, row.week_key || '').first<any>().catch(() => null)
-  return c.json({ ok: true, weekKey: row.week_key || '', reco, feedback: (fb && fb.choice) || '' })
+  const nextTry = await nextTryLatest(c.env, u.id)   // MAEJIBUN_V1 紙より後に書いたときの🅲用
+  return c.json({ ok: true, weekKey: row.week_key || '', reco, feedback: (fb && fb.choice) || '', nextTry })
 })
 app.post('/api/student/karte-reco-feedback', async (c) => {
   const u = requireStudent(c)
@@ -4013,6 +4014,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   let karteReco: any = null, recoFeedback: any = null
   try { const _kr: any = await c.env.DB.prepare('SELECT week_key, reco_json, source, updated_at FROM karte_recos WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); if (_kr) { let _rj: any = null; try { _rj = JSON.parse(_kr.reco_json || 'null') } catch (_e) {} karteReco = { weekKey: _kr.week_key || '', reco: _rj, source: _kr.source || 'auto', updatedAt: _kr.updated_at || '' } } } catch (e) {}
   try { const _kf: any = await c.env.DB.prepare('SELECT reco_week, choice, subj, unit, created_at FROM karte_reco_feedback WHERE user_id=? ORDER BY created_at DESC LIMIT 1').bind(studentId).first<any>(); if (_kf) recoFeedback = { recoWeek: _kf.reco_week || '', choice: _kf.choice || '', subj: _kf.subj || '', unit: _kf.unit || '', createdAt: _kf.created_at || '' } } catch (e) {}
+  const nextTry = await nextTryLatest(c.env, studentId)   // MAEJIBUN_V1 振り返りに書いた「来週やってみたいこと」
   let michiClassId = ''   // MICHI_V1
   try { const _mc = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); michiClassId = (_mc && _mc.class_id) || '' } catch (e) {}
 
@@ -4039,6 +4041,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
     recentUnits, karteReco, recoFeedback,                 // MICHI_V2
+    nextTry,                                              // MAEJIBUN_V1
     testScores,
     records,
     teacherNotes,
@@ -6803,6 +6806,137 @@ app.get('/api/student/week-ref-status', async (c) => {
   try { rewarded = !!(await c.env.DB.prepare('SELECT 1 AS x FROM week_ref_rewards WHERE week_key=? AND user_id=?').bind(wk, u.id).first<any>()) } catch (_e) {}
   return c.json({ ok: true, student: true, weekKey: wk, wrote, rewarded, reward: WEEK_REF_BONUS_COINS, minChars: WEEK_REF_MIN_CHARS })
 })
+// ══════ MAEJIBUN_V1 前の自分とくらべる／来週やってみたいこと（2026-10-22）══════
+//  ・自己決定理論（自律性・有能感・関係性）にそって、比べるのは「前の自分」だけ。
+//    ほかの子との比較・順位・テストの点・パーセントは返さない。
+//  ・/api/student/my-growth … 引数なし。自分の分だけ（userId を付けて他人を指定したら 403・未ログイン 401）。
+//    D1 は索引つきの範囲読み（期間と件数に上限）。learning_results は本人の直近4週間・最大3000行だけ。
+//  ・/api/student/next-try … 振り返りに足した「来週やってみたいこと」（単元 or 一言・どちらも任意）。
+//    表は migrations/0043_week_next_try.sql（リクエストの途中では作らない）。コインは付けない。
+const NEXT_TRY_TEXT_MAX = 40
+function nextTryClean(body: any) {
+  const unit = String((body && body.unit) || '').trim().slice(0, 40)
+  const unitOk = /^[A-Za-z0-9_\-]{1,40}$/.test(unit) ? unit : ''
+  const unitName = unitOk ? String((body && body.unitName) || '').replace(/[\r\n\t<>]/g, ' ').trim().slice(0, 40) : ''
+  const text = Array.from(String((body && body.text) || '').replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, NEXT_TRY_TEXT_MAX).join('')
+  return { unit: unitOk, unitName, text }
+}
+app.post('/api/student/next-try', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body: any = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  if (body.userId && String(body.userId) !== String(u.id)) return jsonError(c, 403, 'forbidden')
+  const allowed = weekRefAllowedKeys()
+  const want = String(body.weekKey || '')
+  const wk = allowed.indexOf(want) >= 0 ? want : allowed[0]
+  const v = nextTryClean(body)
+  if (!v.unit && !v.text) {
+    await c.env.DB.prepare('DELETE FROM week_next_try WHERE user_id=? AND week_key=?').bind(u.id, wk).run()
+    return c.json({ ok: true, weekKey: wk, nextTry: null })
+  }
+  await c.env.DB.prepare("INSERT INTO week_next_try (user_id, week_key, unit, unit_name, text, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id, week_key) DO UPDATE SET unit=excluded.unit, unit_name=excluded.unit_name, text=excluded.text, updated_at=datetime('now')")
+    .bind(u.id, wk, v.unit, v.unitName, v.text).run()
+  return c.json({ ok: true, weekKey: wk, nextTry: v })
+})
+app.get('/api/student/next-try', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const asked = String(c.req.query('userId') || c.req.query('studentId') || '')
+  if (asked && asked !== String(u.id)) return jsonError(c, 403, 'forbidden')
+  const allowed = weekRefAllowedKeys()
+  const want = String(c.req.query('weekKey') || '')
+  const wk = allowed.indexOf(want) >= 0 ? want : allowed[0]
+  const r: any = await c.env.DB.prepare('SELECT unit, unit_name, text, updated_at FROM week_next_try WHERE user_id=? AND week_key=? LIMIT 1').bind(u.id, wk).first<any>().catch(() => null)
+  return c.json({ ok: true, weekKey: wk, nextTry: r ? { unit: r.unit || '', unitName: r.unit_name || '', text: r.text || '', updatedAt: r.updated_at || '' } : null })
+})
+// 最新の「来週やってみたいこと」（16日以内）。カルテの材料・子どもの🧭カードで使う。主キーの索引で数行。
+async function nextTryLatest(env: any, userId: string) {
+  try {
+    const r: any = await env.DB.prepare("SELECT week_key, unit, unit_name, text, updated_at FROM week_next_try WHERE user_id=? AND updated_at >= datetime('now','-16 days') ORDER BY week_key DESC LIMIT 1").bind(userId).first<any>()
+    if (r && (r.unit || r.text)) return { weekKey: r.week_key || '', unit: r.unit || '', unitName: r.unit_name || '', text: r.text || '', updatedAt: r.updated_at || '' }
+  } catch (_e) {}
+  return null
+}
+app.get('/api/student/my-growth', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  // 他人の分を見ようとしたら 403（/api/student/my-karte と同じ作法）
+  const asked = String(c.req.query('userId') || c.req.query('studentId') || '')
+  if (asked && asked !== String(u.id)) return jsonError(c, 403, 'forbidden')
+  const DAY = 86400000
+  const now = Date.now()
+  const curWk = weekRefAllowedKeys(now)[0]
+  const fromWk = weekRefIsoKey(new Date(now + 9 * 3600000 - 16 * 7 * DAY))   // 16週まえから
+  const fromDay = new Date(now + 9 * 3600000 - 16 * 7 * DAY).toISOString().slice(0, 10)
+  const cut = (x: any, n: number) => Array.from(String(x || '').trim()).slice(0, n).join('')
+  const by: Record<string, any> = {}
+  const slot = (wk: string) => (by[wk] = by[wk] || { weekKey: wk, text: '', star: '', reply: '', nextTry: null })
+  try {
+    const r = await c.env.DB.prepare('SELECT week_key, good_point, improve_point, free_text FROM structured_reflections WHERE user_id=? AND week_key >= ? ORDER BY week_key DESC LIMIT 16').bind(u.id, fromWk).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) {
+      const t = String(x.free_text || '').trim() || [x.good_point, x.improve_point].map((s: any) => String(s || '').trim()).filter(Boolean).join(' ／ ')
+      if (t) slot(String(x.week_key)).text = cut(t, 400)
+    }
+  } catch (e) { console.error('MAEJIBUN_V1 refl', e) }
+  try {
+    const r = await c.env.DB.prepare('SELECT week_key, plans_json, reflection_comment, reflection_returned_at FROM student_weekly_plans WHERE user_id=? AND week_key >= ? ORDER BY week_key DESC LIMIT 16').bind(u.id, fromWk).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) {
+      const fri = String(weekRefFri(x.plans_json) || '').trim()
+      const back = Number(x.reflection_returned_at) > 0 && String(x.reflection_comment || '').trim()
+      if (!fri && !back) continue
+      const s1 = slot(String(x.week_key))
+      if (!s1.text && fri) s1.text = cut(fri, 400)
+      if (back) s1.reply = cut(x.reflection_comment, 300)
+    }
+  } catch (e) { console.error('MAEJIBUN_V1 plans', e) }
+  try {
+    const r = await c.env.DB.prepare("SELECT day_key, weekly_reflection FROM homework_submissions WHERE user_id=? AND day_key >= ? AND weekly_reflection IS NOT NULL AND weekly_reflection <> '' ORDER BY day_key DESC LIMIT 20").bind(u.id, fromDay).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) {
+      const wk = weekRefIsoKey(new Date(String(x.day_key) + 'T00:00:00Z'))
+      const s1 = slot(wk)
+      if (!s1.star) s1.star = cut(x.weekly_reflection, 300)
+    }
+  } catch (e) { console.error('MAEJIBUN_V1 star', e) }
+  try {
+    const r = await c.env.DB.prepare('SELECT week_key, unit, unit_name, text FROM week_next_try WHERE user_id=? AND week_key >= ? ORDER BY week_key DESC LIMIT 16').bind(u.id, fromWk).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) {
+      if (!x.unit && !x.text) continue
+      slot(String(x.week_key)).nextTry = { unit: x.unit || '', unitName: x.unit_name || '', text: x.text || '' }
+    }
+  } catch (e) { console.error('MAEJIBUN_V1 next', e) }
+  const cards = Object.keys(by).sort().reverse().map((k) => by[k]).filter((x: any) => x.text || x.star || x.nextTry).slice(0, 12)
+
+  // のびたこと（記録から機械的に。ふえた・できるようになった事実だけ。へったことは言わない）
+  const facts: any = { units: [], days: null, weeksWritten: cards.filter((x: any) => x.text || x.star).length }
+  try {
+    // 本人の直近4週間だけ・新しい順に最大3000行まで（索引 user_id, answered_at の範囲読み）。
+    const t28 = new Date(now - 28 * DAY).toISOString().slice(0, 10)
+    const t14 = new Date(now - 14 * DAY).toISOString().slice(0, 10)
+    const r = await c.env.DB.prepare('SELECT unit, SUM(CASE WHEN answered_at < ? THEN 1 ELSE 0 END) AS n1, SUM(CASE WHEN answered_at < ? AND is_correct=1 THEN 1 ELSE 0 END) AS c1, SUM(CASE WHEN answered_at >= ? THEN 1 ELSE 0 END) AS n2, SUM(CASE WHEN answered_at >= ? AND is_correct=1 THEN 1 ELSE 0 END) AS c2 FROM (SELECT unit, is_correct, answered_at FROM learning_results WHERE user_id=? AND answered_at >= ? ORDER BY answered_at DESC LIMIT 3000) GROUP BY unit LIMIT 80')
+      .bind(t14, t14, t14, t14, u.id, t28).all<any>()
+    const of10 = (cc: number, n: number) => Math.max(0, Math.min(10, Math.round(cc / n * 10)))
+    const list: any[] = []
+    for (const x of (((r && r.results) || []) as any[])) {
+      const n1 = Number(x.n1 || 0), n2 = Number(x.n2 || 0)
+      if (n1 < 10 || n2 < 10 || !x.unit) continue
+      const a = of10(Number(x.c1 || 0), n1), b = of10(Number(x.c2 || 0), n2)
+      if (b - a >= 2) list.push({ unit: String(x.unit), before: a, after: b })
+    }
+    list.sort((p, q) => (q.after - q.before) - (p.after - p.before))
+    facts.units = list.slice(0, 3)
+  } catch (e) { console.error('MAEJIBUN_V1 units', e) }
+  try {
+    // 家庭学習を出した日（この4週間／その前の4週間）。索引 idx_hw_user_day の範囲読み・最大80行。
+    const d56 = new Date(now + 9 * 3600000 - 56 * DAY).toISOString().slice(0, 10)
+    const d28 = new Date(now + 9 * 3600000 - 28 * DAY).toISOString().slice(0, 10)
+    const set1: Record<string, 1> = {}, set2: Record<string, 1> = {}
+    const h = await c.env.DB.prepare('SELECT day_key FROM homework_submissions WHERE user_id=? AND day_key >= ? LIMIT 80').bind(u.id, d56).all<any>()
+    for (const x of (((h && h.results) || []) as any[])) { const dk = String(x.day_key || ''); if (!dk) continue; if (dk >= d28) set2[dk] = 1; else set1[dk] = 1 }
+    facts.days = { now: Object.keys(set2).length, before: Object.keys(set1).length }
+  } catch (e) { console.error('MAEJIBUN_V1 days', e) }
+  return c.json({ ok: true, currentWeek: curWk, cards, facts })
+})
 // 先生：「今日のひと往復」用。指定した週（最大3週）の週の振り返りを、クラスぶんまとめて返す。
 //   ・週の計画の「🔄今週の振り返り」（plans_json の金曜 reflection と structured_reflections の自由欄・項目欄）
 //   ・家庭学習シートの「🌟週の振り返り」（その週の提出の weekly_reflection と、返却ずみかどうか）
@@ -6854,6 +6988,14 @@ app.get('/api/teacher/week-reflections', async (c) => {
       s1.hw = { id: String(row.id), dayKey: String(row.dk), text: cut(row.wr, 600), returnedAt: Number(row.ra) || 0 }
     }
   } catch (e) { console.error('WEEKREF_V1 homework', e) }
+  try {   // MAEJIBUN_V1 振り返りに足した「来週やってみたいこと」（今日のひと往復で阪神マンが拾えるように）
+    const r = await c.env.DB.prepare(`SELECT nt.user_id AS uid, nt.week_key AS wk, nt.unit AS un, nt.unit_name AS nm, nt.text AS tx FROM class_members cm JOIN week_next_try nt ON nt.user_id = cm.user_id AND nt.week_key IN (${ph}) WHERE cm.class_id = ?`).bind(...weeks, classId).all<any>()
+    for (const row of (((r && r.results) || []) as any[])) {
+      const k = String(row.uid) + '|' + String(row.wk)
+      if (!by[k] || (!row.un && !row.tx)) continue
+      by[k].nextTry = { unit: cut(row.un, 40), unitName: cut(row.nm, 40), text: cut(row.tx, 60) }
+    }
+  } catch (e) { console.error('MAEJIBUN_V1 week-reflections', e) }
   const items = Object.keys(by).map((k) => by[k]).filter((x: any) => x.planReflection || x.freeText || x.goodPoint || x.improvePoint || x.nextAction || (x.hw && x.hw.text))
   return c.json({ ok: true, weeks, items })
 })
@@ -9900,6 +10042,7 @@ for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = a
 app.get('/karte-michi.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/karte-michi.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MICHI_V1
 app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-ai.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF_V1
+app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/maejibun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MAEJIBUN_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -10121,6 +10264,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/hs_next_recall.js?v=1"></script></body>')
       // ✍️ WEEKREF_V1 週の振り返り：阪神マンの声かけ・書き出しのヒント・ボーナスの表示・2週前の返事。中身は public/weekref.js。
       t = t.replace('</body>', '<script src="/weekref.js?v=1"></script></body>')
+      // 🪞 MAEJIBUN_V1 前の自分とくらべる・来週やってみたいこと。中身は public/maejibun.js。
+      t = t.replace('</body>', '<script src="/maejibun.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")

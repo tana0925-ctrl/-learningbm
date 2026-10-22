@@ -145,7 +145,10 @@
       + '<div class="text-sm font-bold text-orange-800">🧭 えらべる 3つの道 <span class="text-xs font-normal">（どれでも いいよ）</span></div>'
       + '<div class="mt-1 text-sm text-gray-800"><b>🅰 もう一度 かためる</b>：「' + esc(r.a.name) + '」<div class="text-xs text-orange-900">' + esc(r.a.entry || '') + '</div><div class="text-xs text-orange-800">💡' + esc(r.a.why || '') + '</div></div>';
     if (r.b) h += '<div class="mt-1 text-sm text-gray-800"><b>🅱 つぎに すすむ</b>：「' + esc(r.b.name) + '」<div class="text-xs text-orange-900">' + esc(r.b.entry || '') + '</div><div class="text-xs text-orange-800">💡' + esc(r.b.why || '') + '</div></div>';
-    h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：やりたい ところから でも OK</div>';
+    /* MAEJIBUN_V1 振り返りに書いた「来週やってみたいこと」を 🅲 に最初から入れる（紙にのせたもの → なければ その後に書いたもの） */
+    var cw = cOf(d);
+    if (cw) h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：' + esc(cw.say) + '<div class="text-xs text-orange-800">💬 ' + esc(cw.from) + '（かえても いいよ）</div></div>';
+    else h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：やりたい ところから でも OK</div>';
     h += '<div class="mt-2 text-xs font-bold text-orange-800">このおすすめ、どう思う？</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
     for (var i = 0; i < FBL.length; i++) {
       var on = d.feedback === FBL[i][0];
@@ -156,6 +159,17 @@
     el.style.display = '';
     var bs = el.querySelectorAll('.michiFbBtn');
     for (var j = 0; j < bs.length; j++) bs[j].onclick = function () { sendFb(this.getAttribute('data-fb')); };
+  }
+  // MAEJIBUN_V1 🅲 のことば。reco.c（印刷のときに紙にのせたもの）を先に。なければ紙より前の週に書いた nextTry。
+  function cOf(d) {
+    var r = d && d.reco, c = r && r.c;
+    if (c && c.say) return c;
+    var nt = d && d.nextTry;
+    if (!nt || (!nt.text && !nt.unit)) return null;
+    if (d.weekKey && nt.weekKey && String(nt.weekKey) > String(d.weekKey)) return null;   // 紙より後の週のぶんは、次の紙で
+    var say = (nt.unitName ? '「' + nt.unitName + '」' : '') + (nt.text ? (nt.unitName ? ' ' : '') + nt.text : '');
+    var q = nt.text || nt.unitName || '';
+    return { say: say, from: (d.weekKey && nt.weekKey === d.weekKey ? 'ふりかえりで' : '先週の') + ' あなたが『' + q + '』と 書いていたよ' };
   }
   function sendFb(choice) {
     var msg = document.getElementById('michiFbMsg');

@@ -453,6 +453,22 @@
   function mastered(sm, id) { var s = sm[id]; return !!(s && Number(s.total) >= 10 && Number(s.rate) >= 80); }
   function entryOf(inf) { return 'アプリ：修行 ▶ ' + inf.subjName + ' ▶ ' + inf.gradeLabel + ' ▶「' + inf.name + '」'; }
 
+  // MAEJIBUN_V1 振り返りに本人が書いた「来週やってみたいこと」（サーバーは16日以内の最新1件だけ返す）
+  function nextTryOf(d) {
+    var nt = d && d.nextTry;
+    if (!nt || (!nt.text && !nt.unit)) return null;
+    var cur = isoWeekKey(jstNowM());
+    if (nt.weekKey && String(nt.weekKey) > cur) return null;
+    var inf = nt.unit ? unitInfo(nt.unit) : null;
+    var nm = inf ? inf.name : (nt.unitName || '');
+    var q = cut(nt.text || nm, 30);
+    var showNm = nm && !(nt.text && String(nt.text).indexOf(nm) >= 0);   // 一言に単元名が入っていれば重ねない
+    var say = cut((showNm ? '「' + nm + '」' : '') + (nt.text ? (showNm ? ' ' : '') + nt.text : ''), 46);
+    var from = (nt.weekKey && nt.weekKey === cur ? 'ふりかえりで' : '先週の') + ' あなたが『' + q + '』と 書いていたよ';
+    return { unit: inf ? inf.id : '', unitName: nm, text: cut(nt.text || '', 40), say: say, from: from, weekKey: nt.weekKey || '' };
+  }
+  global.michiNextTryOf = nextTryOf;
+
   function computeReco(d) {
     var sg = Number((d.student && d.student.grade) || 0) || null;
     if (!sg || sg > 6) return null;
@@ -467,8 +483,13 @@
       if (kr && kr.source === 'teacher' && kr.reco && kr.reco.anchor && daysAgo(String(kr.updatedAt).replace(' ', 'T') + 'Z') <= 10) override = kr.reco;
     } catch (e) {}
     var subj, rich, anchor, note = '';
+    var nt = nextTryOf(d);   /* MAEJIBUN_V1 */
+    var npick = null;        // 本人がえらんだ単元（先生の差しかえが無いときだけ 🅰🅱 に優先）
+    if (!override && nt && nt.unit) { var _pi = unitInfo(nt.unit); if (_pi && _pi.grade <= sg + 1 && SUBJ_LIST.indexOf(_pi.subj) >= 0) npick = _pi; }
     if (override && unitInfo(override.anchor)) {
       subj = unitInfo(override.anchor).subj; anchor = override.anchor; rich = (tot[subj] || 0) >= 10;
+    } else if (npick) {
+      subj = npick.subj; anchor = npick.id; rich = (tot[subj] || 0) >= 10;
     } else {
       if (tot.math >= 10) subj = 'math';
       else { subj = null; SUBJ_LIST.forEach(function (k) { if (k !== 'math' && tot[k] >= 10 && (!subj || tot[k] > tot[subj])) subj = k; }); }
@@ -495,13 +516,23 @@
     }
     // 前の週の返事でずらす（同じ教科のときだけ）
     var fb = d.recoFeedback;
-    if (!override && fb && fb.unit && fb.subj === subj && daysAgo(String(fb.createdAt).replace(' ', 'T') + 'Z') <= 14) {
+    if (!override && !npick && fb && fb.unit && fb.subj === subj && daysAgo(String(fb.createdAt).replace(' ', 'T') + 'Z') <= 14) {
       var fi = order.indexOf(fb.unit);
       if (fi >= 0 && fb.choice === 'easy' && fi + 1 < order.length) { anchor = order[fi + 1]; A = null; Bn = null; note = '先週「かんたんすぎ」だったので、1つ先に すすめたよ'; }
       else if (fi >= 0 && fb.choice === 'hard' && fi - 1 >= 0) { anchor = order[fi - 1]; A = null; Bn = null; note = '先週「むずかしすぎ」だったので、1つ前から にしたよ'; }
       else if (fb.choice === 'other') note = '先週「ちがうのがいい」だったので、🅲 で じぶんで 決めてみてね';
     }
-    if (!A || !Bn) {
+    var pickSlot = '';
+    if (npick) {   /* MAEJIBUN_V1 本人がえらんだ単元をどこに置くか（記録がある→🅰でかためる／まだ→🅱ですすむ） */
+      var pi2 = order.indexOf(npick.id), pS = sm[npick.id];
+      A = null; Bn = null;
+      if (pi2 < 0) { A = npick.id; pickSlot = 'a'; Bn = '__none__'; }
+      else if (!(pS && Number(pS.total) > 0) && pi2 - 1 >= 0 && gradeOf(order[pi2 - 1]) <= sg) { A = order[pi2 - 1]; Bn = npick.id; pickSlot = 'b'; }
+      else { anchor = npick.id; pickSlot = 'a'; }
+      note = '「' + npick.name + '」は あなたが えらんだので、いちばんに 入れたよ';
+    }
+    if (Bn === '__none__') Bn = null;
+    else if (!A || !Bn) {
       var ai = order.indexOf(anchor);
       A = anchor;
       Bn = null;
@@ -526,13 +557,16 @@
       else if (sm[Bn] && Number(sm[Bn].total) > 0) why.b = '「' + iB.name + '」は これまで ' + sm[Bn].total + '問。つづきから すすめるよ';
       else why.b = '「' + iB.name + '」は 「' + iA.name + '」の つぎに 習う 単元だよ';
     }
+    if (pickSlot === 'a') why.a = 'あなたが えらんだ 単元。' + ((rA && Number(rA.n) > 0) || (sm[A] && Number(sm[A].total) > 0) ? why.a.replace(/^「[^」]*」(は|で)\s*/, '') : 'はじめの 1問から ためしてみる？');
+    if (pickSlot === 'b' && iB) why.b = 'あなたが えらんだ 単元。' + why.b.replace(/^「[^」]*」(は|で)\s*/, '');
     var n14 = tot[subj] || 0;
-    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : (!rich ? '△ まだ記録が少ないので、教科書の順番どおりの おすすめだよ' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
+    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : npick ? ('🎯 あなたが えらんだ 単元から 作ったよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '')) : (!rich ? '△ まだ記録が少ないので、教科書の順番どおりの おすすめだよ' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
     return {
-      v: 2, subj: subj, subjName: iA.subjName, anchor: A, here: (rich || override) ? A : (Bn || A), rich: rich, override: !!override,
+      v: 2, subj: subj, subjName: iA.subjName, anchor: A, here: (rich || override || npick) ? A : (Bn || A), rich: rich, override: !!override, pick: npick ? npick.id : '',
       a: { id: A, name: iA.name, entry: entryOf(iA), why: why.a },
       b: iB ? { id: Bn, name: iB.name, entry: entryOf(iB), why: why.b } : null,
-      mark: mark, note: note, weekKey: isoWeekKey(jstNowM())
+      mark: mark, note: note, weekKey: isoWeekKey(jstNowM()),
+      c: nt ? { say: nt.say, from: nt.from, unit: nt.unit, text: nt.text, weekKey: nt.weekKey } : null   /* MAEJIBUN_V1 🅲 に最初から入れることば */
     };
   }
   global.michiComputeReco = computeReco;
@@ -562,7 +596,8 @@
     var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ。どれに する？）</span></h2>';
     h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 62)) + '</div></div></div>';
     if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 62)) + '</div></div></div>';
-    h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
+    if (reco.c && reco.c.say) h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="cw">' + esc(cut(reco.c.say, 46)) + '</span><div class="py">💬 ' + esc(cut(reco.c.from, 48)) + '（かえても いいよ）</div></div></div>';   /* MAEJIBUN_V1 */
+    else h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
     h += '<div class="pm">' + esc(reco.mark) + (reco.note ? '　／　' + esc(reco.note) : '') + '</div>';
     h += '<div class="pr"><b>えらんだのは</b><span class="circ">A</span><span class="circ">B</span><span class="circ">C</span>　<b>そのわけ：</b><span class="bl" style="width:250px">&nbsp;</span></div>';
     h += '<div class="pr"><b>いつ？</b>' + ['月', '火', '水', '木', '金'].map(function (x) { return '<span class="cc">' + x + '</span>'; }).join('') + '　<b>どれくらい？</b>' + ['3問', '5問', '10問'].map(function (x) { return '<span class="circ">' + x + '</span>'; }).join('') + '<span style="font-size:10.5px;color:#9a3412">（じぶんで ○）</span></div>';
@@ -596,6 +631,7 @@
     '.first .pm{font-size:11px;color:#475569;margin:3px 0 2px;} .first .pr{font-size:12px;margin:4px 0;}',
     '.first .cc{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1.5px solid #fb923c;border-radius:50%;margin-left:4px;font-size:11.5px;font-weight:800;color:#9a3412;}',
     '.first .bl{display:inline-block;border-bottom:1.5px dashed #94a3b8;margin-left:4px;}',
+    '.first .cw{font-weight:800;color:#7c2d12;border-bottom:1.5px dashed #fb923c;padding:0 2px;}',
     '.first .bx{margin-left:8px;font-size:12px;} .first .pf{border-top:1px dashed #fdba74;padding-top:4px;} .first .circ.sm{font-size:10.5px;padding:0 6px;margin-left:3px;}',
     '.mp{border-color:#bae6fd !important;background:#f0f9ff;} .mr{display:flex;align-items:stretch;gap:6px;}',
     '.mar{align-self:center;font-size:16px;color:#7dd3fc;font-weight:900;}',
@@ -634,12 +670,13 @@
       box.innerHTML = '読み込み中...(' + (i + 1) + '/' + students.length + ')';
     }
     var FB = { fit: 'ぴったり', easy: 'かんたんすぎ', hard: 'むずかしすぎ', other: 'ちがうのがいい' };
-    var h = '<div class="font-bold text-orange-800 mb-1">🧭 えらべる3つの道（印刷の前に確認）</div><div class="text-[11px] text-slate-600 mb-2">「いまここ（🅰）」を変えて［この子だけ保存］を押すと、7日間はその単元で印刷します（🅱はその次の単元になります）。◎○は記録から、△は教科書の順番どおり、✎は先生が選んだものです。</div>';
+    var h = '<div class="font-bold text-orange-800 mb-1">🧭 えらべる3つの道（印刷の前に確認）</div><div class="text-[11px] text-slate-600 mb-2">「いまここ（🅰）」を変えて［この子だけ保存］を押すと、7日間はその単元で印刷します（🅱はその次の単元になります）。◎○は記録から、△は教科書の順番どおり、🎯は本人が振り返りで選んだ単元、✎は先生が選んだものです。本人が書いた「来週やってみたいこと」は、差しかえても🅲にそのまま入ります。</div>';
     h += '<div class="overflow-x-auto"><table class="text-xs w-full"><tr class="text-left text-slate-500"><th>名前</th><th>教科</th><th>🅰 いまここ</th><th>🅱 つぎ</th><th>記録</th><th>子どもの声（先週）</th><th></th></tr>';
     rows.forEach(function (x, k) {
       var nm = (typeof global.resolveStudentName === 'function') ? global.resolveStudentName(x.s.loginId, x.s.name) : (x.s.name || '');
       var rc = x.reco;
       var fb = x.d.recoFeedback && FB[x.d.recoFeedback.choice] ? FB[x.d.recoFeedback.choice] : '';
+      var ntp = nextTryOf(x.d); if (ntp) fb = (fb ? fb + '／' : '') + '🎯' + ntp.say;   /* MAEJIBUN_V1 本人の「来週やってみたいこと」 */
       h += '<tr class="border-t"><td class="py-1 pr-2 font-bold">' + esc(nm) + '</td>';
       if (!rc) { h += '<td colspan="6" class="text-slate-400">学年が登録されていないため作れません</td></tr>'; return; }
       var sg = Number((x.d.student && x.d.student.grade) || 0);
@@ -647,7 +684,7 @@
       SUBJ_LIST.forEach(function (sk) {
         subjOrder(sk).forEach(function (id) { var inf = unitInfo(id); if (inf && inf.grade <= sg && inf.grade >= sg - 1) opts += '<option value="' + esc(id) + '"' + (id === rc.anchor ? ' selected' : '') + '>' + esc(inf.subjName + '・' + inf.gradeLabel + '・' + inf.name) + '</option>'; });
       });
-      h += '<td>' + esc(rc.subjName) + '</td><td><select data-k="' + k + '" class="michiSel border rounded p-0.5 max-w-[14rem]">' + opts + '</select></td><td>' + esc(rc.b ? rc.b.name : '－') + '</td><td>' + esc(rc.mark.slice(0, 1)) + '</td><td>' + esc(fb) + '</td>';
+      h += '<td>' + esc(rc.subjName) + '</td><td><select data-k="' + k + '" class="michiSel border rounded p-0.5 max-w-[14rem]">' + opts + '</select></td><td>' + esc(rc.b ? rc.b.name : '－') + '</td><td>' + esc(Array.from(rc.mark)[0] || '') + '</td><td>' + esc(fb) + '</td>';
       h += '<td><button type="button" data-k="' + k + '" class="michiSave bg-orange-500 text-white rounded px-2 py-0.5">この子だけ保存</button> <span class="michiMsg text-[10px]" data-k="' + k + '"></span></td></tr>';
     });
     h += '</table></div>';
