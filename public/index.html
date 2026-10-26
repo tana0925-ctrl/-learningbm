@@ -45645,6 +45645,7 @@ async function hsSubmitAndExport(){
     };
 
     // DBへ先生に提出（await で結果を待つ）
+    let _hsAlready = false;   /* HSAUTH_V1 もう提出ずみ（ほかの端末など）のときは ごほうびを二重に出さない */
     try {
       const payload = {
         dayKey: entry.dayKey, todo: entry.todo, why: entry.why, aim: entry.aim,
@@ -45662,6 +45663,13 @@ async function hsSubmitAndExport(){
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      /* HSAUTH_V1 先生の「見るだけモード」では サーバも画面も {viewOnly:true} を返す → 出したことにしない（コインも記録もなし） */
+      if (r && r.viewOnly) {
+        alert('👀 見るだけモードなので、提出はされないよ（先生用）');
+        if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
+        return;
+      }
+      _hsAlready = !!(r && r.alreadySubmitted);
       entry.dbSubmitted = true;
       try { entry.dbId = r.id || null; } catch(e) {}
       hsPhotoClear();
@@ -45675,7 +45683,9 @@ async function hsSubmitAndExport(){
         }
       } catch(_e) {}
       // 提出即コイン：サーバーで付与済み → クライアントにも即反映
-      hsGrantRewards(reward, bonus);
+      // HSAUTH_V1 サーバに もう今日の提出があった（alreadySubmitted）ときは、ごほうびは前にもらっているので出さない
+      if (!_hsAlready) hsGrantRewards(reward, bonus);
+      else { reward.coins = 0; reward.shards = 0; bonus = { coins: 0, shards: 0 }; entry.reward = { kind: reward.kind, coins: 0, shards: 0 }; entry.bonus = bonus; window.__reflectBonusShards = 0; }
       // 写真をクリア
       hsPhotoClear();
     } catch(e) {
@@ -45683,9 +45693,25 @@ async function hsSubmitAndExport(){
       console.warn('[homework] DB submit failed:', e);
       /* __SESSLIVE_V1__ 403（ログインが切れている）と、それ以外の通信失敗を分ける。
          403 のときは子どもが自分で直せるよう、ログイン画面へ送る。 */
-      if (e && e.status === 403) {
-        alert('⚠️ ログインの有効期限が切れていました。\nもう一度 ログインしてね。\n書いたことは消えていません。');
-        try { location.href = '/login'; } catch (_e) {}
+      /* HSAUTH_V1 「先生のアカウントで開いている」と「ほんとうにログインが切れた」を分ける。
+         ・サーバ：ログインなし＝401 login_required／先生・管理者＝403 student_only（子どもだけが出せる）。
+         ・先生のときは ログイン画面へ送らない（先生のログインは生きている）。
+         ・ほんとうに切れたときは、書いたもの（今日の下書き・対話の続き）を この端末に控えてから ログインへ。
+           ログインしなおすと hschat.js が控えを戻して、提出の直前から もう一度おせる（控えは提出できたら消す）。 */
+      const _hsErr = String((e && e.body && e.body.error) || '');
+      const _hsRole = String(window.__loggedInRole || '');
+      if (e && e.status === 403 && (_hsErr === 'student_only' || _hsRole === 'teacher' || _hsRole === 'admin')) {
+        alert('👀 先生のアカウントで開いているので、提出はされないよ（先生用）。\n子どもの提出をためすときは、子どものIDでログインしてね。');
+        if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
+        return;
+      }
+      if (e && (e.status === 401 || e.status === 403)) {
+        try {
+          const _hc = document.getElementById('hsChat');
+          localStorage.setItem('hsResumeV1', JSON.stringify({ v: 1, uid: String((player && player.userId) || ''), dayKey: dayKey, ts: Date.now(), chat: !!(_hc && _hc.style.display !== 'none'), sess: JSON.parse(JSON.stringify(sess)) }));
+        } catch (_e) {}
+        alert('⚠️ ログインの有効期限が切れていました。\nもう一度 ログインしてね。\nログインしたら、書いたところから つづけられるよ。');
+        try { if (!window.__HSAUTH_NO_NAV__) location.href = '/login'; } catch (_e) {}
         if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
         return;
       }
@@ -45704,6 +45730,7 @@ async function hsSubmitAndExport(){
 
     // セッションをクリア
     hsClearSession();
+    try { localStorage.removeItem('hsResumeV1'); } catch (_e) {}   /* HSAUTH_V1 */
     hsCheckReturned();
     hsRender();
 
@@ -45715,7 +45742,9 @@ async function hsSubmitAndExport(){
       const rewardText = rc > 0 && rs > 0 ? 'コイン' + rc + '枚＋かけら' + rs + '個'
         : rc > 0 ? 'コイン' + rc + '枚' : 'かけら' + rs + '個';
       const streakText = streakAfter >= 3 ? ' 🔥' + streakAfter + '日連続！' : '';
-      msgEl.textContent = rest
+      msgEl.textContent = _hsAlready
+        ? '✅ 今日の分は もう提出ずみだったよ（ごほうびは 前に もらっているよ）'
+        : rest
         ? '✅ おやすみを記録しました！'
         : '✅ 提出完了！' + rewardText + 'ゲット！' + streakText + ((window.__reflectBonusShards>0) ? ' 🔹ふりかえりボーナス かけら+'+window.__reflectBonusShards+'！' : '');
       msgEl.className = 'text-sm font-bold text-emerald-700 ml-2';

@@ -5832,7 +5832,10 @@ function genHwId() {
 // 生徒：シートをDBに提出（報酬はまだ付与しない）
 app.post('/api/homework/submit', async (c) => {
   const u = c.get('user')
-  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  // HSAUTH_V1 ログインなし（ほんとうに切れた）＝401、先生・管理者のアカウント＝403 student_only を分けて返す。
+  //   画面は 401 だけを「ログインの有効期限が切れた」と出し、先生のときは「先生のアカウントなので提出されないよ」と出す。
+  if (!u) return jsonError(c, 401, 'login_required')
+  if (u.role !== 'student') return jsonError(c, 403, 'student_only')
   // 最終アクティブ日時を更新（fire-and-forget）
   c.env.DB.prepare(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`).bind(u.id).run().catch(() => {})
   const body = await c.req.json<any>().catch(() => null)

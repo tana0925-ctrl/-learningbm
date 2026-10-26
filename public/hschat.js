@@ -15,6 +15,14 @@
  *  ・ことばは NGWORD_V1 に合わせる（責める・否定的なことばは使わない）。
  *  ・index.html は手で編集しない。
  *
+ *  🔐 HSAUTH_V1（2026-10-27）提出で「ログインの有効期限が切れていました」と出たときの見分けと続き
+ *    ・先生のアカウント（teacher/admin）で子どもの画面を開いているときは、提出の前に
+ *      「👀 先生のアカウントで開いているので、提出はされないよ（先生用）」と出して送らない（サーバも 403 student_only）。
+ *    ・見るだけモードは「👀 見るだけモードなので、提出はされないよ（先生用）」。
+ *    ・ほんとうにログインが切れた（401）ときは、index.html が今日の下書き（対話の続きごと）を端末に控えて ログインへ。
+ *      ログインしなおすと ここで控えを戻し、対話なら 提出の直前の画面を ひらく（同じ子・同じ日・12時間以内だけ）。
+ *      控えは 提出できたら消す。コインは いつもの提出の1回だけ（サーバに もう提出があれば 二重に出さない）。
+ *
  *  📮 TEISHUTSU_V1（2026-10-27）対話の最初（おっ、来たな！の次）に、今週の家庭学習の提出状況を一言（teishutsu.js・1日1回まで・責めない）。
  *
  *  ✍️ HSSIGN_V1（2026-10-26）サポーター（おうちの人）のサイン
@@ -64,7 +72,10 @@
     sendRetry: 'うまく 送れんかったみたいや。もう一度 おしてみてな',
     already: '今日の家庭学習は もう 提出ずみやで！ また あした 話そな！',
     sheetStarted: 'シートで もう はじめてるみたいやな！ このまま つづけよか',
-    viewOnly: '（見るだけモード中なので 提出は しません）',
+    viewOnly: '👀 見るだけモードなので、提出はされないよ（先生用）',
+    teacherOnly: '👀 先生のアカウントで開いているので、提出はされないよ（先生用）。子どもの提出を ためすときは、子どもの IDで ログインしてな',
+    resume: 'おかえり！ 書いたことは のこってるで。もう一度「📤 先生に 提出」を おしてな',
+    resumePhoto: '写真は もう一度 えらんでな',
     introTitle: '家庭学習を阪神マンと対話しながらできるようになったで！',
     sign: 'おつかれさん！ おうちの人に見せて、サインもらってきてな！',
     signDone: 'サインもろたで！ ほな提出しよか！ 写真が あったら つけてな',
@@ -111,6 +122,7 @@
   function stripIcon(label) { return String(label || '').replace(/^[^぀-ヿ一-鿿A-Za-z0-9🅰🅱]+\s*/, '').trim(); }
   function curP() { try { if (typeof player !== 'undefined' && player) return player; } catch (e) {} return window.player || null; }
   function viewOnly() { return !!window.__VIEWAS_ON__; }
+  function teacherAcct() { var r = String(window.__loggedInRole || ''); return !viewOnly() && (r === 'teacher' || r === 'admin'); }   // HSAUTH_V1
   function jget(url) { return fetch(url, { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); }
   // index.html の関数は「名前で」さがす（window にのらない書き方でも見つかるように typeof で）
   function fn(name) {
@@ -474,6 +486,7 @@
     if (String(l.parentComment || '').trim()) { afterSay(SAY.signAgain); return; }
     openSign(sumOf(l), function (text) {
       if (viewOnly()) { afterSay(SAY.viewOnly); return; }
+      if (teacherAcct()) { afterSay(SAY.teacherOnly); return; }   // HSAUTH_V1
       _signBusy = true;
       fetch('/api/homework/parent-sign', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dayKey: l.dayKey, text: text }) })
         .then(function (r) { return r.json(); }).catch(function () { return null; })
@@ -499,6 +512,7 @@
   async function submit() {
     if (_sending) return;
     if (viewOnly()) { act(function (s, c) { say(c, 'b', SAY.viewOnly); }); return; }
+    if (teacherAcct()) { act(function (s, c) { say(c, 'b', SAY.teacherOnly); }); return; }   // HSAUTH_V1 先生のアカウントは送らない
     _sending = true;
     act(function (s, c) {
       s.endWeather = c.weather || s.endWeather || 'sun';
@@ -516,6 +530,7 @@
     _sending = false;
     if (submittedToday()) {
       var msg = ''; try { msg = String((document.getElementById('hsRewardMsg') || {}).textContent || '').replace(/^✅\s*/, '').trim(); } catch (e) {}
+      resumeDrop();   // HSAUTH_V1 控えは もういらない
       _done = keep || newChat();
       _done.step = 'done'; _done.waiting = '';
       _done.log = (_done.log || []).filter(function (x) { return x.t !== SAY.sending; });
@@ -741,6 +756,42 @@
     document.getElementById('hsChatIntroGo').onclick = function () { rm(); open(); };
   }
 
+  // ───────── 🔐 HSAUTH_V1 ログインが切れたあとの続き ─────────
+  var RESUME_KEY = 'hsResumeV1', RESUME_MS = 12 * 3600000, _resumed = false;
+  function hasResume() { try { return !!localStorage.getItem(RESUME_KEY); } catch (e) { return false; } }
+  function resumeDrop() { if (viewOnly()) return; try { localStorage.removeItem(RESUME_KEY); } catch (e) {} }
+  function loadingNow() { try { return typeof _loadingData !== 'undefined' && !!_loadingData; } catch (e) { return false; } }
+  function resumeCheck() {
+    if (viewOnly() || loadingNow()) return;
+    var raw = null; try { raw = localStorage.getItem(RESUME_KEY); } catch (e) { return; }
+    if (!raw) return;
+    var r = null; try { r = JSON.parse(raw); } catch (e) { resumeDrop(); return; }
+    var p = curP(); if (!p || !p.userId) return;
+    if (!r || !r.sess || r.v !== 1 || !(Date.now() - Number(r.ts || 0) < RESUME_MS) || r.dayKey !== dayKey()) { resumeDrop(); return; }
+    if (String(r.uid) !== String(p.userId)) return;   // ほかの子の控え（同じ端末を使う子）は さわらない
+    if (submittedToday()) { resumeDrop(); return; }
+    var cur = getSess();
+    // いまの下書きが 控えより すすんでいない（サーバの保存が古い）ときだけ 控えを戻す
+    if (!cur || !cur.unlocked || !String(cur.todo || '').trim()) {
+      var s = JSON.parse(JSON.stringify(r.sess)); s.dayKey = dayKey();
+      var c = chat(s);
+      if (c) { c.log = (c.log || []).filter(function (x) { return x.t !== SAY.sending; }); c.waiting = ''; }
+      saveSess(s);
+    }
+    if (_resumed) return;
+    _resumed = true;
+    var s2 = getSess(), c2 = chat(s2);
+    if (r.chat && c2) {
+      act(function (s, c) {
+        c.log = c.log.filter(function (x) { return x.t !== SAY.sending; });
+        say(c, 'b', SAY.resume + (c.step === 'photo' ? '（' + SAY.resumePhoto + '）' : ''));
+      });
+      open();
+    } else {
+      try { alert('おかえり！ 書いたことは のこっているよ。\n家庭学習のシートから もう一度「📤 先生に提出」を おしてね。（写真は もう一度 えらんでね）'); } catch (e) {}
+    }
+  }
+
   // ───────── 起動 ─────────
   var tries = 0, introDone = false;
   var boot0 = setInterval(function () {
@@ -748,15 +799,16 @@
     var p = curP();
     if (p && p.userId && fn('hsGetSession')) {
       startTick();
+      if (tries <= 60) { try { resumeCheck(); } catch (e) {} }   // HSAUTH_V1（読みこみで下書きが上書きされても 戻せるよう しばらく見る）
       if (!introDone) { introDone = true; setTimeout(maybeIntro, 3500); }
     }
-    if (_tick && tries > 3) { clearInterval(boot0); setInterval(placeEntries, 1500); }
+    if (_tick && tries > 3 && (tries > 60 || !hasResume())) { clearInterval(boot0); setInterval(placeEntries, 1500); }
     placeEntries();
     if (tries > 120) clearInterval(boot0);
   }, 1000);
 
   window.HSCHAT = {
     open: open,
-    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, buildAim: buildAim, buildText: buildText, signText: signText, sumOf: sumOf, canSignLater: canSignLater, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick }
+    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, buildAim: buildAim, buildText: buildText, signText: signText, sumOf: sumOf, canSignLater: canSignLater, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick, resumeCheck: resumeCheck }
   };
 })();
