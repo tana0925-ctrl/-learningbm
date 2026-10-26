@@ -1049,6 +1049,50 @@ await t('51 前の自分ページ：自分の分だけ（未ログイン401・�
   eq(m.json.last.school.subj, '算数', '月曜の計画画面に出す先週の分')
 })
 
+// ── HSCHAT_V1 阪神マンと はじめる家庭学習：提出は いつもの /api/homework/submit（新しいコインの道は作らない）──
+function hsCols(w) {
+  const cols = ['submitted_at INTEGER', 'todo TEXT', 'why TEXT', 'aim TEXT', 'minutes INTEGER', 'end_weather TEXT', 'weather_reason TEXT', 'next_improve TEXT', 'rest_day INTEGER', 'streak_after INTEGER',
+    'reward_kind TEXT', 'reward_coins INTEGER', 'reward_shards INTEGER', 'bonus_coins INTEGER', 'bonus_shards INTEGER', 'self_study_plan TEXT', 'weekly_plan TEXT',
+    'work_photo_analysis TEXT', 'parent_comment TEXT', 'reward_claimed INTEGER DEFAULT 0', 'reward_claimed_at INTEGER']
+  const have = w.db._all('PRAGMA table_info(homework_submissions)').map((r) => r.name)
+  cols.forEach((c) => { if (have.indexOf(c.split(' ')[0]) < 0) w.db.db.exec('ALTER TABLE homework_submissions ADD COLUMN ' + c) })
+  try { w.db.db.exec('ALTER TABLE users ADD COLUMN last_login_at TEXT') } catch (_e) {}
+}
+const HSCHAT_BODY = { dayKey: '2026-10-27', todo: '🅰「分数のかけ算」をもう一度（カルテのおすすめ）', why: 'テストがあるから', aim: '15分 がんばる', minutes: 20,
+  endWeather: 'sun', weatherReason: '集中できた', nextImprove: 'このままでOK', selfStudyPlan: '🅰「分数のかけ算」をもう一度（カルテのおすすめ）', weeklyPlan: '', weeklyReflection: '',
+  restDay: false, streakAfter: 1, rewardKind: 'coin', rewardCoins: 200, rewardShards: 0, bonusCoins: 0, bonusShards: 1, workPhotoAnalysis: '', parentComment: '' }
+
+await t('52 HSCHAT 対話で出した家庭学習 → いつもの項目にそのまま保存（今日やること・なんで・めあて・時間・天気・理由・次）・先生の一覧に出る', async () => {
+  const w = await newWorld(); hsCols(w)
+  w.setState(smallState({ coins: 1000 }))
+  const r = await w.call('POST', '/api/homework/submit', { user: w.student, body: HSCHAT_BODY })
+  eq(r.status, 200, '提出できる'); eq(r.json.instantReward, true, 'いつもの即コインの印')
+  const row = w.db._get("SELECT * FROM homework_submissions WHERE user_id=? AND day_key=?", 'stu-1', '2026-10-27')
+  eq(row.todo, HSCHAT_BODY.todo, '今日やること'); eq(row.why, 'テストがあるから', 'なんで'); eq(row.aim, '15分 がんばる', 'めあて')
+  eq(row.minutes, 20, 'やった時間（タイマー）'); eq(row.end_weather, 'sun', '天気'); eq(row.weather_reason, '集中できた', '天気の理由'); eq(row.next_improve, 'このままでOK', '次にするには')
+  eq(row.reward_claimed, 1, 'いつもどおり受け取り済みの印（返却で二重に付かない）')
+  eq(w.getState().coins, 1000, 'サーバはコインを動かさない（いつもどおり端末で1回だけ）')
+  const l = await w.call('GET', '/api/teacher/homework', { user: w.teacher })
+  const it = (l.json.submissions || l.json.items || l.json.rows || []).find((x) => x.dayKey === '2026-10-27')
+  ok(it, '先生の一覧に出る'); eq(it.weatherReason, '集中できた', '一覧に理由'); eq(it.nextImprove, 'このままでOK', '一覧に次')
+})
+
+await t('53 HSCHAT シートと対話の両方から・連打・同時送信でも 1日1行（2回目は alreadySubmitted・コインの基の行はふえない）', async () => {
+  const w = await newWorld(); hsCols(w)
+  w.setState(smallState({ coins: 1000 }))
+  const rs = await Promise.all([0, 1, 2].map(() => w.call('POST', '/api/homework/submit', { user: w.student, body: HSCHAT_BODY })))
+  const sheet = await w.call('POST', '/api/homework/submit', { user: w.student, body: { ...HSCHAT_BODY, todo: 'シートから', rewardCoins: 300 } })
+  eq(sheet.json.alreadySubmitted, true, 'シートから2回目は alreadySubmitted')
+  eq(w.db._all("SELECT * FROM homework_submissions WHERE user_id=? AND day_key=?", 'stu-1', '2026-10-27').length, 1, '1日1行')
+  eq(w.db._get("SELECT reward_coins FROM homework_submissions WHERE user_id=? AND day_key=?", 'stu-1', '2026-10-27').reward_coins, 200, '最初の分のまま')
+  eq(w.getState().coins, 1000, 'サーバでコインは動かない')
+  ok(rs.filter((r) => r.status === 200).length === 3, 'どれもエラーにはならない')
+  const t2 = await w.call('POST', '/api/homework/submit', { user: w.teacher, body: HSCHAT_BODY })
+  eq(t2.status, 403, '先生は出せない')
+  const n = await w.call('POST', '/api/homework/submit', { body: HSCHAT_BODY })
+  ok(n.status === 401 || n.status === 403, 'ログインなしは出せない')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')
