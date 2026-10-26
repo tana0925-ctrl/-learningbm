@@ -97,12 +97,12 @@
 
   // ───────── クラスごとの「いま修行されている単元」 ─────────
   var _guide = {};   // classId -> {nowUnits, unitProgress}
-  function loadGuide(cid) {
+  function loadGuide(cid, fresh) {
     if (!cid) return Promise.resolve(null);
-    if (_guide[cid]) return Promise.resolve(_guide[cid]);
+    if (_guide[cid] && !fresh && Date.now() - (_guide[cid]._at || 0) < 10 * 60000) return Promise.resolve(_guide[cid]);   // NOWUNIT_V1 10分で読み直す
     return fetch('/api/teacher/class/' + encodeURIComponent(cid) + '/karte-guide', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) _guide[cid] = j; return _guide[cid] || null; })
+      .then(function (j) { if (j && j.ok) { j._at = Date.now(); _guide[cid] = j; } return _guide[cid] || null; })
       .catch(function () { return null; });
   }
   // KANTAN_REF_V1 クラスの「ふりかえりの きっかけ」まわりの事実（アプリを開いた日など）。カルテの🌟と はじめの一歩に使う。
@@ -498,103 +498,232 @@
   }
   global.michiNextTryOf = nextTryOf;
 
-  function computeReco(d) {
+  // ═════════ NOWUNIT_V1 クラスの「いまの単元」（教科ごと・2026-10-26）═════════
+  //  決め方（上から順に、あるものを使う）：
+  //   ① 先生が手で選んだもの（分析タブの「📍 いまの単元」。選んだら次に変えるまで有効）
+  //   ② ⑥授業メモの「教科：単元」の いちばん新しい行（直近28日）。アプリの単元名に照合できたときだけ
+  //   ③ クラスの子が まとめて取り組んでいる単元（直近1週で3人以上・15問以上 → なければ直近2週で3人以上・30問以上）
+  //   ④ 算数だけ：標準の進み方（月ごとの目安）
+  //  ・その学年の単元だけ（学年外・中学の単元は使わない）。
+  var JP2SUBJ = { '算数': 'math', '国語': 'japanese', '社会': 'social', '理科': 'science' };
+  var NOW_SRC_LABEL = { manual: '先生が選んだ', memo: '授業メモから', auto: 'クラスの記録から（自動）', std: '標準の進み方（目安）' };
+  function normName(s) { return String(s || '').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s　・「」『』、。．.:：]/g, '').replace(/の/g, ''); }
+  function gradeUnits(subj, sg) { return subjOrder(subj).filter(function (id) { var inf = unitInfo(id); return !!(inf && inf.subj === subj && inf.grade === sg); }); }
+  function matchTheme(subj, sg, theme) {
+    // 授業メモの単元名 → アプリの単元。重なった文字数がいちばん多いもの（名前がまるごと入る／2文字ずつの重なりが6割以上）
+    var t = normName(theme); if (!t) return '';
+    var best = '', bs = 0;
+    gradeUnits(subj, sg).forEach(function (id) {
+      var n = normName(unitInfo(id).name); if (!n) return;
+      var sc = 0;
+      if (t.indexOf(n) >= 0 || (t.length >= 2 && n.indexOf(t) >= 0)) sc = Math.min(n.length, t.length) + 0.5;
+      else if (n.length >= 3) {
+        var cov = {}, hit = 0, ng = n.length - 1;
+        for (var i = 0; i + 1 < n.length; i++) if (t.indexOf(n.slice(i, i + 2)) >= 0) { hit++; cov[i] = 1; cov[i + 1] = 1; }
+        if (hit >= 2 && hit / ng >= 0.6) sc = Object.keys(cov).length;
+      }
+      if (sc > bs) { bs = sc; best = id; }
+    });
+    return best;
+  }
+  function resolveNow(guide, sg, subj) {
+    sg = Number(sg || 0);
+    if (!sg || sg > 6) return null;
+    var ok = function (id) { var inf = unitInfo(id); return (inf && inf.subj === subj && inf.grade === sg) ? inf : null; };
+    var g = guide || {};
+    var m = g.nowManual && g.nowManual[subj];
+    if (m && m.unit && ok(m.unit)) return { id: String(m.unit), src: 'manual', at: m.updatedAt || '' };
+    var mt = g.memoTopics || [];
+    for (var i = 0; i < mt.length; i++) {
+      if (JP2SUBJ[mt[i].subj] !== subj) continue;
+      var mid = matchTheme(subj, sg, mt[i].theme);   // いちばん新しい行だけ見る（照合できなければ使わない）
+      if (mid) return { id: mid, src: 'memo', theme: mt[i].theme, at: mt[i].dayKey || '' };
+      break;
+    }
+    var nu = (g.nowUnits || []).map(function (x) { return { x: x, inf: ok(x.unit) }; }).filter(function (z) { return !!z.inf; });
+    var p7 = nu.filter(function (z) { return Number(z.x.users7 || 0) >= 3 && Number(z.x.n7 || 0) >= 15; }).sort(function (a, b) { return b.x.users7 - a.x.users7 || b.x.n7 - a.x.n7; })[0];
+    if (p7) return { id: p7.inf.id, src: 'auto', users: Number(p7.x.users7), n: Number(p7.x.n7), days: 7 };
+    var p14 = nu.filter(function (z) { return Number(z.x.users || 0) >= 3 && Number(z.x.n || 0) >= 30; }).sort(function (a, b) { return b.x.users - a.x.users || b.x.n - a.x.n; })[0];
+    if (p14) return { id: p14.inf.id, src: 'auto', users: Number(p14.x.users), n: Number(p14.x.n), days: 14 };
+    if (subj === 'math' && MATH_PACE_ORDER[sg]) {
+      var mo = jstNowM().getMonth() + 1;
+      var cur = (MATH_PACE_MONTH[sg] || {})[mo] || MATH_PACE_ORDER[sg][0];
+      if (ok(cur)) return { id: cur, src: 'std' };
+    }
+    return null;
+  }
+  global.michiResolveNow = resolveNow;
+
+  function computeReco(d, guideArg) {
     var sg = Number((d.student && d.student.grade) || 0) || null;
     if (!sg || sg > 6) return null;
+    var guide = guideArg || (d && d.classId ? _guide[d.classId] : null) || null;
     var sm = subjMap(d);
     var ru = {}; (d.recentUnits || []).forEach(function (r) { ru[String(r.unit)] = r; });
-    // 教科ごとの直近2週間の問題数
+    // 教科ごとの直近2週間の問題数（その学年の単元だけ）
     var tot = {}; SUBJ_LIST.forEach(function (k) { tot[k] = 0; });
-    (d.recentUnits || []).forEach(function (r) { var inf = unitInfo(r.unit); if (inf && tot[inf.subj] != null && inf.grade <= sg + 1) tot[inf.subj] += Number(r.n || 0); });
+    (d.recentUnits || []).forEach(function (r) { var inf = unitInfo(r.unit); if (inf && tot[inf.subj] != null && inf.grade === sg) tot[inf.subj] += Number(r.n || 0); });
     var override = null;
     try {
       var kr = d.karteReco;
       if (kr && kr.source === 'teacher' && kr.reco && kr.reco.anchor && daysAgo(String(kr.updatedAt).replace(' ', 'T') + 'Z') <= 10) override = kr.reco;
     } catch (e) {}
+    var thisWeek = isoWeekKey(jstNowM());
     var subj, rich, anchor, note = '';
     var nt = nextTryOf(d);   /* MAEJIBUN_V1 */
     var npick = null;        // 本人がえらんだ単元（先生の差しかえが無いときだけ 🅰🅱 に優先）
-    if (!override && nt && nt.unit) { var _pi = unitInfo(nt.unit); if (_pi && _pi.grade <= sg + 1 && SUBJ_LIST.indexOf(_pi.subj) >= 0) npick = _pi; }
+    if (!override && nt && nt.unit) { var _pi = unitInfo(nt.unit); if (_pi && _pi.grade === sg && SUBJ_LIST.indexOf(_pi.subj) >= 0) npick = _pi; }
+    var nowBy = {}; SUBJ_LIST.forEach(function (k) { nowBy[k] = resolveNow(guide, sg, k); });
     if (override && unitInfo(override.anchor)) {
       subj = unitInfo(override.anchor).subj; anchor = override.anchor; rich = (tot[subj] || 0) >= 10;
     } else if (npick) {
       subj = npick.subj; anchor = npick.id; rich = (tot[subj] || 0) >= 10;
     } else {
-      if (tot.math >= 10) subj = 'math';
-      else { subj = null; SUBJ_LIST.forEach(function (k) { if (k !== 'math' && tot[k] >= 10 && (!subj || tot[k] > tot[subj])) subj = k; }); }
-      rich = !!subj;
-      if (!subj) subj = 'math';
+      // 教科：記録がある子は とりくんでいる教科（算数を先に）。いまの単元が わかる教科を先に。
+      var many = SUBJ_LIST.filter(function (k) { return tot[k] >= 10; });
+      var many2 = many.filter(function (k) { return !!nowBy[k]; });
+      var pickSubj = function (arr) { if (arr.indexOf('math') >= 0) return 'math'; var b = null; arr.forEach(function (k) { if (!b || tot[k] > tot[b]) b = k; }); return b; };
+      if (many2.length) subj = pickSubj(many2);
+      else if (many.length) subj = pickSubj(many);
+      else {
+        // 記録が少ない子：先生が示した教科（手で選んだ・授業メモ）→ 算数
+        var told = SUBJ_LIST.filter(function (k) { return nowBy[k] && (nowBy[k].src === 'manual' || nowBy[k].src === 'memo'); });
+        subj = (told.length && told.indexOf('math') < 0) ? told[0] : 'math';
+      }
+      rich = (tot[subj] || 0) >= 10;
     }
     var order = subjOrder(subj);
     var gradeOf = function (id) { var inf = unitInfo(id); return inf ? inf.grade : 99; };
-    var A, Bn, why = { a: '', b: '' };
-    if (!anchor && rich) {
-      var cand = (d.recentUnits || []).filter(function (r) { var inf = unitInfo(r.unit); return inf && inf.subj === subj && Number(r.n) >= 5 && order.indexOf(inf.id) >= 0; });
-      var on = cand.filter(function (r) { return gradeOf(r.unit) === sg; });
-      var weak = on.filter(function (r) { return Number(r.c) / Number(r.n) < 0.8; });
-      var pick = weak[0] || on[0] || cand.filter(function (r) { return gradeOf(r.unit) <= sg; })[0] || null;
+    var A, Bn, why = { a: '', b: '' }, now = null;
+    // 前の週の返事でずらす（同じ教科のときだけ・その学年の中だけ）
+    var fb = d.recoFeedback, fbShift = false;
+    if (!override && !npick && fb && fb.unit && fb.subj === subj && daysAgo(String(fb.createdAt).replace(' ', 'T') + 'Z') <= 14) {
+      var fi = order.indexOf(fb.unit);
+      if (fi >= 0 && fb.choice === 'easy' && fi + 1 < order.length && gradeOf(order[fi + 1]) === sg) { anchor = order[fi + 1]; fbShift = true; note = '先週「かんたんすぎ」だったので、1つ先に すすめたよ'; }
+      else if (fi >= 0 && fb.choice === 'hard' && fi - 1 >= 0 && gradeOf(order[fi - 1]) === sg) { anchor = order[fi - 1]; fbShift = true; note = '先週「むずかしすぎ」だったので、1つ前から にしたよ'; }
+      else if (fb.choice === 'other') note = '先週「ちがうのがいい」だったので、🅲 で じぶんで 決めてみてね';
+    }
+    var wrongOf = function (id) {
+      var r = ru[id]; var w = r ? Math.max(0, Number(r.n || 0) - Number(r.c || 0)) : 0;
+      var s = sm[id]; var wa = s ? Math.round(Number(s.total || 0) * (100 - Number(s.rate || 0)) / 100) : 0;
+      return w * 3 + Math.min(Math.max(0, wa), 30);
+    };
+    var useNow = !override && !npick && !fbShift && !!nowBy[subj];
+    if (useNow) {
+      // ── NOWUNIT_V1 いまの単元 を中心に：🅱＝いまの単元（十分なら その次）／🅰＝いまの単元か その1つ前で まちがいが多いほう
+      now = nowBy[subj];
+      var gu = gradeUnits(subj, sg), ni = gu.indexOf(now.id);
+      var prevId = ni > 0 ? gu[ni - 1] : null, prev2 = ni > 1 ? gu[ni - 2] : null;
+      var nextId = null; for (var j0 = (ni >= 0 ? ni + 1 : 0); j0 < gu.length; j0++) { if (gu[j0] !== now.id && !mastered(sm, gu[j0])) { nextId = gu[j0]; break; } }
+      var rNow = ru[now.id], nowWrongRecent = rNow ? Number(rNow.n || 0) - Number(rNow.c || 0) : 0;
+      if (mastered(sm, now.id)) Bn = nextId;
+      else if (nowWrongRecent >= 2 && wrongOf(now.id) > (prevId ? wrongOf(prevId) : -1) && nextId) Bn = nextId;   // いまの単元で つまずき中 → 🅰で かためる
+      else Bn = now.id;
+      var pref = function (id) { return id === prevId ? 0 : id === now.id ? 1 : 2; };
+      var cands = [now.id, prevId].filter(function (x) { return x && x !== Bn; });
+      cands.sort(function (a, b) { return (mastered(sm, a) ? 1 : 0) - (mastered(sm, b) ? 1 : 0) || wrongOf(b) - wrongOf(a) || pref(a) - pref(b); });   // よくできている単元は あとに
+      // 同じ単元が 何週も つづかないように：先週（自動で作ったもの）の🅰と同じなら、もう1つの候補へ
+      var last = d.karteReco, lastA = '';
+      try { if (last && last.source !== 'teacher' && last.weekKey && last.weekKey !== thisWeek && last.reco && last.reco.a) lastA = String(last.reco.a.id || ''); } catch (e) {}
+      if (lastA && cands[0] === lastA) {
+        var alt = cands.slice(1).concat(prev2 && prev2 !== Bn ? [prev2] : []).filter(function (x) { return x && x !== lastA; });
+        if (alt.length) { cands = alt.concat([lastA]); note = note || '先週と ちがう 単元も まぜてみたよ'; }
+      }
+      A = cands[0] || null;
+      if (!A) { A = now.id; if (Bn === now.id) Bn = nextId; }
+      if (Bn === A) Bn = null;
+      anchor = A;
+    }
+    if (!useNow && !anchor && rich) {
+      var cand = (d.recentUnits || []).filter(function (r) { var inf = unitInfo(r.unit); return inf && inf.subj === subj && Number(r.n) >= 5 && order.indexOf(inf.id) >= 0 && inf.grade === sg; });
+      var weak = cand.filter(function (r) { return Number(r.c) / Number(r.n) < 0.8; });
+      var pick = weak[0] || cand[0] || null;
       if (pick) anchor = String(pick.unit); else rich = false;
     }
-    if (!rich && !anchor) {
-      // 記録が少ない：教科書の順番どおり（算数の標準の進み方。いまの月の単元と、その1つ前）
+    if (!useNow && !rich && !anchor) {
+      // 記録が少ない・いまの単元も わからない：教科書の順番どおり（算数の標準の進み方。いまの月の単元と、その1つ前）
       subj = 'math'; order = subjOrder('math');
       var mo = jstNowM().getMonth() + 1;
       var cur = (MATH_PACE_MONTH[sg] || {})[mo] || MATH_PACE_ORDER[sg][0];
       var ci = order.indexOf(cur);
-      A = order[Math.max(0, ci - 1)]; Bn = cur; anchor = cur;
-    }
-    // 前の週の返事でずらす（同じ教科のときだけ）
-    var fb = d.recoFeedback;
-    if (!override && !npick && fb && fb.unit && fb.subj === subj && daysAgo(String(fb.createdAt).replace(' ', 'T') + 'Z') <= 14) {
-      var fi = order.indexOf(fb.unit);
-      if (fi >= 0 && fb.choice === 'easy' && fi + 1 < order.length) { anchor = order[fi + 1]; A = null; Bn = null; note = '先週「かんたんすぎ」だったので、1つ先に すすめたよ'; }
-      else if (fi >= 0 && fb.choice === 'hard' && fi - 1 >= 0) { anchor = order[fi - 1]; A = null; Bn = null; note = '先週「むずかしすぎ」だったので、1つ前から にしたよ'; }
-      else if (fb.choice === 'other') note = '先週「ちがうのがいい」だったので、🅲 で じぶんで 決めてみてね';
+      A = (ci > 0 && gradeOf(order[ci - 1]) === sg) ? order[ci - 1] : cur; Bn = A === cur ? null : cur; anchor = cur;
     }
     var pickSlot = '';
     if (npick) {   /* MAEJIBUN_V1 本人がえらんだ単元をどこに置くか（記録がある→🅰でかためる／まだ→🅱ですすむ） */
       var pi2 = order.indexOf(npick.id), pS = sm[npick.id];
       A = null; Bn = null;
       if (pi2 < 0) { A = npick.id; pickSlot = 'a'; Bn = '__none__'; }
-      else if (!(pS && Number(pS.total) > 0) && pi2 - 1 >= 0 && gradeOf(order[pi2 - 1]) <= sg) { A = order[pi2 - 1]; Bn = npick.id; pickSlot = 'b'; }
+      else if (!(pS && Number(pS.total) > 0) && pi2 - 1 >= 0 && gradeOf(order[pi2 - 1]) === sg) { A = order[pi2 - 1]; Bn = npick.id; pickSlot = 'b'; }
       else { anchor = npick.id; pickSlot = 'a'; }
       note = '「' + npick.name + '」は あなたが えらんだので、いちばんに 入れたよ';
     }
     if (Bn === '__none__') Bn = null;
-    else if (!A || !Bn) {
+    else if (!useNow && (!A || !Bn)) {
       var ai = order.indexOf(anchor);
       A = anchor;
       Bn = null;
-      for (var j = ai + 1; j < order.length; j++) { if (!mastered(sm, order[j]) && gradeOf(order[j]) <= sg) { Bn = order[j]; break; } }
-      if (!Bn) { for (var j2 = 0; j2 < order.length; j2++) { if (order[j2] !== A && gradeOf(order[j2]) === sg && !mastered(sm, order[j2])) { Bn = order[j2]; break; } } }
+      for (var j = ai + 1; j < order.length; j++) { if (!mastered(sm, order[j]) && gradeOf(order[j]) === sg && isTaught(guide, order[j])) { Bn = order[j]; break; } }
+      if (!Bn) { for (var j2 = 0; j2 < order.length; j2++) { if (order[j2] !== A && gradeOf(order[j2]) === sg && !mastered(sm, order[j2]) && isTaught(guide, order[j2])) { Bn = order[j2]; break; } } }
     }
     var iA = unitInfo(A), iB = Bn ? unitInfo(Bn) : null;
     if (!iA) return null;
     var rA = ru[A], rB = Bn ? ru[Bn] : null;
     var period = function (r) { return r ? '（' + md(r.firstAt) + '〜' + md(r.lastAt) + '）' : ''; };
-    if (rA && Number(rA.n) > 0) {
-      var wrong = Number(rA.n) - Number(rA.c);
-      why.a = wrong >= 2 ? ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できたよ' + period(rA) + '。のこりの ' + wrong + '問を かためると、もっと つよくなるで') : ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できていたよ' + period(rA) + '。しっかり かためるのも いいかも');
-    } else if (sm[A] && Number(sm[A].total) > 0) {
-      why.a = '「' + iA.name + '」は これまで ' + sm[A].total + '問 とりくんでいるよ';
+    var rec = function (id, r) {   // 記録のひとこと（短く）
+      if (r && Number(r.n) > 0) return Number(r.n) + '問中 ' + Number(r.c) + '問 できたよ';
+      if (sm[id] && Number(sm[id].total) > 0) return 'これまで ' + sm[id].total + '問 とりくんでいるよ';
+      return '';
+    };
+    var fit = function (s, extra) { return (extra && (s + extra).length <= 76) ? s + extra : s; };
+    if (useNow) {
+      var iN = unitInfo(now.id), nn = iN ? iN.name : '';
+      var real = now.src !== 'std';
+      var nowPh = real ? 'いま 授業で やっている「' + nn + '」' : '教科書で いま 習う ころの「' + nn + '」';
+      if (A === now.id) {
+        var ra = rec(A, rA);
+        why.a = fit(nowPh + 'を かためよう' + (ra ? '。' + ra : ''), rA ? period(rA) : '');
+      } else {
+        var ra2 = rec(A, rA);
+        why.a = fit('「' + iA.name + '」は ' + nowPh + 'の 1つ前の 単元だよ' + (ra2 ? '。' + ra2 : ''), rA ? period(rA) : '');
+        if (why.a.length > 76) why.a = '「' + iA.name + '」は ' + nowPh + 'の 1つ前だよ' + (ra2 ? '。' + ra2 : '');
+      }
+      if (iB) {
+        if (Bn === now.id) why.b = real ? ('「' + iB.name + '」は いま 授業で やっている 単元だよ' + (rB && Number(rB.n) > 0 ? '。さいきん ' + rB.n + '問 とりくんでいるよ' : '。はじめの 1問から いってみよう')) : ('「' + iB.name + '」は 教科書の 順番で、いま ' + iB.gradeLabel + 'で 習う ころの 単元だよ');
+        else if (mastered(sm, now.id)) why.b = '「' + nn + '」は よく できているので、つぎに 習う「' + iB.name + '」へ すすもう';
+        else why.b = '「' + iB.name + '」は ' + nowPh + 'の つぎに 習う 単元だよ';
+      }
     } else {
-      why.a = rich ? '「' + iA.name + '」は つぎに むかう 前の 土台だよ' : '「' + iA.name + '」は 教科書で 1つ前に 習う ところだよ';
-    }
-    if (iB) {
-      if (!rich && Bn === anchor) why.b = '「' + iB.name + '」は 教科書の 順番で、いま ' + iB.gradeLabel + 'で 習う ころの 単元だよ';
-      else if (rB && Number(rB.n) > 0) why.b = '「' + iB.name + '」は さいきん ' + rB.n + '問。つづきから すすめるよ';
-      else if (sm[Bn] && Number(sm[Bn].total) > 0) why.b = '「' + iB.name + '」は これまで ' + sm[Bn].total + '問。つづきから すすめるよ';
-      else why.b = '「' + iB.name + '」は 「' + iA.name + '」の つぎに 習う 単元だよ';
+      if (rA && Number(rA.n) > 0) {
+        var wrong = Number(rA.n) - Number(rA.c);
+        why.a = wrong >= 2 ? ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できたよ' + period(rA) + '。のこりの ' + wrong + '問を かためると、もっと つよくなるで') : ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できていたよ' + period(rA) + '。しっかり かためるのも いいかも');
+      } else if (sm[A] && Number(sm[A].total) > 0) {
+        why.a = '「' + iA.name + '」は これまで ' + sm[A].total + '問 とりくんでいるよ';
+      } else {
+        why.a = rich ? '「' + iA.name + '」は つぎに むかう 前の 土台だよ' : '「' + iA.name + '」は 教科書で 1つ前に 習う ところだよ';
+      }
+      if (iB) {
+        if (!rich && Bn === anchor) why.b = '「' + iB.name + '」は 教科書の 順番で、いま ' + iB.gradeLabel + 'で 習う ころの 単元だよ';
+        else if (rB && Number(rB.n) > 0) why.b = '「' + iB.name + '」は さいきん ' + rB.n + '問。つづきから すすめるよ';
+        else if (sm[Bn] && Number(sm[Bn].total) > 0) why.b = '「' + iB.name + '」は これまで ' + sm[Bn].total + '問。つづきから すすめるよ';
+        else why.b = '「' + iB.name + '」は 「' + iA.name + '」の つぎに 習う 単元だよ';
+      }
     }
     if (pickSlot === 'a') why.a = 'あなたが えらんだ 単元。' + ((rA && Number(rA.n) > 0) || (sm[A] && Number(sm[A].total) > 0) ? why.a.replace(/^「[^」]*」(は|で)\s*/, '') : 'はじめの 1問から ためしてみる？');
     if (pickSlot === 'b' && iB) why.b = 'あなたが えらんだ 単元。' + why.b.replace(/^「[^」]*」(は|で)\s*/, '');
     var n14 = tot[subj] || 0;
-    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : npick ? ('🎯 あなたが えらんだ 単元から 作ったよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '')) : (!rich ? '△ 教科書の順番どおりの おすすめだよ（記録が ふえると、あなたに合わせた おすすめに なるよ）' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
+    var mark;
+    if (override) mark = '✎ 先生が えらんだ おすすめだよ';
+    else if (npick) mark = '🎯 あなたが えらんだ 単元から 作ったよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '');
+    else if (useNow && now.src !== 'std') mark = '📍 いま 授業で やっている 単元から えらんだよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '');
+    else if (useNow) mark = rich ? '📍 教科書の 順番（いま 習う ころ）と、さいきん2週間の ' + n14 + '問の記録から えらんだよ' : '△ 教科書の順番どおりの おすすめだよ（記録が ふえると、あなたに合わせた おすすめに なるよ）';
+    else mark = !rich ? '△ 教科書の順番どおりの おすすめだよ（記録が ふえると、あなたに合わせた おすすめに なるよ）' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ');
+    var here = useNow ? now.id : ((rich || override || npick) ? A : (Bn || A));
     return {
-      v: 2, subj: subj, subjName: iA.subjName, anchor: A, here: (rich || override || npick) ? A : (Bn || A), rich: rich, override: !!override, pick: npick ? npick.id : '',
+      v: 3, subj: subj, subjName: iA.subjName, anchor: A, here: here, rich: rich, override: !!override, pick: npick ? npick.id : '',
+      now: (useNow && now) ? { id: now.id, name: (unitInfo(now.id) || {}).name || '', src: now.src } : null,   /* NOWUNIT_V1 */
       a: { id: A, name: iA.name, entry: entryOf(iA), why: why.a },
       b: iB ? { id: Bn, name: iB.name, entry: entryOf(iB), why: why.b } : null,
-      mark: mark, note: note, weekKey: isoWeekKey(jstNowM()),
+      mark: mark, note: note, weekKey: thisWeek,
       c: nt ? { say: nt.say, from: nt.from, unit: nt.unit, text: nt.text, weekKey: nt.weekKey } : null   /* MAEJIBUN_V1 🅲 に最初から入れることば */
     };
   }
@@ -623,8 +752,8 @@
 
   function pathsHtml(reco, stalled, small) {
     var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ。どれに する？）</span></h2>';
-    h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 62)) + '</div></div></div>';
-    if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 62)) + '</div></div></div>';
+    h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 76)) + '</div></div></div>';
+    if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 76)) + '</div></div></div>';
     if (reco.c && reco.c.say) h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="cw">' + esc(cut(reco.c.say, 46)) + '</span><div class="py">💬 ' + esc(cut(reco.c.from, 48)) + '（かえても いいよ）</div></div></div>';   /* MAEJIBUN_V1 */
     else h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
     h += '<div class="pm">' + esc(reco.mark) + (reco.note ? '　／　' + esc(reco.note) : '') + '</div>';
@@ -701,6 +830,10 @@
     }
     var FB = { fit: 'ぴったり', easy: 'かんたんすぎ', hard: 'むずかしすぎ', other: 'ちがうのがいい' };
     var h = '<div class="font-bold text-orange-800 mb-1">🧭 えらべる3つの道（印刷の前に確認）</div><div class="text-[11px] text-slate-600 mb-2">「いまここ（🅰）」を変えて［この子だけ保存］を押すと、7日間はその単元で印刷します（🅱はその次の単元になります）。◎○は記録から、△は教科書の順番どおり、🎯は本人が振り返りで選んだ単元、✎は先生が選んだものです。本人が書いた「来週やってみたいこと」は、差しかえても🅲にそのまま入ります。</div>';
+    try {   /* NOWUNIT_V1 いまの単元と、どこから決まったか */
+      var _cid0 = rows.length ? rows[0].d.classId : '', _g0 = _cid0 ? _guide[_cid0] : null, _sg0 = _g0 ? Number(_g0.classGrade || 0) : 0;
+      if (_g0 && _sg0) h += '<div class="text-[11px] text-sky-800 bg-sky-50 border border-sky-200 rounded px-2 py-1 mb-2">📍 いまの単元：' + SUBJ_LIST.map(function (k) { var r = resolveNow(_g0, _sg0, k); return esc(SUBJ[k].name) + ' ' + esc(r ? nowLabel(r) : '－'); }).join('　') + '<span class="text-slate-500">（変えるときは 分析タブの「📍 いまの単元」で）</span></div>';
+    } catch (e) {}
     h += '<div class="overflow-x-auto"><table class="text-xs w-full"><tr class="text-left text-slate-500"><th>名前</th><th>教科</th><th>🅰 いまここ</th><th>🅱 つぎ</th><th>記録</th><th>子どもの声（先週）</th><th></th></tr>';
     rows.forEach(function (x, k) {
       var nm = (typeof global.resolveStudentName === 'function') ? global.resolveStudentName(x.s.loginId, x.s.name) : (x.s.name || '');
@@ -714,7 +847,7 @@
       SUBJ_LIST.forEach(function (sk) {
         subjOrder(sk).forEach(function (id) { var inf = unitInfo(id); if (inf && inf.grade <= sg && inf.grade >= sg - 1) opts += '<option value="' + esc(id) + '"' + (id === rc.anchor ? ' selected' : '') + '>' + esc(inf.subjName + '・' + inf.gradeLabel + '・' + inf.name) + '</option>'; });
       });
-      h += '<td>' + esc(rc.subjName) + '</td><td><select data-k="' + k + '" class="michiSel border rounded p-0.5 max-w-[14rem]">' + opts + '</select></td><td>' + esc(rc.b ? rc.b.name : '－') + '</td><td>' + esc(Array.from(rc.mark)[0] || '') + '</td><td>' + esc(fb) + '</td>';
+      h += '<td>' + esc(rc.subjName) + '</td><td><select data-k="' + k + '" class="michiSel border rounded p-0.5 max-w-[14rem]">' + opts + '</select></td><td>' + esc(rc.b ? rc.b.name : '－') + '</td><td>' + esc(Array.from(rc.mark)[0] || '') + (rc.now ? ' <span class="text-[10px] text-sky-700">いま「' + esc(rc.now.name) + '」</span>' : '') + '</td><td>' + esc(fb) + '</td>';
       h += '<td><button type="button" data-k="' + k + '" class="michiSave bg-orange-500 text-white rounded px-2 py-0.5">この子だけ保存</button> <span class="michiMsg text-[10px]" data-k="' + k + '"></span></td></tr>';
     });
     h += '</table></div>';
@@ -976,6 +1109,79 @@
   global.kantanWatchLoad = kwLoad;
   document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'analyticsClassFilter') { _kwAt = 0; kwLoad(false); } });
   setInterval(function () { try { kwLoad(false); } catch (e) {} }, 4000);
+
+  // ───────── NOWUNIT_V1 先生の画面（分析タブ）：「📍 いまの単元」を教科ごとに1つ（選ばなくてもよい） ─────────
+  var _nwCid = '', _nwAt = 0;
+  function nowSummary(g, sg) {
+    var out = [];
+    SUBJ_LIST.forEach(function (k) { var r = resolveNow(g, sg, k); if (r) out.push({ subj: k, r: r }); });
+    return out;
+  }
+  function nowLabel(r) {
+    if (!r) return 'わかりません（記録がふえると自動で決まります）';
+    var inf = unitInfo(r.id) || { name: r.id };
+    var why = NOW_SRC_LABEL[r.src] || '';
+    if (r.src === 'memo' && r.theme) why += '「' + cut(r.theme, 14) + '」';
+    if (r.src === 'auto') why += '・直近' + r.days + '日で' + r.users + '人';
+    return '「' + inf.name + '」（' + why + '）';
+  }
+  function nwRender(box, cid) {
+    var g = _guide[cid];
+    if (!g) { box.innerHTML = '<span class="text-slate-400">📍 いまの単元：読めませんでした</span>'; return; }
+    var sg = Number(g.classGrade || 0);
+    if (!sg || sg > 6) { box.innerHTML = '<span class="text-slate-400">📍 いまの単元：クラスの学年がわからないため使えません</span>'; return; }
+    var auto = { nowManual: {}, memoTopics: g.memoTopics, nowUnits: g.nowUnits };
+    var h = '<div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-sky-800">📍 いまの単元</span><span class="text-[10px] text-slate-500">（カルテの🅰🅱・阪神マンの候補・月曜の計画は、この単元を中心に作ります。選ばなくても自動で決まります）</span></div>';
+    h += '<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 mt-1">';
+    SUBJ_LIST.forEach(function (k) {
+      var man = g.nowManual && g.nowManual[k] && g.nowManual[k].unit ? String(g.nowManual[k].unit) : '';
+      var ar = resolveNow(auto, sg, k), cur = resolveNow(g, sg, k);
+      var opts = '<option value="">おまかせ ' + esc(ar ? nowLabel(ar) : '（いまは決まっていません）') + '</option>';
+      gradeUnits(k, sg).forEach(function (id) { opts += '<option value="' + esc(id) + '"' + (id === man ? ' selected' : '') + '>✋ ' + esc(unitInfo(id).name) + '</option>'; });
+      h += '<label class="flex items-center gap-1"><span class="w-10 font-bold text-slate-700">' + esc(SUBJ[k].name) + '</span><select data-subj="' + k + '" class="nwSel border rounded p-0.5 text-xs max-w-[17rem]">' + opts + '</select>'
+        + '<span class="nwMsg text-[10px] text-slate-500" data-subj="' + k + '">' + (cur ? '→ ' + esc(NOW_SRC_LABEL[cur.src] || '') : '') + '</span></label>';
+    });
+    h += '</div><div class="text-[10px] text-slate-400 mt-0.5">決まり方：①先生が選んだ単元 → ②⑥授業メモの「算数：円の面積」のような いちばん新しい行（直近4週） → ③クラスの3人以上が まとめて取り組んでいる単元 → ④算数は標準の進み方。選んだ単元は 次に変えるまで そのままです。</div>';
+    box.innerHTML = h;
+    var sels = box.querySelectorAll('.nwSel');
+    for (var i = 0; i < sels.length; i++) sels[i].onchange = function () {
+      var el = this, k = el.getAttribute('data-subj'), v = el.value;
+      var msg = box.querySelector('.nwMsg[data-subj="' + k + '"]');
+      if (msg) msg.textContent = '保存中...';
+      fetch('/api/teacher/class/' + encodeURIComponent(cid) + '/now-unit', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subj: k, unit: v }) })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.ok) { if (msg) msg.textContent = '保存できませんでした'; return; }
+          var gg = _guide[cid]; if (gg) { gg.nowManual = gg.nowManual || {}; if (v) gg.nowManual[k] = { unit: v, updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') }; else delete gg.nowManual[k]; }
+          nwRender(box, cid);
+          var m2 = box.querySelector('.nwMsg[data-subj="' + k + '"]'); if (m2) m2.textContent = '✓ 保存（' + (v ? '先生が選んだ' : 'おまかせ') + '）';
+        })
+        .catch(function () { if (msg) msg.textContent = '保存できませんでした'; });
+    };
+  }
+  function nwLoad(force) {
+    var sel = document.getElementById('analyticsClassFilter');
+    if (!sel || !sel.value) return;
+    var host = sel.parentNode;
+    if (!host || !host.parentNode) return;
+    if (host.offsetParent === null && !force) return;   // 分析タブを ひらいていないときは読まない
+    var box = document.getElementById('nowUnitBox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'nowUnitBox';
+      box.className = 'bg-sky-50 border border-sky-200 rounded-xl px-3 py-2 text-xs';
+      var after = document.getElementById('kantanWatchBox') || host;
+      after.parentNode.insertBefore(box, after.nextSibling);
+    }
+    if (!force && _nwCid === sel.value && Date.now() - _nwAt < 10 * 60000) return;
+    _nwCid = sel.value; _nwAt = Date.now();
+    box.innerHTML = '<span class="text-slate-400">📍 いまの単元を読み込み中...</span>';
+    var cid = sel.value;
+    Promise.all([loadCurriculum(), loadGuide(cid, true)]).then(function () { _unitIdx = null; nwRender(box, cid); });
+  }
+  global.nowUnitLoad = nwLoad;
+  document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'analyticsClassFilter') { _nwAt = 0; nwLoad(false); } });
+  setInterval(function () { try { nwLoad(false); } catch (e) {} }, 4000);
 
   global.michiCompose = compose;
   global.michiInstall = install;

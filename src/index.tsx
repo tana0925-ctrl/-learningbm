@@ -30,7 +30,7 @@ import { registerQrHunt, qrHuntCard } from './qrhunt'
 import { registerMinna } from './minna'
 import { installViewAs } from './viewas'   // VIEWAS_V1
 // WEEKREF2_V1 週の振り返りを充実（先週決めたこと・今週の記録・考える問い・🏫学校での学び）。中身は src/weekref2.ts。
-import { registerWeekRef2, wr2ForClass } from './weekref2'
+import { registerWeekRef2, wr2ForClass, wr2NoteTopics } from './weekref2'
 // HSSIGN_V1 サポーター（おうちの人）のサインを あとから足す。中身は src/hssign.ts。
 import { registerHsSign } from './hssign'
 
@@ -3451,10 +3451,56 @@ app.get('/api/teacher/class/:classId/karte-guide', async (c) => {
   let nowUnits: any[] = []
   try {
     const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
-    const r = await c.env.DB.prepare('SELECT lr.unit AS unit, COUNT(*) AS n, COUNT(DISTINCT lr.user_id) AS users FROM class_members cm JOIN learning_results lr ON lr.user_id = cm.user_id AND lr.answered_at >= ? WHERE cm.class_id = ? GROUP BY lr.unit ORDER BY users DESC, n DESC LIMIT 40').bind(since, classId).all<any>()
-    nowUnits = (((r && r.results) || []) as any[]).map((x: any) => ({ unit: String(x.unit || ''), n: Number(x.n || 0), users: Number(x.users || 0) }))
+    const since7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)   // NOWUNIT_V1 直近1週の分も同じ1回の集計で
+    const r = await c.env.DB.prepare('SELECT lr.unit AS unit, COUNT(*) AS n, COUNT(DISTINCT lr.user_id) AS users, SUM(CASE WHEN lr.answered_at >= ? THEN 1 ELSE 0 END) AS n7, COUNT(DISTINCT CASE WHEN lr.answered_at >= ? THEN lr.user_id END) AS users7 FROM class_members cm JOIN learning_results lr ON lr.user_id = cm.user_id AND lr.answered_at >= ? WHERE cm.class_id = ? GROUP BY lr.unit ORDER BY users DESC, n DESC LIMIT 40').bind(since7, since7, since, classId).all<any>()
+    nowUnits = (((r && r.results) || []) as any[]).map((x: any) => ({ unit: String(x.unit || ''), n: Number(x.n || 0), users: Number(x.users || 0), n7: Number(x.n7 || 0), users7: Number(x.users7 || 0) }))
   } catch (e) { console.error('MICHI_V1 karte-guide', e) }
-  return c.json({ ok: true, unitProgress, nowUnits })
+  // NOWUNIT_V1 「いまの単元」の材料：①先生が選んだもの ②⑥授業メモの「教科：単元」の行（直近28日・新しい順） ③クラスの学年
+  let nowManual: Record<string, any> = {}
+  try {
+    const r = await c.env.DB.prepare('SELECT subj, unit, updated_at FROM class_now_units WHERE class_id = ?').bind(classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) nowManual[String(x.subj)] = { unit: String(x.unit || ''), updatedAt: x.updated_at || '' }
+  } catch (e) {}
+  let memoTopics: any[] = []
+  try {
+    const since28 = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10)
+    const r = await c.env.DB.prepare("SELECT day_key, body, created_at FROM teacher_class_notes WHERE class_id = ? AND (COALESCE(day_key, '') >= ? OR COALESCE(created_at, '') >= ?) ORDER BY id DESC LIMIT 30").bind(classId, since28, since28).all<any>()
+    const rows = (((r && r.results) || []) as any[]).sort((a: any, b: any) => String(b.day_key || b.created_at || '').localeCompare(String(a.day_key || a.created_at || '')))
+    for (const x of rows) {
+      const ts = wr2NoteTopics([String(x.body || '')], [])
+      // 1つのメモの中では下の行ほど新しいことが多いので、うしろから
+      for (let i = ts.length - 1; i >= 0; i--) memoTopics.push({ subj: ts[i].subj, theme: ts[i].theme, dayKey: String(x.day_key || String(x.created_at || '').slice(0, 10)) })
+      if (memoTopics.length >= 20) break
+    }
+  } catch (e) {}
+  let classGrade = 0
+  try {
+    const g: any = await c.env.DB.prepare("SELECT u.grade AS g, COUNT(*) AS n FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ? AND u.role = 'student' AND u.grade IS NOT NULL GROUP BY u.grade ORDER BY n DESC LIMIT 1").bind(classId).first<any>()
+    classGrade = Number((g && g.g) || 0)
+  } catch (e) {}
+  return c.json({ ok: true, unitProgress, nowUnits, nowManual, memoTopics, classGrade })
+})
+// NOWUNIT_V1 先生が「いまの単元」を教科ごとに1つ選ぶ（選ばなくてもよい。空にすると自動にもどる）。表は migrations/0048。
+const NOWUNIT_SUBJS = ['math', 'japanese', 'social', 'science']
+app.post('/api/teacher/class/:classId/now-unit', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const classId = c.req.param('classId')
+  const body: any = await c.req.json().catch(() => null)
+  const subj = String((body && body.subj) || '')
+  const unit = String((body && body.unit) || '').trim()
+  if (NOWUNIT_SUBJS.indexOf(subj) < 0) return jsonError(c, 400, 'bad_subj')
+  if (unit && !/^[A-Za-z0-9_-]{1,60}$/.test(unit)) return jsonError(c, 400, 'bad_unit')
+  const own: any = u.role === 'admin'
+    ? await c.env.DB.prepare('SELECT id FROM classes WHERE id = ? LIMIT 1').bind(classId).first<any>()
+    : await c.env.DB.prepare('SELECT id FROM classes WHERE id = ? AND teacher_id = ? LIMIT 1').bind(classId, u.id).first<any>()
+  if (!own) return jsonError(c, 404, 'class_not_found')
+  if (!unit) {
+    await c.env.DB.prepare('DELETE FROM class_now_units WHERE class_id = ? AND subj = ?').bind(classId, subj).run()
+    return c.json({ ok: true, subj, unit: '' })
+  }
+  await c.env.DB.prepare("INSERT INTO class_now_units (class_id, subj, unit, set_by, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(class_id, subj) DO UPDATE SET unit=excluded.unit, set_by=excluded.set_by, updated_at=datetime('now')").bind(classId, subj, unit, u.id).run()
+  return c.json({ ok: true, subj, unit })
 })
 app.get('/api/teacher/class/:classId/unit-progress', async (c) => {
   const u = requireTeacher(c)
@@ -17419,7 +17465,7 @@ function _faKarteGraphs(d){
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=15"></script>
     <script src="/teibako.js?v=3"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
-    <script src="/karte-michi.js?v=2"></script>
+    <script src="/karte-michi.js?v=3"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====

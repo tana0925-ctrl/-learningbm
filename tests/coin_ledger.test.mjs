@@ -1166,6 +1166,45 @@ await t('56 HSWEEKCHAT 対話で出す（じぶんの ことばの わけ）→ 
   eq(w.db._all('SELECT * FROM week_ref2').length, 1, '1人1週1行')
 })
 
+// ── 📍 いまの単元（NOWUNIT_V1）──────────────────────────────
+await t('57 NOWUNIT 先生が教科ごとに「いまの単元」を選ぶ → karte-guide に入る・空でおまかせに戻る・授業メモの「教科：単元」・直近1週の人数・学年', async () => {
+  const w = await newWorld()
+  w.db._run("UPDATE users SET grade=6 WHERE id=?", w.student.id)
+  const today = new Date().toISOString().slice(0, 10)
+  w.db._run('INSERT INTO teacher_class_notes (class_id, day_key, body, created_by, created_at) VALUES (?,?,?,?,?)', 'cls-1', today, '算数：円の面積\n今日は発表が活発だった\n社会：たろうさんの発表', 'tea-1', new Date().toISOString())
+  w.db._run('INSERT INTO teacher_class_notes (class_id, day_key, body, created_by, created_at) VALUES (?,?,?,?,?)', 'cls-1', '2026-01-10', '算数：昔の単元', 'tea-1', '2026-01-10T00:00:00Z')
+  for (let i = 0; i < 6; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', w.student.id, new Date(Date.now() - i * 3600000).toISOString(), 'm6-ratio', 1)
+  w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', w.student.id, new Date(Date.now() - 10 * 86400000).toISOString(), 'm6-ratio', 0)
+  const s1 = await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.teacher, body: { subj: 'math', unit: 'm6-circle' } })
+  eq(s1.status, 200, '保存'); eq(s1.json.unit, 'm6-circle', '単元')
+  await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.teacher, body: { subj: 'math', unit: 'm6-proportion' } })
+  eq(w.db._all('SELECT * FROM class_now_units').length, 1, '1クラス1教科1行（上書き）')
+  const g = await w.call('GET', '/api/teacher/class/cls-1/karte-guide', { user: w.teacher })
+  eq(g.status, 200, 'guide')
+  eq(g.json.nowManual.math.unit, 'm6-proportion', '先生が選んだ単元')
+  eq(g.json.classGrade, 6, 'クラスの学年')
+  eq(g.json.memoTopics.length, 1, '直近28日の「教科：単元」の行だけ（名前の行・ふつうのメモ・古いメモは入らない）')
+  eq(g.json.memoTopics[0].theme, '円の面積', 'メモの単元名')
+  const nu = g.json.nowUnits.find((x) => x.unit === 'm6-ratio')
+  eq(nu.n, 7, '2週間の問題数'); eq(nu.n7, 6, '1週間の問題数'); eq(nu.users7, 1, '1週間の人数')
+  const c0 = await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.teacher, body: { subj: 'math', unit: '' } })
+  eq(c0.status, 200, 'おまかせ'); eq(w.db._all('SELECT * FROM class_now_units').length, 0, '行が消える')
+  const g2 = await w.call('GET', '/api/teacher/class/cls-1/karte-guide', { user: w.teacher })
+  eq(JSON.stringify(g2.json.nowManual), '{}', 'おまかせに戻る')
+})
+
+await t('58 NOWUNIT ほかの先生のクラス・子ども・おかしな教科や単元は保存できない', async () => {
+  const w = await newWorld()
+  const other = { id: 'tea-2', role: 'teacher', loginId: 'other' }
+  w.db._run("INSERT INTO teacher_accounts (id, login_id, name, school) VALUES (?,?,?,?)", other.id, 'other', 'ほか', 'テスト小')
+  eq((await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: other, body: { subj: 'math', unit: 'm6-circle' } })).status, 404, 'ほかの先生は404')
+  eq((await w.call('GET', '/api/teacher/class/cls-1/karte-guide', { user: other })).status, 404, 'guideも404')
+  eq((await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.student, body: { subj: 'math', unit: 'm6-circle' } })).status, 401, '子どもは401')
+  eq((await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.teacher, body: { subj: 'coins', unit: 'm6-circle' } })).status, 400, '教科')
+  eq((await w.call('POST', '/api/teacher/class/cls-1/now-unit', { user: w.teacher, body: { subj: 'math', unit: "x'; DROP TABLE users;--" } })).status, 400, '単元')
+  eq(w.db._all('SELECT * FROM class_now_units').length, 0, '表は空')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

@@ -61,7 +61,7 @@ CREATE TABLE progress (
 );
 CREATE TABLE classes (
   id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL, name TEXT, join_code TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')), unit_progress TEXT
 );
 CREATE TABLE class_members (
   class_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at TEXT DEFAULT (datetime('now')),
@@ -194,5 +194,9 @@ CREATE TABLE IF NOT EXISTS week_ref2 (
   PRIMARY KEY (user_id, week_key)
 );
 CREATE TABLE IF NOT EXISTS teacher_class_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, class_id TEXT NOT NULL, day_key TEXT, body TEXT, created_by TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS class_now_units (
+  class_id TEXT NOT NULL, subj TEXT NOT NULL, unit TEXT NOT NULL, set_by TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (class_id, subj)
+);
 `
 
