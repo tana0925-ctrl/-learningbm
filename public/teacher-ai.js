@@ -446,8 +446,11 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       want = { daily: opts.onlyKinds.indexOf('DAILY') >= 0, karte: false, classOv: false, report: false,
                plan: false, reflect: opts.onlyKinds.indexOf('REFLECT') >= 0, suggest: false };
     }
+    // MINNA_FURI_V1 ⭐みんなのふりかえり候補（中身は teibako.js の window.MINNA_PICK）
+    var _minnaOn = !oneKind && !(opts.onlyKinds && opts.onlyKinds.length) && !opts.retryMode && !oneId && !!window.MINNA_PICK && opt('taiOptMinna');
     if (!want.daily && !want.karte && !want.classOv && !want.report &&
         !want.plan && !want.reflect && !want.suggest) {
+      if (_minnaOn) { window.MINNA_PICK.copyOnly(cid, copyText, say); return; }
       say('「今回ふくめるもの」を1つ以上えらんでください'); return;
     }
     // ★ 同じ条件で今日すでに作ってあるなら、データベースを読まずにそのまま使う
@@ -459,7 +462,8 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
         //   そのあと新しく出した子がいれば、その場で作り直せるようにする。
         window.__taiLast = { chars: hit.text.length, blocks: hit.blocks, cached: true, cachedAt: hit.at || 0, noMaterial: hit.noMaterial || 0, peopleWords: hit.peopleWords || 0 };
         if (hit.dailyExp) dailyExpSet(cid, hit.dailyExp, false, hit.reflExp || null);
-        copyText(hit.text);
+        if (_minnaOn) { window.MINNA_PICK.appendTo(hit.text, cid).then(function (r) { copyText(r.text); }, function () { copyText(hit.text); }); }   /* MINNA_FURI_V1 */
+        else copyText(hit.text);
         taiWarnIfStale(cid, hit.at || 0);
         return;
       }
@@ -1441,6 +1445,7 @@ try {
     if (retryUids) say('✓ 下書きが入らなかった ' + (_dailyExp.length + _reflExp.length) + '件ぶんをコピーしました。AIに貼って、返事を下の欄へ（いまある下書きは消さずに追加します）');
     if (want.daily && hwOver) { try { var _st = $('taiStatus'); if (_st) _st.textContent = (_st.textContent || '') + '　※未返却が6件以上の子がいたので、古い日から5件ずつ渡しました（のこり' + hwOver + '件は次の回に）'; } catch (e) {} }
     window.__taiBusy = false;
+    if (_minnaOn) { try { _txt = (await window.MINNA_PICK.appendTo(_txt, cid)).text; } catch (e) {} }   /* MINNA_FURI_V1 */
     copyText(_txt);
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
   }
@@ -1703,6 +1708,13 @@ async function taiImport(opts) {
   var raw = ta ? ta.value : '';
   if (!cid) { say2('先にクラスを選んでください'); return; }
   if (!raw || !raw.trim()) { say2('AIの返事を貼り付けてください'); return; }
+  // MINNA_FURI_V1 [PICK:振り返りID] 理由 の行は、みんなのふりかえりの掲載候補として先に取り込み、ここから外す
+  if (!appendMode && window.MINNA_PICK) {
+    try {
+      var _mp = await window.MINNA_PICK.importRaw(raw, cid, say2);
+      if (_mp && _mp.found) { raw = _mp.rest; if (_mp.only) return; }
+    } catch (e) {}
+  }
 
   say2('読み取り中...');
   var roster = [];

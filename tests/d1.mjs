@@ -139,5 +139,52 @@ CREATE TABLE week_next_try (
   user_id TEXT NOT NULL, week_key TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', unit_name TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, week_key)
 );
+-- MINNA_FURI_V1（migrations/0045 と同じ）
+CREATE TABLE IF NOT EXISTS minna_consents (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  class_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,              -- 'day' | 'week'
+  ref_key    TEXT NOT NULL,              -- 'YYYY-MM-DD' | 'YYYY-Www'
+  mode       TEXT NOT NULL DEFAULT '',   -- 'anon' | 'named' | ''
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (user_id, kind, ref_key)
+);
+CREATE INDEX IF NOT EXISTS idx_minna_consents_class ON minna_consents (class_id, kind, ref_key);
+
+CREATE TABLE IF NOT EXISTS minna_picks (
+  consent_id TEXT PRIMARY KEY,
+  class_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  ref_key    TEXT NOT NULL,
+  reason     TEXT NOT NULL DEFAULT '',
+  teacher_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_minna_picks_class ON minna_picks (class_id, kind, ref_key);
+
+CREATE TABLE IF NOT EXISTS minna_posts (
+  consent_id TEXT PRIMARY KEY,
+  class_id   TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  ref_key    TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'on',  -- 'on' | 'off'
+  teacher_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_minna_posts_class ON minna_posts (class_id, status, ref_key);
+
+CREATE TABLE IF NOT EXISTS minna_rewards (
+  user_id    TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  ref_key    TEXT NOT NULL,
+  coins      INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, kind, ref_key)
+);
 `
 

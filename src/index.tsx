@@ -26,6 +26,8 @@ function defCarrySnapOk(mj: any): boolean {
 import { defStageEnemies } from './def_stage'
 // QRHUNT_V1 既存「ひみつのQR」の作り替え。中身は src/qrhunt.tsx に閉じている。
 import { registerQrHunt, qrHuntCard } from './qrhunt'
+// MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
+import { registerMinna } from './minna'
 
 type Bindings = {
   DB: D1Database
@@ -908,6 +910,19 @@ app.put('/api/student/progress', async (c) => {
       } else if (_cliWr > _srvWr) {
         // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
         _inc._weekRefCoinsApplied = _srvWr
+        saveJson = JSON.stringify(_inc)
+      }
+      // 📖 みんなのふりかえりに採用されたボーナス（MINNA_FURI_V1）：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
+      //    金額は minna_rewards 台帳とサーバの定数だけで決まる（クライアントの申告は不使用）。_weekRefCoinsApplied と同じ形。
+      const _srvMf = Number(_srv._minnaCoinsApplied) || 0
+      const _cliMf = Number(_inc._minnaCoinsApplied) || 0
+      if (_srvMf > _cliMf) {
+        _inc.coins = (Number(_inc.coins) || 0) + (_srvMf - _cliMf)
+        _inc._minnaCoinsApplied = _srvMf
+        saveJson = JSON.stringify(_inc)
+      } else if (_cliMf > _srvMf) {
+        // 台帳の水増し。コインは1枚も動かさず、台帳だけサーバの値に戻す。
+        _inc._minnaCoinsApplied = _srvMf
         saveJson = JSON.stringify(_inc)
       }
       // 👾 ステージ初クリアのボーナスコイン：サーバが付与済みなら、古い端末の全置換保存でも必ず補填。
@@ -10328,6 +10343,8 @@ app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fet
 app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF_V1
 app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/maejibun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MAEJIBUN_V1
 app.get('/kantanref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/kantanref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // KANTAN_REF_V1
+app.get('/teibako.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teibako.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
+app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -10553,6 +10570,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/maejibun.js?v=1"></script></body>')
       // 👆 KANTAN_REF_V1 かんたんふりかえり（タップで答える振り返り）・阪神マンの1タップ案内・アプリを開いた日。中身は public/kantanref.js。
       t = t.replace('</body>', '<script src="/kantanref.js?v=1"></script></body>')
+      // 📖 MINNA_FURI_V1 みんなのふりかえり（のせてもいいよ・読むページ）。中身は public/minnafuri.js。
+      t = t.replace('</body>', '<script src="/minnafuri.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")
@@ -17376,6 +17395,7 @@ function _faKarteGraphs(d){
     </script>
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=13"></script>
+    <script src="/teibako.js?v=1"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/karte-michi.js?v=1"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
@@ -18201,6 +18221,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
 // 🧭 MIしらべ（/mi, /teacher-mi, /api/mi/*, /api/teacher/mi/*）を登録
 registerMi(app)
 registerQrHunt(app)   // QRHUNT_V1
+registerMinna(app)    // MINNA_FURI_V1
 
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
 // 児童側の /api/defense/status と /api/defense/resolve には 1文字も さわっていない。
