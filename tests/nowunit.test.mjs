@@ -104,5 +104,13 @@ t('10 6年2組の今週（10/26）のような材料：記録0の子11人分が�
   eq(r.now.id, 'm6-ratio', 'クラスの記録から 比'); eq(r.b.id, 'm6-ratio', '🅱'); eq(r.a.id, 'm6-frac-dec', '🅰 1つ前（アプリの並び）'); noNg(r)
 })
 
+t('11 自動の推定：攻略モードで「まだ」の単元は使わない・人数が同じなら先の単元／先に進む単元が無ければ いまの授業の単元へ', () => {
+  const nu = [{ unit: 'j6-classic', n: 184, users: 4, n7: 142, users7: 4 }, { unit: 'j6-bunpo', n: 290, users: 5, n7: 124, users7: 4 }, { unit: 'j6-kanji', n: 300, users: 4, n7: 200, users7: 4 }]
+  eq(resolveNow(G({ nowUnits: nu, unitProgress: { units: { 'j6-classic': false } } }), 6, 'japanese').id, 'j6-bunpo', 'まだ の古典はのぞく・同じ人数なら先の文法')
+  eq(resolveNow(G({ nowUnits: nu }), 6, 'japanese').id, 'j6-classic', '設定が無ければ古典')
+  const r = reco(kid({ nextTry: { unit: 's6-politics', text: 'やってみる', weekKey: '2020-W01' }, subjects: [{ unit: 's6-politics', total: 360, rate: 99 }], recentUnits: [{ unit: 's6-politics', n: 360, c: 359, firstAt: iso(10), lastAt: iso(1) }] }), G({ nowManual: { social: { unit: 's6-hist-u7' } }, unitProgress: { units: { 's6-world': false } } }))
+  eq(r.a.id, 's6-politics', '本人の単元'); eq(r.b.id, 's6-hist-u7', '🅱は授業の単元（はじめにもどらない）')
+})
+
 console.log(`\n${pass}/${pass + fail} passed`)
 if (fail) process.exit(1)

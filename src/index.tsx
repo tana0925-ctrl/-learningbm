@@ -17465,7 +17465,7 @@ function _faKarteGraphs(d){
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=15"></script>
     <script src="/teibako.js?v=3"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
-    <script src="/karte-michi.js?v=3"></script>
+    <script src="/karte-michi.js?v=4"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====

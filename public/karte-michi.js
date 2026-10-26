@@ -540,10 +540,12 @@
       if (mid) return { id: mid, src: 'memo', theme: mt[i].theme, at: mt[i].dayKey || '' };
       break;
     }
-    var nu = (g.nowUnits || []).map(function (x) { return { x: x, inf: ok(x.unit) }; }).filter(function (z) { return !!z.inf; });
-    var p7 = nu.filter(function (z) { return Number(z.x.users7 || 0) >= 3 && Number(z.x.n7 || 0) >= 15; }).sort(function (a, b) { return b.x.users7 - a.x.users7 || b.x.n7 - a.x.n7; })[0];
+    // 攻略モードで「まだ習っていない」にした単元は使わない。人数が多い順、同じなら 教科書で先の単元
+    var gu0 = gradeUnits(subj, sg);
+    var nu = (g.nowUnits || []).map(function (x) { return { x: x, inf: ok(x.unit) }; }).filter(function (z) { return !!z.inf && isTaught(g, z.inf.id); });
+    var p7 = nu.filter(function (z) { return Number(z.x.users7 || 0) >= 3 && Number(z.x.n7 || 0) >= 15; }).sort(function (a, b) { return b.x.users7 - a.x.users7 || gu0.indexOf(b.inf.id) - gu0.indexOf(a.inf.id); })[0];
     if (p7) return { id: p7.inf.id, src: 'auto', users: Number(p7.x.users7), n: Number(p7.x.n7), days: 7 };
-    var p14 = nu.filter(function (z) { return Number(z.x.users || 0) >= 3 && Number(z.x.n || 0) >= 30; }).sort(function (a, b) { return b.x.users - a.x.users || b.x.n - a.x.n; })[0];
+    var p14 = nu.filter(function (z) { return Number(z.x.users || 0) >= 3 && Number(z.x.n || 0) >= 30; }).sort(function (a, b) { return b.x.users - a.x.users || gu0.indexOf(b.inf.id) - gu0.indexOf(a.inf.id); })[0];
     if (p14) return { id: p14.inf.id, src: 'auto', users: Number(p14.x.users), n: Number(p14.x.n), days: 14 };
     if (subj === 'math' && MATH_PACE_ORDER[sg]) {
       var mo = jstNowM().getMonth() + 1;
@@ -663,6 +665,8 @@
       A = anchor;
       Bn = null;
       for (var j = ai + 1; j < order.length; j++) { if (!mastered(sm, order[j]) && gradeOf(order[j]) === sg && isTaught(guide, order[j])) { Bn = order[j]; break; } }
+      var nS = nowBy[subj];   /* NOWUNIT_V1 先に進む単元が無ければ、いまの授業の単元へ */
+      if (!Bn && nS && nS.id !== A && !mastered(sm, nS.id)) Bn = nS.id;
       if (!Bn) { for (var j2 = 0; j2 < order.length; j2++) { if (order[j2] !== A && gradeOf(order[j2]) === sg && !mastered(sm, order[j2]) && isTaught(guide, order[j2])) { Bn = order[j2]; break; } } }
     }
     var iA = unitInfo(A), iB = Bn ? unitInfo(Bn) : null;
@@ -1141,7 +1145,7 @@
       h += '<label class="flex items-center gap-1"><span class="w-10 font-bold text-slate-700">' + esc(SUBJ[k].name) + '</span><select data-subj="' + k + '" class="nwSel border rounded p-0.5 text-xs max-w-[17rem]">' + opts + '</select>'
         + '<span class="nwMsg text-[10px] text-slate-500" data-subj="' + k + '">' + (cur ? '→ ' + esc(NOW_SRC_LABEL[cur.src] || '') : '') + '</span></label>';
     });
-    h += '</div><div class="text-[10px] text-slate-400 mt-0.5">決まり方：①先生が選んだ単元 → ②⑥授業メモの「算数：円の面積」のような いちばん新しい行（直近4週） → ③クラスの3人以上が まとめて取り組んでいる単元 → ④算数は標準の進み方。選んだ単元は 次に変えるまで そのままです。</div>';
+    h += '</div><div class="text-[10px] text-slate-400 mt-0.5">決まり方：①先生が選んだ単元 → ②⑥授業メモの「算数：円の面積」のような いちばん新しい行（直近4週） → ③クラスの3人以上が まとめて取り組んでいる単元（攻略モードで「まだ」の単元はのぞく） → ④算数は標準の進み方。選んだ単元は 次に変えるまで そのままです。</div>';
     box.innerHTML = h;
     var sels = box.querySelectorAll('.nwSel');
     for (var i = 0; i < sels.length; i++) sels[i].onchange = function () {
