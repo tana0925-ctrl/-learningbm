@@ -1,0 +1,150 @@
+name: patch-nowunit-v2
+
+# NOWUNIT_V2 いまの単元の自動推定をかしこく＋🅱のはじめもどりを止める（NOWUNIT_V1 のつづき）
+#  ・③クラスの記録からの自動推定：攻略モードで「まだ習っていない」にした単元はのぞく／人数が同じなら教科書で先の単元。
+#  ・本人がえらんだ単元・先生の差しかえのときも、先に進む単元が無ければ🅱は「いまの単元」へ（教科のはじめに もどらない）。
+#  ・変更: public/karte-michi.js（v=4）・src/index.tsx（script の v だけ）・tests/nowunit.test.mjs（11/11）。DDL なし。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: apply patch (fail-closed)
+        run: |
+          if grep -q "karte-michi.js?v=4" src/index.tsx; then echo "already applied"; echo "SKIP=1" >> $GITHUB_ENV; exit 0; fi
+          cat > /tmp/nu.b64 <<'B64EOF'
+          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
+          B64EOF
+          tr -d ' \n' < /tmp/nu.b64 | base64 -d | gunzip > /tmp/nu.patch
+          echo "b80ed8765476cda56a53443a2a1c85d4763bed485515b71b587bb163334bef76  /tmp/nu.patch" | sha256sum -c -
+          git apply --check /tmp/nu.patch
+          git apply /tmp/nu.patch
+          git status --short
+      - name: markers
+        if: env.SKIP != '1'
+        run: |
+          grep -q '<script src="/karte-michi.js?v=4"></script>' src/index.tsx
+          grep -q 'isTaught(g, z.inf.id)' public/karte-michi.js
+          grep -q 'function resolveNow(guide, sg, subj)' public/karte-michi.js
+          grep -q "id = 'nowUnitBox'" public/karte-michi.js
+          ! grep -n -E "CREATE (TABLE|INDEX)|ALTER TABLE" public/karte-michi.js
+          ! grep -n "CREATE TABLE IF NOT EXISTS class_now_units" src/index.tsx
+      - name: syntax check (browser js)
+        if: env.SKIP != '1'
+        run: node -e "new Function(require('fs').readFileSync('public/karte-michi.js','utf8'))" && echo ok
+      - name: unit test (karte-michi 🅰🅱)
+        if: env.SKIP != '1'
+        run: node tests/nowunit.test.mjs
+      - name: install
+        if: env.SKIP != '1'
+        run: npm install --no-audit --no-fund
+      - name: build
+        if: env.SKIP != '1'
+        run: npm run build
+      - name: render check (teacher page scripts / child page)
+        if: env.SKIP != '1'
+        run: |
+          node scripts/render_check.mjs
+          node scripts/render_check_child.mjs
+      - name: tests (node:sqlite, real handlers)
+        if: env.SKIP != '1'
+        run: |
+          npx esbuild src/index.tsx --bundle --format=esm --platform=neutral \
+            --jsx=automatic --jsx-import-source=hono/jsx \
+            --outfile=tests/app.after.mjs --log-level=warning
+          npx esbuild src/viewas.ts --bundle --format=esm --platform=neutral --outfile=tests/viewas.mod.mjs --log-level=warning
+          cd tests
+          node --no-warnings coin_ledger.test.mjs ./app.after.mjs 2>/dev/null | grep -E "^(PASS|FAIL)|passed"
+          node --no-warnings coin_ledger.test.mjs ./app.after.mjs > /dev/null 2>&1
+          node --no-warnings viewas.test.mjs ./app.after.mjs ./viewas.mod.mjs 2>/dev/null | grep -E "passed"
+          node --no-warnings viewas.test.mjs ./app.after.mjs ./viewas.mod.mjs > /dev/null 2>&1
+          rm -f app.after.mjs viewas.mod.mjs
+      - name: served check (teacher page has karte-michi.js v=4 and it is served)
+        if: env.SKIP != '1'
+        run: |
+          cat > /tmp/dump.mjs <<'JSEOF'
+          import fs from 'fs'
+          const mod = await import(process.cwd() + '/dist/_worker.js')
+          const env = { ASSETS: { fetch: async (req) => { const u = new URL(typeof req === 'string' ? req : req.url); const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname; try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }) } catch (e) { return new Response('', { status: 404 }) } } } }
+          const res = await mod.default.fetch(new Request('http://localhost/teacher'), env, { waitUntil() {} })
+          const h = await res.text()
+          if (h.indexOf('/karte-michi.js?v=4') < 0) { console.log('注入なし karte-michi v=4'); process.exit(1) }
+          const js = await mod.default.fetch(new Request('http://localhost/karte-michi.js'), env, { waitUntil() {} })
+          const t = await js.text()
+          if (js.status !== 200 || t.indexOf('isTaught(g, z.inf.id)') < 0) { console.log('karte-michi.js が配られない ' + js.status); process.exit(1) }
+          console.log('served ok')
+          JSEOF
+          node /tmp/dump.mjs
+      - name: commit and push
+        if: env.SKIP != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/index.tsx public/karte-michi.js tests/nowunit.test.mjs
+          git commit -m "NOWUNIT_V2: いまの単元の自動推定で攻略モードの「まだ」をのぞく・同じ人数なら先の単元／🅱が教科のはじめにもどらず授業の単元へ（karte-michi v=4・テスト11/11＋58/58＋14/14）"
+          git checkout -- . && git clean -fdq -e node_modules
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: start deploy
+        if: env.SKIP != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
