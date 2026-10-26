@@ -30,6 +30,7 @@
   var _d = null, _dAt = 0, _busy = null;
   var _sel = { self: '', reason: '', next: '', how: '', mood: '' };
   var _sending = false, _pendingStruct = null;
+  var _ovr = null;   /* HSWEEKCHAT_V1 対話（hsweekchat.js）から出すときの「じぶんのことば」。画面の欄のかわりに使う */
 
   function esc(s) {
     return String(s == null ? '' : s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;');
@@ -156,8 +157,8 @@
   }
   function find(list, k) { for (var i = 0; i < list.length; i++) if (list[i] && list[i].k === k) return list[i]; return null; }
   function howLabel(k) { for (var i = 0; i < HOWS.length; i++) if (HOWS[i].k === k) return HOWS[i].label.replace(/^\S+\s/, ''); return ''; }
-  function reasonFree() { return String((document.getElementById('kantanWhy') || {}).value || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); }
-  function addFree() { return String((document.getElementById('kantanAdd') || {}).value || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); }
+  function reasonFree() { if (_ovr) return String(_ovr.why || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); return String((document.getElementById('kantanWhy') || {}).value || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); }
+  function addFree() { if (_ovr) return String(_ovr.add || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); return String((document.getElementById('kantanAdd') || {}).value || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 60); }
   function nextPhrase(d) {
     var c = find(nextList(d), _sel.next); if (!c) return '';
     if (c.k === 'change' && _sel.how) return '次は ' + howLabel(_sel.how) + 'を 変えてみる';
@@ -522,6 +523,25 @@
     return true;
   };
   window.kantanRefOpen = openKantan;
+
+  // ───────── 💬 HSWEEKCHAT_V1 阪神マンと ふりかえる（hsweekchat.js）から使う口 ─────────
+  //   同じ候補・同じ文の組み立て・同じ提出（send）をそのまま使う。新しい提出の道・コインの道は作らない。
+  function withOvr(o, f) { var keep = _ovr; _ovr = o || { why: '', add: '' }; try { return f(); } finally { _ovr = keep; } }
+  window.KANTAN = {
+    load: function () { return load(true); },
+    weekKey: weekKeyNow,
+    MARKS: MARKS, MOODS: MOODS, HOWS: HOWS,
+    unitName: unitName,
+    data: function () { return _d; },
+    sel: function () { return _sel; },
+    set: function (o) { Object.keys(o || {}).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(_sel, k)) _sel[k] = String(o[k] || ''); }); },
+    reasons: function () { return _d ? reasonList(_d) : []; },
+    nexts: function () { return _d ? nextList(_d) : []; },
+    compose: function (o) { return withOvr(o, function () { return _d ? compose(_d) : ''; }); },
+    ready: function (o) { return withOvr(o, function () { return ready(); }); },
+    send: function (o) { return withOvr(o, function () { if (_sending || !_d || !ready()) return false; send(); return _sending; }); },
+    sending: function () { return _sending; }
+  };
 
   // ───────── アプリを開いた日（1日1回） ─────────
   function pingOpen() {

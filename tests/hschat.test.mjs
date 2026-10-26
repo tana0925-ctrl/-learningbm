@@ -119,6 +119,11 @@ await t('2 時間になったら 音と画面でお知らせ → もう少し（
   eq(d.sess().paused, true, 'おわったら タイマーを止める')
   ok(d.log().some((x) => x.indexOf('今の 気もちは？') >= 0), '気もち')
   await d.click('はれ'); await d.click('集中できた'); await d.click('このままでOK')
+  ok(d.log().some((x) => x.indexOf('おうちの人に見せて、サインもらってきてな！') >= 0), 'HSSIGN サインの声かけ（提出の前）')
+  await d.click('おうちの人に 見せる'); await sleep(20)
+  d.w.document.getElementById('hsSignTa').value = 'よくがんばりました'
+  d.w.document.getElementById('hsSignOk').click(); await sleep(30)
+  ok(d.log().some((x) => x.indexOf('サインもろたで！ ほな提出しよか') >= 0), 'サインもろたで')
   await d.click('写真を えらぶ')   // label（input はかくれている）
   const pin = d.w.document.getElementById('hsChatPhoto'); d.w.eval('hsPhotosSelected')(pin)
   const coins0 = d.P().coins
@@ -127,6 +132,7 @@ await t('2 時間になったら 音と画面でお知らせ → もう少し（
   const b = d.w.__calls[0].body
   eq(b.why, '苦手をなくしたい', 'why'); eq(b.aim, '15分 がんばる', 'aim'); eq(b.minutes, 20, 'やった時間＝タイマー')
   eq(b.endWeather, 'sun', '天気'); eq(b.weatherReason, '集中できた', '天気の理由'); eq(b.nextImprove, 'このままでOK', '次にするには')
+  eq(b.parentComment, '👍 見たよ　よくがんばりました', 'サインは いつもの「サポーターから」に入る')
   ok(b.todo.indexOf('学校の宿題') >= 0 && b.selfStudyPlan === b.todo, 'todo（自主学習の計画も同じ）')
   const got = d.P().coins - coins0
   eq(got, b.rewardCoins + b.bonusCoins, 'コインは いつもの計算どおり')
@@ -206,6 +212,7 @@ await t('7 その他（自分で書く）・何分（その他）・送れなか
   d.pass(25); d.tick(); await d.click('おわる')
   await d.click('あめ'); await d.click('その他'); await d.type('ゆびが いたかった')
   await d.click('その他'); await d.type('ゆっくり 練習する')
+  await d.click('あとで もらう')
   await d.click('先生に 提出'); await sleep(80)
   eq(d.P().homeStudy.logs.length, 0, '送れなかったら 記録しない')
   ok(d.log().some((x) => x.indexOf('もう一度 おしてみてな') >= 0), 'もう一度')
@@ -261,14 +268,110 @@ await t('11 すぐ おわっても（0分）シートの「0分のままだよ�
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('10分')
   await d.click('おわる'); await d.click('今日はここまで')
   await d.click('くもり'); await d.click('半分くらいわかった'); await d.click('時間を変える')
+  await d.click('あとで もらう')
   await d.click('先生に 提出'); await sleep(80)
   eq(d.w.__confirmed, undefined, '確認は出さない'); eq(d.w.__calls.length, 1, '出せた'); eq(d.w.__calls[0].body.minutes, 0, 'タイマーの時間のまま')
   eq(d.w.__calls[0].body.nextImprove, '時間を変える', '次'); eq(d.w.__calls[0].body.endWeather, 'cloud', 'くもり')
   const v = await device({ viewAs: true })
   v.w.HSCHAT.open(); await sleep(50)
   await v.click('アプリの修行'); await v.click('楽しいから'); await v.click('10分'); await v.click('おわる'); await v.click('今日はここまで')
-  await v.click('はれ'); await v.click('わかった'); await v.click('このままでOK'); await v.click('先生に 提出'); await sleep(50)
+  await v.click('はれ'); await v.click('わかった'); await v.click('このままでOK'); await v.click('あとで もらう'); await v.click('先生に 提出'); await sleep(50)
   eq(v.w.__calls.length, 0, '見るだけモードでは送らない'); ok(v.log().some((x) => x.indexOf('見るだけモード') >= 0), 'ひとこと')
+})
+
+// ── ✍️ HSSIGN_V1 サポーター（おうちの人）のサイン ──
+function hookFetch(d, reply) {
+  const base = d.w.fetch
+  d.w.__signCalls = []
+  d.w.fetch = async function (url, opt) {
+    if (String(url).indexOf('/api/homework/parent-sign') >= 0) {
+      const body = JSON.parse(opt.body); d.w.__signCalls.push(body)
+      const j = reply ? reply(body) : { ok: true, signed: true, parentComment: body.text }
+      return { ok: true, json: async () => j }
+    }
+    return base(url, opt)
+  }
+}
+async function toSign(d, w = 'はれ', r = '集中できた', n = 'このままでOK') {
+  d.w.HSCHAT.open(); await sleep(50)
+  await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('15分')
+  d.pass(16); d.tick(); await d.click('おわる')
+  await d.click(w); await d.click(r); await d.click(n)
+}
+
+await t('12 HSSIGN 提出の前：おうちの方むけの画面（大きい文字・今日やったこと・時間・天気の要約）→ 👍見たよ（ひとことなし）→ 提出（コインはいつもどおり1回）', async () => {
+  const d = await device()
+  await toSign(d)
+  eq(d.sess()._chat.step, 'sign', 'サインの段')
+  await d.click('おうちの人に 見せる'); await sleep(20)
+  const box = d.w.document.getElementById('hsSign')
+  ok(box, 'おうちの方むけの画面'); const tx = box.textContent
+  ok(tx.indexOf('おうちの方へ') >= 0 && tx.indexOf('お子さんの今日の取り組みです') >= 0, '見出し')
+  ok(tx.indexOf('アプリの修行') >= 0, '今日やったこと'); ok(tx.indexOf('16分') >= 0 && tx.indexOf('15分 がんばる') >= 0, '時間とめあて'); ok(tx.indexOf('☀️ はれ') >= 0 && tx.indexOf('集中できた') >= 0, '天気とわけ'); ok(tx.indexOf('このままでOK') >= 0, '次は')
+  ok(/font-size:30px/.test(d.w.document.getElementById('hsChatCss').textContent), '大きめの文字')
+  await d.click('おうちの人に 見せる'); await sleep(20)
+  eq(d.w.document.querySelectorAll('#hsSign').length, 1, '2回おしても画面は1つ')
+  d.w.document.getElementById('hsSignOk').click(); await sleep(30)
+  eq(d.sess().parentComment, '👍 見たよ', 'ひとことなしは「👍 見たよ」')
+  eq(d.w.document.getElementById('hsParentComment').value, '👍 見たよ', 'シートの「サポーターから」欄にも同じ文')
+  const coins0 = d.P().coins
+  await d.click('先生に 提出'); await sleep(80)
+  eq(d.w.__calls.length, 1, '提出は1回'); eq(d.w.__calls[0].body.parentComment, '👍 見たよ', 'parentComment')
+  const b = d.w.__calls[0].body
+  eq(d.P().coins - coins0, b.rewardCoins + b.bonusCoins, 'コインは いつもの計算のまま（サインで増えない）')
+  eq(d.P().homeStudy.logs[0].parentComment, '👍 見たよ', '端末の記録にも')
+  ok(!d.foot().textContent.includes('サインを もらう'), 'サイン済みなら あとからボタンは出さない')
+})
+
+await t('13 HSSIGN「あとでもらう」で先に提出 → その日のうちに「サインをもらう」→ 同じ日の提出の「サポーターから」に足す（コインは変わらない）', async () => {
+  const d = await device(); hookFetch(d)
+  await toSign(d, 'くもり', '半分くらいわかった', '量を変える')
+  await d.click('あとで もらう')
+  ok(d.log().some((x) => x.indexOf('サインは 提出したあとでも もらえるで') >= 0), 'あとでも もらえる')
+  await d.click('先生に 提出'); await sleep(80)
+  eq(d.w.__calls[0].body.parentComment, '', 'サインなしで提出できる')
+  const coins1 = d.P().coins
+  ok(d.foot().textContent.indexOf('おうちの人の サインを もらう') >= 0, '提出のあと 対話の画面にボタン')
+  await sleep(1600)
+  const sb = d.w.document.getElementById('hsSignLaterS')
+  ok(sb && sb.style.display !== 'none', '今日のシートの上にも「サインをもらう」')
+  ok(d.w.document.getElementById('hsChatEntryS').style.display === 'none', '「はじめる」は かくれたまま')
+  await d.click('おうちの人の サインを もらう'); await sleep(20)
+  const tx = d.w.document.getElementById('hsSign').textContent
+  ok(tx.indexOf('アプリの修行') >= 0 && tx.indexOf('☁️ くもり') >= 0 && tx.indexOf('量を変える') >= 0, '提出した内容の要約')
+  d.w.document.getElementById('hsSignTa').value = '明日もがんばろうね'
+  d.w.document.getElementById('hsSignOk').click(); await sleep(60)
+  eq(d.w.__signCalls.length, 1, '1回だけ送る')
+  eq(d.w.__signCalls[0].dayKey, d.w.eval('hsGetDayKey830(new Date())'), '今日の提出')
+  eq(d.w.__signCalls[0].text, '👍 見たよ　明日もがんばろうね', '「サポーターから」の文')
+  eq(d.P().homeStudy.logs[0].parentComment, '👍 見たよ　明日もがんばろうね', '端末の記録にも入る')
+  eq(d.w.document.getElementById('hsParentComment').value, '👍 見たよ　明日もがんばろうね', 'シートの欄にも')
+  ok(d.log().some((x) => x.indexOf('サインもろたで！ 先生にも とどけたで') >= 0), 'ひとこと')
+  eq(d.P().coins, coins1, 'コインは変わらない'); eq(d.w.__calls.length, 1, '提出は1回のまま')
+  await sleep(1600)
+  eq(sb.style.display, 'none', 'サインが入ったら ボタンは かくす')
+})
+
+await t('14 HSSIGN シートで先に「サポーターから」を書いてもらっていたら サインの段はとばす／送れなかったら記録しない／見るだけモードは送らない', async () => {
+  const d = await device()
+  d.w.HSCHAT.open(); await sleep(50)
+  await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('10分')
+  const s = d.sess(); s.parentComment = 'シートに書きました'; d.w.eval('hsSetSession')(s)
+  d.pass(10); d.tick(); await d.click('おわる'); await d.click('はれ'); await d.click('わかった'); await d.click('このままでOK')
+  eq(d.sess()._chat.step, 'photo', 'サインの段はとばす')
+  await d.click('先生に 提出'); await sleep(80)
+  eq(d.w.__calls[0].body.parentComment, 'シートに書きました', 'シートの文のまま')
+  ok(!d.w.document.getElementById('hsSignLaterS') || d.w.document.getElementById('hsSignLaterS').style.display === 'none', 'あとからボタンも出さない')
+  const e = await device(); hookFetch(e, () => null)
+  await toSign(e); await e.click('あとで もらう'); await e.click('先生に 提出'); await sleep(80)
+  await e.click('おうちの人の サインを もらう'); e.w.document.getElementById('hsSignOk').click(); await sleep(60)
+  eq(e.P().homeStudy.logs[0].parentComment, '', '送れなかったら 端末にも入れない')
+  ok(e.log().some((x) => x.indexOf('また あとで おしてみてな') >= 0), 'もう一度')
+  const v = await device({ viewAs: true, store: { userId: 'stu-1', coins: 0, homeStudy: { logs: [{ dayKey: 'X', kind: 'sheet', todo: 'ドリル', minutes: 5, parentComment: '' }] } } }); hookFetch(v)
+  v.P().homeStudy.logs[0].dayKey = v.w.eval('hsGetDayKey830(new Date())')
+  v.w.HSCHAT.open(); await sleep(30)
+  await v.click('おうちの人の サインを もらう'); v.w.document.getElementById('hsSignOk').click(); await sleep(40)
+  eq(v.w.__signCalls.length, 0, '見るだけモードでは送らない')
 })
 
 const pass = results.filter((r) => r.ok).length

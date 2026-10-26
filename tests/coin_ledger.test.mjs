@@ -1093,6 +1093,79 @@ await t('53 HSCHAT シートと対話の両方から・連打・同時送信で�
   ok(n.status === 401 || n.status === 403, 'ログインなしは出せない')
 })
 
+// ── HSSIGN_V1 サポーター（おうちの人）のサインを あとから足す：parent_comment だけ・コインの道は作らない ──
+function studyDay(ms) { return new Date((ms || Date.now()) + 30 * 60 * 1000).toISOString().slice(0, 10) }
+function tableCounts(w) {
+  const out = {}
+  w.db._all("SELECT name FROM sqlite_master WHERE type='table'").forEach((r) => { if (r.name !== 'homework_submissions') out[r.name] = w.db._get('SELECT COUNT(*) AS n FROM "' + r.name + '"').n })
+  return JSON.stringify(out)
+}
+await t('54 HSSIGN あとからサイン → その日の提出の「サポーターから」に入る・先生の一覧に出る・コイン/台帳/ほかの表は動かない・2回目は上書きしない', async () => {
+  const w = await newWorld(); hsCols(w)
+  w.setState(smallState({ coins: 1000 }))
+  const dk = studyDay()
+  await w.call('POST', '/api/homework/submit', { user: w.student, body: { ...HSCHAT_BODY, dayKey: dk } })
+  const before = tableCounts(w); const row0 = w.db._get('SELECT * FROM homework_submissions WHERE user_id=? AND day_key=?', 'stu-1', dk)
+  const rs = await Promise.all([0, 1, 2].map((i) => w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '👍 見たよ　' + i } })))
+  eq(rs.filter((r) => r.json && r.json.signed).length, 1, '同時に押しても 入るのは1回')
+  const row = w.db._get('SELECT * FROM homework_submissions WHERE user_id=? AND day_key=?', 'stu-1', dk)
+  ok(/^👍 見たよ　[012]$/.test(row.parent_comment), 'サポーター欄に入る')
+  const again = await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '👍 見たよ　べつの文' } })
+  eq(again.json.already, true, '2回目は already'); eq(w.db._get('SELECT parent_comment AS p FROM homework_submissions WHERE user_id=? AND day_key=?', 'stu-1', dk).p, row.parent_comment, '上書きしない')
+  ;['reward_coins', 'bonus_coins', 'reward_shards', 'bonus_shards', 'reward_claimed', 'streak_after', 'todo', 'minutes', 'returned_at', 'teacher_comment'].forEach((k) => eq(row[k], row0[k], k + ' は そのまま'))
+  eq(w.db._all('SELECT * FROM homework_submissions WHERE user_id=? AND day_key=?', 'stu-1', dk).length, 1, '1日1行のまま')
+  eq(tableCounts(w), before, 'ほかの表（コインの台帳など）は1行もふえない')
+  eq(w.getState().coins, 1000, 'コインは動かない')
+  const l = await w.call('GET', '/api/teacher/homework', { user: w.teacher })
+  const it = (l.json.submissions || l.json.items || l.json.rows || []).find((x) => x.dayKey === dk)
+  eq(it.parentComment, row.parent_comment, '先生の一覧の「サポーターから」に出る')
+})
+
+await t('55 HSSIGN その日の分だけ・提出なしは404・シートで書いた文は上書きしない・先生/ログインなし/空文は入らない', async () => {
+  const w = await newWorld(); hsCols(w)
+  const dk = studyDay(); const old = studyDay(Date.now() - 86400000)
+  const none = await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '👍 見たよ' } })
+  eq(none.status, 404, 'まだ提出していない日は404')
+  await w.call('POST', '/api/homework/submit', { user: w.student, body: { ...HSCHAT_BODY, dayKey: old } })
+  const o = await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: old, text: '👍 見たよ' } })
+  eq(o.status, 400, '前の日の提出には足せない'); eq(w.db._get('SELECT parent_comment AS p FROM homework_submissions WHERE day_key=?', old).p, '', '前の日はそのまま')
+  await w.call('POST', '/api/homework/submit', { user: w.student, body: { ...HSCHAT_BODY, dayKey: dk, parentComment: 'シートに書きました' } })
+  const s2 = await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '👍 見たよ' } })
+  eq(s2.json.already, true, 'シートで書いた日は already'); eq(w.db._get('SELECT parent_comment AS p FROM homework_submissions WHERE day_key=?', dk).p, 'シートに書きました', '上書きしない')
+  w.db._run("UPDATE homework_submissions SET parent_comment='' WHERE day_key=?", dk)
+  eq((await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '   ' } })).status, 400, '空の文は入らない')
+  eq((await w.call('POST', '/api/homework/parent-sign', { user: w.teacher, body: { dayKey: dk, text: '👍 見たよ' } })).status, 403, '先生は入れられない')
+  const n = await w.call('POST', '/api/homework/parent-sign', { body: { dayKey: dk, text: '👍 見たよ' } })
+  ok(n.status === 401 || n.status === 403, 'ログインなしは入れられない')
+  eq(w.db._get('SELECT parent_comment AS p FROM homework_submissions WHERE day_key=?', dk).p, '', 'どれも入っていない')
+  const long = await w.call('POST', '/api/homework/parent-sign', { user: w.student, body: { dayKey: dk, text: '👍 見たよ　' + 'あ'.repeat(800) } })
+  eq(long.json.signed, true, '長い文は'); eq(Array.from(w.db._get('SELECT parent_comment AS p FROM homework_submissions WHERE day_key=?', dk).p).length, 500, '500字まで（シートと同じ）')
+})
+
+// ── HSWEEKCHAT_V1 阪神マンと ふりかえる：対話で出しても いまの画面と同じ道（weekly-reflection・week-ref2・kantan-ref）──
+await t('56 HSWEEKCHAT 対話で出す（じぶんの ことばの わけ）→ 項目欄・week-ref2 に入る → 画面から出しなおしても 20コインは週1回・台帳1行', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  w.setState(smallState({ coins: 1000 }))
+  const g = await w.call('GET', '/api/student/week-ref2?weekKey=' + WR_NOW, { user: w.student })
+  const q = g.json.question
+  // 対話（hsweekchat.js → KANTAN.send）が送るのと同じ形（tests/hsweekchat.test.mjs の 3 で 画面と同じことを確かめている）
+  await Promise.all([
+    w.call('POST', '/api/student/kantan-ref', { user: w.student, body: { weekKey: WR_NOW, self: 'more', reason: '', next: 'keep', how: '', mood: '', addedChars: 9 } }),
+    w.call('POST', '/api/student/week-ref2', { user: w.student, body: { weekKey: WR_NOW, promise: { result: 'not', reason: 'other', note: 'いそがしかった' }, q: { id: q.id, choice: -1, text: '声に 出すと おぼえやすい' }, school: { subj: '国語', theme: '', learned: '音読が すらすら できた', more: '' }, unitNames: {} } }),
+  ])
+  const r1 = await w.call('POST', '/api/student/weekly-reflection', { user: w.student, body: { weekKey: WR_NOW, dayKey: kDay(0), freeText: '今週の 自分の 学びは △もう少し。そう思うのは、時間が つくりにくかったから。', goodPoint: '△ もう少し ／ なんで：時間が つくりにくかった', improvePoint: '', nextAction: '次：このまま つづける　朝に やる' } })
+  eq(r1.json.weekRefBonus.rewardedNow, true, '対話から出して 20')
+  const r2 = await sendKantan(w)   // いまの画面から 出しなおし
+  ok(!(r2.json.weekRefBonus && r2.json.weekRefBonus.rewardedNow), '画面から出しなおしても 付かない')
+  await w.call('POST', '/api/student/weekly-reflection', { user: w.student, body: { weekKey: WR_NOW, dayKey: kDay(0), freeText: '今週の 自分の 学びは ○まあまあ。もう一度 対話から。', goodPoint: '○ まあまあ ／ なんで：x', improvePoint: '', nextAction: '次：x' } })
+  eq(w.getState().coins, 1020, '20コインは1回だけ'); eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳1行')
+  const sr = w.db._get('SELECT * FROM structured_reflections WHERE user_id=? AND week_key=?', 'stu-1', WR_NOW)
+  ok(sr && sr.good_point.indexOf('○ まあまあ') === 0 && sr.next_action === '次：x', '項目欄は 最後に出した分（いつもの上書き）')
+  const row = w.db._get('SELECT * FROM week_ref2 WHERE user_id=?', 'stu-1')
+  eq(row.promise_result, 'not', '先週決めたこと'); eq(row.promise_reason, 'other', 'わけ（その他）'); eq(row.promise_note, 'いそがしかった', 'じぶんの ことば'); eq(row.school_subj, '国語', '学校での学び'); eq(row.q_text, '声に 出すと おぼえやすい', '問い（ことばだけ）')
+  eq(w.db._all('SELECT * FROM week_ref2').length, 1, '1人1週1行')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

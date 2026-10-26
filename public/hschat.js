@@ -14,6 +14,14 @@
  *  ・お知らせ（はじめて開いたとき1回だけ）：端末に記録。先生の「見るだけ」モード中は出さない・記録しない。
  *  ・ことばは NGWORD_V1 に合わせる（責める・否定的なことばは使わない）。
  *  ・index.html は手で編集しない。
+ *
+ *  ✍️ HSSIGN_V1（2026-10-26）サポーター（おうちの人）のサイン
+ *    おわったら（次どうする？の あと）・提出の前に「おうちの人に見せて、サインもらってきてな！」
+ *    →「🏠 おうちの人に見せる」で おうちの方むけの大きい文字の画面（今日やったこと・時間・天気の要約）
+ *    →「👍 見たよ」＋ひとこと（任意）→「サインもろたで！ほな提出しよか」→ いつもの提出。
+ *    サインは いつもの「🏠サポーターから」（parentComment）にそのまま入る（シートで書くのと同じ欄・同じ形）。
+ *    「あとでもらう」で先に提出でき、その日のうちなら「✍️ おうちの人のサインをもらう」から足せる
+ *    （/api/homework/parent-sign・欄が空のときだけ）。サインの有無でコインは変えない。シートの欄の動きは そのまま。
  */
 (function () {
   'use strict';
@@ -56,6 +64,17 @@
     sheetStarted: 'シートで もう はじめてるみたいやな！ このまま つづけよか',
     viewOnly: '（見るだけモード中なので 提出は しません）',
     introTitle: '家庭学習を阪神マンと対話しながらできるようになったで！',
+    sign: 'おつかれさん！ おうちの人に見せて、サインもらってきてな！',
+    signDone: 'サインもろたで！ ほな提出しよか！ 写真が あったら つけてな',
+    signLater: 'オッケー！ サインは 提出したあとでも もらえるで。ほな提出しよか！ 写真が あったら つけてな',
+    signAfter: 'サインもろたで！ 先生にも とどけたで。おうちの人に ありがとうって 言うといてな',
+    signAgain: 'サインは もう 入ってるで！ ありがとうな',
+    signRetry: 'うまく 送れんかったみたいや。また あとで おしてみてな',
+    signHead: 'おうちの方へ',
+    signLead: 'お子さんの今日の取り組みです',
+    signOk: '👍 見たよ',
+    signPh: 'ひとこと（なくても大丈夫です）',
+    signBtn: '✍️ おうちの人の サインを もらう',
     introSub: 'やることを えらんで、タイマーで がんばって、さいごに ふりかえる。ぜんぶ 話しながら すすめられるで。いつものシートも そのまま 使えるで。'
   };
   var TODO_FIXED = [
@@ -190,6 +209,19 @@
     + '#hsChatPill.ring{background:#f87171;color:#fff;border-color:#b91c1c;animation:hcPulse .8s ease-in-out infinite alternate}'
     + '@keyframes hcPulse{from{transform:scale(1)}to{transform:scale(1.08)}}'
     + '.hsChatEntry{display:block;width:100%;margin:0 0 8px;min-height:54px;border-radius:14px;border:3px solid #a16207;background:linear-gradient(135deg,#fde047,#facc15);color:#422006;font-weight:900;font-size:17px;box-shadow:0 4px 12px rgba(161,98,7,.25);cursor:pointer}'
+    + '.hsSignEntry{background:linear-gradient(135deg,#fbcfe8,#f9a8d4);border-color:#be185d;color:#831843}'
+    + '#hsSign{position:fixed;top:0;right:0;bottom:0;left:0;z-index:9996;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:14px}'
+    + '#hsSign .hs-box{background:#fff;border:4px solid #f9a8d4;border-radius:24px;width:100%;max-width:700px;max-height:100%;overflow-y:auto;padding:20px 24px 18px;color:#1f2937;box-shadow:0 12px 40px rgba(0,0,0,.3)}'
+    + '#hsSign .hs-h{font-size:30px;font-weight:900;color:#9d174d}'
+    + '#hsSign .hs-l{font-size:22px;font-weight:800;margin-top:2px;color:#831843}'
+    + '#hsSign .hs-sum{margin-top:12px;background:#fdf2f8;border-radius:16px;padding:10px 16px}'
+    + '#hsSign .hs-r{display:flex;gap:12px;padding:7px 0;border-bottom:1px dashed #f9a8d4;font-size:21px;line-height:1.5}'
+    + '#hsSign .hs-r:last-child{border-bottom:none}'
+    + '#hsSign .hs-k{flex:0 0 205px;font-weight:800;color:#9d174d}'
+    + '#hsSign .hs-v{flex:1;word-break:break-word}'
+    + '#hsSign textarea{display:block;width:100%;box-sizing:border-box;margin-top:12px;min-height:70px;border:2px solid #f9a8d4;border-radius:14px;padding:10px 12px;font-size:20px;font-family:inherit;resize:none}'
+    + '#hsSign .hs-ok{display:block;width:100%;margin-top:12px;min-height:70px;border-radius:18px;border:3px solid #be185d;background:#ec4899;color:#fff;font-size:30px;font-weight:900;cursor:pointer}'
+    + '#hsSign .hs-back{display:block;margin:10px auto 0;min-height:44px;padding:6px 22px;border-radius:12px;border:2px solid #cbd5e1;background:#f8fafc;color:#475569;font-size:16px;font-weight:700;cursor:pointer}'
     + '#hsChatIntro{position:fixed;top:0;right:0;bottom:0;left:0;z-index:9995;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;padding:16px}'
     + '#hsChatIntro .hi-box{background:#fffbeb;border:3px solid #f59e0b;border-radius:22px;max-width:520px;width:100%;padding:18px 18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.3);color:#422006}'
     + '#hsChatIntro .hi-t{font-size:20px;font-weight:900;line-height:1.5}'
@@ -373,7 +405,93 @@
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.nextOther); c.waiting = 'next'; }); return; }
     act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; toBye(s, c); });
   }
-  function toBye(s, c) { c.step = 'photo'; say(c, 'b', SAY.bye); }
+  function toBye(s, c) {
+    if (String((s && s.parentComment) || '').trim()) { c.step = 'photo'; say(c, 'b', SAY.bye); return; }   // シートで もう書いてもらっていたら そのまま
+    c.step = 'sign'; say(c, 'b', SAY.sign);
+  }
+
+  // ───────── ✍️ HSSIGN_V1 サポーター（おうちの人）のサイン ─────────
+  var SIGN_WEATHER = { sun: '☀️ はれ', cloud: '☁️ くもり', rain: '☂️ あめ' };
+  function signText(comment) { var t = cut(String(comment || '').replace(/[\r\n\t]+/g, ' ').trim(), 200); return t ? SAY.signOk + '　' + t : SAY.signOk; }
+  function sumOf(o) {   // o … 下書き（session）でも 提出ずみの記録（log）でも同じ項目名
+    o = o || {};
+    var min = (o.minutesManual != null && o.minutesManual !== '') ? o.minutesManual : o.minutes;
+    return {
+      todo: String(o.todo || o.text || '').trim(),
+      min: Math.max(0, parseInt(min, 10) || 0),
+      aim: String(o.aim || '').trim(),
+      weather: SIGN_WEATHER[String(o.endWeather || o.weather || '')] || '',
+      reason: String(o.weatherReason || '').trim(),
+      next: String(o.nextImprove || '').trim()
+    };
+  }
+  function openSign(sum, onOk) {
+    ensureCss();
+    var old = document.getElementById('hsSign'); if (old && old.parentNode) old.parentNode.removeChild(old);
+    var row = function (k, v) { return v ? '<div class="hs-r"><span class="hs-k">' + esc(k) + '</span><span class="hs-v">' + esc(v) + '</span></div>' : ''; };
+    var el = document.createElement('div'); el.id = 'hsSign';
+    el.innerHTML = '<div class="hs-box">'
+      + '<div class="hs-h">' + esc(SAY.signHead) + '</div><div class="hs-l">' + esc(SAY.signLead) + '</div>'
+      + '<div class="hs-sum">'
+      + row('📚 やったこと', sum.todo)
+      + row('⏱ 時間', sum.min + '分' + (sum.aim ? '（めあて：' + sum.aim + '）' : ''))
+      + row('🌤 やってみた気もち', sum.weather + (sum.reason ? '　' + sum.reason : ''))
+      + row('➡️ 次は', sum.next)
+      + '</div>'
+      + '<textarea id="hsSignTa" maxlength="200" placeholder="' + esc(SAY.signPh) + '"></textarea>'
+      + '<button type="button" class="hs-ok" id="hsSignOk">' + esc(SAY.signOk) + '</button>'
+      + '<button type="button" class="hs-back" id="hsSignBack">もどる</button>'
+      + '</div>';
+    document.body.appendChild(el);
+    var rm = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+    document.getElementById('hsSignBack').onclick = rm;
+    document.getElementById('hsSignOk').onclick = function () { var v = String((document.getElementById('hsSignTa') || {}).value || ''); rm(); onOk(signText(v)); };
+  }
+  function putSheetSign(text) { try { var ta = document.getElementById('hsParentComment'); if (ta && !String(ta.value || '').trim()) ta.value = text; } catch (e) {} }
+  function signNow() {   // 提出の前（対話の中）
+    var s = getSess(); if (!s) return;
+    openSign(sumOf(s), function (text) {
+      act(function (s2, c2) {
+        say(c2, 'm', '👍 おうちの人が 見たよ');
+        s2.parentComment = text; c2.signed = 1;
+        putSheetSign(text);
+        say(c2, 'b', SAY.signDone); c2.step = 'photo';
+      });
+    });
+  }
+  function signSkip() { act(function (s, c) { say(c, 'm', '⏭ あとで もらう'); say(c, 'b', SAY.signLater); c.step = 'photo'; }); }
+  function todayLog() {
+    try { var logs = call('hsLogs') || [], dk = dayKey(); for (var i = 0; i < logs.length; i++) { var l = logs[i]; if (l && l.dayKey === dk && !l.restDay) return l; } } catch (e) {}
+    return null;
+  }
+  function canSignLater() { var l = todayLog(); return !!(l && !String(l.parentComment || '').trim()); }
+  var _signBusy = false;
+  function signAfterSubmit() {   // 提出したあと（その日のうち）
+    var l = todayLog(); if (!l || _signBusy) return;
+    if (String(l.parentComment || '').trim()) { afterSay(SAY.signAgain); return; }
+    openSign(sumOf(l), function (text) {
+      if (viewOnly()) { afterSay(SAY.viewOnly); return; }
+      _signBusy = true;
+      fetch('/api/homework/parent-sign', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dayKey: l.dayKey, text: text }) })
+        .then(function (r) { return r.json(); }).catch(function () { return null; })
+        .then(function (j) {
+          _signBusy = false;
+          if (j && j.ok && (j.signed || j.already)) {
+            l.parentComment = String(j.parentComment || text);
+            try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+            putSheetSign(l.parentComment);
+            try { if (typeof hsRender === 'function') hsRender(); } catch (e) {}
+            afterSay(j.signed ? SAY.signAfter : SAY.signAgain);
+          } else afterSay(SAY.signRetry);
+          placeEntries();
+        });
+    });
+  }
+  function afterSay(t) {   // 提出したあとの ひとこと（対話の画面を ひらいて 見せる）
+    if (!_done) { _done = newChat(); _done.step = 'done'; }
+    say(_done, 'b', t);
+    if (!_open) open(); else draw();
+  }
 
   async function submit() {
     if (_sending) return;
@@ -422,7 +540,12 @@
     if (!logEl || !foot) return;
     var c, s = null, actions = [], h = '', cls = '';
     if (_done) c = _done;
-    else if (_static === 'already') { logEl.innerHTML = bubble({ w: 'b', t: SAY.already }); foot.innerHTML = btns([{ label: 'とじる', cls: 'sub' }], 'one'); bind(foot, [close]); return; }
+    else if (_static === 'already') {
+      logEl.innerHTML = bubble({ w: 'b', t: SAY.already });
+      if (canSignLater()) { foot.innerHTML = btns([{ label: SAY.signBtn, cls: 'main' }, { label: 'とじる', cls: 'sub' }]); bind(foot, [signAfterSubmit, close]); }
+      else { foot.innerHTML = btns([{ label: 'とじる', cls: 'sub' }], 'one'); bind(foot, [close]); }
+      return;
+    }
     else { s = getSess(); c = chat(s); }
     if (!c) { boot(); s = getSess(); c = chat(s); if (!c) { logEl.innerHTML = bubble({ w: 'b', t: SAY.already }); foot.innerHTML = ''; return; } }
     var html = c.log.map(bubble).join('');
@@ -484,6 +607,9 @@
       var ns = NEXTS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ns);
       bind(foot, ns.map(function (r, i) { return function () { if (i === ns.length - 1) pickNext('', true); else pickNext(r.label); }; }));
+    } else if (step === 'sign') {
+      foot.innerHTML = btns([{ label: '🏠 おうちの人に 見せる', cls: 'main' }, { label: '⏭ あとで もらう', cls: 'sub' }]);
+      bind(foot, [signNow, signSkip]);
     } else if (step === 'photo') {
       var cnt = photoCount();
       foot.innerHTML = '<div class="hc-ch">'
@@ -494,7 +620,8 @@
       pi.onchange = function () { var f = fn('hsPhotosSelected'); if (f) { try { f(pi); } catch (e) {} } setTimeout(draw, 300); };
       document.getElementById('hsChatSubmit').onclick = submit;
     } else if (step === 'done') {
-      foot.innerHTML = btns([{ label: 'とじる', cls: 'main' }], 'one'); bind(foot, [function () { _done = null; close(); }]);
+      if (canSignLater()) { foot.innerHTML = btns([{ label: SAY.signBtn, cls: 'main' }, { label: 'とじる', cls: 'sub' }]); bind(foot, [signAfterSubmit, function () { _done = null; close(); }]); }
+      else { foot.innerHTML = btns([{ label: 'とじる', cls: 'main' }], 'one'); bind(foot, [function () { _done = null; close(); }]); }
     } else foot.innerHTML = '';
   }
   function bind(root, fns) {
@@ -581,6 +708,13 @@
       if (!b2) { b2 = entryBtn('hsChatEntryS'); scr.insertBefore(b2, scr.firstChild); }
       b2.style.display = sub ? 'none' : 'block'; if (b2.textContent !== label) b2.textContent = label;
     }
+    // ✍️ HSSIGN_V1 提出したあと（その日のうち・サポーター欄が空）は「おうちの人のサインをもらう」
+    var later = sub && canSignLater();
+    [['hsSignLaterW', wk ? wk.parentNode : null, wk], ['hsSignLaterS', scr, scr ? scr.firstChild : null]].forEach(function (x) {
+      var b3 = document.getElementById(x[0]);
+      if (!b3 && later && x[1]) { b3 = document.createElement('button'); b3.type = 'button'; b3.id = x[0]; b3.className = 'hsChatEntry hsSignEntry'; b3.textContent = SAY.signBtn; b3.onclick = signAfterSubmit; if (x[0] === 'hsSignLaterW') { b3.style.margin = '0'; b3.style.flex = '1'; } x[1].insertBefore(b3, x[2]); }
+      if (b3) b3.style.display = later ? 'block' : 'none';
+    });
   }
 
   // ───────── お知らせ（その子に1回だけ・見るだけモードでは出さない） ─────────
@@ -620,6 +754,6 @@
 
   window.HSCHAT = {
     open: open,
-    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, buildAim: buildAim, buildText: buildText, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick }
+    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, buildAim: buildAim, buildText: buildText, signText: signText, sumOf: sumOf, canSignLater: canSignLater, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick }
   };
 })();
