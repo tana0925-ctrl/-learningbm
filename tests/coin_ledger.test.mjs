@@ -584,6 +584,124 @@ await t('31 先生：今日のひと往復の材料に「来週やってみた�
   eq(k.status, 200, 'karte-reco は動く')
 })
 
+
+// ── 👆 かんたんふりかえり・自動検出（KANTAN_REF_V1）──────────────────
+//   コインは既存の週の振り返りの台帳（week_ref_rewards）だけ。かんたんふりかえりそのものはコインを動かさない。
+function kDay(daysAgo) { return new Date(Date.now() + 9 * 3600000 - 8.5 * 3600000 - daysAgo * 86400000).toISOString().slice(0, 10) }
+const K_TEXT = '今週の 自分の 学びは ◎よくできた。そう思うのは、アプリを 3日 ひらけたから。次は このまま つづけてみる。'
+async function sendKantan(w) {
+  await w.call('POST', '/api/student/kantan-ref', { user: w.student, body: { weekKey: WR_NOW, self: 'good', reason: 'open', next: 'keep', how: '', mood: 'sun', addedChars: 0 } })
+  return w.call('POST', '/api/student/weekly-reflection', { user: w.student, body: { weekKey: WR_NOW, dayKey: kDay(0), freeText: K_TEXT, goodPoint: '◎ よくできた ／ なんで：アプリを 3日 ひらけた', improvePoint: '', nextAction: '次：このまま つづける' } })
+}
+
+await t('32 かんたんふりかえりで出す → 既存の20コインが1回だけ・項目欄に◎・タップの記録はコインを動かさない', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  const t0 = await w.call('POST', '/api/student/kantan-ref', { user: w.student, body: { weekKey: WR_NOW, self: 'good', reason: 'open', next: 'keep' } })
+  eq(t0.status, 200, 'status')
+  eq(w.getState().coins, 1000, 'タップの記録だけではコインは動かない')
+  const r = await sendKantan(w)
+  eq(r.json.weekRefBonus.rewardedNow, true, '既存のボーナスが付く')
+  eq(w.getState().coins, 1020, '20コイン')
+  const r2 = await sendKantan(w)
+  eq(r2.json.weekRefBonus.rewardedNow, false, '2回目は付かない')
+  eq(w.getState().coins, 1020, '二重にならない')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳1行')
+  const sr = w.db._get('SELECT good_point, next_action, free_text FROM structured_reflections WHERE user_id=? AND week_key=?', w.student.id, WR_NOW)
+  ok(sr.good_point.indexOf('◎ よくできた') === 0, '◎が項目欄の先頭に')
+  eq(sr.next_action, '次：このまま つづける', '次どうする')
+  eq(sr.free_text, K_TEXT, '文')
+  const tp = w.db._get('SELECT self_mark, reason_key, next_key, mood FROM week_ref_taps WHERE user_id=?', w.student.id)
+  eq(tp.self_mark, 'good', '見立て'); eq(tp.next_key, 'keep', '次'); eq(tp.mood, 'sun', '気もち')
+  eq(w.db._all('SELECT * FROM week_ref_taps').length, 1, '1週1行')
+})
+
+await t('33 あとで自由欄だけ出しなおしても◎と「次」は消えない・おかしな値は入らない', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  await sendKantan(w)
+  await sendRef(w, '自由欄だけ書きなおしたよ')
+  const sr = w.db._get('SELECT good_point, next_action, free_text FROM structured_reflections WHERE user_id=? AND week_key=?', w.student.id, WR_NOW)
+  ok(sr.good_point.indexOf('◎') === 0, '◎は残る')
+  eq(sr.next_action, '次：このまま つづける', '次も残る')
+  eq(sr.free_text, '自由欄だけ書きなおしたよ', '自由欄は新しく')
+  await w.call('POST', '/api/student/kantan-ref', { user: w.student, body: { weekKey: WR_OLD, self: 'best!!', reason: '<script>', next: 'keep', how: 'xx', mood: 'snow' } })
+  const tp = w.db._all('SELECT * FROM week_ref_taps')
+  eq(tp.length, 1, '昔の週には書けない（いまの週の1行のまま）')
+  eq(tp[0].self_mark, '', 'おかしな見立ては空'); eq(tp[0].reason_key, '', 'おかしな目印は空'); eq(tp[0].next_how, '', 'おかしな変え方は空'); eq(tp[0].mood, '', 'おかしな気もちは空')
+  eq(w.getState().coins, 1020, 'コインは20のまま')
+})
+
+await t('34 かんたんふりかえりの材料：未ログイン401・ほかの子403・記録から候補・前の週の◎・順位や点は返さない', async () => {
+  const w = await newWorld()
+  const n = await w.call('GET', '/api/student/kantan-ref')
+  eq(n.status, 401, '未ログイン401')
+  const f = await w.call('GET', '/api/student/kantan-ref?userId=stu-2', { user: w.student })
+  eq(f.status, 403, 'ほかの子は403')
+  const at = new Date(Date.now() - 3600000).toISOString()
+  for (let i = 0; i < 10; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', w.student.id, at, 'm6-ratio', i < 8 ? 1 : 0)
+  for (let i = 0; i < 6; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', w.student.id, at, 'm6-circle', i < 1 ? 1 : 0)
+  for (let i = 0; i < 10; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', 'stu-9', at, 'm6-frac-div', 1)
+  const lastWk = wrIsoKey(new Date(Date.now() + 9 * 3600000 - 8.5 * 3600000 - 7 * 86400000))
+  w.db._run("INSERT INTO week_ref_taps (user_id, week_key, self_mark, next_key) VALUES (?,?,?,?)", w.student.id, lastWk, 'more', 'change')
+  w.db._run("INSERT INTO structured_reflections (user_id, week_key, next_action, created_at) VALUES (?,?,?,?)", w.student.id, lastWk, '次：やり方を 変える（時間）', Date.now())
+  const r = await w.call('GET', '/api/student/kantan-ref?weekKey=' + WR_NOW, { user: w.student })
+  eq(r.status, 200, 'status')
+  eq(r.json.week.best.unit, 'm6-ratio', 'いちばん せいかいした単元')
+  eq(r.json.week.best.c, 8, '8問')
+  eq(r.json.week.questions, 16, '自分の分だけ数える')
+  eq(r.json.hard[0].unit, 'm6-circle', 'まちがいが多かった単元')
+  eq(r.json.prev.self, 'more', '前の週の見立て')
+  eq(r.json.prev.nextText, '次：やり方を 変える（時間）', '前の週の 次どうする')
+  ok(!/rank|avg|percent|score/i.test(JSON.stringify(r.json)), '順位・平均・％・点は返さない')
+})
+
+await t('35 自動検出：開いた日が少ない＋振り返りなし＋家庭学習なし → 1タップ案内・よく来る子は案内なし', async () => {
+  const w = await newWorld()
+  const r1 = await w.call('GET', '/api/student/kantan-ref', { user: w.student })
+  eq(r1.json.oneTap, true, '記録が少ない子は1タップ案内')
+  for (let i = 0; i < 6; i++) w.db._run('INSERT INTO app_open_days (user_id, day_key) VALUES (?,?)', w.student.id, kDay(i))
+  for (let i = 0; i < 3; i++) w.db._run("INSERT INTO homework_submissions (id, user_id, class_id, title, day_key) VALUES (?,?,?,?,?)", 'hwk-' + i, w.student.id, 'cls-1', 't', kDay(i))
+  const r2 = await w.call('GET', '/api/student/kantan-ref', { user: w.student })
+  eq(r2.json.oneTap, false, 'よく来ている子は案内なし')
+})
+
+await t('36 アプリを開いた日：1日1行・何回でも重複しない・コインなし・先生は記録しない', async () => {
+  const w = await newWorld()
+  w.setState(smallState({ coins: 1000 }))
+  for (let i = 0; i < 3; i++) await w.call('POST', '/api/student/app-open', { user: w.student })
+  eq(w.db._all('SELECT * FROM app_open_days').length, 1, '1日1行')
+  eq(w.getState().coins, 1000, 'コインは動かない')
+  await w.call('POST', '/api/student/app-open', { user: w.teacher })
+  eq(w.db._all('SELECT * FROM app_open_days').length, 1, '先生は記録しない')
+  const n = await w.call('POST', '/api/student/app-open')
+  eq(n.json.student, false, '未ログインは何もしない')
+})
+
+await t('37 先生：対象の子の人数と一覧（見るだけ）・ほかの先生は404・前の自分ページに◎', async () => {
+  const w = await newWorld()
+  const kid2 = 'stu-2'
+  w.db._run("INSERT INTO users (id, role, login_id, name, grade, class_name, is_active) VALUES (?,?,?,?,?,?,1)", kid2, 'student', 'kid2', 'はなこ', 3, '3-1')
+  w.db._run("INSERT INTO class_members (class_id, user_id) VALUES (?,?)", 'cls-1', kid2)
+  for (let i = 0; i < 6; i++) w.db._run('INSERT INTO app_open_days (user_id, day_key) VALUES (?,?)', kid2, kDay(i))
+  for (let i = 0; i < 3; i++) w.db._run("INSERT INTO homework_submissions (id, user_id, class_id, title, day_key) VALUES (?,?,?,?,?)", 'hwk2-' + i, kid2, 'cls-1', 't', kDay(i))
+  const r = await w.call('GET', '/api/teacher/class/cls-1/kantan-watch', { user: w.teacher })
+  eq(r.status, 200, 'status')
+  eq(r.json.total, 2, 'クラス2人')
+  eq(r.json.count, 1, '対象1人')
+  eq(r.json.items[0].userId, w.student.id, '記録が少ない子')
+  const other = { id: 'tea-2', role: 'teacher', loginId: 'other' }
+  w.db._run("INSERT INTO teacher_accounts (id, login_id, name, school) VALUES (?,?,?,?)", other.id, 'other', 'ほか', 'テスト小')
+  const o = await w.call('GET', '/api/teacher/class/cls-1/kantan-watch', { user: other })
+  eq(o.status, 404, 'ほかの先生は404')
+  const s = await w.call('GET', '/api/teacher/class/cls-1/kantan-watch', { user: w.student })
+  eq(s.status, 403, '児童は403')
+  await sendKantan(w)
+  const g = await w.call('GET', '/api/student/my-growth', { user: w.student })
+  eq(g.json.cards[0].mark, 'good', '前の自分ページに◎')
+  eq(g.json.cards[0].how, '次：このまま つづける', '次どうする')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

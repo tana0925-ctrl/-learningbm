@@ -261,6 +261,8 @@
       if (!d || !d.ok || !d.student) return;
       if (d.wrote) return;              // もう書いた子には出さない
       if (seenToday()) return;
+      // KANTAN_REF_V1 きっかけが ほしそうな子には「1タップで ふりかえり」を（見た目は同じ箱）。kantanref.js が決める。
+      try { if (typeof window.kantanRefNudge === 'function' && window.kantanRefNudge(d, showNudge)) return; } catch (e) {}
       showNudge();
     });
   }

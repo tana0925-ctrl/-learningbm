@@ -147,12 +147,29 @@
     return '<div style="margin-top:6px;font-size:12.5px;color:#9a3412;background:#fff7ed;border-radius:8px;padding:4px 8px">🎯 来週やってみたいこと：'
       + (un ? '<b>「' + esc(un) + '」</b>' : '') + (nt.text ? (un ? '　' : '') + esc(nt.text) : '') + '</div>';
   }
+  // KANTAN_REF_V1 その週の 自分の見立て（◎○△）と「次どうする？」。本人の見立てで、成績・評価ではない。
+  var MARK = { good: '◎ よくできた', ok: '○ まあまあ', more: '△ もう少し' };
+  function markLine(c) {
+    if (!c || (!c.mark && !c.how)) return '';
+    return '<div style="margin-bottom:4px;font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:8px;padding:3px 8px">'
+      + (c.mark && MARK[c.mark] ? '自分の見立て：<b>' + MARK[c.mark] + '</b>' : '') + (c.how ? (c.mark ? '　' : '') + esc(c.how) : '') + '</div>';
+  }
+  function marksRow(cards) {   // 古い順に ◎○△ を ならべる（変化が見えるように）
+    var xs = cards.filter(function (c) { return c.mark && MARK[c.mark]; }).slice(0, 8).reverse();
+    if (xs.length < 2) return '';
+    var h = '<div style="margin-top:10px;border:2px solid #fde68a;background:#fffbeb;border-radius:14px;padding:8px 12px"><div style="font-weight:900;color:#92400e;font-size:14.5px">🗓 自分の見立ての ならび <span style="font-size:11px;font-weight:600">（古い じゅん → 新しい じゅん）</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">';
+    xs.forEach(function (c, i) {
+      if (i) h += '<span style="color:#d97706">▶</span>';
+      h += '<div style="text-align:center;background:#fff;border:1.5px solid #fcd34d;border-radius:10px;padding:3px 8px"><div style="font-size:20px;font-weight:900;color:#b45309">' + MARK[c.mark].charAt(0) + '</div><div style="font-size:10.5px;color:#92400e">' + esc(wkLabel(c.weekKey).replace('の週', '')) + '</div></div>';
+    });
+    return h + '</div><div style="font-size:11.5px;color:#92400e;margin-top:4px">じぶんで つけた しるしだよ。せいせきでは ないよ。</div></div>';
+  }
   function cardBody(c, big) {
     var fs = big ? '14.5px' : '13.5px';
-    var h = '';
+    var h = markLine(c);
     if (c.text) h += '<div style="font-size:' + fs + ';line-height:1.7;white-space:pre-wrap">' + esc(c.text) + '</div>';
     if (c.star) h += '<div style="margin-top:4px;font-size:12.5px;color:#a16207">🌟 家庭学習シートに：' + esc(c.star) + '</div>';
-    if (!c.text && !c.star) h += '<div style="font-size:12.5px;color:#94a3b8">（この週の ふりかえりの 文は ないよ）</div>';
+    if (!c.text && !c.star && !c.mark) h += '<div style="font-size:12.5px;color:#94a3b8">（この週の ふりかえりの 文は ないよ）</div>';
     h += ntLine(c.nextTry);
     return h;
   }
@@ -227,6 +244,7 @@
         + '<div style="margin-top:4px">' + cardBody(latest, true) + '</div>'
         + '<div style="margin-top:6px;font-size:12px;color:#475569">来週も 書くと、前の あなたと ならべて 見られるように なるよ。</div></div>';
     }
+    h += marksRow(cards);   /* KANTAN_REF_V1 */
     h += factsHtml(d.facts);
     // これまでの ふりかえり（新しい順）
     h += '<div style="margin-top:14px;font-weight:900;color:#334155;font-size:15px">📚 これまでの ふりかえり <span style="font-size:11.5px;font-weight:600;color:#64748b">（新しい順）</span></div>';

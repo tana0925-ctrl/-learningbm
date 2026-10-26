@@ -127,6 +127,14 @@ CREATE TABLE karte_reco_feedback (
   user_id TEXT NOT NULL, reco_week TEXT NOT NULL, choice TEXT NOT NULL, subj TEXT, unit TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, reco_week)
 );
+CREATE TABLE app_open_days (
+  user_id TEXT NOT NULL, day_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, day_key)
+);
+CREATE TABLE week_ref_taps (
+  user_id TEXT NOT NULL, week_key TEXT NOT NULL, self_mark TEXT NOT NULL DEFAULT '', reason_key TEXT NOT NULL DEFAULT '',
+  next_key TEXT NOT NULL DEFAULT '', next_how TEXT NOT NULL DEFAULT '', mood TEXT NOT NULL DEFAULT '',
+  added_chars INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, week_key)
+);
 CREATE TABLE week_next_try (
   user_id TEXT NOT NULL, week_key TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', unit_name TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, week_key)

@@ -149,6 +149,8 @@
     var cw = cOf(d);
     if (cw) h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：' + esc(cw.say) + '<div class="text-xs text-orange-800">💬 ' + esc(cw.from) + '（かえても いいよ）</div></div>';
     else h += '<div class="mt-1 text-sm text-gray-800"><b>🅲 じぶんで 決める</b>：やりたい ところから でも OK</div>';
+    /* KANTAN_REF_V1 👣 はじめの一歩（紙と同じ。きっかけが ほしそうな子は とくに小さく。見た目は同じ） */
+    h += '<div class="mt-1 text-xs text-orange-900">👣 <b>はじめの一歩</b>：' + (d.small ? 'アプリを ひらいて「' + esc(r.a.name) + '」を 1問だけ（5分で おわる 大きさ）。1問 といたら、それで 前進やで' : 'まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）') + '</div>';
     h += '<div class="mt-2 text-xs font-bold text-orange-800">このおすすめ、どう思う？</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
     for (var i = 0; i < FBL.length; i++) {
       var on = d.feedback === FBL[i][0];
@@ -232,6 +234,16 @@
     h += '<div style="display:flex;gap:6px;align-items:flex-end">' + cells + '</div>';
     h += '<div class="mt-2 text-sm font-bold text-amber-800">今週は 5日のうち ' + (w.done || 0) + '日 とりくめたよ'
        + ((w.minutes) ? '（ぜんぶで ' + w.minutes + '分）' : '') + '</div>';
+
+    /* KANTAN_REF_V1 🌟 できたこと（記録の事実から。空にしない） */
+    var kt = d.kantan || {};
+    var dk = [];
+    if (w.done > 0) dk.push('今週は 家庭学習を ' + w.done + '日 出せたよ');
+    if (Number(kt.hwDays14) > 0 && Number(kt.hwDays14) > Number(w.done || 0)) dk.push('この2週間で 家庭学習を ' + kt.hwDays14 + '日 出したよ');
+    dk.push('この2週間で アプリを ' + Math.max(1, Number(kt.openDays) || 1) + '日 ひらいたよ');
+    h += '<div class="mt-2"><div class="text-xs font-bold text-amber-700">🌟 できたこと</div><ul class="text-sm text-gray-700 list-disc pl-5">';
+    for (var di = 0; di < dk.length && di < 2; di++) h += '<li>' + esc(dk[di]) + '</li>';
+    h += '</ul></div>';
 
     if (w.voices && w.voices.length) {
       h += '<div class="mt-2"><div class="text-xs font-bold text-amber-700">🗣 じぶんのことば</div>';

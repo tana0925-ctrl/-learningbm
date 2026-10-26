@@ -3317,7 +3317,9 @@ app.get('/api/student/karte-reco', async (c) => {
   if (!reco) return c.json({ ok: true, reco: null })
   const fb: any = await c.env.DB.prepare('SELECT choice FROM karte_reco_feedback WHERE user_id=? AND reco_week=? LIMIT 1').bind(u.id, row.week_key || '').first<any>().catch(() => null)
   const nextTry = await nextTryLatest(c.env, u.id)   // MAEJIBUN_V1 紙より後に書いたときの🅲用
-  return c.json({ ok: true, weekKey: row.week_key || '', reco, feedback: (fb && fb.choice) || '', nextTry })
+  let small = false   // KANTAN_REF_V1 はじめの一歩を とくに小さく（表示の見た目は同じ）
+  try { small = !!(await kantanFactsFor(c.env, u.id)).oneTap } catch (_e) {}
+  return c.json({ ok: true, weekKey: row.week_key || '', reco, feedback: (fb && fb.choice) || '', nextTry, small })
 })
 app.post('/api/student/karte-reco-feedback', async (c) => {
   const u = requireStudent(c)
@@ -5203,7 +5205,10 @@ app.get('/api/student/my-karte', async (c) => {
     }
   } catch (e) {}
 
-  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage })
+  // KANTAN_REF_V1 🌟できたこと（記録が少なくても空にしない・事実だけ）と、はじめの一歩の大きさ
+  let kantan: any = null
+  try { const kf = await kantanFactsFor(c.env, u.id); kantan = { small: !!kf.oneTap, openDays: Math.max(1, kf.openDays), hwDays14: kf.hwDays14 } } catch (_e) { kantan = { small: false, openDays: 1, hwDays14: 0 } }
+  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan })
 })
 
 // 先生：カルテを子どもの画面に出す（公開）。自分の担任クラスの児童だけ。
@@ -6905,7 +6910,13 @@ app.get('/api/student/my-growth', async (c) => {
       slot(String(x.week_key)).nextTry = { unit: x.unit || '', unitName: x.unit_name || '', text: x.text || '' }
     }
   } catch (e) { console.error('MAEJIBUN_V1 next', e) }
-  const cards = Object.keys(by).sort().reverse().map((k) => by[k]).filter((x: any) => x.text || x.star || x.nextTry).slice(0, 12)
+  try {   // KANTAN_REF_V1 その週の自分の見立て（◎○△）と「次どうする？」。並べて変化が見えるように（比べるのは前の自分だけ）
+    const r = await c.env.DB.prepare('SELECT week_key, self_mark FROM week_ref_taps WHERE user_id=? AND week_key >= ? ORDER BY week_key DESC LIMIT 16').bind(u.id, fromWk).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) if (KANTAN_MARKS.indexOf(String(x.self_mark || '')) >= 0) slot(String(x.week_key)).mark = String(x.self_mark)
+    const r2 = await c.env.DB.prepare("SELECT week_key, next_action FROM structured_reflections WHERE user_id=? AND week_key >= ? AND next_action <> '' ORDER BY week_key DESC LIMIT 16").bind(u.id, fromWk).all<any>()
+    for (const x of (((r2 && r2.results) || []) as any[])) { const s1 = by[String(x.week_key)]; if (s1) s1.how = cut(x.next_action, 50) }
+  } catch (e) { console.error('KANTAN_REF_V1 my-growth', e) }
+  const cards = Object.keys(by).sort().reverse().map((k) => by[k]).filter((x: any) => x.text || x.star || x.nextTry || x.mark).slice(0, 12)
 
   // のびたこと（記録から機械的に。ふえた・できるようになった事実だけ。へったことは言わない）
   const facts: any = { units: [], days: null, weeksWritten: cards.filter((x: any) => x.text || x.star).length }
@@ -6936,6 +6947,273 @@ app.get('/api/student/my-growth', async (c) => {
     facts.days = { now: Object.keys(set2).length, before: Object.keys(set1).length }
   } catch (e) { console.error('MAEJIBUN_V1 days', e) }
   return c.json({ ok: true, currentWeek: curWk, cards, facts })
+})
+// ══════ KANTAN_REF_V1 かんたんふりかえり／自分から学びにくい子の自動検出（2026-10-26）══════
+//  ・かんたんふりかえり … 書かなくてもタップで答えられる振り返り。選んだものは文章に組み立てて、
+//    いつもの「🔄 振り返りを提出」（/api/student/weekly-reflection と /api/student/weekly-plan）で出す。
+//    だからコイン（1週1回20コイン・week_ref_rewards 台帳）と先生の返却はこれまでどおり。ここではコインを付けない。
+//  ・自動検出 … 直近2週で アプリを開いた日が少ない／週の振り返りが2週つづけて無い／家庭学習が1週間止まっている、
+//    のうち KANTAN_DETECT_MIN_HITS 個以上にあてはまる子。表示は他の子と同じ見た目（ラベルは出さない）。
+//    先生の画面には人数と一覧だけ（見るだけ）。評価・順位・比較は出さない。
+//  ・D1 は索引つきの範囲読みだけ。learning_results は「その子・期間つき・件数の上限つき」でしか読まない。
+//  ・表は migrations/0044_kantan_ref.sql（リクエストの途中では作らない）。
+const KANTAN_OPEN_DAYS_WINDOW = 14      // 「アプリを開いた日」を数える日数
+const KANTAN_OPEN_DAYS_MIN = 4          // この日数より少なければ「少ない」
+const KANTAN_REF_MISS_WEEKS = 2         // この週数つづけて週の振り返りが無ければ「続いている」
+const KANTAN_HW_STOP_DAYS = 7           // この日数のあいだ家庭学習の提出が無ければ「止まっている」
+const KANTAN_DETECT_MIN_HITS = 2        // いくつ当てはまったら案内するか
+const KANTAN_LR_ROW_CAP = 1500          // learning_results を読む行数の上限（1人ぶん）
+const KANTAN_MOODS = ['sun', 'cloud', 'rain']
+const KANTAN_MARKS = ['good', 'ok', 'more']                 // ◎よくできた／○まあまあ／△もう少し（本人の見立て。成績には使わない）
+const KANTAN_MARK_LABEL: Record<string, string> = { good: '◎ よくできた', ok: '○ まあまあ', more: '△ もう少し' }
+const KANTAN_HOWS = ['', 'time', 'place', 'amount']         // やり方を変える：時間・場所・量
+function kantanDayKey(ms: number) { return new Date(ms + 9 * 3600000 - 8.5 * 3600000).toISOString().slice(0, 10) }
+function kantanPrevWeeks(nowMs: number, n: number) {
+  const out: string[] = []
+  for (let i = 1; i <= n; i++) out.push(weekRefIsoKey(new Date(nowMs + 9 * 3600000 - 8.5 * 3600000 - i * 7 * 86400000)))
+  return out
+}
+function kantanMonday(nowMs: number) {
+  const d = new Date(nowMs + 9 * 3600000 - 8.5 * 3600000)
+  const wd = (d.getUTCDay() + 6) % 7
+  return new Date(d.getTime() - wd * 86400000).toISOString().slice(0, 10)
+}
+// 数えた事実から判定する（純粋な関数。先生の一覧と子どもの画面で同じものを使う）
+function kantanJudge(f: { openDays: number, refMissWeeks: number, hwDays7: number }) {
+  const reasons = {
+    fewOpen: f.openDays < KANTAN_OPEN_DAYS_MIN,
+    refMiss: f.refMissWeeks >= KANTAN_REF_MISS_WEEKS,
+    hwStop: f.hwDays7 === 0,
+  }
+  const hits = (reasons.fewOpen ? 1 : 0) + (reasons.refMiss ? 1 : 0) + (reasons.hwStop ? 1 : 0)
+  return { oneTap: hits >= KANTAN_DETECT_MIN_HITS, hits, reasons }
+}
+// learning_results から「とりくんだ日」を数える（その子・期間つき・上限つき。少ない子ほど読む行も少ない）
+async function kantanLrDays(env: any, userId: string, fromDay: string, need: number) {
+  try {
+    const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM (SELECT DISTINCT substr(answered_at,1,10) AS d FROM (SELECT answered_at FROM learning_results WHERE user_id=? AND answered_at >= ? ORDER BY answered_at DESC LIMIT ?) LIMIT ?)')
+      .bind(userId, fromDay, KANTAN_LR_ROW_CAP, need).first<any>()
+    return Number((r && r.n) || 0)
+  } catch (_e) { return 0 }
+}
+function kantanHasRef(free: any, good: any, imp: any) { return weekRefChars(free, good, imp) > 0 }
+// 1人ぶんの事実（子どもの画面・わたしのカルテ用）。読むのは主キー・索引の範囲だけ（最大6回）。
+async function kantanFactsFor(env: any, userId: string, nowMs?: number) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now()
+  const from14 = kantanDayKey(now - (KANTAN_OPEN_DAYS_WINDOW - 1) * 86400000)
+  const from7 = kantanDayKey(now - (KANTAN_HW_STOP_DAYS - 1) * 86400000)
+  const pw = kantanPrevWeeks(now, KANTAN_REF_MISS_WEEKS)
+  const days: Record<string, 1> = {}
+  let openRows = 0
+  try {
+    const r = await env.DB.prepare('SELECT day_key FROM app_open_days WHERE user_id=? AND day_key >= ? LIMIT 40').bind(userId, from14).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { days[String(x.day_key)] = 1; openRows++ }
+  } catch (_e) {}
+  let hwDays7 = 0, hwDays14 = 0
+  const refWeeks: Record<string, 1> = {}
+  try {
+    const fromHw = kantanDayKey(now - (7 * (KANTAN_REF_MISS_WEEKS + 1)) * 86400000)
+    const r = await env.DB.prepare('SELECT day_key, weekly_reflection FROM homework_submissions WHERE user_id=? AND day_key >= ? LIMIT 60').bind(userId, fromHw).all<any>()
+    const s7: Record<string, 1> = {}, s14: Record<string, 1> = {}
+    for (const x of (((r && r.results) || []) as any[])) {
+      const dk = String(x.day_key || '')
+      if (!dk) continue
+      if (dk >= from14) { s14[dk] = 1; days[dk] = 1 }
+      if (dk >= from7) s7[dk] = 1
+      if (String(x.weekly_reflection || '').trim()) refWeeks[weekRefIsoKey(new Date(dk + 'T00:00:00Z'))] = 1
+    }
+    hwDays7 = Object.keys(s7).length; hwDays14 = Object.keys(s14).length
+  } catch (_e) {}
+  try {
+    const r = await env.DB.prepare(`SELECT week_key, free_text, good_point, improve_point FROM structured_reflections WHERE user_id=? AND week_key IN (${pw.map(() => '?').join(',')})`).bind(userId, ...pw).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) if (kantanHasRef(x.free_text, x.good_point, x.improve_point)) refWeeks[String(x.week_key)] = 1
+  } catch (_e) {}
+  try {
+    const r = await env.DB.prepare(`SELECT week_key, plans_json FROM student_weekly_plans WHERE user_id=? AND week_key IN (${pw.map(() => '?').join(',')})`).bind(userId, ...pw).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) if (weekRefChars(weekRefFri(x.plans_json)) > 0) refWeeks[String(x.week_key)] = 1
+  } catch (_e) {}
+  let openDays = Object.keys(days).length
+  if (openDays < KANTAN_OPEN_DAYS_MIN) {
+    // まだ「開いた日」の記録がたまっていない／少ない子だけ、修行の記録の日も足す（上限つき）
+    const lrd = await kantanLrDays(env, userId, from14, KANTAN_OPEN_DAYS_MIN + 1)
+    openDays = Math.max(openDays, lrd)
+  }
+  let refMissWeeks = 0
+  for (const wk of pw) { if (refWeeks[wk]) break; refMissWeeks++ }
+  const j = kantanJudge({ openDays, refMissWeeks, hwDays7 })
+  return { openDays, openRows, hwDays7, hwDays14, refMissWeeks, ...j }
+}
+// 今週の修行（月曜から）を単元ごとに。その子・期間つき・上限つき。
+async function kantanWeekUnits(env: any, userId: string, nowMs: number) {
+  const mon = kantanMonday(nowMs)
+  try {
+    const r = await env.DB.prepare('SELECT unit, COUNT(*) AS n, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) AS c, COUNT(DISTINCT substr(answered_at,1,10)) AS d, MAX(answered_at) AS last FROM (SELECT unit, is_correct, answered_at FROM learning_results WHERE user_id=? AND answered_at >= ? ORDER BY answered_at DESC LIMIT ?) GROUP BY unit ORDER BY n DESC LIMIT 40')
+      .bind(userId, mon, KANTAN_LR_ROW_CAP).all<any>()
+    return (((r && r.results) || []) as any[]).map((x) => ({ unit: String(x.unit || ''), n: Number(x.n || 0), c: Number(x.c || 0), d: Number(x.d || 0), last: String(x.last || '') })).filter((x) => x.unit)
+  } catch (_e) { return [] }
+}
+// 児童：アプリを開いた日（1日1行・主キーで重複しない・コインなし）
+app.post('/api/student/app-open', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return c.json({ ok: true, student: false })
+  const dk = kantanDayKey(Date.now())
+  try { await c.env.DB.prepare('INSERT OR IGNORE INTO app_open_days (user_id, day_key) VALUES (?, ?)').bind(u.id, dk).run() } catch (e) { console.error('KANTAN_REF_V1 app-open', e) }
+  return c.json({ ok: true, dayKey: dk })
+})
+// 児童：かんたんふりかえりの材料（今週できたこと・むずかしかったこと・来週の3つの道の候補）
+//   自分の分だけ（他人の id を付けたら 403・未ログイン 401）。順位・平均・点・パーセントは返さない。
+app.get('/api/student/kantan-ref', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const asked = String(c.req.query('userId') || c.req.query('studentId') || '')
+  if (asked && asked !== String(u.id)) return jsonError(c, 403, 'forbidden')
+  const now = Date.now()
+  const allowed = weekRefAllowedKeys(now)
+  const want = String(c.req.query('weekKey') || '')
+  const wk = allowed.indexOf(want) >= 0 ? want : allowed[0]
+  const f = await kantanFactsFor(c.env, u.id, now)
+  const units = await kantanWeekUnits(c.env, u.id, now)
+  // 今週ひらいた日（月曜から）
+  const mon = kantanMonday(now)
+  const wdays: Record<string, 1> = {}
+  try {
+    const r = await c.env.DB.prepare('SELECT day_key FROM app_open_days WHERE user_id=? AND day_key >= ? LIMIT 10').bind(u.id, mon).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) wdays[String(x.day_key)] = 1
+  } catch (_e) {}
+  let hwWeek = 0
+  try {
+    const r = await c.env.DB.prepare('SELECT day_key FROM homework_submissions WHERE user_id=? AND day_key >= ? LIMIT 10').bind(u.id, mon).all<any>()
+    const s: Record<string, 1> = {}
+    for (const x of (((r && r.results) || []) as any[])) { const dk = String(x.day_key || ''); if (dk) { s[dk] = 1; wdays[dk] = 1 } }
+    hwWeek = Object.keys(s).length
+  } catch (_e) {}
+  let lrDaysWeek = 0
+  for (const x of units) lrDaysWeek = Math.max(lrDaysWeek, x.d)
+  const openWeek = Math.max(Object.keys(wdays).length, lrDaysWeek, 1)   // いま開いているので最低1日
+  const qWeek = units.reduce((a, x) => a + x.n, 0)
+  const best = units.filter((x) => x.c >= 3).sort((a, b) => b.c - a.c)[0] || null
+  const hard = units.filter((x) => (x.n - x.c) >= 2 && x.c / Math.max(1, x.n) < 0.7).sort((a, b) => (b.n - b.c) - (a.n - a.c)).slice(0, 2)
+    .map((x) => ({ unit: x.unit, wrong: x.n - x.c, n: x.n }))
+  const recent = units.slice().sort((a, b) => b.last.localeCompare(a.last))[0] || null
+  // 来週の候補：先生が印刷したカルテのおすすめ（🅰🅱）があればそれを先に
+  let reco: any = null
+  try {
+    const row: any = await c.env.DB.prepare("SELECT reco_json FROM karte_recos WHERE user_id=? AND updated_at >= datetime('now','-21 days') LIMIT 1").bind(u.id).first<any>()
+    const rj = row ? JSON.parse(row.reco_json || 'null') : null
+    if (rj && rj.a && rj.a.id) reco = { a: { id: String(rj.a.id), name: String(rj.a.name || '') }, b: rj.b && rj.b.id ? { id: String(rj.b.id), name: String(rj.b.name || '') } : null }
+  } catch (_e) {}
+  let status: any = { wrote: false, rewarded: false }
+  try {
+    const r: any = await c.env.DB.prepare('SELECT good_point, improve_point, free_text FROM structured_reflections WHERE user_id=? AND week_key=? LIMIT 1').bind(u.id, wk).first<any>()
+    if (r && kantanHasRef(r.free_text, r.good_point, r.improve_point)) status.wrote = true
+    status.rewarded = !!(await c.env.DB.prepare('SELECT 1 AS x FROM week_ref_rewards WHERE week_key=? AND user_id=?').bind(wk, u.id).first<any>())
+  } catch (_e) {}
+  let taps: any = null, prev: any = null
+  try {
+    const r = await c.env.DB.prepare('SELECT week_key, self_mark, reason_key, next_key, next_how, mood FROM week_ref_taps WHERE user_id=? AND week_key <= ? ORDER BY week_key DESC LIMIT 2').bind(u.id, wk).all<any>()
+    for (const t of (((r && r.results) || []) as any[])) {
+      const o = { weekKey: String(t.week_key), self: t.self_mark || '', reason: t.reason_key || '', next: t.next_key || '', how: t.next_how || '', mood: t.mood || '' }
+      if (o.weekKey === wk) taps = o; else if (!prev) prev = o
+    }
+  } catch (_e) {}
+  if (prev) {   // 前の週の「次どうする？」の文（next_action）
+    try { const r: any = await c.env.DB.prepare('SELECT next_action FROM structured_reflections WHERE user_id=? AND week_key=? LIMIT 1').bind(u.id, prev.weekKey).first<any>(); prev.nextText = r ? String(r.next_action || '') : '' } catch (_e) {}
+    prev.markLabel = KANTAN_MARK_LABEL[prev.self] || ''
+  }
+  return c.json({
+    ok: true, weekKey: wk, oneTap: !!f.oneTap,
+    week: { openDays: openWeek, hwDays: hwWeek, questions: qWeek, best: best ? { unit: best.unit, c: best.c } : null, recentUnit: recent ? recent.unit : '' },
+    hard, reco, status, taps, prev, reward: WEEK_REF_BONUS_COINS,
+  })
+})
+// 児童：かんたんふりかえりで えらんだもの（1人1週1行・上書き）。コインは付けない（提出は既存の道で）。
+app.post('/api/student/kantan-ref', async (c) => {
+  const u = requireStudent(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body: any = await c.req.json().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid')
+  if (body.userId && String(body.userId) !== String(u.id)) return jsonError(c, 403, 'forbidden')
+  const allowed = weekRefAllowedKeys()
+  const want = String(body.weekKey || '')
+  const wk = allowed.indexOf(want) >= 0 ? want : allowed[0]
+  const key = (x: any) => { const s = String(x || '').trim().slice(0, 60); return /^[A-Za-z0-9_:\-]{0,60}$/.test(s) ? s : '' }
+  const mood = KANTAN_MOODS.indexOf(String(body.mood || '')) >= 0 ? String(body.mood) : ''
+  const self = KANTAN_MARKS.indexOf(String(body.self || '')) >= 0 ? String(body.self) : ''
+  const how = KANTAN_HOWS.indexOf(String(body.how || '')) >= 0 ? String(body.how) : ''
+  const added = Math.max(0, Math.min(400, Number(body.addedChars) || 0))
+  await c.env.DB.prepare("INSERT INTO week_ref_taps (user_id, week_key, self_mark, reason_key, next_key, next_how, mood, added_chars, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id, week_key) DO UPDATE SET self_mark=excluded.self_mark, reason_key=excluded.reason_key, next_key=excluded.next_key, next_how=excluded.next_how, mood=excluded.mood, added_chars=excluded.added_chars, updated_at=datetime('now')")
+    .bind(u.id, wk, self, key(body.reason), key(body.next), how, mood, added).run()
+  return c.json({ ok: true, weekKey: wk })
+})
+// 先生：自分から学びにくくなっているかもしれない子の一覧と人数（見るだけ）。クラス単位でまとめて読む。
+const _kantanWatchCache = new Map<string, { at: number, body: any }>()
+app.get('/api/teacher/class/:classId/kantan-watch', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = c.req.param('classId')
+  if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
+  const ck = classId
+  const hit = _kantanWatchCache.get(ck)
+  if (hit && Date.now() - hit.at < 10 * 60000 && c.req.query('fresh') !== '1') return c.json(hit.body)
+  const now = Date.now()
+  const from14 = kantanDayKey(now - (KANTAN_OPEN_DAYS_WINDOW - 1) * 86400000)
+  const from7 = kantanDayKey(now - (KANTAN_HW_STOP_DAYS - 1) * 86400000)
+  const fromHw = kantanDayKey(now - (7 * (KANTAN_REF_MISS_WEEKS + 1)) * 86400000)
+  const pw = kantanPrevWeeks(now, KANTAN_REF_MISS_WEEKS)
+  const ph = pw.map(() => '?').join(',')
+  const curWk = weekRefAllowedKeys(now)[0]
+  const S: Record<string, any> = {}
+  try {
+    const r = await c.env.DB.prepare("SELECT u.id AS id, u.name AS name, u.login_id AS loginId, u.roster_no AS rn FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = ? AND u.role = 'student' LIMIT 80").bind(classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) S[String(x.id)] = { userId: String(x.id), name: x.name || '', loginId: x.loginId || '', rosterNo: x.rn == null ? null : Number(x.rn), days: {} as Record<string, 1>, hw7: {} as Record<string, 1>, hw14: {} as Record<string, 1>, ref: {} as Record<string, 1>, tapped: false }
+  } catch (e) { console.error('KANTAN_REF_V1 members', e) }
+  try {
+    const r = await c.env.DB.prepare('SELECT a.user_id AS uid, a.day_key AS dk FROM class_members cm JOIN app_open_days a ON a.user_id = cm.user_id AND a.day_key >= ? WHERE cm.class_id = ?').bind(from14, classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { const s1 = S[String(x.uid)]; if (s1) s1.days[String(x.dk)] = 1 }
+  } catch (e) { console.error('KANTAN_REF_V1 open', e) }
+  try {
+    const r = await c.env.DB.prepare('SELECT hs.user_id AS uid, hs.day_key AS dk, hs.weekly_reflection AS wr FROM class_members cm JOIN homework_submissions hs ON hs.user_id = cm.user_id AND hs.day_key >= ? WHERE cm.class_id = ?').bind(fromHw, classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) {
+      const s1 = S[String(x.uid)]; const dk = String(x.dk || ''); if (!s1 || !dk) continue
+      if (dk >= from14) { s1.days[dk] = 1; s1.hw14[dk] = 1 }
+      if (dk >= from7) s1.hw7[dk] = 1
+      if (String(x.wr || '').trim()) s1.ref[weekRefIsoKey(new Date(dk + 'T00:00:00Z'))] = 1
+    }
+  } catch (e) { console.error('KANTAN_REF_V1 hw', e) }
+  try {
+    const r = await c.env.DB.prepare(`SELECT sr.user_id AS uid, sr.week_key AS wk, sr.free_text AS ft, sr.good_point AS gp, sr.improve_point AS ip FROM class_members cm JOIN structured_reflections sr ON sr.user_id = cm.user_id AND sr.week_key IN (${ph}) WHERE cm.class_id = ?`).bind(...pw, classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { const s1 = S[String(x.uid)]; if (s1 && kantanHasRef(x.ft, x.gp, x.ip)) s1.ref[String(x.wk)] = 1 }
+  } catch (e) { console.error('KANTAN_REF_V1 refl', e) }
+  try {
+    const r = await c.env.DB.prepare(`SELECT swp.user_id AS uid, swp.week_key AS wk, swp.plans_json AS pj FROM class_members cm JOIN student_weekly_plans swp ON swp.user_id = cm.user_id AND swp.week_key IN (${ph}) WHERE cm.class_id = ?`).bind(...pw, classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { const s1 = S[String(x.uid)]; if (s1 && weekRefChars(weekRefFri(x.pj)) > 0) s1.ref[String(x.wk)] = 1 }
+  } catch (e) { console.error('KANTAN_REF_V1 plans', e) }
+  try {
+    const r = await c.env.DB.prepare('SELECT t.user_id AS uid FROM class_members cm JOIN week_ref_taps t ON t.user_id = cm.user_id AND t.week_key = ? WHERE cm.class_id = ?').bind(curWk, classId).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { const s1 = S[String(x.uid)]; if (s1) s1.tapped = true }
+  } catch (e) { console.error('KANTAN_REF_V1 taps', e) }
+  const all: any[] = []
+  const ids = Object.keys(S).slice(0, 40)
+  let lrCalls = 0   // 1回の呼び出しで D1 に聞く回数をおさえる（無料枠の上限50回より十分少なく）
+  for (const id of ids) {
+    const s1 = S[id]
+    let openDays = Object.keys(s1.days).length
+    if (openDays < KANTAN_OPEN_DAYS_MIN && lrCalls++ < 32) openDays = Math.max(openDays, await kantanLrDays(c.env, id, from14, KANTAN_OPEN_DAYS_MIN + 1))
+    let refMissWeeks = 0
+    for (const wk of pw) { if (s1.ref[wk]) break; refMissWeeks++ }
+    const hwDays7 = Object.keys(s1.hw7).length
+    const j = kantanJudge({ openDays, refMissWeeks, hwDays7 })
+    all.push({ userId: id, name: s1.name, loginId: s1.loginId, rosterNo: s1.rosterNo, openDays, refMissWeeks, hwDays7, hwDays14: Object.keys(s1.hw14).length, tapped: s1.tapped, oneTap: j.oneTap, reasons: j.reasons })
+  }
+  all.sort((a, b) => (a.rosterNo == null ? 999 : a.rosterNo) - (b.rosterNo == null ? 999 : b.rosterNo) || String(a.loginId).localeCompare(String(b.loginId)))
+  const items = all.filter((x) => x.oneTap)
+  const body = {
+    ok: true, classId, total: all.length, count: items.length, items, all,
+    tappedThisWeek: all.filter((x) => x.tapped).length,
+    rule: { openDaysWindow: KANTAN_OPEN_DAYS_WINDOW, openDaysMin: KANTAN_OPEN_DAYS_MIN, refMissWeeks: KANTAN_REF_MISS_WEEKS, hwStopDays: KANTAN_HW_STOP_DAYS, minHits: KANTAN_DETECT_MIN_HITS },
+  }
+  try { if (_kantanWatchCache.size > 200) _kantanWatchCache.clear(); _kantanWatchCache.set(ck, { at: Date.now(), body }) } catch (_e) {}
+  return c.json(body)
 })
 // 先生：「今日のひと往復」用。指定した週（最大3週）の週の振り返りを、クラスぶんまとめて返す。
 //   ・週の計画の「🔄今週の振り返り」（plans_json の金曜 reflection と structured_reflections の自由欄・項目欄）
@@ -7012,15 +7290,21 @@ app.post('/api/student/weekly-reflection', async (c) => {
   const nextAction = String(body.nextAction || '').slice(0, 50)
   const freeText = String(body.freeText || '').slice(0, 500)
   const now = Date.now()
+  // KANTAN_REF_V1 送られてこなかった項目（自由欄だけの提出など）は、前に入っていた値をそのまま残す。
+  //   かんたんふりかえりの「◎ よくできた ／ なんで：…」「次：…」を、あとの自由欄だけの出しなおしで消さないため。
+  const _has = (k: string) => body[k] !== undefined && body[k] !== null
+  const keepC = _has('concentration') ? 0 : 1, keepG = _has('goodPoint') ? 0 : 1, keepI = _has('improvePoint') ? 0 : 1, keepN = _has('nextAction') ? 0 : 1
 
   await c.env.DB.prepare(`
     INSERT INTO structured_reflections (user_id, week_key, concentration, good_point, improve_point, next_action, free_text, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id, week_key) DO UPDATE SET
-      concentration=excluded.concentration, good_point=excluded.good_point,
-      improve_point=excluded.improve_point, next_action=excluded.next_action,
+      concentration=CASE WHEN ? = 1 THEN structured_reflections.concentration ELSE excluded.concentration END,
+      good_point=CASE WHEN ? = 1 THEN structured_reflections.good_point ELSE excluded.good_point END,
+      improve_point=CASE WHEN ? = 1 THEN structured_reflections.improve_point ELSE excluded.improve_point END,
+      next_action=CASE WHEN ? = 1 THEN structured_reflections.next_action ELSE excluded.next_action END,
       free_text=excluded.free_text, created_at=excluded.created_at
-  `).bind(u.id, weekKey, concentration, goodPoint, improvePoint, nextAction, freeText, now).run()
+  `).bind(u.id, weekKey, concentration, goodPoint, improvePoint, nextAction, freeText, now, keepC, keepG, keepI, keepN).run()
 
   // === 毎日のふりかえり提出で「かけら」付与（1日1回・冪等・内容ありが条件）===
   let reflectionShards: any = { awarded: 0, base: 0, bonus: 0, streak: 0, newTotal: null, alreadyAwarded: false, eligible: false }
@@ -10043,6 +10327,7 @@ app.get('/karte-michi.js', async (c) => { try { const a = await c.env.ASSETS?.fe
 app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-ai.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF_V1
 app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/maejibun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MAEJIBUN_V1
+app.get('/kantanref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/kantanref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // KANTAN_REF_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -10266,6 +10551,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref.js?v=1"></script></body>')
       // 🪞 MAEJIBUN_V1 前の自分とくらべる・来週やってみたいこと。中身は public/maejibun.js。
       t = t.replace('</body>', '<script src="/maejibun.js?v=1"></script></body>')
+      // 👆 KANTAN_REF_V1 かんたんふりかえり（タップで答える振り返り）・阪神マンの1タップ案内・アプリを開いた日。中身は public/kantanref.js。
+      t = t.replace('</body>', '<script src="/kantanref.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")

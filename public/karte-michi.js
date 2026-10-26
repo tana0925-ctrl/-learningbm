@@ -5,12 +5,13 @@
      もとの関数はそのまま残し、まず もとの紙を作ってから 中の欄を取り出して並べ直す。
      途中で何か失敗したら、もとの紙をそのまま返す（紙が出なくなる事故を防ぐ）。
    ・おもて：🧭まずここから／🗺道順マップ（算数）／📅先週のようす／🔁先週のやってみる／🐯阪神マン
-     うら　：✏️これやってみる？／🌟できるようになったこと／💡学び方／📊グラフ／🎯めあて／📝先生から／✂おうちの人へ
+     うら　：✏️これやってみる？／🌟できるようになったこと／💡学び方／📊グラフ／🎯めあて／📝先生から
+     （KANTAN_REF_V1 2026-10-26：✂おうちの人へ の欄は先生の判断でなくした。過去の文は消さず、表示しないだけ）
    ・1人ぶんは必ず2ページ（裏表1枚）。全員ぶん印刷で次の子が裏にずれないように、
      面ごとに高さを決めて、はみ出す分は欄ごとの行数上限で切る。
    ・テストの点数・順位・ほかの子との比較は出さない。命令しない。
      記録にないことは書かない（機械で作る欄は、記録から言えることだけ）。
-   ・AIの文（阪神マン・考えてほしいこと・これやってみる・おうちの人へ）は
+   ・AIの文（阪神マン・考えてほしいこと・これやってみる）は
      先生が④で確認して公開したものだけが来る（d.aiComment）。
    =================================================================== */
 (function (global) {
@@ -104,12 +105,30 @@
       .then(function (j) { if (j && j.ok) _guide[cid] = j; return _guide[cid] || null; })
       .catch(function () { return null; });
   }
+  // KANTAN_REF_V1 クラスの「ふりかえりの きっかけ」まわりの事実（アプリを開いた日など）。カルテの🌟と はじめの一歩に使う。
+  var _watch = {};   // classId -> /api/teacher/class/:id/kantan-watch の結果
+  function loadWatch(cid, fresh) {
+    if (!cid) return Promise.resolve(null);
+    if (_watch[cid] && !fresh && Date.now() - _watch[cid]._at < 5 * 60000) return Promise.resolve(_watch[cid]);
+    return fetch('/api/teacher/class/' + encodeURIComponent(cid) + '/kantan-watch' + (fresh ? '?fresh=1' : ''), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { j._at = Date.now(); _watch[cid] = j; } return _watch[cid] || null; })
+      .catch(function () { return null; });
+  }
+  function watchOf(d) {
+    var w = d && _watch[d.classId], id = d && d.student && d.student.id;
+    if (!w || !id) return null;
+    var a = w.all || [];
+    for (var i = 0; i < a.length; i++) if (a[i].userId === id) return a[i];
+    return null;
+  }
+  global.michiWatchOf = watchOf;
   function preloadAll() {
     var ps = [loadCurriculum()];
     try {
       ['analyticsClassFilter', 'laClassSelect', 'activityClassFilter'].forEach(function (id) {
         var el = document.getElementById(id); if (!el) return;
-        for (var i = 0; i < el.options.length; i++) { var v = el.options[i].value; if (v) ps.push(loadGuide(v)); }
+        for (var i = 0; i < el.options.length; i++) { var v = el.options[i].value; if (v) { ps.push(loadGuide(v)); ps.push(loadWatch(v)); } }
       });
     } catch (e) {}
     return Promise.all(ps);
@@ -192,7 +211,8 @@
     }
     if (!pick) return null;
     var mineP = sm[pick.id];
-    var amount = thin ? '5問だけ' : (mineP && mineP.rate < 60 ? '5問' : '10問');
+    var _wt = watchOf(d);   /* KANTAN_REF_V1 きっかけが ほしそうな子は とくに小さく */
+    var amount = (_wt && _wt.oneTap) ? '1問だけ' : thin ? '5問だけ' : (mineP && mineP.rate < 60 ? '5問' : '10問');
     return { info: pick, why: why, amount: amount, stalled: stalled, thin: thin, mine: mineP || null };
   }
 
@@ -269,6 +289,15 @@
     var ov = d.overview || {};
     if (out.length < 3 && Number(ov.currentStreak) >= 3) out.push('いま ' + ov.currentStreak + '日 つづけて 家庭学習を 出せているよ');
     var head = (lw.total > 0) ? ('先週は アプリで ' + lw.total + '問（' + lw.days + '日）とりくんだよ') : '';
+    if (!head && !out.length) {   /* KANTAN_REF_V1 記録が少なくても空にしない（言えるのは記録の事実だけ） */
+      var wt = watchOf(d);
+      var qAll = 0; (d.subjects || []).forEach(function (s) { qAll += Number(s.total || 0); });
+      if (wt && Number(wt.openDays) > 0) out.push('この2週間で アプリを ' + Number(wt.openDays) + '日 ひらいたよ');
+      if (wt && Number(wt.hwDays14) > 0) out.push('この2週間で 家庭学習を ' + Number(wt.hwDays14) + '日 出したよ');
+      if (!out.length && Number(ov.totalSubmissions) > 0) out.push('これまでに 家庭学習を ' + Number(ov.totalSubmissions) + '回 出したよ');
+      if (!out.length && qAll > 0) out.push('これまでに アプリで ' + qAll + '問 とりくんだよ');
+      if (!out.length) out.push('アプリに 登録して、学びの道を 歩きはじめたよ');
+    }
     return { head: head, lines: out.slice(0, 3) };
   }
 
@@ -592,7 +621,7 @@
     return h + '</div></div>';
   }
 
-  function pathsHtml(reco, stalled) {
+  function pathsHtml(reco, stalled, small) {
     var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ。どれに する？）</span></h2>';
     h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 62)) + '</div></div></div>';
     if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 62)) + '</div></div></div>';
@@ -600,8 +629,9 @@
     else h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
     h += '<div class="pm">' + esc(reco.mark) + (reco.note ? '　／　' + esc(reco.note) : '') + '</div>';
     h += '<div class="pr"><b>えらんだのは</b><span class="circ">A</span><span class="circ">B</span><span class="circ">C</span>　<b>そのわけ：</b><span class="bl" style="width:250px">&nbsp;</span></div>';
-    h += '<div class="pr"><b>いつ？</b>' + ['月', '火', '水', '木', '金'].map(function (x) { return '<span class="cc">' + x + '</span>'; }).join('') + '　<b>どれくらい？</b>' + ['3問', '5問', '10問'].map(function (x) { return '<span class="circ">' + x + '</span>'; }).join('') + '<span style="font-size:10.5px;color:#9a3412">（じぶんで ○）</span></div>';
-    h += '<div class="pr">👣 <b>はじめの一歩</b>：まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）' + (stalled ? '。1問 すすんだら それで 前進やで' : '') + '</div>';
+    h += '<div class="pr"><b>いつ？</b>' + ['月', '火', '水', '木', '金'].map(function (x) { return '<span class="cc">' + x + '</span>'; }).join('') + '　<b>どれくらい？</b>' + (small ? ['1問', '3問', '5問'] : ['3問', '5問', '10問']).map(function (x) { return '<span class="circ">' + x + '</span>'; }).join('') + '<span style="font-size:10.5px;color:#9a3412">（じぶんで ○）</span></div>';
+    if (small) h += '<div class="pr">👣 <b>はじめの一歩</b>：アプリを ひらいて「' + esc(cut(reco.a.name, 20)) + '」を 1問だけ（5分で おわる 大きさ）。1問 といたら、それで 前進やで</div>';   /* KANTAN_REF_V1 */
+    else h += '<div class="pr">👣 <b>はじめの一歩</b>：まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）' + (stalled ? '。1問 すすんだら それで 前進やで' : '') + '</div>';
     h += '<div class="pr">🛟 <b>こまったら作戦</b>：もし わからない問題が出たら→<span class="circ sm">ヒントを見る</span><span class="circ sm">友だちに聞く</span><span class="circ sm">先生に聞く</span><span class="circ sm">家の人に聞く</span></div>';
     h += '<div class="pr pf"><b>このおすすめ、どう思う？</b><span class="bx">□ぴったり</span><span class="bx">□かんたんすぎ</span><span class="bx">□むずかしすぎ</span><span class="bx">□ちがうのがいい</span></div>';
     return h + '</div>';
@@ -737,7 +767,8 @@
     // ── おもて ──
     F.push('<div class="mh"><div><h1>🧭 学びの道しるべ</h1><div class="nm">' + esc(nm) + '</div></div><div class="pd">' + esc(pd) + '</div></div>');
     if (reco) {   /* MICHI_V2 えらべる3つの道 ＋ すすみぐあいマップ */
-      F.push(pathsHtml(reco, step && step.stalled));
+      var _wt2 = watchOf(d);
+      F.push(pathsHtml(reco, step && step.stalled, !!(_wt2 && _wt2.oneTap)));
       F.push(progressMap(d, reco));
     } else if (step) {
       var p = step.info;
@@ -814,11 +845,7 @@
     if (gr) B.push(gr);
     B.push('<div class="sec" style="border-color:#fcd34d"><h2>🎯 来週の わたしの めあて</h2><div class="line"></div><div class="line"></div></div>');
     if (secNotes) B.push(secNotes.outerHTML);
-    if (ai && ai.home) {
-      B.push('<div class="cutl">✂ ･････････････････････ きりとり ･････････････････････ ✂</div>' +
-        '<div class="home"><div style="font-size:13px;font-weight:800;color:#0f766e">🏠 おうちの人へ</div><div>' + esc(cut(ai.home, 120)) + '</div>' +
-        '<div style="font-size:9.5px;color:#94a3b8;margin-top:2px">' + esc(nm) + '／学びの道しるべ</div></div>');
-    }
+    /* KANTAN_REF_V1 ✂おうちの人へ の欄は なくした（先生の判断・2026-10-26）。過去に作られた文（ai.home）は消さず、表示しないだけ。 */
 
     var html = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>学びの道しるべ</title><style>' + baseCss + '\n' + CSS + '\n' + CSS2 + '</style></head><body>' +
       '<div class="wrap"><div class="pg">' + F.join('') + '</div><div class="pg last">' + B.join('') + '<div class="foot">LearningBM ／ 学びの道しるべ</div></div></div>' + FIT + '</body></html>';
@@ -903,6 +930,52 @@
   global.hqTeacherLoad = hqLoad;
   document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'hwClassFilter') hqLoad(true); });
   setInterval(function () { try { hqLoad(false); } catch (e) {} }, 4000);
+
+
+  // ───────── KANTAN_REF_V1 先生の画面（分析タブ）：ふりかえりの きっかけ案内の 対象（見るだけ・作業なし） ─────────
+  //  ・自動で決まる。直近2週で アプリを開いた日が少ない／週の振り返りが2週つづけて無い／家庭学習が1週間止まっている の
+  //    うち2つ以上の子。子どもの画面では いつもと同じ見た目で「1タップで ふりかえり」を案内し、カルテの はじめの一歩を小さくする。
+  var _kwCid = '', _kwAt = 0;
+  function kwRender(box, j) {
+    if (!j || !j.ok) { box.innerHTML = '<span class="text-slate-400">👆 ふりかえりのきっかけ案内：読めませんでした</span>'; return; }
+    var r = j.rule || {};
+    var names = (j.items || []).map(function (x) {
+      var nm = (typeof global.resolveStudentName === 'function') ? global.resolveStudentName(x.loginId, x.name) : (x.name || x.loginId || '');
+      var why = [];
+      if (x.reasons && x.reasons.fewOpen) why.push('開いた日' + x.openDays + '日');
+      if (x.reasons && x.reasons.refMiss) why.push('振り返り' + x.refMissWeeks + '週なし');
+      if (x.reasons && x.reasons.hwStop) why.push('家庭学習1週なし');
+      return '<span class="inline-block bg-white border border-amber-200 rounded px-1.5 py-0.5 mr-1 mb-1">' + esc(nm) + ' <span class="text-[10px] text-slate-400">' + esc(why.join('・')) + '</span></span>';
+    }).join('');
+    box.innerHTML = '<div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-amber-800">👆 ふりかえりの きっかけ案内（自動）</span>'
+      + '<span class="text-slate-700">いま <b>' + j.count + '人</b> ／ ' + j.total + '人</span>'
+      + '<span class="text-slate-500">・今週「かんたんふりかえり」で出した子 ' + (j.tappedThisWeek || 0) + '人</span>'
+      + '<span class="text-[10px] text-slate-400">（見るだけ。先生の作業はありません）</span></div>'
+      + (names ? '<div class="mt-1">' + names + '</div>' : '<div class="mt-1 text-slate-400">いまは 対象の子は いません</div>')
+      + '<div class="text-[10px] text-slate-400 mt-0.5">きまり：直近' + (r.openDaysWindow || 14) + '日で アプリを開いた日が' + (r.openDaysMin || 4) + '日より少ない／週の振り返りが' + (r.refMissWeeks || 2) + '週つづけて無い／家庭学習が' + (r.hwStopDays || 7) + '日ない、のうち' + (r.minHits || 2) + 'つ以上。'
+      + '対象の子には、金〜日に阪神マンが「1タップで ふりかえり できるで」と案内し（1日1回・とじられる）、カルテの🌟を必ず1つ以上・はじめの一歩を「1問だけ・5分」にします。子どもの画面の見た目は ほかの子と同じです。</div>';
+  }
+  function kwLoad(force) {
+    var sel = document.getElementById('analyticsClassFilter');
+    if (!sel || !sel.value) return;
+    var host = sel.parentNode;
+    if (!host || !host.parentNode) return;
+    if (host.offsetParent === null && !force) return;   // 分析タブを ひらいていないときは読まない
+    var box = document.getElementById('kantanWatchBox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'kantanWatchBox';
+      box.className = 'bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs';
+      host.parentNode.insertBefore(box, host.nextSibling);
+    }
+    if (!force && _kwCid === sel.value && Date.now() - _kwAt < 5 * 60000) return;
+    _kwCid = sel.value; _kwAt = Date.now();
+    box.innerHTML = '<span class="text-slate-400">👆 ふりかえりのきっかけ案内を読み込み中...</span>';
+    loadWatch(sel.value, !!force).then(function (j) { kwRender(box, j); });
+  }
+  global.kantanWatchLoad = kwLoad;
+  document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'analyticsClassFilter') { _kwAt = 0; kwLoad(false); } });
+  setInterval(function () { try { kwLoad(false); } catch (e) {} }, 4000);
 
   global.michiCompose = compose;
   global.michiInstall = install;
