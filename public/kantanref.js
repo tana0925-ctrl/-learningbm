@@ -55,8 +55,15 @@
     var w = Math.ceil((((x.getTime() - ys.getTime()) / 86400000) + 1) / 7);
     return x.getUTCFullYear() + '-W' + (w < 10 ? '0' + w : '' + w);
   }
+  // WEEKMON_V1 週は月曜0:00から（毎日の日付は dayKey830 のまま）
+  function weekDayKey() {
+    try { if (typeof hsGetWeekDayKey830 === 'function') return hsGetWeekDayKey830(new Date()); } catch (e) {}
+    var n = new Date();
+    if (n.getDay() === 1) { var p2 = function (x) { return (x < 10 ? '0' : '') + x; }; return n.getFullYear() + '-' + p2(n.getMonth() + 1) + '-' + p2(n.getDate()); }
+    return dayKey830();
+  }
   function weekKeyNow() {
-    var dk = dayKey830();
+    var dk = weekDayKey();
     try { if (typeof hsGetWeekKey === 'function') return hsGetWeekKey(dk); } catch (e) {}
     return isoWeek(dk);
   }
@@ -128,11 +135,11 @@
     if (od >= 3 && plus.length < 2) plus.push({ k: 'open', label: '📱 アプリを ' + od + '日 ひらけた', s: 'アプリを ' + od + '日 ひらけた' });
     ((d && d.hard) || []).forEach(function (h) {
       var nm = unitName(h.unit);
-      if (nm && minus.length < 1) minus.push({ k: 'hard:' + h.unit, label: '🤔「' + nm + '」で まちがいが 多かった', s: '「' + nm + '」で まちがいが 多かった' });
+      if (nm && minus.length < 1) minus.push({ k: 'hard:' + h.unit, label: '🤔「' + nm + '」に ちょうせん中', s: '「' + nm + '」に ちょうせん中だった' });   /* NGWORD_V1 */
     });
-    if (hw <= 2) minus.push({ k: 'hwlow', label: '📒 家庭学習は ' + hw + '日 だった', s: hw ? '家庭学習が ' + hw + '日 だった' : '家庭学習を 出せなかった' });
+    if (hw <= 2) minus.push(hw ? { k: 'hwlow', label: '📒 家庭学習を ' + hw + '日 できた', s: '家庭学習を ' + hw + '日 できた。来週は 1日 ふやしたい' } : { k: 'hwlow', label: '📒 来週は 家庭学習を 1日 やってみたい', s: '来週は 家庭学習を 1日 やってみたい' });   /* NGWORD_V1 */
     if (!plus.length) plus.push({ k: 'open', label: '📱 アプリを ' + od + '日 ひらけた', s: 'アプリを ' + od + '日 ひらけた' });
-    minus.push({ k: 'time', label: '⏰ 時間が とりにくかった', s: '時間が とりにくかった' });
+    minus.push({ k: 'time', label: '⏰ 時間の つくり方を くふうしたい', s: '時間の つくり方を くふうしたい' });   /* NGWORD_V1 */
     var out = (_sel.self === 'more') ? minus.concat(plus) : (_sel.self === 'ok') ? [plus[0]].concat(minus.slice(0, 1), plus.slice(1), minus.slice(1)) : plus.concat(minus);
     return out.slice(0, 4);
   }

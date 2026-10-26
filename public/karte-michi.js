@@ -574,7 +574,7 @@
     var period = function (r) { return r ? '（' + md(r.firstAt) + '〜' + md(r.lastAt) + '）' : ''; };
     if (rA && Number(rA.n) > 0) {
       var wrong = Number(rA.n) - Number(rA.c);
-      why.a = wrong >= 2 ? ('「' + iA.name + '」で ' + rA.n + '問中 ' + wrong + '問 まちがえていたよ' + period(rA)) : ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できていたよ' + period(rA) + '。しっかり かためるのも いいかも');
+      why.a = wrong >= 2 ? ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できたよ' + period(rA) + '。のこりの ' + wrong + '問を かためると、もっと つよくなるで') : ('「' + iA.name + '」は ' + rA.n + '問中 ' + rA.c + '問 できていたよ' + period(rA) + '。しっかり かためるのも いいかも');
     } else if (sm[A] && Number(sm[A].total) > 0) {
       why.a = '「' + iA.name + '」は これまで ' + sm[A].total + '問 とりくんでいるよ';
     } else {
@@ -589,7 +589,7 @@
     if (pickSlot === 'a') why.a = 'あなたが えらんだ 単元。' + ((rA && Number(rA.n) > 0) || (sm[A] && Number(sm[A].total) > 0) ? why.a.replace(/^「[^」]*」(は|で)\s*/, '') : 'はじめの 1問から ためしてみる？');
     if (pickSlot === 'b' && iB) why.b = 'あなたが えらんだ 単元。' + why.b.replace(/^「[^」]*」(は|で)\s*/, '');
     var n14 = tot[subj] || 0;
-    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : npick ? ('🎯 あなたが えらんだ 単元から 作ったよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '')) : (!rich ? '△ まだ記録が少ないので、教科書の順番どおりの おすすめだよ' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
+    var mark = override ? '✎ 先生が えらんだ おすすめだよ' : npick ? ('🎯 あなたが えらんだ 単元から 作ったよ' + (rich ? '（さいきん2週間の ' + n14 + '問の記録も 見たよ）' : '')) : (!rich ? '△ 教科書の順番どおりの おすすめだよ（記録が ふえると、あなたに合わせた おすすめに なるよ）' : (n14 >= 30 ? '◎ たくさんの記録から えらんだよ（さいきん2週間で ' + n14 + '問）' : '○ さいきん2週間の ' + n14 + '問の記録から えらんだよ'));
     return {
       v: 2, subj: subj, subjName: iA.subjName, anchor: A, here: (rich || override || npick) ? A : (Bn || A), rich: rich, override: !!override, pick: npick ? npick.id : '',
       a: { id: A, name: iA.name, entry: entryOf(iA), why: why.a },
@@ -780,7 +780,7 @@
       F.push(h);
     }
     if (map) {
-      var lab = { ok: '✅ できた', doing: 'とちゅう', mada: 'まだ' };
+      var lab = { ok: '✅ できた', doing: 'とちゅう', mada: 'これから' };
       var mh = '<div class="sec" style="border-color:#bae6fd;background:#f0f9ff"><h2>🗺 いまどこ？ 道順マップ（算数・' + esc(map.route) + 'の道）</h2><div class="map">';
       var seenHere = false, after = 0;
       map.nodes.forEach(function (n, i) {

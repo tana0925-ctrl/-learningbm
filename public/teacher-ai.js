@@ -14,6 +14,32 @@
 
   // ---------- 小道具 ----------
   function $(id) { return document.getElementById(id); }
+  // ── NGWORD_V1 子どもに届く文で使わないことば（ここを足し引きすれば変わる）。取り込んだ下書きに入っていたら黄色で知らせる（自動では消さない）。
+  var TAI_NG_WORDS = ['おそい', '遅い', '遅れて', '遅れが', 'おくれて', 'おくれが', '少ない', '少なかった', 'すくない', '足りない', '足りなかった', 'たりない', 'たりなかった',
+    'サボ', 'さぼっ', 'さぼり', 'できていない', 'できてない', 'できてへん', 'できなかった', 'しかない', 'しかなかった', 'しかでき', 'しかやって', 'しか出せ', 'しかとけ', 'しか解け',
+    'ダメ', 'だめ', 'ちゃんと', '全然', 'ぜんぜん', 'なまけ', '怠け', 'やる気がない', 'やる気ない', 'みんなより', '平均より', '平均以下'];
+  var TAI_NG_PATTERNS = [{ re: /まだ[^。、！？!?\n]{0,14}(ない|ません|へん|てない)/, label: 'まだ〜ない' }];
+  function taiNgHits(text) {
+    var t = String(text || ''), hits = [];
+    TAI_NG_WORDS.forEach(function (w) { if (w && t.indexOf(w) >= 0 && hits.indexOf(w) < 0) hits.push(w); });
+    TAI_NG_PATTERNS.forEach(function (p) { if (p.re.test(t) && hits.indexOf(p.label) < 0) hits.push(p.label); });
+    return hits;
+  }
+  var TAI_NG_RULE_LINES = [
+    '【子どもに届く文のことば（いちばん大事）】',
+    '・家庭学習コメント・カルテ（阪神マンのことば）・計画アドバイス・振り返りの返却・おすすめ計画など、子どもが読む文すべてのきまりです。',
+    '・子どもを責める・否定する・ほかの子とくらべることばは使わない。たとえば：',
+    '  おそい／遅れている／少ない／足りない／サボった／できていない／〜しかない／〜しかできなかった／まだ〜ない／ダメ／ちゃんと（しよう）／全然／みんなより／平均より',
+    '・かわりに「記録にある事実」＋「前向きな言い方」に言いかえる。関西弁の明るさはそのまま残す。曜日・問題数は こちらで決めず、本人に問いかける。',
+    '  ✕「2日しかできなかったな」　→ ○「2日取り組んだな！ 来週は何日やってみる？」',
+    '  ✕「分数がまだできていない」　→ ○「分数はいま ちょうせん中やな。まず1問、ためしてみよか」',
+    '  ✕「提出がおそいで」　　　　　→ ○「出してくれて ありがとう。次はいつ出すか、自分で決めてみよか」',
+    '  ✕「解いた数が少ない」　　　　→ ○「10問ためしたんやな。次はどれくらい いってみる？」',
+    '  ✕「ちゃんと見直ししよう」　　→ ○「見直しを1回入れると、自分で まちがいに 気づけるで」',
+    '  ✕「サボってたな」　　　　　　→ ○「今週は ひと休みやったな。また1問から いこか」',
+    ''
+  ];
+  try { window.TAI_NG_WORDS = TAI_NG_WORDS; window.taiNgHits = taiNgHits; window.TAI_NG_RULE_LINES = TAI_NG_RULE_LINES; } catch (e) {}
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -542,6 +568,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     out.push('・見立てを書くときは、見立てだと分かる語尾にする。言い切らない。');
     out.push('・記録に無いことは書かない。分からないことは、うめずに書かないでおく。');
     out.push('');
+    TAI_NG_RULE_LINES.forEach(function (x) { out.push(x); });   /* NGWORD_V1 */
     out.push('【まもってほしいこと】');
     out.push('0. 児童の名前は渡していません。かわりに「A01」のような符号が入っています。');
     out.push('   あなたが書く文の中に、符号を書かないでください（紙に記号が載ってしまいます）。');
@@ -1974,7 +2001,7 @@ var KIND_JA = {
     return;
   }
   var h = '';
-  var dangerCount = 0;
+  var dangerCount = 0, ngCount = 0;
   if (pend.length) {
     h += '<div class="flex items-center gap-2 mb-2 flex-wrap">' +
       '<button onclick="taiCheckAll(true)" class="bg-slate-200 text-slate-700 rounded px-2 py-1 text-xs font-bold hover:bg-slate-300">すべて選ぶ</button>' +
@@ -1987,10 +2014,12 @@ var KIND_JA = {
       x.__warn = w;
       var danger = w.strong.length > 0;
       if (danger) dangerCount++;
+      var ng = (k.to === 'kid') ? taiNgHits(x.body) : [];   /* NGWORD_V1 */
+      if (ng.length) ngCount++;
       var toCls = k.to === 'kid' ? 'bg-rose-100 text-rose-700' : (k.to === 'paper' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600');
-      h += '<div class="rounded-lg p-2 ' + (danger ? 'bg-red-50 border-2 border-red-400' : 'bg-white border border-slate-200') + '">' +
+      h += '<div class="rounded-lg p-2 ' + (danger ? 'bg-red-50 border-2 border-red-400' : ng.length ? 'bg-yellow-50 border-2 border-yellow-400' : 'bg-white border border-slate-200') + '">' +
         '<div class="flex items-center gap-2 flex-wrap mb-1">' +
-        '<input type="checkbox" class="tai-chk accent-indigo-600" data-id="' + esc(x.id) + '"' + (danger ? '' : ' checked') + '>' +
+        '<input type="checkbox" class="tai-chk accent-indigo-600" data-id="' + esc(x.id) + '"' + ((danger || ng.length) ? '' : ' checked') + '>' +
         '<span class="text-xs font-bold text-slate-700">' + esc(k.ja) + '</span>' +
         (x.targetName ? '<span class="text-xs text-slate-600">' + esc(x.targetName) + '</span>'
                       : '<span class="text-xs text-red-600 font-bold">氏名なし</span>') +
@@ -2004,6 +2033,7 @@ var KIND_JA = {
       } else if (w.weak.length) {
         h += '<div class="text-[11px] font-bold text-amber-700 mb-1">△ 念のため確認：「' + esc(w.weak.join('」「')) + '」という言葉が入っています</div>';
       }
+      h += '<div class="tai-ng text-[11px] font-black text-yellow-800 mb-1 bg-yellow-100 rounded px-1.5 py-0.5" data-id="' + esc(x.id) + '"' + (ng.length ? '' : ' style="display:none"') + '>🟡 子どもには きつく聞こえることば：「' + esc(ng.join('」「')) + '」<div class="font-bold">自動では消していません。前向きな言い方に直してから、チェックを入れて公開してください。</div></div>';
       h += '<textarea class="tai-body w-full border ' + (danger ? 'border-red-300' : 'border-slate-200') + ' rounded p-1.5 text-xs" rows="' +
         Math.min(8, Math.max(2, String(x.body || '').split(NL).length)) + '" data-id="' + esc(x.id) + '">' +
         esc(x.body) + '</textarea></div>';
@@ -2025,7 +2055,21 @@ var KIND_JA = {
   }
   box.innerHTML = h;
   var cEl = $('taiPubCount');
-  if (cEl) cEl.textContent = pend.length ? ('未公開 ' + pend.length + '件' + (dangerCount ? ' / ⚠要確認 ' + dangerCount + '件' : '')) : '';
+  if (cEl) cEl.textContent = pend.length ? ('未公開 ' + pend.length + '件' + (dangerCount ? ' / ⚠要確認 ' + dangerCount + '件' : '') + (ngCount ? ' / 🟡ことば ' + ngCount + '件' : '')) : '';
+  // NGWORD_V1 直したら、その場で黄色の知らせを消す（チェックは先生が入れる）
+  try {
+    var tas = box.querySelectorAll('textarea.tai-body');
+    for (var ti = 0; ti < tas.length; ti++) tas[ti].addEventListener('input', function () {
+      var id = this.getAttribute('data-id'), d0 = null;
+      for (var j = 0; j < _drafts.length; j++) if (String(_drafts[j].id) === String(id)) d0 = _drafts[j];
+      var kk = d0 ? (KIND_JA[d0.kind] || {}) : {};
+      var hits = kk.to === 'kid' ? taiNgHits(this.value) : [];
+      var el = box.querySelector('.tai-ng[data-id="' + id + '"]');
+      if (!el) return;
+      if (hits.length) { el.style.display = ''; el.className = 'tai-ng text-[11px] font-black text-yellow-800 mb-1 bg-yellow-100 rounded px-1.5 py-0.5'; el.innerHTML = '🟡 子どもには きつく聞こえることば：「' + esc(hits.join('」「')) + '」<div class="font-bold">自動では消していません。前向きな言い方に直してから、チェックを入れて公開してください。</div>'; }
+      else { el.style.display = ''; el.innerHTML = '✅ 気になることばは なくなりました。読んでよければ チェックを入れて公開してください。'; el.className = 'tai-ng text-[11px] font-bold text-emerald-700 mb-1 bg-emerald-50 rounded px-1.5 py-0.5'; }
+    });
+  } catch (e) {}
 }
 
 function taiCheckAll(on) {

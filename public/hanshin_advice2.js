@@ -84,7 +84,7 @@
     ]},
     'e7-past': { question: '過去形やな！過ぎたことや。', options: [
       { text: '規則動詞のed', answer: '基本はed、eで終わる語はdだけ、子音+yはyをiに変えてied、短母音+子音は子音を重ねてed(stop→stopped)や。' },
-      { text: '不規則動詞', answer: 'go→went, see→saw, have→had, come→came みたいに形がガラッと変わるやつや。これは1個ずつ覚えるしかない、がんばりどころやで！' },
+      { text: '不規則動詞', answer: 'go→went, see→saw, have→had, come→came みたいに形がガラッと変わるやつや。これは1個ずつ覚えていこう。がんばりどころやで！' },
       { text: '否定・疑問はdid', answer: '過去の否定・疑問は did を使う！そのとき動詞は原形にもどる（I didn\'t play. Did you play?）。edやwentは did が持っていくで。' }
     ]},
     // ================= 中1 理科 =================

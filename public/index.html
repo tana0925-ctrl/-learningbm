@@ -43069,14 +43069,14 @@ function hwChangeWeek(delta, reset){
 function hwGetOffsetDayKey(offset){
   var now = new Date();
   now.setDate(now.getDate() + (offset * 7));
-  return hsGetDayKey830(now);
+  return hsGetWeekDayKey830(now);   /* WEEKMON_V1 */
 }
 
 async function hwRenderWeekView(){
   try{
     hsEnsureState();
     const realTodayKey = hsGetDayKey830(new Date());
-    const todayKey = _hwWeekOffset === 0 ? realTodayKey : hwGetOffsetDayKey(_hwWeekOffset);
+    const todayKey = _hwWeekOffset === 0 ? hsGetWeekDayKey830(new Date()) : hwGetOffsetDayKey(_hwWeekOffset);   /* WEEKMON_V1 週は月曜0:00から */
     const weekKey = hsGetWeekKey(todayKey);
     const days = hwGetWeekDays(todayKey);
     const isPastWeek = _hwWeekOffset < 0;
@@ -43452,7 +43452,7 @@ async function hwRenderWeekView(){
     if(refArea){
       if(isPastWeek){ refArea.classList.add('hidden'); }
       else {
-      const isFridayOrLater = (todayDow >= 5 || todayDow === 0 || todayDow === 6);
+      const isFridayOrLater = (todayDow >= 5 || todayDow === 0 || todayDow === 6) && hsParseDayKey(todayKey).getDay() !== 1;   /* WEEKMON_V1 月曜0:00〜8:30は新しい週なので振り返りの欄は出さない */
       if(isFridayOrLater){
         refArea.classList.remove('hidden');
         const refInput = document.getElementById('hwReflectionInput');
@@ -43480,7 +43480,7 @@ function hwSaveReply(){
     if(!ta) return;
     var txt = String(ta.value||'').trim().slice(0, 500);
     var todayKey = hsGetDayKey830(new Date());
-    var weekKey = hsGetWeekKey(todayKey);
+    var weekKey = hsGetWeekKey(hsGetWeekDayKey830(new Date()));   /* WEEKMON_V1 */
     var plan = hwGetPlanForWeek(weekKey) || {};
     var monKey = _hwDayKeys830[0];
     var cur = plan[monKey];
@@ -43526,7 +43526,7 @@ function hwClaimRefReward(weekKey){
 function hwSubmitReflection(){
   try{
     const todayKey = hsGetDayKey830(new Date());
-    const weekKey = hsGetWeekKey(todayKey);
+    const weekKey = hsGetWeekKey(hsGetWeekDayKey830(new Date()));   /* WEEKMON_V1 */
     const refInput = document.getElementById('hwReflectionInput');
     if(!refInput) return;
     const reflection = refInput.value.trim();
@@ -43586,7 +43586,7 @@ function hwSubmitReflection(){
 function hwSavePlans(){
   try{
     const todayKey = hsGetDayKey830(new Date());
-    const weekKey = hsGetWeekKey(todayKey);
+    const weekKey = hsGetWeekKey(hsGetWeekDayKey830(new Date()));   /* WEEKMON_V1 */
     const planInputs = document.getElementById('hwPlanInputs');
     if(!planInputs) return;
 
@@ -43661,7 +43661,7 @@ function hwOpenDay(dayKey){
   try{
     // 計画を自主学習欄に反映してからシートを開く
     const todayKey = hsGetDayKey830(new Date());
-    const weekKey = hsGetWeekKey(todayKey);
+    const weekKey = hsGetWeekKey(hsGetWeekDayKey830(new Date()));   /* WEEKMON_V1 */
     const plan = hwGetPlanForWeek(weekKey) || {};
     const d = hsParseDayKey(dayKey);
     const dow = d.getDay(); // 1=Mon ... 5=Fri
@@ -43802,6 +43802,13 @@ function hsAddDays(dayKey, delta){
 function hsGetDayKey830(now){
   const t = new Date((now ? now.getTime() : Date.now()) - ((8*60+30)*60*1000));
   return hsFormatYMD(t);
+}
+// WEEKMON_V1 週の計画・週の切り替え用の「今日キー」。月曜だけは 0:00 から新しい週（8:30前でも前の日あつかいにしない）。
+//   毎日の振り返り・家庭学習の日付は hsGetDayKey830 のまま（8:30前は前の日）。
+function hsGetWeekDayKey830(now){
+  const n = now ? new Date(now.getTime()) : new Date();
+  if(n.getDay() === 1) return hsFormatYMD(n);
+  return hsGetDayKey830(n);
 }
 
 function hsLogs(){
@@ -44325,7 +44332,7 @@ function hsInitSheetBindings(){
     todoInput.addEventListener("input", ()=>{
       try{
         const todayKey = hsGetDayKey830(new Date());
-        const weekKey = hsGetWeekKey(todayKey);
+        const weekKey = hsGetWeekKey(hsGetWeekDayKey830(new Date()));   /* WEEKMON_V1 */
         const plan = hwGetPlanForWeek(weekKey) || {};
         const d = hsParseDayKey(todayKey);
         const dow = d.getDay();
@@ -45823,7 +45830,7 @@ async function hsCheckReturned() {
     var _extra = 0;
     try{
       var _wk = (typeof hsGetWeekKey === 'function' && typeof hsGetDayKey830 === 'function')
-        ? hsGetWeekKey(hsGetDayKey830(new Date())) : null;
+        ? hsGetWeekKey((typeof hsGetWeekDayKey830 === 'function' ? hsGetWeekDayKey830 : hsGetDayKey830)(new Date())) : null;   /* WEEKMON_V1 */
       var _pv = (_wk && typeof hsPrevWeekKey === 'function') ? hsPrevWeekKey(_wk) : null;
       if(_wk){
         var _q = _pv ? ('weekKeys='+encodeURIComponent(_wk+','+_pv)) : ('weekKey='+encodeURIComponent(_wk));

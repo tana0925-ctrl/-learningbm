@@ -37,8 +37,15 @@
     var w = Math.ceil((((x.getTime() - ys.getTime()) / 86400000) + 1) / 7);
     return x.getUTCFullYear() + '-W' + (w < 10 ? '0' + w : '' + w);
   }
+  // WEEKMON_V1 週は月曜0:00から（毎日の日付は dayKey830 のまま）
+  function weekDayKey() {
+    try { if (typeof hsGetWeekDayKey830 === 'function') return hsGetWeekDayKey830(new Date()); } catch (e) {}
+    var n = new Date();
+    if (n.getDay() === 1) { var p2 = function (x) { return (x < 10 ? '0' : '') + x; }; return n.getFullYear() + '-' + p2(n.getMonth() + 1) + '-' + p2(n.getDate()); }
+    return dayKey830();
+  }
   function weekKeyNow() {
-    var dk = dayKey830();
+    var dk = weekDayKey();
     try { if (typeof hsGetWeekKey === 'function') return hsGetWeekKey(dk); } catch (e) {}
     return isoWeek(dk);
   }
@@ -50,7 +57,7 @@
     return isoWeek(mon.getUTCFullYear() + '-' + (mon.getUTCMonth() + 1) + '-' + mon.getUTCDate());
   }
   function isRefDay() {
-    var p = dayKey830().split('-');
+    var p = weekDayKey().split('-');   /* WEEKMON_V1 月曜0:00からは新しい週（声かけは出さない） */
     var dw = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]))).getUTCDay();
     return dw === 5 || dw === 6 || dw === 0;
   }

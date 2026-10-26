@@ -355,7 +355,7 @@
     var ret = it.returnedAt
       ? '<div style="font-size:12px;color:#475569;margin-bottom:4px">✅ ' + esc(timeJa(it.returnedAt)) + ' に返却ずみ' + (S.mode === 'day' ? '（コメントを直せます。子どもへの知らせは送りません）' : '') + '</div>'
       : '';
-    var draft = it.draft ? '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:8px;margin-bottom:6px"><div style="font-size:12px;font-weight:900;color:#4338ca">📝 今日のひと往復の下書き（まだ子どもには見えていません）</div><div style="white-space:pre-wrap;font-size:13.5px;margin-top:3px">' + esc(it.draft.body) + '</div><button type="button" id="tbUseDraft" style="margin-top:4px;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer">↓ この下書きを使う</button></div>' : '';
+    var draft = it.draft ? '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:8px;margin-bottom:6px"><div style="font-size:12px;font-weight:900;color:#4338ca">📝 今日のひと往復の下書き（まだ子どもには見えていません）</div><div style="white-space:pre-wrap;font-size:13.5px;margin-top:3px">' + markNg(it.draft.body) + '</div>' + (ngWords(it.draft.body).length ? '<div style="font-size:12px;font-weight:800;color:#854d0e;background:#fef9c3;border-radius:6px;padding:2px 6px;margin-top:3px">🟡 子どもには きつく聞こえることば：「' + esc(ngWords(it.draft.body).join('」「')) + '」（直してから返してください）</div>' : '') + '<button type="button" id="tbUseDraft" style="margin-top:4px;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer">↓ この下書きを使う</button></div>' : '';
     var canReturn = S.mode === 'day' || !it.returnedAt;
     var star = it.pick ? '<div style="background:#fffbeb;border:2px solid #fcd34d;border-radius:10px;padding:6px 8px;margin:6px 0;font-size:13px"><b style="color:#b45309">⭐ 掲載候補</b>　AIの理由：' + esc(it.pick.reason || '') + '</div>' : '';
     var cons = it.consent ? '<span class="tbChip" style="background:#ecfdf5;color:#047857;border:1px solid #6ee7b7">のせてもいいよ（' + (it.consent.mode === 'named' ? '名前あり' : '名前なし') + '）</span>' : '';
@@ -453,6 +453,12 @@
     });
     return out.sort(function (a, b) { return b.length - a.length; });
   }
+  function ngWords(text) { try { return (typeof window.taiNgHits === 'function') ? window.taiNgHits(text) : []; } catch (e) { return []; } }   /* NGWORD_V1 */
+  function markNg(text) {   // 下書きの中の気になることばに黄色の印
+    var h = esc(text), ws = ngWords(text).filter(function (w) { return w !== 'まだ〜ない'; });
+    ws.sort(function (a, b) { return b.length - a.length; }).forEach(function (w) { h = h.split(esc(w)).join('<mark style="background:#fde047">' + esc(w) + '</mark>'); });
+    return h;
+  }
   function warnWords(text) {
     var t = String(text || ''), hits = [];
     rosterNames().forEach(function (n) { if (t.replace(/[\s　]/g, '').indexOf(n) >= 0 && hits.indexOf(n) < 0) hits.push(n); });
@@ -480,7 +486,7 @@
       '</div>';
     document.body.appendChild(w);
     var ta = $('tbPickTxt'); ta.value = init;
-    function chk() { var h = warnWords(ta.value); $('tbPickWarn').textContent = h.length ? '⚠ 名前らしいことばがあります：' + h.join('、') + '（消してから採用してください）' : ''; return h; }
+    function chk() { var h = warnWords(ta.value), g = ngWords(ta.value); $('tbPickWarn').textContent = (h.length ? '⚠ 名前らしいことばがあります：' + h.join('、') + '（消してから採用してください）　' : '') + (g.length ? '🟡 きつく聞こえることば：' + g.join('、') : ''); return h.concat(g); }
     ta.oninput = chk; chk();
     function close() { if (w.parentNode) w.parentNode.removeChild(w); }
     w.addEventListener('click', function (ev) { if (ev.target === w) close(); });
@@ -488,7 +494,7 @@
     $('tbPickOk').onclick = function () {
       var txt = String(ta.value || '').trim(), msg = $('tbPickMsg');
       if (!txt) { msg.style.color = '#b91c1c'; msg.textContent = '文が空です'; return; }
-      if (chk().length && !confirm('名前らしいことばが残っています。このまま採用しますか？')) return;
+      if (chk().length && !confirm('名前らしいことば・きつく聞こえることばが残っています。このまま採用しますか？')) return;
       this.disabled = true; msg.style.color = '#475569'; msg.textContent = '保存しています…';
       var self = this;
       jpost('/api/teacher/minna/adopt', { consentId: it.consent.id, body: txt }).then(function (j) {
@@ -540,6 +546,7 @@
     out.push('・友だちが読んで「参考になる」「自分もやってみよう」「はげみになる」ものを、1回（1日分／1週分）につき最大' + max + '件まで選ぶ。少なくてもよい。合うものが無ければ0件でよい。');
     out.push('・選ばないもの：悪口・からかい・人をきずつける内容／本人や家族がわかる内容（住所・習いごとの場所・家の事情など）／ほかの子の名前が入っているもの（「〇〇」は名前が入っていたところ）。');
     out.push('・理由に、評価や順位づけのことば（いちばん・すばらしい・満点・○位 など）を使わない。どこが友だちの参考になるかを、事実で短く書く。');
+    out.push('・理由にも、否定・比較・責めることば（おそい・少ない・足りない・できていない・〜しかない・まだ〜ない・ダメ・ちゃんと など）を使わない。');   /* NGWORD_V1 */
     out.push('・いろいろな子の振り返りが入るようにする。同じ子（同じ「K01」などの符号）ばかりにしない。「もう載せた」とあるものは選ばない。');
     out.push('・書き方（1件1行・行の形を変えない・前置きやまとめは書かない）：');
     out.push('[PICK:振り返りID] 理由（40字くらい）');
