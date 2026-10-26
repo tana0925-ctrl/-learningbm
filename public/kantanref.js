@@ -177,6 +177,7 @@
     var add = addFree(); if (add) parts.push(add + (/[。！？]$/.test(add) ? '' : '。'));
     var mo = null; for (var i = 0; i < MOODS.length; i++) if (MOODS[i].k === _sel.mood) mo = MOODS[i];
     if (mo) parts.push('気もちは ' + mo.icon + mo.label + '。');
+    try { if (window.WEEKREF2) { var ex = window.WEEKREF2.composeExtra(); if (ex) parts.push(ex); } } catch (e) {}   /* WEEKREF2_V1 先週決めたこと・学校での学び・考える問い */
     return parts.join('');
   }
   function ready() { return !!(_sel.self && (_sel.reason || reasonFree()) && _sel.next && (_sel.next !== 'change' || _sel.how)); }
@@ -224,15 +225,17 @@
     var keepWhy = reasonFree(), keepAdd = addFree();
     var st = d.status || {};
     var h = '<div style="font-weight:900;font-size:15px;color:#c2410c">👆 かんたんふりかえり <span style="font-weight:600;font-size:11.5px;color:#b45309">（えらぶだけで できるよ。書きたいことは 下の らんにも 書けるよ）</span></div>';
+    if (window.WEEKREF2) h += '<div id="wr2Top"></div>';   /* WEEKREF2_V1 友だちの見本・先週決めたこと・今週の記録 */
     h += '<div class="kq">① 今週の 自分の 学びは？ <small>（じぶんの 見立てで OK）</small></div>';
     h += '<div class="kc">' + MARKS.map(function (m) { return '<button type="button" class="kb kbig' + (_sel.self === m.k ? ' on' : '') + '" data-key="self" data-v="' + m.k + '"><b>' + m.sym + '</b>' + m.label + '</button>'; }).join('') + '</div>';
-    if (d.prev && d.prev.markLabel) h += '<div style="font-size:11.5px;color:#92400e;margin-top:3px">🕰 先週の あなたは「' + esc(d.prev.markLabel) + '」' + (d.prev.nextText ? '・' + esc(d.prev.nextText) : '') + '</div>';
+    if (d.prev && d.prev.markLabel && !window.WEEKREF2) h += '<div style="font-size:11.5px;color:#92400e;margin-top:3px">🕰 先週の あなたは「' + esc(d.prev.markLabel) + '」' + (d.prev.nextText ? '・' + esc(d.prev.nextText) : '') + '</div>';
     h += '<div class="kq">② なんで そう思う？ <small>（アプリの きろくから。1つ えらぶか、じぶんの ことばで）</small></div>' + chips(reasonList(d), 'reason');
     h += '<div class="kx"><input id="kantanWhy" type="text" maxlength="60" placeholder="じぶんの ことばで（なくても OK）" value="' + esc(keepWhy) + '"></div>';
     h += '<div class="kq">③ 次 どうする？</div>' + chips(nextList(d), 'next');
     if (_sel.next === 'change') h += '<div class="kx"><span style="font-size:12.5px;font-weight:800">なにを 変える？</span>' + chips(HOWS, 'how', 'ksm').replace('<div class="kc">', '<div class="kc" style="display:inline-flex">') + '</div>';
     h += '<div class="kx"><span style="font-size:12.5px;font-weight:800">✏️ 一言</span><input id="kantanAdd" type="text" maxlength="60" placeholder="なくても だいじょうぶ（例：夜ごはんの前に やる）" value="' + esc(keepAdd) + '"></div>';
     h += '<div class="kq">④ 今週の 気もち <small>（えらばなくても OK）</small></div><div class="kc">' + MOODS.map(function (m) { return '<button type="button" class="kb ksm' + (_sel.mood === m.k ? ' on' : '') + '" data-key="mood" data-v="' + m.k + '">' + m.icon + ' ' + m.label + '</button>'; }).join('') + '</div>';
+    if (window.WEEKREF2) h += '<div id="wr2Bottom"></div>';   /* WEEKREF2_V1 🏫学校での学び・考える問い */
     var txt = compose(d);
     h += '<div class="kp" id="kantanPrev">' + (txt ? esc(txt) : '<span style="color:#b45309">えらぶと、ここに ふりかえりの 文が できるよ</span>') + '</div>';
     h += '<button type="button" class="ks" id="kantanSend"' + (ready() ? '' : ' disabled') + '>' + (ready() ? '👆 これで 出す' + (st.rewarded ? '' : '（🪙' + (d.reward || 20) + 'コイン）') : '①②③を えらぶと 出せるよ') + '</button>';
@@ -250,6 +253,8 @@
     var wy = document.getElementById('kantanWhy'); if (wy) wy.oninput = upd;
     var ad = document.getElementById('kantanAdd'); if (ad) ad.oninput = upd;
     var sb = document.getElementById('kantanSend'); if (sb) sb.onclick = send;
+    window.__kantanUpd = upd;   /* WEEKREF2_V1 */
+    try { if (window.WEEKREF2) window.WEEKREF2.mount(weekKeyNow()); } catch (e) {}
   }
 
   // 金曜は 8:00 から（いつもの画面は 8:30 から。8:30 前は前の日あつかいの きまりは そのまま）
@@ -349,6 +354,7 @@
     ta.value = mergeText(ta.value, txt);
     try { window.hwSubmitReflection(); } catch (e) {}
     setTimeout(function () { _pendingStruct = null; }, 5000);
+    try { if (window.WEEKREF2) window.WEEKREF2.save(weekKeyNow()); } catch (e) {}   /* WEEKREF2_V1 コインなし・1人1週1行 */
     jpost('/api/student/kantan-ref', { weekKey: weekKeyNow(), self: _sel.self, reason: _sel.reason, next: _sel.next, how: _sel.how, mood: _sel.mood, addedChars: Array.from(add + reasonFree()).length });
     // 🎯 来週やってみたいこと（まだ自分で のこしていない週だけ。自分で書いたものは上書きしない）
     if (nx) {
@@ -376,7 +382,7 @@
   function loadKarte() {
     if (_kBusy || (_k && Date.now() - _kAt < 120000)) return;
     _kBusy = true;
-    Promise.all([jget('/api/student/my-karte'), jget('/api/student/karte-reco'), load(false)]).then(function (a) {
+    Promise.all([jget('/api/student/my-karte'), jget('/api/student/karte-reco'), load(false), window.WEEKREF2 ? window.WEEKREF2.load(weekKeyNow()) : null]).then(function (a) {
       _kBusy = false; _kAt = Date.now();
       _k = { mk: a[0] || {}, rc: a[1] || {}, kr: a[2] || null };
       drawKarte();
@@ -412,6 +418,7 @@
       h += '<div style="font-size:13px;color:#92400e;margin-top:6px">📭 カルテは まだ 届いていないよ。届いたら ここに 出るよ。</div>';
       var pv0 = _k.kr && _k.kr.prev;
       if (pv0 && pv0.markLabel) h += '<div style="font-size:12.5px;margin-top:4px">🕰 先週の 自分：「' + esc(pv0.markLabel) + '」' + (pv0.nextText ? '　' + esc(pv0.nextText) : '') + '</div>';
+      try { if (window.WEEKREF2) h += window.WEEKREF2.lastHtml(); } catch (e) {}   /* WEEKREF2_V1 */
     } else {
       var r = _k.rc.reco, small = !!_k.rc.small;
       var paths = [];
@@ -426,6 +433,7 @@
       h += '<div style="font-size:12.5px;margin-top:6px">👣 <b>はじめの一歩</b>：' + (small ? 'アプリを ひらいて「' + esc(r.a.name) + '」を 1問だけ（5分で おわる 大きさ）' : 'まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）') + '</div>';
       var pv = _k.kr && _k.kr.prev;
       if (pv && pv.markLabel) h += '<div style="font-size:12.5px;margin-top:4px">🕰 先週の 自分：「' + esc(pv.markLabel) + '」' + (pv.nextText ? '　' + esc(pv.nextText) : '') + '</div>';
+      try { if (window.WEEKREF2) h += window.WEEKREF2.lastHtml(); } catch (e) {}   /* WEEKREF2_V1 先週の約束の結果・学校での学び */
       h += '<div id="kantanKarteMsg" style="font-size:12px;color:#047857;font-weight:700;margin-top:4px;min-height:14px"></div>';
       box._paths = paths;
     }

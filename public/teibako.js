@@ -66,7 +66,9 @@
       return a.join('\n');
     }
     var b = [];
-    if (it.kantan) b.push(it.kantan);
+    var w2 = it.wr2 || null;   /* WEEKREF2_V1 */
+    if (it.kantan || (w2 && w2.promise && w2.promise.resultJa)) b.push([it.kantan || '', (w2 && w2.promise && w2.promise.resultJa) ? '🤝' + w2.promise.resultJa : ''].filter(Boolean).join('　'));
+    if (w2 && w2.school && w2.school.subj) b.push('🏫' + w2.school.subj + (w2.school.theme ? '「' + w2.school.theme + '」' : '') + (w2.school.learned ? ' ' + w2.school.learned : ''));
     var main = String(it.freeText || '').trim() || String(it.planReflection || '').trim();
     if (main) b.push(main);
     if (it.goodPoint) b.push('よかった：' + it.goodPoint);
@@ -89,9 +91,90 @@
       if (String(it.freeText || '').trim() && it.planReflection && it.planReflection !== it.freeText) row('計画の金曜らん', it.planReflection);
       row('よかったこと', it.goodPoint); row('くふうしたいこと', it.improvePoint); row('つぎのアクション', it.nextAction);
       if (it.star) row('🌟家庭学習シート（' + dayJa(it.star.dayKey) + '）', it.star.text);
+      var w2 = it.wr2;   /* WEEKREF2_V1 */
+      if (w2 && w2.promise) row('🤝 先週決めたこと → どうだった？', (w2.promise.text ? '「' + w2.promise.text + '」' : '') + (w2.promise.resultJa ? ' → ' + w2.promise.resultJa + (w2.promise.reasonJa ? '（わけ：' + w2.promise.reasonJa + '）' : '') : '') + (w2.promise.note ? '\n一言：' + w2.promise.note : ''));
+      if (w2 && w2.school) row('🏫 学校での学び', [w2.school.subj + (w2.school.theme ? '「' + w2.school.theme + '」' : ''), w2.school.learned ? 'わかったこと：' + w2.school.learned : '', w2.school.more ? 'もっと知りたい：' + w2.school.more : ''].filter(Boolean).join('\n'));
+      if (w2 && w2.q) row('💭 ' + w2.q.label, [w2.q.choiceJa, w2.q.text].filter(Boolean).join('・'));
+      if (w2 && w2.facts) row('📊 今週の記録（子どもに見せた事実）', factsJa(w2.facts));
       if (it.nextTry) row('🎯 来週やってみたいこと', (it.nextTry.unitName ? '「' + it.nextTry.unitName + '」 ' : '') + (it.nextTry.text || ''));
     }
     return h;
+  }
+  // ───────── WEEKREF2_V1 下書きの印（まとめて返す対象から外すもの） ─────────
+  function unitJa2(id) { try { if (typeof _unitJa === 'function') return _unitJa(id) || id; } catch (e) {} return id; }
+  function factsJa(f) {
+    if (!f) return '';
+    var a = ['アプリを開いた日 ' + (f.openDays || 0) + '日'];
+    (f.units || []).forEach(function (u) { var nm = u.name || unitJa2(u.unit); if (u.c > 0) a.push(nm + (u.prevC > 0 && u.c > u.prevC ? ' せいかい 先週' + u.prevC + '問→今週' + u.c + '問' : ' 今週' + u.c + '問せいかい')); });
+    if (f.planDays > 0) a.push('計画を書いた' + f.planDays + '日のうち' + (f.doneDays || 0) + '日 家庭学習');
+    return a.join('／');
+  }
+  function otherNames(uid) {
+    var out = [];
+    ((S.data && S.data.roster) || []).forEach(function (r) {
+      if (String(r.id) === String(uid)) return;
+      var parts = [];
+      [nameOf(r), r.name].forEach(function (n) { n = String(n || ''); parts.push(n.replace(/[\s　]/g, '')); n.split(/[\s　]+/).forEach(function (x) { parts.push(x); }); });
+      // ひらがな・カタカナだけの2文字（例「りく」）は ふつうのことばにまざるので、3文字以上のときだけ見る
+      parts.forEach(function (n) { var kana = /^[ぁ-んァ-ヶー]+$/.test(n); if ((kana ? n.length >= 3 : n.length >= 2) && out.indexOf(n) < 0) out.push(n); });
+    });
+    return out;
+  }
+  function draftFlags(o) {
+    var it = o && o.it; if (!it || !it.draft) return null;
+    var body = String(it.draft.body || ''), flat = body.replace(/[\s　]/g, '');
+    var ng = ngWords(body);
+    var nm = otherNames(o.r.id).filter(function (n) { return flat.indexOf(n) >= 0; });
+    var stale = !!(it.draft.createdAt && Number(it.submittedAt) > Number(it.draft.createdAt) + 60000);
+    return { ng: ng, names: nm, stale: stale, ok: !ng.length && !nm.length && !stale };
+  }
+  function flagChips(f) {
+    if (!f) return '';
+    var h = '';
+    if (f.ng.length) h += '<span class="tbChip" style="background:#fef9c3;color:#854d0e;border:1px solid #fde047">🟡 ことば</span>';
+    if (f.names.length) h += '<span class="tbChip" style="background:#fee2e2;color:#b91c1c">⚠ 名前</span>';
+    if (f.stale) h += '<span class="tbChip" style="background:#e0f2fe;color:#0369a1">🔄 書き直しあり</span>';
+    return h;
+  }
+  function returnWeek(list) {   // [{o, body}] … 既存の返却API（reflection-comments）をそのまま使う
+    var comments = list.map(function (x) { return { studentId: x.o.r.id, comment: String(x.body).slice(0, 1000), weekKey: S.week }; });
+    return jpost('/api/teacher/reflection-comments', { weekKey: S.week, comments: comments }).then(function (j) {
+      if (!j || !j.ok) return { ok: false, saved: 0 };
+      var ids = list.filter(function (x) { return x.o.it.draft; }).map(function (x) { return x.o.it.draft.id; });
+      if (ids.length) jpost('/api/teacher/ai-drafts/mark', { ids: ids, status: 'published' });
+      list.forEach(function (x) { if (!x.o.it.returnedAt) { x.o.it.returnedAt = Date.now(); x.o.it.teacherComment = x.body; } x.o.it.draft = null; });
+      return { ok: true, saved: Number(j.saved) || 0 };
+    });
+  }
+  function draftRows() {   // 絞り込みに関係なく、全員の中から
+    var keep = { fUnsub: S.fUnsub, fUnret: S.fUnret, fPick: S.fPick };
+    S.fUnsub = S.fUnret = S.fPick = false;
+    var all = rows();
+    S.fUnsub = keep.fUnsub; S.fUnret = keep.fUnret; S.fPick = keep.fPick;
+    return all.filter(function (o) { return o.it && o.it.draft && isSubmitted(o.it) && !o.it.returnedAt; });
+  }
+  function drawBulk() {
+    var el = $('tbBulk'); if (!el) return;
+    if (S.mode !== 'week') { el.innerHTML = ''; return; }
+    var ds = draftRows(), oks = ds.filter(function (o) { return draftFlags(o).ok; });
+    if (!ds.length) { el.innerHTML = ''; return; }
+    var held = ds.length - oks.length;
+    el.innerHTML = '<div style="background:#eef2ff;border:2px solid #a5b4fc;border-radius:12px;padding:6px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
+      '<b style="color:#3730a3;font-size:13px">📝 ひと往復の下書き：' + ds.length + '人ぶん</b>' +
+      (oks.length ? '<button type="button" id="tbBulkGo" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:7px 14px;font-size:13.5px;font-weight:900;cursor:pointer">📨 下書きをまとめて返却（' + oks.length + '人）</button>' : '') +
+      (held ? '<span style="font-size:12px;color:#3730a3">🟡ことば・⚠名前・🔄書き直しあり の ' + held + '人は まとめ返却から外しています（ひらいて確かめてから返してください）</span>' : '') +
+      '<span id="tbBulkMsg" style="font-size:12.5px;font-weight:800;color:#047857"></span></div>';
+    var b = $('tbBulkGo');
+    if (b) b.onclick = function () {
+      if (!confirm('下書きのまま ' + oks.length + '人に返却します。\n（子どもの画面に先生からの返事として出ます）\nよろしいですか？')) return;
+      b.disabled = true; $('tbBulkMsg').textContent = '返しています…';
+      returnWeek(oks.map(function (o) { return { o: o, body: o.it.draft.body }; })).then(function (r) {
+        var m = $('tbBulkMsg');
+        if (!r.ok) { b.disabled = false; if (m) { m.style.color = '#b91c1c'; m.textContent = '返却できませんでした（通信）'; } return; }
+        render();
+        var m2 = $('tbBulkMsg'); if (m2) m2.textContent = '✓ ' + r.saved + '人に返却しました';
+      });
+    };
   }
   function isSubmitted(it) { return !!it && (S.mode === 'day' ? !!it.id : !!it.submitted); }
   function isUnret(it) { return isSubmitted(it) && !it.returnedAt; }
@@ -183,6 +266,7 @@
       '<button type="button" id="tbReload" style="' + BTN + '">🔄</button>' +
       '</div>' +
       '<div id="tbPicks"></div>' +
+      '<div id="tbBulk"></div>' +
       '</div>' +
       '<div id="tbGrid"></div>' +
       '<div style="font-size:11px;color:#94a3b8;text-align:right">⚙ <label style="cursor:pointer"><input type="checkbox" id="tbAllCons"> AI候補でなくても、「のせてもいいよ」の振り返りから選べるようにする</label></div>';
@@ -279,7 +363,7 @@
     $('tbPicks').innerHTML = ph;
     var list = rows();
     S.list = list;
-    if (!list.length) { grid.innerHTML = '<p style="color:#64748b;font-size:13px;grid-column:1/-1">あてはまる子はいません</p>'; bindJump(); return; }
+    if (!list.length) { grid.innerHTML = '<p style="color:#64748b;font-size:13px;grid-column:1/-1">あてはまる子はいません</p>'; bindJump(); drawBulk(); return; }
     var h = '';
     list.forEach(function (o, idx) {
       var it = o.it, sub = isSubmitted(it);
@@ -291,6 +375,15 @@
       h += '<div class="tbTime">' + esc(timeJa(it.submittedAt)) + (it.draft ? ' <span class="tbChip" style="background:#eef2ff;color:#4338ca">下書き</span>' : '') + '</div>';
       if (star) h += '<div><span class="tbChip" style="background:#f59e0b;color:#fff">⭐掲載候補</span></div><div style="font-size:11px;color:#92400e;line-height:1.4">AI：' + esc(it.pick.reason || '') + '</div>';
       h += '<div class="tbTxt">' + esc(summaryOf(it) || '（文はありません）') + '</div>';
+      if (S.mode === 'week' && it.draft && !it.returnedAt) {   /* WEEKREF2_V1 ひと往復の下書きを そのまま */
+        var fl = draftFlags(o);
+        h += '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:5px 7px;margin-top:2px">' +
+          '<div style="font-size:10.5px;font-weight:900;color:#4338ca;display:flex;flex-wrap:wrap;gap:3px;align-items:center">📝 下書き（まだ子どもには見えない）' + flagChips(fl) + '</div>' +
+          '<div style="font-size:12px;line-height:1.5;color:#1e1b4b;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden">' + markNg(it.draft.body) + '</div>' +
+          (fl.ok ? '<button type="button" class="tbOneRet" data-i="' + idx + '" style="margin-top:3px;width:100%;min-height:36px;background:#4f46e5;color:#fff;border:none;border-radius:9px;font-size:12.5px;font-weight:900;cursor:pointer">このまま返す</button>'
+                 : '<button type="button" class="tbOneOpen" data-i="' + idx + '" style="margin-top:3px;width:100%;min-height:36px;background:#fff;color:#4338ca;border:1.5px solid #818cf8;border-radius:9px;font-size:12.5px;font-weight:900;cursor:pointer">ひらいて 確かめる</button>') +
+          '</div>';
+      }
       if (S.mode === 'day' && it.photoCount) h += '<img class="tbThumb" loading="lazy" alt="写真" src="' + photoUrl(o.r.id, 0) + '" onerror="this.style.display=\'none\'">';
       var chips = '';
       if (it.consent) chips += '<span class="tbChip" style="background:#ecfdf5;color:#047857;border:1px solid #6ee7b7">のせてもいいよ（' + (it.consent.mode === 'named' ? '名前あり' : '名前なし') + '）</span>';
@@ -303,9 +396,19 @@
     grid.innerHTML = h;
     var tiles = grid.querySelectorAll('.tbTile[data-i]');
     for (var i = 0; i < tiles.length; i++) {
-      tiles[i].onclick = function (ev) { if (ev.target && ev.target.classList && ev.target.classList.contains('tbPickBtn')) return; openAt(Number(this.getAttribute('data-i'))); };
+      tiles[i].onclick = function (ev) { if (ev.target && ev.target.classList && (ev.target.classList.contains('tbPickBtn') || ev.target.classList.contains('tbOneRet') || ev.target.classList.contains('tbOneOpen'))) return; openAt(Number(this.getAttribute('data-i'))); };
       tiles[i].onkeydown = function (ev) { if (ev.key === 'Enter') openAt(Number(this.getAttribute('data-i'))); };
     }
+    var ors = grid.querySelectorAll('.tbOneRet');   /* WEEKREF2_V1 */
+    for (var q = 0; q < ors.length; q++) ors[q].onclick = function (ev) {
+      ev.stopPropagation();
+      var o = S.list[Number(this.getAttribute('data-i'))]; if (!o || !o.it || !o.it.draft) return;
+      var self = this; self.disabled = true; self.textContent = '返しています…';
+      returnWeek([{ o: o, body: o.it.draft.body }]).then(function (r) { if (!r.ok || !r.saved) { self.disabled = false; self.textContent = '返せませんでした（もう一度）'; return; } render(); });
+    };
+    var oos = grid.querySelectorAll('.tbOneOpen');
+    for (var q2 = 0; q2 < oos.length; q2++) oos[q2].onclick = function (ev) { ev.stopPropagation(); openAt(Number(this.getAttribute('data-i'))); };
+    drawBulk();
     var pbs = grid.querySelectorAll('.tbPickBtn');
     for (var j = 0; j < pbs.length; j++) pbs[j].onclick = function (ev) { ev.stopPropagation(); openPick(Number(this.getAttribute('data-i'))); };
     bindJump();
@@ -355,7 +458,7 @@
     var ret = it.returnedAt
       ? '<div style="font-size:12px;color:#475569;margin-bottom:4px">✅ ' + esc(timeJa(it.returnedAt)) + ' に返却ずみ' + (S.mode === 'day' ? '（コメントを直せます。子どもへの知らせは送りません）' : '') + '</div>'
       : '';
-    var draft = it.draft ? '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:8px;margin-bottom:6px"><div style="font-size:12px;font-weight:900;color:#4338ca">📝 今日のひと往復の下書き（まだ子どもには見えていません）</div><div style="white-space:pre-wrap;font-size:13.5px;margin-top:3px">' + markNg(it.draft.body) + '</div>' + (ngWords(it.draft.body).length ? '<div style="font-size:12px;font-weight:800;color:#854d0e;background:#fef9c3;border-radius:6px;padding:2px 6px;margin-top:3px">🟡 子どもには きつく聞こえることば：「' + esc(ngWords(it.draft.body).join('」「')) + '」（直してから返してください）</div>' : '') + '<button type="button" id="tbUseDraft" style="margin-top:4px;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer">↓ この下書きを使う</button></div>' : '';
+    var draft = it.draft ? '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:8px;margin-bottom:6px"><div style="font-size:12px;font-weight:900;color:#4338ca">📝 今日のひと往復の下書き（まだ子どもには見えていません）</div><div style="white-space:pre-wrap;font-size:13.5px;margin-top:3px">' + markNg(it.draft.body) + '</div>' + (ngWords(it.draft.body).length ? '<div style="font-size:12px;font-weight:800;color:#854d0e;background:#fef9c3;border-radius:6px;padding:2px 6px;margin-top:3px">🟡 子どもには きつく聞こえることば：「' + esc(ngWords(it.draft.body).join('」「')) + '」（直してから返してください）</div>' : '') + (function () { var f0 = draftFlags(o); return f0 && (f0.names.length || f0.stale) ? '<div style="font-size:12px;font-weight:800;color:#b91c1c;margin-top:3px">' + (f0.names.length ? '⚠ ほかの子の名前らしいことば：' + esc(f0.names.join('、')) + '　' : '') + (f0.stale ? '🔄 下書きを作ったあとで、この子が振り返りを書き直しています。今の文と合っているか確かめてください' : '') + '</div>' : ''; })() + '<button type="button" id="tbUseDraft" style="margin-top:4px;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer">↓ この下書きを使う</button></div>' : '';
     var canReturn = S.mode === 'day' || !it.returnedAt;
     var star = it.pick ? '<div style="background:#fffbeb;border:2px solid #fcd34d;border-radius:10px;padding:6px 8px;margin:6px 0;font-size:13px"><b style="color:#b45309">⭐ 掲載候補</b>　AIの理由：' + esc(it.pick.reason || '') + '</div>' : '';
     var cons = it.consent ? '<span class="tbChip" style="background:#ecfdf5;color:#047857;border:1px solid #6ee7b7">のせてもいいよ（' + (it.consent.mode === 'named' ? '名前あり' : '名前なし') + '）</span>' : '';
@@ -638,6 +741,46 @@
     };
   }
   window.MINNA_PICK = { appendTo: appendTo, copyOnly: copyOnly, importRaw: importRaw, parsePicks: parsePicks, pickLines: pickLines, max: 5 };
+
+  // ═════════ WEEKREF2_V1 カルテ（個人分析）に「週の振り返り」の新しい欄・⑥授業メモの書き方のヒント ═════════
+  var _faSeen = '';
+  function karteBox() {
+    var ov = $('studentFullAnalysisOverlay'), ct = $('fullAnalysisContent');
+    if (!ov || ov.classList.contains('hidden') || !ct) { _faSeen = ''; return; }
+    var sid = String(window._faId || '');
+    if (!sid || !window._faData) return;
+    var box = $('wr2KarteBox');
+    if (box && _faSeen === sid && ct.contains(box)) return;
+    _faSeen = sid;
+    if (!box) { box = document.createElement('div'); box.id = 'wr2KarteBox'; }
+    box.className = 'bg-sky-50 rounded-xl border border-sky-200 p-4 mb-4';
+    box.innerHTML = '<div class="font-bold text-sm text-sky-800 mb-1">🔄 週の振り返り（先週決めたこと・🏫学校での学び・考える問い）</div><div class="text-xs text-slate-400">読み込み中…</div>';
+    ct.insertBefore(box, ct.firstChild);
+    jget('/api/teacher/week-ref2?studentId=' + encodeURIComponent(sid) + '&weeks=4').then(function (d) {
+      if (_faSeen !== sid) return;
+      var items = (d && d.ok && d.items) || [];
+      var h = '<div class="font-bold text-sm text-sky-800 mb-1">🔄 週の振り返り（先週決めたこと・🏫学校での学び・考える問い）</div>';
+      if (!items.length) { box.innerHTML = h + '<div class="text-xs text-slate-500">まだありません（金曜の振り返りで書いた分が ここに出ます）</div>'; return; }
+      items.forEach(function (r) {
+        var ls = [];
+        if (r.promise && (r.promise.text || r.promise.resultJa)) ls.push('🤝 ' + (r.promise.text ? '「' + esc(r.promise.text) + '」' : '') + (r.promise.resultJa ? ' → <b>' + esc(r.promise.resultJa) + '</b>' + (r.promise.reasonJa ? '（' + esc(r.promise.reasonJa) + '）' : '') : '') + (r.promise.note ? '　一言：' + esc(r.promise.note) : ''));
+        if (r.school && r.school.subj) ls.push('🏫 <b>' + esc(r.school.subj) + (r.school.theme ? '「' + esc(r.school.theme) + '」' : '') + '</b>' + (r.school.learned ? '　' + esc(r.school.learned) : '') + (r.school.more ? '　→ もっと：' + esc(r.school.more) : ''));
+        if (r.q && (r.q.choiceJa || r.q.text)) ls.push('💭 ' + esc(r.q.label) + ' → ' + esc([r.q.choiceJa, r.q.text].filter(Boolean).join('・')));
+        if (r.facts) ls.push('📊 ' + esc(factsJa(r.facts)));
+        if (!ls.length) return;
+        h += '<div class="mt-1 bg-white rounded-lg border border-sky-100 px-2 py-1"><div class="text-[11px] font-bold text-sky-700">' + esc(wkJa(r.weekKey)) + '</div>' + ls.map(function (x) { return '<div class="text-xs text-slate-700" style="line-height:1.6">' + x + '</div>'; }).join('') + '</div>';
+      });
+      box.innerHTML = h;
+    });
+  }
+  function noteHint() {
+    var ta = $('cnoteBody'); if (!ta || $('wr2NoteHint')) return;
+    var d = document.createElement('div'); d.id = 'wr2NoteHint';
+    d.className = 'text-[11px] text-sky-700 bg-sky-50 rounded px-2 py-1';
+    d.textContent = '💡 子どもの「🏫学校での学び」に単元を出したいときは、「算数：比の利用」「理科：てこのはたらき」のように 教科：単元 を1行で書いてください。この形の行だけが子どもの画面に候補として出ます（ほかのメモは出ません。名前の入った行も出ません）。';
+    ta.parentNode.insertBefore(d, ta.nextSibling);
+  }
+  setInterval(function () { try { karteBox(); } catch (e) {} try { noteHint(); } catch (e) {} }, 1500);
 
   // ---------- 起動 ----------
   var tries = 0;

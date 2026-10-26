@@ -918,6 +918,137 @@ await t('46 週の振り返り：いまの週だけ同意できる → 📋一�
   eq(p.json.posts[0].weekKey, WR_NOW, '週のフォルダ'); eq(p.json.posts[0].name, 'たろう', '名前あり')
 })
 
+// ── 🔄 WEEKREF2_V1 週の振り返りを充実（先週決めたこと・今週の記録・考える問い・学校での学び）──
+//   コインは既存の週の振り返りの台帳（week_ref_rewards）だけ。week-ref2 そのものはコインを動かさない。
+function w2Monday(wk) {
+  const m = String(wk).match(/^(\d{4})-W(\d{2})$/); const j4 = new Date(Date.UTC(+m[1], 0, 4)); const dw = j4.getUTCDay() || 7
+  return new Date(j4.getTime() + ((1 - dw) + (+m[2] - 1) * 7) * 86400000)
+}
+const W2_MON = w2Monday(WR_NOW)
+const W2_PREV = wrIsoKey(new Date(W2_MON.getTime() - 7 * 86400000))
+const W2_MONDAY = W2_MON.toISOString().slice(0, 10)
+function w2Seed(w) {
+  // 先週の自分が決めたこと（次どうする？・来週やってみたいこと）
+  w.db._run("INSERT INTO structured_reflections (user_id, week_key, good_point, next_action, free_text, created_at) VALUES (?,?,?,?,?,?)", 'stu-1', W2_PREV, '◎ よくできた ／ なんで：…', '次：このまま つづける　夜にやる', '先週の ふりかえり', Date.now() - 7 * 86400000)
+  w.db._run("INSERT INTO week_next_try (user_id, week_key, unit, unit_name, text) VALUES (?,?,?,?,?)", 'stu-1', W2_PREV, 'm6-ratio', '比', '比をマスターしたい')
+  // 今週の計画（月曜に立てたもの）と、月曜の家庭学習
+  w.db._run("INSERT INTO student_weekly_plans (user_id, week_key, plans_json, updated_at) VALUES (?,?,?,?)", 'stu-1', WR_NOW, JSON.stringify({ mon: '漢字ドリル', tue: '計算スキル', wed: 'なし', fri: { free: '', reflection: '' } }), Date.now())
+  w.db._run("UPDATE homework_submissions SET day_key=? WHERE id='hw-1'", W2_MONDAY)
+  // 修行：先週 比を6問・今週 9問 せいかい（UTC の ISO。日本時間の月曜0:00 = 前の日の15:00Z）
+  const mon0 = W2_MON.getTime() - 9 * 3600000
+  for (let i = 0; i < 8; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', 'stu-1', new Date(mon0 - 3 * 86400000 + i * 60000).toISOString(), 'm6-ratio', i < 6 ? 1 : 0)
+  for (let i = 0; i < 10; i++) w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', 'stu-1', new Date(mon0 + 1800000 + i * 60000).toISOString(), 'm6-ratio', i < 9 ? 1 : 0)
+  // よその子の修行（数に入らない）
+  w.db._run('INSERT INTO learning_results (user_id, answered_at, unit, is_correct) VALUES (?,?,?,?)', 'stu-2', new Date(mon0 + 3600000).toISOString(), 'm6-ratio', 1)
+  // ⑥授業メモ：「教科：単元」の行だけが子どもに出る。名前の入った行・ふつうのメモは出ない
+  w.db._run('INSERT INTO teacher_class_notes (class_id, day_key, body, created_by, created_at) VALUES (?,?,?,?,?)', 'cls-1', W2_MONDAY, '算数：比の利用\n今日は発表が活発だった。グループの声かけを工夫したい\n国語：たろうの音読がよかった\n【理科】てこのはたらき\n社会：はなこさんの発表', 'tea-1', new Date().toISOString())
+  w.db._run('INSERT INTO teacher_class_notes (class_id, day_key, body, created_by, created_at) VALUES (?,?,?,?,?)', 'cls-2', W2_MONDAY, '算数：よそのクラスの単元', 'tea-2', new Date().toISOString())
+}
+
+await t('47 週の振り返りの材料：先週決めたこと・今週の計画・記録（比 6問→9問）・計画を書いた日・授業メモの「教科：単元」だけ・問い', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  const n = await w.call('GET', '/api/student/week-ref2')
+  eq(n.status, 401, '未ログイン')
+  const f = await w.call('GET', '/api/student/week-ref2?userId=stu-2', { user: w.student })
+  eq(f.status, 403, 'ほかの子')
+  const tch = await w.call('GET', '/api/student/week-ref2', { user: w.teacher })
+  eq(tch.status, 403, '先生は子どもの道を使えない')
+  const r = await w.call('GET', '/api/student/week-ref2?weekKey=' + WR_NOW, { user: w.student })
+  eq(r.status, 200, 'status')
+  const d = r.json
+  ok(d.promise.text.indexOf('このまま つづける') >= 0 && d.promise.text.indexOf('比をマスターしたい') >= 0, '先週決めたこと：' + d.promise.text)
+  eq(d.plan.length, 2, '計画の日（「なし」と空は数えない）'); eq(d.plan[0].day, '月', '月曜')
+  eq(d.facts.units[0].unit, 'm6-ratio', '単元'); eq(d.facts.units[0].c, 9, '今週のせいかい'); eq(d.facts.units[0].prevC, 6, '先週のせいかい')
+  eq(d.facts.doneDays, 1, '計画した日のうち出した日'); ok(d.facts.planDays >= 1, '計画を書いた日')
+  ok(d.facts.openDays >= 1, '開いた日')
+  eq(d.topics.length, 2, '授業メモの候補は「教科：単元」の行だけ（名前の行は出ない）')
+  eq(d.topics[0].subj + '|' + d.topics[0].theme, '算数|比の利用', '候補1'); eq(d.topics[1].subj + '|' + d.topics[1].theme, '理科|てこのはたらき', '候補2')
+  ok(JSON.stringify(d).indexOf('発表が活発') < 0 && JSON.stringify(d).indexOf('たろう') < 0 && JSON.stringify(d).indexOf('よそのクラス') < 0, 'ふつうのメモ・名前・よそのクラスは出ない')
+  ok(/^q\d\d$/.test(d.question.id) && d.question.choices.length >= 3, '今週の問い')
+  const s = JSON.stringify(d)
+  ok(!/rank|順位|average|平均|percent|%/.test(s), '順位・平均・パーセントは返さない')
+})
+
+await t('48 ひとまとめで出す → 既存の20コインが1回だけ・week-ref2 は連打・同時送信でもコインを動かさない・1人1週1行', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  w.setState(smallState({ coins: 1000 }))
+  const g = await w.call('GET', '/api/student/week-ref2?weekKey=' + WR_NOW, { user: w.student })
+  const q = g.json.question
+  const body = { weekKey: WR_NOW, promise: { result: 'some', reason: 'forgot', note: '夜に わすれた' }, q: { id: q.id, choice: 1, text: '声に出した' }, school: { subj: '算数', theme: '比の利用', learned: '「比の利用」の 問題が できるように なった', more: '家で もう一度 ためしたい' }, unitNames: { 'm6-ratio': '比' } }
+  await Promise.all([0, 1, 2].map(() => w.call('POST', '/api/student/week-ref2', { user: w.student, body })))
+  eq(w.getState().coins, 1000, 'week-ref2 だけではコインは動かない')
+  eq(w.db._all('SELECT * FROM week_ref2').length, 1, '1人1週1行')
+  const r = await sendKantan(w)
+  eq(r.json.weekRefBonus.rewardedNow, true, 'いつもの提出で20')
+  await w.call('POST', '/api/student/week-ref2', { user: w.student, body })
+  await sendKantan(w)
+  eq(w.getState().coins, 1020, '20コインは1回だけ'); eq(w.getState()._weekRefCoinsApplied, 20, '台帳')
+  eq(w.db._all('SELECT * FROM week_ref_rewards').length, 1, '台帳の行数')
+  const row = w.db._get('SELECT * FROM week_ref2 WHERE user_id=?', 'stu-1')
+  eq(row.promise_result, 'some', '結果'); eq(row.promise_reason, 'forgot', 'わけ'); eq(row.school_subj, '算数', '教科'); eq(row.q_choice, '1', '問いの答え')
+  ok(row.promise_text.indexOf('このまま つづける') >= 0, '先週決めたことを写しておく')
+  const facts = JSON.parse(row.facts_json)
+  eq(facts.units[0].c, 9, '記録はサーバーで数えたもの'); eq(facts.units[0].name, '比', '単元の名前')
+})
+
+await t('49 おかしな値・ほかの子・昔の週・金額の申告は入らない／問いのIDがちがえば答えは入らない', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  w.setState(smallState({ coins: 1000 }))
+  const bad = await w.call('POST', '/api/student/week-ref2', { user: w.student, body: { userId: 'stu-2', weekKey: WR_NOW } })
+  eq(bad.status, 403, 'ほかの子のid')
+  const tch = await w.call('POST', '/api/student/week-ref2', { user: w.teacher, body: { weekKey: WR_NOW } })
+  eq(tch.status, 403, '先生')
+  await w.call('POST', '/api/student/week-ref2', { user: w.student, body: { weekKey: WR_OLD, coins: 99999, promise: { result: 'perfect', reason: 'time', note: '<b>x</b>' }, q: { id: 'q99', choice: 9, text: 'ちがう問い' }, school: { subj: '<script>', theme: 'x', learned: 'わかった' }, facts: { openDays: 999 } } })
+  const row = w.db._get('SELECT * FROM week_ref2 WHERE user_id=?', 'stu-1')
+  eq(row.week_key, WR_NOW, '昔の週は いまの週に'); eq(row.promise_result, '', 'おかしな結果は入らない'); eq(row.promise_reason, '', '結果が無ければ わけも入らない')
+  ok(row.promise_note.indexOf('<') < 0, '山かっこは消す'); eq(row.q_id, '', 'ちがう問いは入らない'); eq(row.school_subj, '', 'おかしな教科は入らない'); eq(row.school_theme, '', '教科が無ければテーマも入らない')
+  ok(JSON.parse(row.facts_json).openDays < 999, '記録の申告は使わない')
+  eq(w.getState().coins, 1000, 'コインは動かない')
+  const done = await w.call('POST', '/api/student/week-ref2', { user: w.student, body: { weekKey: WR_NOW, promise: { result: 'done', reason: 'time' } } })
+  eq(done.status, 200, 'できた')
+  eq(w.db._get('SELECT promise_reason FROM week_ref2 WHERE user_id=?', 'stu-1').promise_reason, '', '「できた」に わけは付けない')
+})
+
+await t('50 先生：ひと往復の材料・📋振り返り一覧（週）に 先週の約束の結果と学校での学び・下書きの時刻・個人のカルテ（ほかの先生は404）', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  w.setState(smallState({ coins: 1000 }))
+  const g = await w.call('GET', '/api/student/week-ref2?weekKey=' + WR_NOW, { user: w.student })
+  await w.call('POST', '/api/student/week-ref2', { user: w.student, body: { weekKey: WR_NOW, promise: { result: 'not', reason: 'time' }, q: { id: g.json.question.id, choice: 0 }, school: { subj: '理科', theme: 'てこのはたらき', learned: 'つりあいが わかった', more: 'もっと 調べたい' } } })
+  await sendKantan(w)
+  const r = await w.call('GET', '/api/teacher/week-reflections?classId=cls-1&weeks=' + WR_NOW, { user: w.teacher })
+  const it = r.json.items.find((x) => x.userId === 'stu-1')
+  eq(it.wr2.promise.resultJa, 'できなかった', 'ひと往復：結果'); eq(it.wr2.promise.reasonJa, '時間がなかった', 'ひと往復：わけ'); eq(it.wr2.school.subj, '理科', 'ひと往復：学校'); eq(it.wr2.facts.units[0].c, 9, 'ひと往復：記録')
+  ok(it.wr2.q && it.wr2.q.choiceJa, 'ひと往復：問いの答え')
+  w.db._run("INSERT INTO ai_review_drafts (id, teacher_id, class_id, week_key, kind, target_id, ref_key, body, status, created_at) VALUES (?,?,?,?,?,?,?,?,'draft',datetime('now','-1 hour'))", 'aid_1', 'tea-1', 'cls-1', WR_NOW, 'REFLECT', 'stu-1', WR_NOW, 'てこのはたらき、つりあいが わかったんやな！')
+  const tb = await w.call('GET', '/api/teacher/teibako?classId=cls-1&mode=week&week=' + WR_NOW, { user: w.teacher })
+  const me = tb.json.items.find((x) => x.userId === 'stu-1')
+  eq(me.wr2.school.theme, 'てこのはたらき', '一覧：学校での学び'); eq(me.wr2.promise.result, 'not', '一覧：約束の結果')
+  ok(me.draft && me.draft.createdAt > 0 && me.submittedAt > me.draft.createdAt, '下書きの時刻（書き直しの見分け）')
+  // まとめて返却＝既存の reflection-comments（同じ先生のクラスの子だけ）
+  const rc = await w.call('POST', '/api/teacher/reflection-comments', { user: w.teacher, body: { weekKey: WR_NOW, comments: [{ studentId: 'stu-1', comment: me.draft.body, weekKey: WR_NOW }, { studentId: 'stu-x', comment: 'よその子', weekKey: WR_NOW }] } })
+  eq(rc.json.saved, 1, 'よそのクラスの子には返せない')
+  const k = await w.call('GET', '/api/teacher/week-ref2?studentId=stu-1', { user: w.teacher })
+  eq(k.json.items[0].school.subj, '理科', 'カルテに学校での学び'); eq(k.json.items[0].promise.resultJa, 'できなかった', 'カルテに約束の結果')
+  const k2 = await w.call('GET', '/api/teacher/week-ref2?studentId=stu-1', { user: o.t2 })
+  eq(k2.status, 404, 'ほかの先生は見られない')
+  const k3 = await w.call('GET', '/api/teacher/week-ref2?studentId=stu-1', { user: w.student })
+  eq(k3.status, 403, '子どもは先生の道を使えない')
+})
+
+await t('51 前の自分ページ：自分の分だけ（未ログイン401・ほかの子403）・約束の結果と学校での学びが週ごとに並ぶ', async () => {
+  const w = await newWorld(); const o = mfWorld(w); w2Seed(w)
+  w.db._run("INSERT INTO week_ref2 (user_id, week_key, promise_result, school_subj, school_theme) VALUES (?,?,?,?,?)", 'stu-1', W2_PREV, 'done', '算数', '比')
+  w.db._run("INSERT INTO week_ref2 (user_id, week_key, promise_result, school_subj) VALUES (?,?,?,?)", 'stu-2', W2_PREV, 'some', '国語')
+  const n = await w.call('GET', '/api/student/week-ref2/history')
+  eq(n.status, 401, '未ログイン')
+  const f = await w.call('GET', '/api/student/week-ref2/history?userId=stu-2', { user: w.student })
+  eq(f.status, 403, 'ほかの子')
+  const h = await w.call('GET', '/api/student/week-ref2/history', { user: w.student })
+  eq(h.json.items.length, 1, '自分の分だけ'); eq(h.json.items[0].promise.resultJa, 'できた', '結果'); eq(h.json.items[0].school.theme, '比', '学校')
+  const m = await w.call('GET', '/api/student/week-ref2?weekKey=' + WR_NOW, { user: w.student })
+  eq(m.json.last.school.subj, '算数', '月曜の計画画面に出す先週の分')
+})
+
 // ── 結果表 ────────────────────────────────────────────────────
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== ' + BUNDLE + ' ===')

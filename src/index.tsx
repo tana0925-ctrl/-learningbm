@@ -29,6 +29,8 @@ import { registerQrHunt, qrHuntCard } from './qrhunt'
 // MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
 import { registerMinna } from './minna'
 import { installViewAs } from './viewas'   // VIEWAS_V1
+// WEEKREF2_V1 週の振り返りを充実（先週決めたこと・今週の記録・考える問い・🏫学校での学び）。中身は src/weekref2.ts。
+import { registerWeekRef2, wr2ForClass } from './weekref2'
 
 type Bindings = {
   DB: D1Database
@@ -7294,6 +7296,10 @@ app.get('/api/teacher/week-reflections', async (c) => {
       by[k].nextTry = { unit: cut(row.un, 40), unitName: cut(row.nm, 40), text: cut(row.tx, 60) }
     }
   } catch (e) { console.error('MAEJIBUN_V1 week-reflections', e) }
+  try {   // WEEKREF2_V1 先週決めたことの結果・今週の記録・考える問い・🏫学校での学び（今日のひと往復の材料）
+    const w2 = await wr2ForClass(c.env, classId, weeks)
+    for (const k of Object.keys(w2)) { const [uid, wk] = k.split('|'); const s1 = slot(uid, wk); s1.wr2 = w2[k] }
+  } catch (e) { console.error('WEEKREF2_V1 week-reflections', e) }
   const items = Object.keys(by).map((k) => by[k]).filter((x: any) => x.planReflection || x.freeText || x.goodPoint || x.improvePoint || x.nextAction || (x.hw && x.hw.text))
   return c.json({ ok: true, weeks, items })
 })
@@ -10350,6 +10356,7 @@ app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch
 app.get('/kantanref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/kantanref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // KANTAN_REF_V1
 app.get('/teibako.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teibako.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
+app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
 app.get('/defstage_monsters.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defstage_monsters.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -10577,6 +10584,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/kantanref.js?v=1"></script></body>')
       // 📖 MINNA_FURI_V1 みんなのふりかえり（のせてもいいよ・読むページ）。中身は public/minnafuri.js。
       t = t.replace('</body>', '<script src="/minnafuri.js?v=1"></script></body>')
+      // 🔄 WEEKREF2_V1 週の振り返り：先週決めたこと・今週の記録・考える問い・🏫学校での学び・友だちの見本。中身は public/weekref2.js（kantanref.js の欄に入る）。
+      t = t.replace('</body>', '<script src="/weekref2.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")
@@ -17401,8 +17410,8 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=14"></script>
-    <script src="/teibako.js?v=2"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/teacher-ai.js?v=15"></script>
+    <script src="/teibako.js?v=3"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/karte-michi.js?v=2"></script>
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
@@ -18230,6 +18239,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
 registerMi(app)
 registerQrHunt(app)   // QRHUNT_V1
 registerMinna(app)    // MINNA_FURI_V1
+registerWeekRef2(app, { weekRefAllowedKeys })    // WEEKREF2_V1
 
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
 // 児童側の /api/defense/status と /api/defense/resolve には 1文字も さわっていない。

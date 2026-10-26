@@ -186,5 +186,13 @@ CREATE TABLE IF NOT EXISTS minna_rewards (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, kind, ref_key)
 );
+CREATE TABLE IF NOT EXISTS week_ref2 (
+  user_id TEXT NOT NULL, week_key TEXT NOT NULL, promise_text TEXT NOT NULL DEFAULT '', promise_result TEXT NOT NULL DEFAULT '',
+  promise_reason TEXT NOT NULL DEFAULT '', promise_note TEXT NOT NULL DEFAULT '', q_id TEXT NOT NULL DEFAULT '', q_choice TEXT NOT NULL DEFAULT '',
+  q_text TEXT NOT NULL DEFAULT '', school_subj TEXT NOT NULL DEFAULT '', school_theme TEXT NOT NULL DEFAULT '', school_learned TEXT NOT NULL DEFAULT '',
+  school_more TEXT NOT NULL DEFAULT '', facts_json TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, week_key)
+);
+CREATE TABLE IF NOT EXISTS teacher_class_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, class_id TEXT NOT NULL, day_key TEXT, body TEXT, created_by TEXT, created_at TEXT);
 `
 

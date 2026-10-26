@@ -17,6 +17,8 @@
 // ⚠️ テーブルは migrations/0045_minna_furi.sql だけで作る。ここでは DDL を一切実行しない（2026-09-03 の障害）。
 // ⚠️ WHERE の列に関数をかけない（索引が死ぬ）。
 
+import { wr2ForClass } from './weekref2'   // WEEKREF2_V1
+
 export const MINNA_ADOPT_COINS = 300   // 採用されたときのコイン（ここだけ変えれば変わる）
 export const MINNA_PICK_MAX = 5        // AI の掲載候補：1回（1日分／1週分）あたりの上限
 const MINNA_BODY_MAX = 600
@@ -211,12 +213,17 @@ export function registerMinna(app: any) {
         for (const row of (((r && r.results) || []) as any[])) { if (JA[row.sm]) slot(String(row.uid)).kantan = JA[row.sm] }
       } catch (_e) {}
       try {
-        const d: any = await DB.prepare("SELECT id, target_id AS tid, ref_key AS rk, body FROM ai_review_drafts WHERE class_id = ? AND status = 'draft' AND kind = 'REFLECT' AND teacher_id = ? LIMIT 400").bind(classId, u.id).all()
+        const d: any = await DB.prepare("SELECT id, target_id AS tid, ref_key AS rk, body, created_at AS ca FROM ai_review_drafts WHERE class_id = ? AND status = 'draft' AND kind = 'REFLECT' AND teacher_id = ? LIMIT 400").bind(classId, u.id).all()
         for (const row of (((d && d.results) || []) as any[])) {
           if (!row.tid || (row.rk && String(row.rk) !== ref)) continue
           const s = items[String(row.tid)]
-          if (s) s.draft = { id: String(row.id), body: cut(row.body, 2000) }
+          // WEEKREF2_V1 createdAt … 下書きのあとで子どもが書き直したかを見分ける（まとめて返す対象から外す）
+          if (s) s.draft = { id: String(row.id), body: cut(row.body, 2000), createdAt: row.ca ? Date.parse(String(row.ca).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(row.ca)) ? '' : 'Z')) || 0 : 0 }
         }
+      } catch (_e) {}
+      try {   // WEEKREF2_V1 先週決めたことの結果・🏫学校での学び・考える問い・今週の記録
+        const w2 = await wr2ForClass(c.env, classId, [ref])
+        for (const k of Object.keys(w2)) { const uid = k.split('|')[0]; if (w2[k]) slot(uid).wr2 = w2[k] }
       } catch (_e) {}
       // KANTAN_REF_V1 の保存形式（よかったこと欄の「◎ よくできた ／ なんで：…」）からも ◎○△ を読む
       for (const k of Object.keys(items)) {

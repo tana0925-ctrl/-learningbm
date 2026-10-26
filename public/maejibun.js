@@ -134,9 +134,14 @@
     if (_data && Date.now() - _data._at < 60000) { render(); return; }
     if (_busy) return;
     _busy = true;
-    jget('/api/student/my-growth').then(function (d) {
+    Promise.all([jget('/api/student/my-growth'), jget('/api/student/week-ref2/history')]).then(function (rs) {   /* WEEKREF2_V1 */
       _busy = false;
-      if (d && d.ok) { d._at = Date.now(); _data = d; }
+      var d = rs[0];
+      if (d && d.ok) {
+        d._at = Date.now(); _data = d;
+        var by = {}; (((rs[1] && rs[1].ok && rs[1].items) || [])).forEach(function (x) { if (x && x.weekKey) by[x.weekKey] = x; });
+        (d.cards || []).forEach(function (c) { if (by[c.weekKey]) c.r2 = by[c.weekKey]; });
+      }
       render();
     });
   }
@@ -171,6 +176,15 @@
     });
     return h + '</div><div style="font-size:11.5px;color:#92400e;margin-top:4px">じぶんで つけた しるしだよ。せいせきでは ないよ。</div></div>';
   }
+  // WEEKREF2_V1 先週決めたことの結果・🏫学校での学び（本人の見立て。成績・評価ではない）
+  function r2Line(r) {
+    if (!r) return '';
+    var h = '';
+    if (r.promise && r.promise.resultJa) h += '<div>🤝 先週 決めたこと：<b>' + esc(r.promise.resultJa) + '</b>' + (r.promise.reasonJa ? '（' + esc(r.promise.reasonJa) + '）' : '') + (r.promise.text ? '　「' + esc(r.promise.text) + '」' : '') + '</div>';
+    if (r.school && r.school.subj) h += '<div>🏫 学校で：<b>' + esc(r.school.subj) + (r.school.theme ? '「' + esc(r.school.theme) + '」' : '') + '</b>' + (r.school.learned ? '　' + esc(r.school.learned) : '') + (r.school.more ? '　→ もっと：' + esc(r.school.more) : '') + '</div>';
+    if (r.q && (r.q.choiceJa || r.q.text)) h += '<div>💭 ' + esc(r.q.label) + ' → ' + esc([r.q.choiceJa, r.q.text].filter(Boolean).join('・')) + '</div>';
+    return h ? '<div style="margin-top:6px;font-size:12.5px;line-height:1.6;color:#1e3a8a;background:#eff6ff;border-radius:8px;padding:4px 8px">' + h + '</div>' : '';
+  }
   function cardBody(c, big) {
     var fs = big ? '14.5px' : '13.5px';
     var h = markLine(c);
@@ -178,6 +192,7 @@
     if (c.star) h += '<div style="margin-top:4px;font-size:12.5px;color:#a16207">🌟 家庭学習シートに：' + esc(c.star) + '</div>';
     if (!c.text && !c.star && !c.mark) h += '<div style="font-size:12.5px;color:#94a3b8">（この週の ふりかえりの 文は ないよ）</div>';
     h += ntLine(c.nextTry);
+    h += r2Line(c.r2);   /* WEEKREF2_V1 */
     return h;
   }
   function pickLeft(cards, cur) {

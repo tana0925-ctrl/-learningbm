@@ -606,6 +606,14 @@ out.push('   - MIしらべが無い子には、そのことに触れない（「
       out.push('   目印の行の「｜2026-W42」のような週の部分も、1文字も変えずに残す。');
       out.push('   「🎯 来週やってみたいこと」があれば、本人が自分で決めたことを応援する一言を入れる（「 」で引用してよい）。');  /* MAEJIBUN_V1 */
       out.push('   曜日・問題数・やり方をこちらで決めない。命令しない。大きすぎても否定しない。');
+      /* WEEKREF2_V1 先週の約束の結果・今週の記録・考える問い・学校での学び を材料に */
+      out.push('   次の4つがあれば、返事の材料にする（全部ふれなくてよい。その子に合う1〜2つを選ぶ）：');
+      out.push('   🤝 先週決めたことの結果（本人の見立て）… 「できた」は一緒に喜ぶ。「ちょっと／できなかった」でも責めない。');
+      out.push('      本人が選んだ「わけ」（時間がなかった・わすれた など）を、次の工夫を本人が考えられる問いかけにつなぐ（例：「わすれへん工夫、なにかありそう？」）。');
+      out.push('   📊 今週の記録（アプリが数えた事実）… ふえた数は具体的に一緒に喜ぶ（例：「比のせいかいが6問から9問になったな」）。へった数・ほかの子とのくらべ・順位にはふれない。');
+      out.push('   💭 今週の考える問いへの答え … 本人が見つけた学び方を「 」で拾って、価値づける。');
+      out.push('   🏫 学校での学び … 心に残った授業・わかったこと・もっと知りたいことに必ず一言ふれる。家庭学習とつながりそうなら、つながりを問いかける。');
+      out.push('   本人の言葉（自由に書いた文・一言）を1つ「 」で拾い、その子だけの具体的な返事にする。だれにでも言える返事にしない。');
     }
     out.push('');
     out.push('');
@@ -1177,6 +1185,19 @@ try {
       var _hs2 = it.hw.returnedAt ? '家庭学習シートで先生からもう返事ずみ。同じことをくり返さない'
         : (isTarget ? '同じ日の DAILY ではふれず、この REFLECT でまとめて返す' : 'まだ返していない');
       out.push('　🌟 家庭学習シートの週の振り返り（' + it.hw.dayKey + '）: ' + it.hw.text + '（' + _hs2 + '）');
+    }
+    if (it.wr2) {   // WEEKREF2_V1
+      var _w2 = it.wr2, _m2 = function (x) { x = String(x || ''); return window._qnMask ? window._qnMask(x) : x; };
+      if (_w2.promise && (_w2.promise.text || _w2.promise.resultJa)) out.push('　🤝 先週決めたこと: ' + (_w2.promise.text ? '「' + _m2(_w2.promise.text) + '」' : '（記録なし）') + (_w2.promise.resultJa ? ' → 本人の答え: ' + _w2.promise.resultJa + (_w2.promise.reasonJa ? '（わけ: ' + _w2.promise.reasonJa + '）' : '') : '') + (_w2.promise.note ? '／一言「' + _m2(_w2.promise.note) + '」' : ''));
+      var _f2 = _w2.facts;
+      if (_f2) {
+        var _fl = ['アプリを開いた日 ' + (_f2.openDays || 0) + '日'];
+        (_f2.units || []).forEach(function (u) { var nm = u.name || unitJa(u.unit); if (u.c > 0) _fl.push(nm + (u.prevC > 0 && u.c > u.prevC ? ' 正解 先週' + u.prevC + '問→今週' + u.c + '問' : ' 今週' + u.c + '問正解')); });
+        if (_f2.planDays > 0) _fl.push('計画を書いた' + _f2.planDays + '日のうち' + (_f2.doneDays || 0) + '日 家庭学習を出した');
+        out.push('　📊 今週の記録（事実・子どもにも見せたもの）: ' + _fl.join('／'));
+      }
+      if (_w2.q && (_w2.q.choiceJa || _w2.q.text)) out.push('　💭 今週の考える問い「' + _w2.q.label + '」への答え: ' + [_w2.q.choiceJa, _w2.q.text ? '「' + _m2(_w2.q.text) + '」' : ''].filter(Boolean).join('・'));
+      if (_w2.school && _w2.school.subj) out.push('　🏫 学校での学び: ' + _w2.school.subj + (_w2.school.theme ? '（' + _m2(_w2.school.theme) + '）' : '') + (_w2.school.learned ? '／わかったこと「' + _m2(_w2.school.learned) + '」' : '') + (_w2.school.more ? '／もっと知りたい・ためしたい「' + _m2(_w2.school.more) + '」' : ''));
     }
     if (it.nextTry && (it.nextTry.text || it.nextTry.unitName)) {   // MAEJIBUN_V1
       var _ntt = String(it.nextTry.text || ''); if (window._qnMask) _ntt = window._qnMask(_ntt);
