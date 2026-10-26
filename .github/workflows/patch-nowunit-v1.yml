@@ -384,14 +384,14 @@ jobs:
           node --no-warnings viewas.test.mjs ./app.after.mjs ./viewas.mod.mjs 2>/dev/null | grep -E "passed"
           node --no-warnings viewas.test.mjs ./app.after.mjs ./viewas.mod.mjs > /dev/null 2>&1
           rm -f app.after.mjs viewas.mod.mjs
-      - name: served check (karte-michi.js v=3 is injected and served)
+      - name: served check (teacher page has karte-michi.js v=3 and it is served)
         if: env.SKIP != '1'
         run: |
           cat > /tmp/dump.mjs <<'JSEOF'
           import fs from 'fs'
           const mod = await import(process.cwd() + '/dist/_worker.js')
           const env = { ASSETS: { fetch: async (req) => { const u = new URL(typeof req === 'string' ? req : req.url); const p = (!u.pathname || u.pathname === '/') ? '/index.html' : u.pathname; try { return new Response(fs.readFileSync(process.cwd() + '/public' + p), { status: 200 }) } catch (e) { return new Response('', { status: 404 }) } } } }
-          const res = await mod.default.fetch(new Request('http://localhost/'), env, { waitUntil() {} })
+          const res = await mod.default.fetch(new Request('http://localhost/teacher'), env, { waitUntil() {} })
           const h = await res.text()
           if (h.indexOf('/karte-michi.js?v=3') < 0) { console.log('注入なし karte-michi v=3'); process.exit(1) }
           const js = await mod.default.fetch(new Request('http://localhost/karte-michi.js'), env, { waitUntil() {} })
