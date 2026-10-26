@@ -28,6 +28,7 @@ import { defStageEnemies } from './def_stage'
 import { registerQrHunt, qrHuntCard } from './qrhunt'
 // MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
 import { registerMinna } from './minna'
+import { installViewAs } from './viewas'   // VIEWAS_V1
 
 type Bindings = {
   DB: D1Database
@@ -420,6 +421,9 @@ app.use('/api/*', async (c, next) => {
 
   return next()
 })
+
+// 👀 VIEWAS_V1 先生が子どもの画面に「見るだけ」で入る（src/viewas.ts）。認証ミドルウェアの直後でなければならない。
+installViewAs(app, { readSession, makeSession, getCookie, setCookie, deleteCookie })
 
 // -------------------- NGワードフィルター --------------------
 const _NG_NAME_PATTERNS = [
@@ -17401,6 +17405,7 @@ function _faKarteGraphs(d){
     <script src="/teibako.js?v=2"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/karte-michi.js?v=2"></script>
     <script src="/teacher-preview.js?v=1"></script>
+    <script src="/viewas-teacher.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
          あり、連動していなかった。上の「クラス:」を変えても、テスト取り込み等は
