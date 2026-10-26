@@ -471,6 +471,7 @@
       (isUnret(it) ? '<span class="tbChip" style="background:#fee2e2;color:#b91c1c">● 未返却</span>' : '') +
       '<button type="button" id="tbX" aria-label="とじる" style="margin-left:auto;background:#f1f5f9;border:none;border-radius:999px;width:38px;height:38px;font-size:18px;cursor:pointer">×</button></div>' +
       star +
+      '<div id="tbTsYousu"></div>' +   /* TEISHUTSU_V1 📮 提出のようす（小さく・先生だけ） */
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:6px">' +
       '<div><div style="font-size:12px;font-weight:900;color:#b45309">いまのふりかえり</div>' + fullHtml(it) + photos + '</div>' +
       '<div id="tbPrevBox" style="background:#f8fafc;border-radius:12px;padding:8px 10px"><div style="font-size:12px;font-weight:900;color:#475569">前回のふりかえり（くらべる）</div><div style="font-size:12px;color:#94a3b8">読み込み中…</div></div>' +
@@ -497,6 +498,7 @@
     var po = $('tbPickOpen'); if (po) po.onclick = function () { openPick(i); };
     m.scrollTop = 0;
     loadPrev(o);
+    try { if (window.TS_T && typeof window.TS_T.yousuInto === 'function') window.TS_T.yousuInto(o.r.id, $('tbTsYousu')); } catch (e) {}   /* TEISHUTSU_V1 */
   }
   function loadPrev(o) {
     var url = '/api/teacher/teibako/prev?classId=' + encodeURIComponent(S.cid) + '&userId=' + encodeURIComponent(o.r.id) + '&mode=' + S.mode + '&ref=' + (S.mode === 'day' ? S.date : S.week);

@@ -9,6 +9,7 @@
      （KANTAN_REF_V1 2026-10-26：✂おうちの人へ の欄は先生の判断でなくした。過去の文は消さず、表示しないだけ）
    ・1人ぶんは必ず2ページ（裏表1枚）。全員ぶん印刷で次の子が裏にずれないように、
      面ごとに高さを決めて、はみ出す分は欄ごとの行数上限で切る。
+     （TEISHUTSU_V1：少し縮めても入らないときは、優先度の低い欄（📊グラフ→💡学び方）から省く）
    ・テストの点数・順位・ほかの子との比較は出さない。命令しない。
      記録にないことは書かない（機械で作る欄は、記録から言えることだけ）。
    ・AIの文（阪神マン・考えてほしいこと・これやってみる）は
@@ -137,9 +138,9 @@
 
   // ───────── AIの文を▼の見出しで分ける ─────────
   function splitAi(text) {
-    var out = { main: '', ask: '', tries: [], home: '' };
+    var out = { main: '', ask: '', tries: [], home: '', hint: '', test: '' };
     var lines = String(text || '').replace(/\r/g, '').split('\n');
-    var cur = 'main', buf = { main: [], ask: [], try: [], home: [] };
+    var cur = 'main', buf = { main: [], ask: [], try: [], home: [], hint: [], test: [] };
     for (var i = 0; i < lines.length; i++) {
       var raw = lines[i];
       var t = raw.replace(/^[\s　*#>＃＊]+/, '').replace(/[\s　*＊]+$/, '');
@@ -149,6 +150,8 @@
         if (/考えて/.test(h)) cur = 'ask';
         else if (/やってみる/.test(h)) cur = 'try';
         else if (/おうち|家の人|保護者/.test(h)) cur = 'home';
+        else if (/出し方|提出/.test(h)) cur = 'hint';   /* TEISHUTSU_V1 */
+        else if (/テスト/.test(h)) cur = 'test';
         else cur = 'skip';
         continue;
       }
@@ -161,6 +164,8 @@
       if (x && !/じぶんで決める|自分で決める/.test(x)) out.tries.push(x);
     });
     out.home = buf.home.join(' ').replace(/\s+/g, ' ').trim();
+    out.hint = buf.hint.join(' ').replace(/^[・\-–—•●\s　]+/, '').replace(/\s+/g, ' ').trim();
+    out.test = buf.test.join(' ').replace(/^[・\-–—•●\s　]+/, '').replace(/\s+/g, ' ').trim();
     return out;
   }
   global.michiSplitAi = splitAi;
@@ -407,7 +412,7 @@
   ].join('\n');
 
   // 印刷する窓の中で、面からはみ出していたら その面だけ少しずつ縮める（フォントの差で数行あふれても切れないように）
-  var FIT = '<script>(function(){function fit(){var ps=document.querySelectorAll(".pg");for(var i=0;i<ps.length;i++){var p=ps[i];if(p.getAttribute("data-fit"))continue;var z=1;while(p.scrollHeight>p.clientHeight+1&&z>0.8){z=Math.round((z-0.03)*100)/100;p.style.zoom=z;p.style.height=(271/z).toFixed(1)+"mm";}p.setAttribute("data-fit",String(z));}}try{fit();}catch(e){}window.addEventListener("load",function(){try{var ps=document.querySelectorAll(".pg");for(var i=0;i<ps.length;i++)ps[i].removeAttribute("data-fit");fit();}catch(e){}});})();<\/script>';
+  var FIT = '<script>(function(){function fit(){var ps=document.querySelectorAll(".pg");for(var i=0;i<ps.length;i++){var p=ps[i];if(p.getAttribute("data-fit"))continue;var z=1;while(p.scrollHeight>p.clientHeight+1&&z>0.8){var op=null;if(z<=0.86){var os=p.querySelectorAll("[data-opt]");for(var k=0;k<os.length;k++){if(!op||Number(os[k].getAttribute("data-opt"))<Number(op.getAttribute("data-opt")))op=os[k];}}if(op){op.parentNode.removeChild(op);continue;}z=Math.round((z-0.03)*100)/100;p.style.zoom=z;p.style.height=(271/z).toFixed(1)+"mm";}p.setAttribute("data-fit",String(z));}}try{fit();}catch(e){}window.addEventListener("load",function(){try{var ps=document.querySelectorAll(".pg");for(var i=0;i<ps.length;i++)ps[i].removeAttribute("data-fit");fit();}catch(e){}});})();<\/script>';
   function pickSec(doc, re) {
     var secs = doc.querySelectorAll('.sec');
     for (var i = 0; i < secs.length; i++) { var h = secs[i].querySelector('h2'); if (h && re.test(h.textContent || '')) return secs[i]; }
@@ -870,6 +875,17 @@
   }
   setInterval(function () { try { recoPanel(); } catch (e) {} }, 3000);
 
+  // TEISHUTSU_V1 📮 その週の家庭学習の日数（月〜日・週の振り返りの📊と同じ数）としめきり前に出せた提出物。未提出の数・点数・比較は出さない。0 のときは出さない。
+  function tsFact(d) {
+    var kw = d && d.teishutsu && d.teishutsu.karteWeek;
+    if (!kw) return '';
+    var a = [];
+    if (Number(kw.hwDays) > 0) a.push('この週の家庭学習：' + Number(kw.hwDays) + '日');
+    if (Number(kw.onTime) > 0) a.push('しめきり前に出せた提出物：' + Number(kw.onTime) + 'つ');
+    return a.join('／');
+  }
+  global.michiTsFact = tsFact;
+
   function compose(baseHtml) {
     var d = global._faData || {};
     var doc = new DOMParser().parseFromString(baseHtml, 'text/html');
@@ -952,6 +968,10 @@
     if (ai && ai.main) {
       var hh = '<div class="sec"><h2>🐯 阪神マンから</h2><div style="font-size:12.5px;color:#334155;white-space:pre-wrap">' + esc(cut(ai.main.replace(/\n+/g, ' '), 300)) + '</div>';
       if (ai.ask) hh += '<div style="margin-top:5px;background:#fefce8;border-radius:8px;padding:5px 9px;font-size:12.5px">💭 <b>考えてみてほしいこと</b> … ' + esc(cut(ai.ask, 70)) + '</div>';
+      /* TEISHUTSU_V1 先生が確認・公開した ▼出し方のヒント／▼テストに向けて（各1行）。無い週は記録の事実の一言だけ。 */
+      if (ai.hint) hh += '<div style="margin-top:4px;font-size:12px">📮 <b>出し方のヒント</b> … ' + esc(cut(ai.hint, 50)) + '</div>';
+      if (ai.test) hh += '<div style="margin-top:3px;font-size:12px">📝 <b>テストに向けて</b> … ' + esc(cut(ai.test, 50)) + '</div>';
+      if (!ai.hint && !ai.test && tsFact(d)) hh += '<div style="margin-top:4px;font-size:12px">📮 ' + esc(tsFact(d)) + '</div>';
       if (hanNote) hh += '<div style="font-size:9.5px;color:#94a3b8;margin-top:3px">' + esc(hanNote) + '</div>';
       hh += '</div>';
       F.push(hh);
@@ -969,12 +989,13 @@
     if (cd.head || cd.lines.length) {
       var ch2 = '<div class="sec" style="border-color:#bbf7d0;background:#f0fdf4"><h2>🌟 できるようになったこと・やったこと</h2>';
       if (cd.head) ch2 += '<div style="font-size:12.5px;color:#15803d;font-weight:700">' + esc(cd.head) + '</div>';
+      if (!ai && tsFact(d)) ch2 += '<div style="font-size:12.5px">📮 ' + esc(tsFact(d)) + '</div>';   /* TEISHUTSU_V1 阪神マンの文が無い週 */
       cd.lines.forEach(function (l) { ch2 += '<div style="font-size:12.5px">・' + l + '</div>'; });
       ch2 += '</div>';
       B.push(ch2);
     }
     if (hn.length) {
-      var hh2 = '<div class="sec" style="border-color:#c7d2fe;background:#eef2ff"><h2>💡 きみに合う 学び方（記録から 見えたこと）</h2>';
+      var hh2 = '<div class="sec" data-opt="2" style="border-color:#c7d2fe;background:#eef2ff"><h2>💡 きみに合う 学び方（記録から 見えたこと）</h2>';
       hn.forEach(function (l) { hh2 += '<div style="font-size:12.5px">・' + esc(l) + '</div>'; });
       B.push(hh2 + '</div>');
     }
@@ -1004,7 +1025,7 @@
     });
     var bars = (d.monthlyTrends || []).slice(-6).map(function (m) { return { label: String(m.month || '').slice(5) + '月', value: m.count || 0 }; });
     if (!subjects.length && !bars.length) return '';
-    var h = '<div class="sec"><h2>📊 4月からの 学習の 見える化</h2><div class="gr">';
+    var h = '<div class="sec" data-opt="1"><h2>📊 4月からの 学習の 見える化</h2><div class="gr">';
     h += '<div><div class="gt">教科の定着（アプリの修行）</div>' + global._kRadar(radar) + '</div>';
     h += '<div><div class="gt">月ごとの 家庭学習の 回数</div>' + global._kBars(bars) + '</div>';
     h += '<div><div class="gt">きもちの わりあい</div>' + global._kDonut(ov.sunCount, ov.cloudCount, ov.rainCount) + '</div>';

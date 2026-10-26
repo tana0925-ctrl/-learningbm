@@ -142,7 +142,7 @@
     });
     if (f.planDays > 0 && f.doneDays > 0) ls.push('📅 計画を 書いた ' + f.planDays + '日のうち <b>' + f.doneDays + '日</b>、家庭学習を 出したよ');
     else if (f.planDays > 0) ls.push('📅 計画を <b>' + f.planDays + '日ぶん</b> 書いたよ');
-    else if (f.hwDays > 0) ls.push('📒 家庭学習を <b>' + f.hwDays + '日</b> 出したよ');
+    if (f.hwDays > 0) ls.push('📒 今週の家庭学習：<b>' + f.hwDays + '日</b>');   /* TEISHUTSU_V1 カルテ・阪神マンの一言と同じ数（月〜日） */
     return '<div class="wbox"><div class="wh">📊 今週の 自分の きろく <small>（アプリの きろくから。じじつ だけ）</small></div>' + ls.map(function (x) { return '<div class="wf">' + x + '</div>'; }).join('') + '</div>';
   }
   function topHtml() {

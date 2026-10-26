@@ -15,6 +15,8 @@
  *  ・ことばは NGWORD_V1 に合わせる（責める・否定的なことばは使わない）。
  *  ・index.html は手で編集しない。
  *
+ *  📮 TEISHUTSU_V1（2026-10-27）対話の最初（おっ、来たな！の次）に、今週の家庭学習の提出状況を一言（teishutsu.js・1日1回まで・責めない）。
+ *
  *  ✍️ HSSIGN_V1（2026-10-26）サポーター（おうちの人）のサイン
  *    おわったら（次どうする？の あと）・提出の前に「おうちの人に見せて、サインもらってきてな！」
  *    →「🏠 おうちの人に見せる」で おうちの方むけの大きい文字の画面（今日やったこと・時間・天気の要約）
@@ -259,6 +261,7 @@
     if (!c) {
       c = newChat();
       say(c, 'b', SAY.hello);
+      try { var _ts = (typeof window.TEISHUTSU_CHAT_LINE === 'function') ? window.TEISHUTSU_CHAT_LINE() : ''; if (_ts) say(c, 'b', _ts); } catch (_e) {}   /* TEISHUTSU_V1 今週の家庭学習の提出状況（1日1回まで） */
       if (s.started) { c.step = 'run'; c.goalMin = 0; say(c, 'b', SAY.sheetStarted); }
       else say(c, 'b', SAY.todo);
       s._chat = c; saveSess(s);

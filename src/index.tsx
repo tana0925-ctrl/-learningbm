@@ -33,6 +33,8 @@ import { installViewAs } from './viewas'   // VIEWAS_V1
 import { registerWeekRef2, wr2ForClass, wr2NoteTopics } from './weekref2'
 // HSSIGN_V1 サポーター（おうちの人）のサインを あとから足す。中身は src/hssign.ts。
 import { registerHsSign } from './hssign'
+// TEISHUTSU_V1 📮 提出状況のアドバイス（家庭学習の提出状況・学校の提出物チェック・提出のようす・テストの傾向）。中身は src/teishutsu.ts。
+import { registerTeishutsu, tsPack, tsHwWeek, tsOnTime } from './teishutsu'
 
 type Bindings = {
   DB: D1Database
@@ -4113,6 +4115,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
     recentUnits, karteReco, recoFeedback,                 // MICHI_V2
     nextTry,                                              // MAEJIBUN_V1
+    teishutsu: await tsPack(c.env, studentId, _lwFrom, Date.now()).catch(() => null),   // TEISHUTSU_V1 カルテの週の家庭学習の日数・しめきり前の提出物・提出のようす・テストの傾向（点数なし）
     testScores,
     records,
     teacherNotes,
@@ -5277,7 +5280,10 @@ app.get('/api/student/my-karte', async (c) => {
   // KANTAN_REF_V1 🌟できたこと（記録が少なくても空にしない・事実だけ）と、はじめの一歩の大きさ
   let kantan: any = null
   try { const kf = await kantanFactsFor(c.env, u.id); kantan = { small: !!kf.oneTap, openDays: Math.max(1, kf.openDays), hwDays14: kf.hwDays14 } } catch (_e) { kantan = { small: false, openDays: 1, hwDays14: 0 } }
-  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan })
+  // TEISHUTSU_V1 今週の家庭学習の日数（月〜日・週の振り返りの📊今週の記録と同じ数え方）と、しめきり前に出せた提出物の数
+  let teishutsu: any = null
+  try { const _wk = weekRefAllowedKeys()[0]; const _mo = new Date(Date.UTC(Number(_wk.slice(0, 4)), 0, 4)); const _dw = _mo.getUTCDay() || 7; const _mon = new Date(_mo.getTime() + ((1 - _dw) + (Number(_wk.slice(6)) - 1) * 7) * 86400000).toISOString().slice(0, 10); const _hw = await tsHwWeek(c.env, u.id, _mon); teishutsu = { hwDays: _hw.days, onTime: await tsOnTime(c.env, u.id, _hw.from, _hw.to) } } catch (_e) {}
+  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan, teishutsu })
 })
 
 // 先生：カルテを子どもの画面に出す（公開）。自分の担任クラスの児童だけ。
@@ -10406,6 +10412,8 @@ app.get('/teibako.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
+app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
+app.get('/teishutsu-teacher.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu-teacher.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
 app.get('/hsweekchat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsweekchat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSWEEKCHAT_V1
 app.get('/student-karte.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/student-karte.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 // __DEFSTAGE_CHARS_ROUTE_V1__ げんていキャラの定義ファイルを配る道。student-karte.js とまったく同じ形。
@@ -10546,7 +10554,7 @@ app.get('/', async (c) => {
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（モバイル版）。
       t = t.replace(`<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button>`, `<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button><button class="w-full px-4 py-3 text-sm font-bold text-amber-700 hover:bg-amber-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="location.href='/himitsu'; closeSysMenuMobile()"><span>🔒</span>ひみつのしつもん</button>`)
       // 📒 わたしのカルテ（子ども向け）のスクリプトを読み込む
-      t = t.replace('</body>', '<script src="/student-karte.js?v=3"></script></body>')
+      t = t.replace('</body>', '<script src="/student-karte.js?v=4"></script></body>')
       // 👾 __DEFSTAGE_CHARS_V1__ 防衛戦ステージ初クリアの げんていキャラ（4体）の名前とすがた。
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')
@@ -10635,10 +10643,12 @@ app.get('/', async (c) => {
       // 📖 MINNA_FURI_V1 みんなのふりかえり（のせてもいいよ・読むページ）。中身は public/minnafuri.js。
       t = t.replace('</body>', '<script src="/minnafuri.js?v=1"></script></body>')
       // 🔄 WEEKREF2_V1 週の振り返り：先週決めたこと・今週の記録・考える問い・🏫学校での学び・友だちの見本。中身は public/weekref2.js（kantanref.js の欄に入る）。
-      t = t.replace('</body>', '<script src="/weekref2.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/hschat.js?v=2"></script><script src="/hsweekchat.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/hschat.js?v=3"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
+      t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
       // P1 旧ブロック撤去（ID重複の解消）
       t = t.replace(/<div id="hsPhotoSection1"[\s\S]*?<div id="hsPhotoAnalysis"[\s\S]*?<\/div>\s*<\/div>/, "<!-- 2026-09-24: 旧・単一写真ブロックを撤去（目印が hsPhotoSection1 に変わったので追従）。写真欄は下の1か所だけにする -->")
@@ -17463,9 +17473,10 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=15"></script>
-    <script src="/teibako.js?v=3"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
-    <script src="/karte-michi.js?v=4"></script>
+    <script src="/teacher-ai.js?v=16"></script>
+    <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/karte-michi.js?v=5"></script>
+    <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
@@ -18294,6 +18305,7 @@ registerQrHunt(app)   // QRHUNT_V1
 registerMinna(app)    // MINNA_FURI_V1
 registerWeekRef2(app, { weekRefAllowedKeys })    // WEEKREF2_V1
 registerHsSign(app, { jstStudyDayKey })    // HSSIGN_V1
+registerTeishutsu(app, { weekRefAllowedKeys })    // TEISHUTSU_V1
 
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
 // 児童側の /api/defense/status と /api/defense/resolve には 1文字も さわっていない。

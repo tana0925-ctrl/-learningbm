@@ -21,15 +21,16 @@
 
   // MICHI_V1 阪神マンの文を ▼ の見出しで分ける
   function splitMsg(text) {
-    var out = { main: '', ask: '', tries: [] };
+    var out = { main: '', ask: '', tries: [], hint: '', test: '' };
     var lines = String(text || '').replace(/\r/g, '').split('\n');
     var cur = 'main', main = [];
     for (var i = 0; i < lines.length; i++) {
       var t = lines[i].replace(/^[\s\u3000*#>＃＊]+/, '').replace(/[\s\u3000*＊]+$/, '');
       var m = t.match(/^▼[\s\u3000]*(.*)$/);
-      if (m) { cur = /考えて/.test(m[1]) ? 'ask' : /やってみる/.test(m[1]) ? 'try' : 'skip'; continue; }
+      if (m) { cur = /考えて/.test(m[1]) ? 'ask' : /やってみる/.test(m[1]) ? 'try' : /出し方|提出/.test(m[1]) ? 'hint' : /テスト/.test(m[1]) ? 'test' : 'skip'; continue; }   /* TEISHUTSU_V1 ▼出し方のヒント・▼テストに向けて */
       if (cur === 'main') main.push(lines[i]);
       else if (cur === 'ask' && t && !out.ask) out.ask = t;
+      else if ((cur === 'hint' || cur === 'test') && t && !out[cur]) out[cur] = t.replace(/^[・\-–—•●]+[\s\u3000]*/, '');
       else if (cur === 'try' && t) { var x = t.replace(/^([・\-–—•●○◯□☐]|[0-9０-９]+[.．)）])[\s\u3000]*/, ''); if (x) out.tries.push(x); }
     }
     out.main = main.join('\n').replace(/^\s+|\s+$/g, '');
@@ -238,11 +239,15 @@
     /* KANTAN_REF_V1 🌟 できたこと（記録の事実から。空にしない） */
     var kt = d.kantan || {};
     var dk = [];
-    if (w.done > 0) dk.push('今週は 家庭学習を ' + w.done + '日 出せたよ');
+    /* TEISHUTSU_V1 今週の家庭学習：〇日（月〜日・週の振り返りの📊今週の記録と同じ数）。しめきり前に出せた提出物は あったときだけ。未提出の数は出さない。 */
+    var ts = d.teishutsu || null;
+    if (ts && Number(ts.hwDays) > 0) dk.push('今週の家庭学習：' + Number(ts.hwDays) + '日');
+    else if (!ts && w.done > 0) dk.push('今週は 家庭学習を ' + w.done + '日 出せたよ');
+    if (ts && Number(ts.onTime) > 0) dk.push('しめきり前に出せた提出物：' + Number(ts.onTime) + 'つ');
     if (Number(kt.hwDays14) > 0 && Number(kt.hwDays14) > Number(w.done || 0)) dk.push('この2週間で 家庭学習を ' + kt.hwDays14 + '日 出したよ');
     dk.push('この2週間で アプリを ' + Math.max(1, Number(kt.openDays) || 1) + '日 ひらいたよ');
     h += '<div class="mt-2"><div class="text-xs font-bold text-amber-700">🌟 できたこと</div><ul class="text-sm text-gray-700 list-disc pl-5">';
-    for (var di = 0; di < dk.length && di < 2; di++) h += '<li>' + esc(dk[di]) + '</li>';
+    for (var di = 0; di < dk.length && di < 3; di++) h += '<li>' + esc(dk[di]) + '</li>';
     h += '</ul></div>';
 
     if (w.voices && w.voices.length) {
@@ -282,6 +287,9 @@
         for (var ti = 0; ti < sp.tries.length; ti++) h += '<li>' + esc(sp.tries[ti]) + '</li>';
         h += '</ul>';
       }
+      /* TEISHUTSU_V1 先生が確認して公開した「▼出し方のヒント」「▼テストに向けて」（各1行） */
+      if (sp.hint) h += '<div class="mt-2 text-sm text-gray-800"><span class="text-xs font-bold text-sky-700">📮 出し方のヒント</span><br>' + esc(sp.hint) + '</div>';
+      if (sp.test) h += '<div class="mt-1 text-sm text-gray-800"><span class="text-xs font-bold text-emerald-700">📝 テストに向けて</span><br>' + esc(sp.test) + '</div>';
       h += '</div>';
     }
 
