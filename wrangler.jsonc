@@ -19,6 +19,13 @@
       "binding": "DB",
       "database_name": "learningbm-production",
       "database_id": "8aa1f65c-47b0-4a6b-a040-e044fe00e17e"
+    },
+    // PORTFOLIO_V1 成果物の写真の置き場（R2 が使えるようになるまで）。テーブルは migrations_pf/
+    {
+      "binding": "PFDB",
+      "database_name": "learningbm-portfolio",
+      "database_id": "2882b076-a852-48da-bf04-f6aadb84e7af",
+      "migrations_dir": "migrations_pf"
     }
   ]
 }
