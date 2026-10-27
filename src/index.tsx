@@ -33,6 +33,10 @@ import { installViewAs } from './viewas'   // VIEWAS_V1
 import { registerWeekRef2, wr2ForClass, wr2NoteTopics } from './weekref2'
 // HSSIGN_V1 サポーター（おうちの人）のサインを あとから足す。中身は src/hssign.ts。
 import { registerHsSign } from './hssign'
+// PORTFOLIO_V1 📸 成果物ポートフォリオ（先生だけ）。中身は src/portfolio.ts。
+import { registerPortfolio, pfFromHomework, pfWorkNoteFor } from './portfolio'
+// AIFLOW_V1 🧵 今日のひと往復に「先週までの流れ」。中身は src/aiflow.ts。
+import { registerAiFlow } from './aiflow'
 // TEISHUTSU_V1 📮 提出状況のアドバイス（家庭学習の提出状況・学校の提出物チェック・提出のようす・テストの傾向）。中身は src/teishutsu.ts。
 import { registerTeishutsu, tsPack, tsHwWeek, tsOnTime } from './teishutsu'
 
@@ -42,6 +46,8 @@ type Bindings = {
   ADMIN_LOGIN_ID?: string
   ADMIN_PASSWORD?: string
   AI: any
+  PF?: any     // PORTFOLIO_V1 R2（写真の置き場・あれば優先）
+  PFDB?: any   // PORTFOLIO_V1 写真専用の D1（R2 が無いあいだの置き場）
 }
 
 type Variables = {
@@ -4382,7 +4388,7 @@ async function aiDraftOwnsClass(c: any, u: any, classId: string) {
     ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
     : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
 }
-const AI_DRAFT_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT']
+const AI_DRAFT_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO']   // AIFLOW_V1 FLOW＝流れのメモ（先生だけ）／PORTFOLIO_AI_V1 WORK＝成果物へのひとこと（カルテ📓）・WORKMEMO＝成果物の分析メモ（先生だけ）
 
 app.post('/api/teacher/ai-drafts', async (c) => {
   const u = c.get('user')
@@ -5283,7 +5289,10 @@ app.get('/api/student/my-karte', async (c) => {
   // TEISHUTSU_V1 今週の家庭学習の日数（月〜日・週の振り返りの📊今週の記録と同じ数え方）と、しめきり前に出せた提出物の数
   let teishutsu: any = null
   try { const _wk = weekRefAllowedKeys()[0]; const _mo = new Date(Date.UTC(Number(_wk.slice(0, 4)), 0, 4)); const _dw = _mo.getUTCDay() || 7; const _mon = new Date(_mo.getTime() + ((1 - _dw) + (Number(_wk.slice(6)) - 1) * 7) * 86400000).toISOString().slice(0, 10); const _hw = await tsHwWeek(c.env, u.id, _mon); teishutsu = { hwDays: _hw.days, onTime: await tsOnTime(c.env, u.id, _hw.from, _hw.to) } } catch (_e) {}
-  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan, teishutsu })
+  // 📓 PORTFOLIO_AI_V1 先生が公開した「ノート・作品へのひとこと」（文だけ。写真は出さない）
+  let work: any = null
+  try { work = await pfWorkNoteFor(c.env, String(u.id)) } catch (_e) { work = null }
+  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan, teishutsu, work })
 })
 
 // 先生：カルテを子どもの画面に出す（公開）。自分の担任クラスの児童だけ。
@@ -5995,6 +6004,15 @@ app.post('/api/homework/analyze-photo', async (c) => {
     } catch (dbErr: any) {
       console.error('D1 photo save error:', dbErr?.message || dbErr)
     }
+    // 📸 PORTFOLIO_V1 成果物ポートフォリオにも入れる（先生だけが見る。子どもの画面には出ない。設定で止められる）
+    if (savedToV2 || photoIdx === 0) {
+      try {
+        const _pf = pfFromHomework(c.env, u.id, dayKey, photoIdx, imageBytes, mimeType)
+        let _ec: any = null
+        try { _ec = (c as any).executionCtx } catch (_e) { _ec = null }
+        if (_ec && typeof _ec.waitUntil === 'function') _ec.waitUntil(_pf); else await _pf
+      } catch (_e) {}
+    }
 
     // 📷 写真ボーナス（有効画像のとき1日1回・サーバ冪等・全置換でも保護）
     let photoBonus: any = null
@@ -6074,15 +6092,15 @@ app.post('/api/homework/analyze-photo', async (c) => {
   }
 })
 
-// 写真を取得（先生 or 本人のみ）
+// 写真を取得（先生・管理者のみ）
 app.get('/api/photo/:userId/:dayKey', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 403, 'forbidden')
   const targetUserId = c.req.param('userId')
   const dayKey = c.req.param('dayKey')
 
-  // 本人 or 先生のみ
-  if (u.role === 'student' && u.id !== targetUserId) return jsonError(c, 403, 'forbidden')
+  // 📸 PORTFOLIO_V1 写真は先生・管理者だけ（子どもの画面・見るだけモードには出さない。子どもの画面はこの道を使っていない）
+  if (u.role !== 'teacher' && u.role !== 'admin') return jsonError(c, 403, 'forbidden')
   if (u.role === 'teacher') {
     const isMine = await c.env.DB.prepare(
       `SELECT 1 FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1`
@@ -6108,8 +6126,11 @@ app.get('/api/photo/:userId/:dayKey', async (c) => {
     }
     if (!row?.bytes) return jsonError(c, 404, 'photo_not_found')
     const headers = new Headers()
-    headers.set('Content-Type', row.mime_type || 'image/jpeg')
+    // 📸 PORTFOLIO_V1 画像としてだけ返す（画像でない中身を、ページとして開かせない）
+    headers.set('Content-Type', /^image\/(jpeg|png|webp|gif)$/i.test(String(row.mime_type || '')) ? String(row.mime_type) : 'image/jpeg')
     headers.set('Cache-Control', 'private, max-age=3600')
+    headers.set('X-Content-Type-Options', 'nosniff')
+    headers.set('Content-Security-Policy', "default-src 'none'; sandbox")
     const _raw: any = row.bytes
     const _body = (_raw instanceof ArrayBuffer) ? _raw : new Uint8Array(_raw)
     return new Response(_body, { headers })
@@ -10412,6 +10433,8 @@ app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(
 app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/maejibun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MAEJIBUN_V1
 app.get('/kantanref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/kantanref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // KANTAN_REF_V1
 app.get('/teibako.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teibako.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
+app.get('/portfolio.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/portfolio.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // PORTFOLIO_V1
+app.get('/ai-flow.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/ai-flow.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // AIFLOW_V1
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
@@ -11971,6 +11994,7 @@ app.get('/teacher', (c) => {
         </div>
         <div class="flex gap-2 items-center">
           <a href="/teacher-mi" class="text-sm px-3 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold transition">🧭 MIしらべ</a>
+          <button onclick="PF_OPEN()" title="ノート・作品・家庭学習の写真（先生だけ）" class="text-sm px-3 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold transition">📸 成果物</button><!-- PORTFOLIO_V1 -->
           <a href="/" class="text-sm px-3 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold transition">🎮 ゲーム画面へ</a>
           <button id="logout" class="text-sm px-3 py-1 rounded bg-gray-200 hover:bg-red-100 hover:text-red-700 text-gray-600 font-bold transition">ログアウト</button>
         </div>
@@ -17478,6 +17502,8 @@ function _faKarteGraphs(d){
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=16"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
+    <script src="/portfolio.js?v=1"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-michi.js?v=5"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
@@ -18308,6 +18334,8 @@ registerQrHunt(app)   // QRHUNT_V1
 registerMinna(app)    // MINNA_FURI_V1
 registerWeekRef2(app, { weekRefAllowedKeys })    // WEEKREF2_V1
 registerHsSign(app, { jstStudyDayKey })    // HSSIGN_V1
+registerPortfolio(app, { getCookie })    // PORTFOLIO_V1
+registerAiFlow(app)    // AIFLOW_V1
 registerTeishutsu(app, { weekRefAllowedKeys })    // TEISHUTSU_V1
 
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）。
