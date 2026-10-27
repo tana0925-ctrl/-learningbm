@@ -187,7 +187,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
   //  （何回押しても重くならないように。最新にしたいときは「🔄 最新データで作り直す」）
   var CACHE_KEY = 'taiCopyCache';
   function cacheKeyOf(cid, want) {
-    var flags = ['daily', 'karte', 'classOv', 'report', 'plan', 'reflect', 'suggest']
+    var flags = ['daily', 'karte', 'classOv', 'report', 'plan', 'reflect', 'suggest', 'flowCtx', 'flow']   /* AIFLOW_V1 */
       .map(function (k) { return want[k] ? '1' : '0'; }).join('');
     return cid + '|' + flags + '|' + todayKey();
   }
@@ -475,6 +475,9 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       want = { daily: opts.onlyKinds.indexOf('DAILY') >= 0, karte: false, classOv: false, report: false,
                plan: false, reflect: opts.onlyKinds.indexOf('REFLECT') >= 0, suggest: false };
     }
+    // AIFLOW_V1 🧵 先週までの流れ（中身は ai-flow.js の window.AI_FLOW）。入らなかった分だけのコピーでは使わない
+    want.flowCtx = !!window.AI_FLOW && window.AI_FLOW.enabled() && !(opts.onlyKinds && opts.onlyKinds.length) && !opts.retryMode;
+    want.flow = !!want.flowCtx && !oneKind && !oneId;
     // MINNA_FURI_V1 ⭐みんなのふりかえり候補（中身は teibako.js の window.MINNA_PICK）
     var _minnaOn = !oneKind && !(opts.onlyKinds && opts.onlyKinds.length) && !opts.retryMode && !oneId && !!window.MINNA_PICK && opt('taiOptMinna');
     if (!want.daily && !want.karte && !want.classOv && !want.report &&
@@ -572,6 +575,7 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
     out.push('・記録に無いことは書かない。分からないことは、うめずに書かないでおく。');
     out.push('');
     TAI_NG_RULE_LINES.forEach(function (x) { out.push(x); });   /* NGWORD_V1 */
+    try { if (want.flowCtx) window.AI_FLOW.ruleLines(want.flow).forEach(function (x) { out.push(x); }); } catch (e) {}   /* AIFLOW_V1 */
     out.push('【まもってほしいこと】');
     out.push('0. 児童の名前は渡していません。かわりに「A01」のような符号が入っています。');
     out.push('   あなたが書く文の中に、符号を書かないでください（紙に記号が載ってしまいます）。');
@@ -1100,6 +1104,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       else { say('材料の台帳が読めませんでした。プリントの話は今回は渡しません。'); }
     }
 
+    if (want.flowCtx) { say('前の流れを読んでいます...'); try { await window.AI_FLOW.prefetch(cid); } catch (e) {} }   /* AIFLOW_V1 */
     for (var i = 0; i < roster.length; i++) {
       var st = roster[i];
       var nm = anonUid(st.userId);          // 束には符号だけ（実名は入れない）
@@ -1457,6 +1462,7 @@ try {
         out.push('(データを取得できませんでした)');
       }
 
+      try { if (want.flowCtx) window.AI_FLOW.linesFor(st.userId, want).forEach(function (x) { out.push(x); }); } catch (e) {}   /* AIFLOW_V1 */
       // ---- 書いてほしい欄（目印） ----
       out.push('');
       if (want.daily) {
@@ -1477,6 +1483,7 @@ try {
         _reflExp.push({ uid: String(st.userId), wk: String(_rtM.weekKey) });
       }
       if (want.suggest) { out.push('=== [SUGGEST:' + sid + '] ' + nm + ' ==='); out.push(''); }
+      if (want.flow) { out.push('=== [FLOW:' + sid + '] ' + nm + ' ==='); out.push(''); }   /* AIFLOW_V1 */
       wCount++;
 
       // 個人カルテのボタン列にも反映しておく
@@ -1566,7 +1573,7 @@ try {
 }
 
 // --- 目印として認めるもの ---
-var TAI_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT'];
+var TAI_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO'];   /* AIFLOW_V1 ／ PORTFOLIO_AI_V1 */
 
 function reEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -1777,10 +1784,10 @@ function showHolds(holds) {
 async function taiImport(opts) {
   opts = opts || {};
   var appendMode = !!opts.append;
-  var say2 = appendMode ? sayOne : say;
-  var cid = classId();
-  var ta = $(appendMode ? 'taiOnePaste' : 'taiPaste');
-  var raw = ta ? ta.value : '';
+  var say2 = (typeof opts.say === 'function') ? opts.say : (appendMode ? sayOne : say);   /* PORTFOLIO_AI_V1 成果物の分析の取り込みからも使う */
+  var cid = opts.classId || classId();
+  var ta = (typeof opts.raw === 'string') ? null : $(appendMode ? 'taiOnePaste' : 'taiPaste');
+  var raw = (typeof opts.raw === 'string') ? opts.raw : (ta ? ta.value : '');
   if (!cid) { say2('先にクラスを選んでください'); return; }
   if (!raw || !raw.trim()) { say2('AIの返事を貼り付けてください'); return; }
   // MINNA_FURI_V1 [PICK:振り返りID] 理由 の行は、みんなのふりかえりの掲載候補として先に取り込み、ここから外す
@@ -2021,7 +2028,10 @@ var KIND_JA = {
     REFLECT:   { ja: '振り返りの返却',   to: 'kid',     badge: '子どもの画面に出る' },
     SUGGEST:   { ja: 'おすすめ計画',     to: 'kid',     badge: '子どもの画面に出る' },
     CLASS:     { ja: 'クラス所見',       to: 'teacher', badge: '先生だけ' },
-    WEEKREPORT:{ ja: '週報',             to: 'teacher', badge: '先生だけ' }
+    WEEKREPORT:{ ja: '週報',             to: 'teacher', badge: '先生だけ' },
+    FLOW:      { ja: '流れのメモ',       to: 'teacher', badge: '先生だけ（次のコピーの「先週までの流れ」に入る）' },   /* AIFLOW_V1 */
+    WORK:      { ja: '📓 成果物へのひとこと', to: 'kid', badge: '子どもの画面と紙のカルテ（📓）に出る' },   /* PORTFOLIO_AI_V1 */
+    WORKMEMO:  { ja: '成果物の分析メモ', to: 'teacher', badge: '先生だけ（次のコピーの「先週までの流れ」に入る）' }   /* PORTFOLIO_AI_V1 */
   };
   var _drafts = [];
 
@@ -2245,9 +2255,18 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
       if (n) msgs.push('家庭学習コメント' + n + '人');
     }
 
+    // --- AIFLOW_V1 流れのメモ（先生だけ。公開すると次のコピーの「先週までの流れ」に入る） ---
+    if (byKind.FLOW) { byKind.FLOW.forEach(function (x) { okIds.push(x.id); }); msgs.push('流れのメモ' + byKind.FLOW.length + '人'); }
+    // --- PORTFOLIO_AI_V1 成果物の分析（📓ひとこと＝子どものカルテに出る／分析メモ＝先生だけ） ---
+    if (byKind.WORKMEMO) { byKind.WORKMEMO.forEach(function (x) { okIds.push(x.id); }); msgs.push('成果物の分析メモ' + byKind.WORKMEMO.length + '人'); }
+    if (byKind.WORK) {
+      byKind.WORK.forEach(function (x) { okIds.push(x.id); }); msgs.push('📓成果物へのひとこと' + byKind.WORK.length + '人');
+      try { await postJson('/api/teacher/karte-share', { classId: cid, studentIds: byKind.WORK.map(function (x) { return x.targetId; }) }); } catch (e) {}
+    }
     if (okIds.length) {
       await postJson('/api/teacher/ai-drafts/mark', { ids: okIds, status: 'published' });
     }
+    try { if (okIds.length && window.AI_FLOW) await window.AI_FLOW.saveFinal(picks, okIds); } catch (e) {}   /* AIFLOW_V1 公開した文に合わせる */
     sayPub(okIds.length ? ('✓ 公開しました: ' + msgs.join(' / ')) : '公開できませんでした');
     taiLoadDrafts();
     try { if (typeof loadAiSummary === 'function') loadAiSummary(); } catch (e) {}

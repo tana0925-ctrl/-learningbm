@@ -293,6 +293,12 @@
       h += '</div>';
     }
 
+    /* PORTFOLIO_AI_V1 📓 ノート・作品から（先生が読んで公開した文だけ。写真は出さない） */
+    if (d.work && d.work.text) {
+      h += '<div class="mt-3 rounded-xl bg-white border border-sky-200 p-3">'
+         + '<div class="text-xs font-bold text-sky-700">📓 ノート・作品から</div>'
+         + '<div class="text-sm text-gray-800" style="white-space:pre-wrap">' + esc(d.work.text) + '</div></div>';
+    }
     /* KARTE_HANSHIN_V2 (2026-10-05) 注記（※〜）は出さない（先生の指示）。
        見出しの「阪神マンから」と虎の絵はそのまま。 */
     h += '</div>';
