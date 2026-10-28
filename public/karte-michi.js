@@ -141,9 +141,9 @@
 
   // ───────── AIの文を▼の見出しで分ける ─────────
   function splitAi(text) {
-    var out = { main: '', ask: '', tries: [], home: '', hint: '', test: '' };
+    var out = { main: '', ask: '', tries: [], home: '', hint: '', test: '', head: '', sub: '', top: '', cls: '', after: '' };
     var lines = String(text || '').replace(/\r/g, '').split('\n');
-    var cur = 'main', buf = { main: [], ask: [], try: [], home: [], hint: [], test: [] };
+    var cur = 'main', buf = { main: [], ask: [], try: [], home: [], hint: [], test: [], head: [], sub: [], top: [], cls: [], after: [] };
     for (var i = 0; i < lines.length; i++) {
       var raw = lines[i];
       var t = raw.replace(/^[\s　*#>＃＊]+/, '').replace(/[\s　*＊]+$/, '');
@@ -155,6 +155,11 @@
         else if (/おうち|家の人|保護者/.test(h)) cur = 'home';
         else if (/出し方|提出/.test(h)) cur = 'hint';   /* TEISHUTSU_V1 */
         else if (/テスト/.test(h)) cur = 'test';
+        else if (/小見出し/.test(h)) cur = 'sub';   /* SHINBUN_V1 */
+        else if (/見出し/.test(h)) cur = 'head';
+        else if (/トップ記事|記事/.test(h)) cur = 'top';
+        else if (/教室/.test(h)) cur = 'cls';
+        else if (/編集後記|後記/.test(h)) cur = 'after';
         else cur = 'skip';
         continue;
       }
@@ -169,6 +174,9 @@
     out.home = buf.home.join(' ').replace(/\s+/g, ' ').trim();
     out.hint = buf.hint.join(' ').replace(/^[・\-–—•●\s　]+/, '').replace(/\s+/g, ' ').trim();
     out.test = buf.test.join(' ').replace(/^[・\-–—•●\s　]+/, '').replace(/\s+/g, ' ').trim();
+    var one = function (a) { return a.join(' ').replace(/\s+/g, ' ').trim(); };   /* SHINBUN_V1 */
+    out.head = one(buf.head); out.sub = one(buf.sub); out.cls = one(buf.cls); out.after = one(buf.after);
+    out.top = buf.top.join('\n').replace(/^\s+|\s+$/g, '');
     return out;
   }
   global.michiSplitAi = splitAi;
@@ -788,6 +796,17 @@
   global.michiComputeReco = computeReco;
 
   // すすみぐあいマップ：できた✓／いまここ📍／つぎ の3まいだけ（🅰🅱と同じ教科）
+  function progressCards(d, reco) {   /* SHINBUN_V1 progressMap と同じ並び（新聞でも使う） */
+    if (!reco) return [];
+    var here = reco.here || reco.anchor;
+    var sm = subjMap(d), order = subjOrder(reco.subj), i = order.indexOf(here);
+    var cards = [];
+    if (i > 0 && mastered(sm, order[i - 1])) cards.push({ k: 'done', id: order[i - 1] });
+    cards.push({ k: 'here', id: here });
+    if (reco.b && reco.b.id !== here) cards.push({ k: 'next', id: reco.b.id });
+    else if (i >= 0 && i + 1 < order.length) cards.push({ k: 'next', id: order[i + 1] });
+    return cards.map(function (c) { var inf = unitInfo(c.id) || { name: c.id }; var m = String(inf.name).match(/^(.*?)\s*\((.*)\)$/); return { k: c.k, name: m ? m[1] : inf.name, sub: m ? m[2] : '' }; });
+  }
   function progressMap(d, reco) {
     if (!reco) return '';
     var here = reco.here || reco.anchor;
@@ -1049,6 +1068,13 @@
     if (secNotes) B.push(secNotes.outerHTML);
     /* KANTAN_REF_V1 ✂おうちの人へ の欄は なくした（先生の判断・2026-10-26）。過去に作られた文（ai.home）は消さず、表示しないだけ。 */
 
+    /* SHINBUN_V1 道しるべ新聞（karte-shinbun.js）があれば そちらで組む。うまくいかなければ これまでの紙 */
+    if (typeof global.KARTE_SHINBUN === 'function') {
+      try {
+        var _sh = global.KARTE_SHINBUN({ d: d, name: nm, period: pd, ai: ai, hanNote: hanNote, reco: reco, step: step, map: map, cards: progressCards(d, reco), cd: cd, hn: hn, mp: miPlan(d), tries: tries, tsFact: tsFact(d), unitInfo: unitInfo, notes: secNotes ? secNotes.outerHTML : '', stale: !!hanStale, graphs: graphs(d) });
+        if (_sh) return _sh;
+      } catch (e) { try { console.error('SHINBUN_V1 新聞を作れなかったので、これまでの紙を出します', e); } catch (_e) {} }
+    }
     var html = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>学びの道しるべ</title><style>' + baseCss + '\n' + CSS + '\n' + CSS2 + '</style></head><body>' +
       '<div class="wrap"><div class="pg">' + F.join('') + '</div><div class="pg last">' + B.join('') + '<div class="foot">LearningBM ／ 学びの道しるべ</div></div></div>' + FIT + '</body></html>';
     return html;

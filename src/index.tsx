@@ -3831,7 +3831,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   const [submissions, subjectResults, plans, reflections, revisions] = await Promise.all([
     c.env.DB.prepare(`
       SELECT day_key, todo, minutes, end_weather, weather_reason, teacher_comment, aim,
-             next_improve, submitted_at, returned_at, streak_after, rest_day, has_physical
+             next_improve, submitted_at, returned_at, streak_after, rest_day, has_physical,
+             why, parent_comment
       FROM homework_submissions WHERE user_id=? ORDER BY day_key DESC
     `).bind(studentId).all<any>().catch(() => ({ results: [] })),
     c.env.DB.prepare(`
@@ -4085,7 +4086,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   let prevAsk = ''
   let karteHist: any[] = []   // MICHI_V1 先週の「これやってみる？」を紙に出すため
   try {
-    const _pv = await c.env.DB.prepare("SELECT body, week_key, published_at FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 3").bind(studentId).all<any>()
+    const _pv = await c.env.DB.prepare("SELECT body, week_key, published_at FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 4").bind(studentId).all<any>()
     const _pvr = (((_pv && _pv.results) || []) as any[])
     karteHist = _pvr.map((r: any) => ({ weekKey: r.week_key || '', body: String(r.body || ''), publishedAt: r.published_at || '' }))
     const _pb = String((_pvr[1] && _pvr[1].body) || '').split(/\n[ \u3000*#>]*▼/)[0]
@@ -4114,6 +4115,48 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   const nextTry = await nextTryLatest(c.env, studentId)   // MAEJIBUN_V1 振り返りに書いた「来週やってみたいこと」
   let michiClassId = ''   // MICHI_V1
   try { const _mc = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(studentId).first<any>(); michiClassId = (_mc && _mc.class_id) || '' } catch (e) {}
+
+
+  /* SHINBUN_V1 新聞のカルテ（道しるべ新聞）の材料。どれも 本人の記録・先生が書いたものだけ。
+     ago3   … 3週間前の週（月〜金）の 日数・分・ことば・次の作戦（「くらべてみよう」欄）
+     album  … 4週より前の ふりかえりから、月ごとに1つ（晴れ・くもりの日の いちばん長いことば）（「ことばのアルバム」欄）
+     ref2   … 週のふりかえり（先週決めたこと・学校での学び・考える問い）のいちばん新しい週（「インタビュー」欄）
+     lesson … 授業メモの1行目にある「教科：単元」だけ（メモの本文は子どもの紙に出さない） */
+  let shinbun: any = { ago3: null, album: [], ref2: null, lesson: [] }
+  try {
+    const _sb0 = new Date(_lwMonD.getTime() - 21 * 86400000)
+    const _sa = _lwFmt(_sb0), _sz = _lwFmt(new Date(_sb0.getTime() + 4 * 86400000))
+    const _ag = (subs as any[]).filter((x: any) => x.day_key >= _sa && x.day_key <= _sz && !x.rest_day)
+    const _agv = _ag.slice().sort((a: any, b: any) => String(a.day_key).localeCompare(String(b.day_key)))
+    shinbun.ago3 = { from: _sa, to: _sz, days: _ag.length, minutes: _ag.reduce((t: number, x: any) => t + (Number(x.minutes) || 0), 0),
+      voices: _agv.map((x: any) => String(x.weather_reason || '').trim()).filter((v: string) => v).slice(0, 2),
+      next: String((_agv.filter((x: any) => String(x.next_improve || '').trim()).pop() || {}).next_improve || '').trim() }
+    const _alCut = _lwFmt(new Date(_lwMonD.getTime() - 28 * 86400000))
+    const _byM: Record<string, any> = {}
+    for (const x of (subs as any[])) {
+      const dk = String(x.day_key || ''), tx = String(x.weather_reason || '').trim()
+      if (!dk || dk >= _alCut || x.rest_day || !tx || tx.length < 6 || tx.length > 60) continue
+      if (x.end_weather !== 'sun' && x.end_weather !== 'cloud') continue
+      const mk = dk.slice(0, 7)
+      if (!_byM[mk] || tx.length > _byM[mk].text.length) _byM[mk] = { dayKey: dk, text: tx }
+    }
+    shinbun.album = Object.keys(_byM).sort().reverse().slice(0, 3).map(k => _byM[k])
+  } catch (e) {}
+  try {
+    const _r2 = await c.env.DB.prepare('SELECT week_key, promise_text, promise_result, promise_reason, q_text, school_subj, school_theme, school_learned, school_more FROM week_ref2 WHERE user_id=? ORDER BY week_key DESC LIMIT 1').bind(studentId).first<any>()
+    if (_r2) shinbun.ref2 = { weekKey: _r2.week_key || '', promise: _r2.promise_text || '', result: _r2.promise_result || '', reason: _r2.promise_reason || '', q: _r2.q_text || '', subj: _r2.school_subj || '', theme: _r2.school_theme || '', learned: _r2.school_learned || '', more: _r2.school_more || '' }
+  } catch (e) {}
+  try {
+    const _lnFrom = _lwFrom, _lnTo = _lwFmt(new Date(_lwMonD.getTime() + 6 * 86400000))
+    const _seen: Record<string, boolean> = {}
+    for (const n of (classNotes as any[])) {
+      const dk = String(n.day_key || ''); if (!dk || dk < _lnFrom || dk > _lnTo) continue
+      const first = String(n.body || '').split(/\r?\n/)[0].trim()
+      const m = first.match(/^(国語|算数|理科|社会|英語|外国語|音楽|図工|体育|家庭|道徳|総合|書写)\s*[：:]\s*([^\s。、,，]{1,24})/)
+      if (m && !_seen[m[1] + m[2]]) { _seen[m[1] + m[2]] = true; shinbun.lesson.push({ dayKey: dk, subj: m[1], unit: m[2] }) }
+    }
+    shinbun.lesson = shinbun.lesson.slice(0, 4)
+  } catch (e) {}
 
   return c.json({
     ok: true,
@@ -4145,6 +4188,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     teacherNotes,
     classNotes,
     drill,
+    shinbun,   // SHINBUN_V1
   })
 })
 
@@ -10450,6 +10494,7 @@ for (const _f of _g8files) { app.get('/' + _f, async (c) => { try { const a = aw
 const _g8xfiles = ['g8xmath.js','g8xeng.js','g8xsci.js','g8xsoc.js','g8xjp.js']
 for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
 app.get('/karte-michi.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/karte-michi.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MICHI_V1
+app.get('/karte-shinbun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/karte-shinbun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MICHI_V1   // SHINBUN_V1
 app.get('/teacher-ai.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teacher-ai.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/weekref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF_V1
 app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/maejibun.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MAEJIBUN_V1
@@ -17526,8 +17571,9 @@ function _faKarteGraphs(d){
     <script src="/teacher-ai.js?v=16"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
-    <script src="/portfolio.js?v=2"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-michi.js?v=7"></script>
+    <script src="/portfolio.js?v=3"></script><!-- PORTFOLIO_V1 📸 成果物 -->
+    <script src="/karte-shinbun.js?v=1"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-michi.js?v=8"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>

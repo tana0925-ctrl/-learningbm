@@ -817,6 +817,7 @@
       var t = String(w.text).replace(/\s+/g, ' ');
       if (t.length > 200) t = t.slice(0, 199) + '…';
       var sec = '<div class="sec" style="border-color:#bae6fd;background:#f0f9ff"><h2>📓 ノート・作品から</h2><div style="font-size:12.5px;color:#334155">' + esc(t) + '</div></div>';
+      if (html.indexOf('<!--PF_WORK-->') >= 0) return html.replace('<!--PF_WORK-->', sec);   /* SHINBUN_V1 新聞では 2面の決まった場所に */
       var anchors = ['<div class="sec" style="border-color:#fcd34d"><h2>🎯', '<div class="foot">', '</body>'];
       for (var i = 0; i < anchors.length; i++) { var k = html.indexOf(anchors[i]); if (k >= 0) return html.slice(0, k) + sec + html.slice(k); }
       return html + sec;
