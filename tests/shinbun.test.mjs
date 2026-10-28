@@ -155,6 +155,17 @@ await t('8 ことば：新聞の決まった文・ミニ講座に NG語がない
   eq(sp.tries.length, 2, 'やってみるも そのまま')
 })
 
+await t('9 冒険ニュース：その子の 防衛戦・MVPの部門・図鑑・タイプシュート（ほかの子の名前・勝ち負け・順位の数字は出さない）', async () => {
+  const d = rich(); d.lastWeekSpecial = { pokedex: 3, typeshoot: 1250, wild: 0 }
+  d.shinbun.adv = { def: { count: 4, monsters: ['ピヨヒコ'], strategy: 'guard', mvp: ['kufu'] } }
+  const h = (await make(d)).html()
+  ok(h.indexOf('冒険ニュース') >= 0, '欄'); ok(h.indexOf('4回 出場。「ピヨヒコ」で、作戦は まもり 重視') >= 0, '防衛戦')
+  ok(h.indexOf('「くふう」部門に えらばれた') >= 0, 'MVPは部門の名前だけ'); ok(h.indexOf('新しく 3ひき 登録') >= 0, '図鑑'); ok(h.indexOf('タイプシュート</b>　1250点') >= 0, 'タイプシュート')
+  ;['位', '負け', '勝ち', 'lose', 'win'].forEach((w) => ok(h.replace(/<style>[\s\S]*?<\/style>/, '').replace(/単位|位置/g, '').indexOf(w) < 0, '出さない: ' + w))
+  const e = rich(); e.lastWeekSpecial = null; ok((await make(e)).html().indexOf('冒険ニュース') < 0, '記録がなければ 欄なし')
+  ok(taiJs.indexOf('【アプリの冒険（先週）】') >= 0 && taiJs.indexOf('ほかの子の名前、クラスの勝ち負け、順位の数字は書かない') >= 0, 'AIの材料と きまり')
+})
+
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== shinbun ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))
