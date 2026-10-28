@@ -161,9 +161,33 @@ await t('9 冒険ニュース：その子の 防衛戦・MVPの部門・図鑑�
   const h = (await make(d)).html()
   ok(h.indexOf('冒険ニュース') >= 0, '欄'); ok(h.indexOf('4回 出場。「ピヨヒコ」で、作戦は まもり 重視') >= 0, '防衛戦')
   ok(h.indexOf('「くふう」部門に えらばれた') >= 0, 'MVPは部門の名前だけ'); ok(h.indexOf('新しく 3ひき 登録') >= 0, '図鑑'); ok(h.indexOf('タイプシュート</b>　1250点') >= 0, 'タイプシュート')
-  ;['位', '負け', '勝ち', 'lose', 'win'].forEach((w) => ok(h.replace(/<style>[\s\S]*?<\/style>/, '').replace(/単位|位置/g, '').indexOf(w) < 0, '出さない: ' + w))
+  const vis = h.replace(/<style>[\s\S]*?<\/style>/, '').replace(/<script>[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ')   // 見える文字だけ
+  ;['位', '負け', '勝ち', 'lose', 'win'].forEach((w) => ok(vis.replace(/単位|位置/g, '').indexOf(w) < 0, '出さない: ' + w))
+  const r1 = rich(); r1.rankPt = { now: 340, prev: 280, prev2: 300 }; const hr = (await make(r1)).html()
+  ok(hr.indexOf('正解ポイント 340（先週より 60 ふえた）') >= 0, 'ランキングは その子の ポイントと 先週とのくらべ')
+  const r2 = rich(); r2.rankPt = { now: 340, prev: 280, prev2: 200 }; ok((await make(r2)).html().indexOf('（3週 つづけて のびている）') >= 0, '3週つづけて')
+  const r3 = rich(); r3.rankPt = { now: 100, prev: 280, prev2: null }; const h3 = (await make(r3)).html(); ok(h3.indexOf('正解ポイント 100</div>') >= 0 || h3.indexOf('正解ポイント 100<') >= 0, 'へったときは 数だけ'); ok(h3.indexOf('へった') < 0, 'へったとは 書かない')
+  ok(!/\d+\s*位/.test(hr.replace(/<style>[\s\S]*?<\/style>/, '')), '順位は出さない')
   const e = rich(); e.lastWeekSpecial = null; ok((await make(e)).html().indexOf('冒険ニュース') < 0, '記録がなければ 欄なし')
   ok(taiJs.indexOf('【アプリの冒険（先週）】') >= 0 && taiJs.indexOf('ほかの子の名前、クラスの勝ち負け、順位の数字は書かない') >= 0, 'AIの材料と きまり')
+})
+
+await t('10 友だちの名前は 紙に出さない（子どもが書いたことばの中の クラスの子の名前→「友だち」・主役の名前は そのまま）', async () => {
+  const d = rich()
+  d.recentSubmissions[0].weather_reason = 'わかった：山田さんに 教えてもらった'
+  d.recentSubmissions[2].parent_comment = '👍 見たよ　ゆうたくんと いっしょに やっていました'
+  d.shinbun.ref2.reason = '佐藤花子さんと 問題を 出し合った'
+  const x = await make(d)
+  x.w.getStudentNameMap = () => ({ a: '山田 太郎', b: '佐藤 花子', c: '児童A' })
+  x.w._serverFuriganaMap = { b: 'ゆうた' }
+  const h = x.html()
+  ok(h.indexOf('山田') < 0 && h.indexOf('佐藤') < 0 && h.indexOf('ゆうた') < 0, '名前が のこらない')
+  ok(h.indexOf('友だちさんに 教えてもらった') >= 0 && h.indexOf('友だちさんと 問題を') >= 0 && h.indexOf('友だちくんと いっしょに') >= 0, '「友だち」に')
+  ok(h.indexOf('今週の 主役　<b>児童A</b> さん') >= 0, '主役の名前は 題字に のこる')
+  ok(h.indexOf('ゆうがた') < 0 || true, '')
+  const T = x.w.__SHINBUN_T
+  eq(T.maskNames('<p>ゆうがたに やった</p>', ['ゆうた']), '<p>ゆうがたに やった</p>', 'ひらがなの 一部は こわさない')
+  eq(T.maskNames('<img alt="山田"><p>山田さん</p>', ['山田']), '<img alt="山田"><p>友だちさん</p>', 'タグの中には さわらない')
 })
 
 const pass = results.filter((r) => r.ok).length

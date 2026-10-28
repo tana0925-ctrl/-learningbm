@@ -1316,6 +1316,8 @@ try {
   if (_adv && Number(_adv.count) > 0) _al.push('クラス基地防衛戦に ' + _adv.count + '回 出場' + ((_adv.monsters || []).length ? '（モンスター: ' + _adv.monsters.join('・') + '）' : '') + (_STJ[_adv.strategy] ? '・作戦: ' + _STJ[_adv.strategy] : '') + ((_adv.mvp || []).length ? '・MVPの部門: ' + _adv.mvp.map(function (k) { return _MVJ[k] || k; }).join('・') : ''));
   if (Number(_spw.pokedex) > 0) _al.push('図鑑に新しく ' + Number(_spw.pokedex) + 'ひき登録');
   if (Number(_spw.typeshoot) > 0) _al.push('タイプシュート ' + Number(_spw.typeshoot) + '点');
+  var _rp = data && data.rankPt;   /* SHINBUN_RANK_V1 */
+  if (_rp && Number(_rp.now) > 0) _al.push('週間ランキングの正解ポイント ' + Number(_rp.now) + (_rp.prev != null ? '（その前の週は ' + Number(_rp.prev) + '）' : '') + '。順位は書かない。くらべるのは前の週のその子だけ');
   if (_al.length) { out.push(''); out.push('【アプリの冒険（先週）】'); _al.forEach(function (x) { out.push('・' + x); }); }
 } catch (e) {}
 // ===== ②-1 4月からの移りかわり（1週間だけでは言えない話は ここから作る）=====

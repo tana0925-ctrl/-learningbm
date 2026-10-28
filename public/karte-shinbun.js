@@ -334,6 +334,12 @@
       L.push('🛡 <b>クラス基地防衛戦</b>　' + df.count + '回 出場' + (m.length ? '。' + m.map(function (x) { return '「' + esc(x) + '」'; }).join('と') + 'で' : '') + (STRAT[df.strategy] ? '、作戦は ' + STRAT[df.strategy] : ''));
       (df.mvp || []).forEach(function (k) { if (MVPJ[k]) L.push('🏅 <b>MVP</b>　「' + MVPJ[k] + '」部門に えらばれた'); });
     }
+    var rp = d.rankPt;   /* SHINBUN_RANK_V1 順位は出さない。くらべるのは 前の週の その子だけ。へったときは 数だけ */
+    if (rp && Number(rp.now) > 0) {
+      var up = rp.prev != null && Number(rp.now) > Number(rp.prev);
+      var up3 = up && rp.prev2 != null && Number(rp.prev) > Number(rp.prev2);
+      L.push('🏆 <b>週間ランキング</b>　正解ポイント ' + Number(rp.now) + (up3 ? '（3週 つづけて のびている）' : up ? '（先週より ' + (Number(rp.now) - Number(rp.prev)) + ' ふえた）' : ''));
+    }
     if (Number(sp.pokedex) > 0) L.push('📖 <b>図鑑</b>　新しく ' + Number(sp.pokedex) + 'ひき 登録');
     if (Number(sp.typeshoot) > 0) L.push('🎯 <b>タイプシュート</b>　' + Number(sp.typeshoot) + '点');
     if (Number(sp.wild) > 0) L.push('🌿 <b>野生</b>　' + Number(sp.wild) + 'ひきと 出会った');
@@ -448,6 +454,29 @@
     'window.addEventListener("load",again);try{if(document.fonts&&document.fonts.ready)document.fonts.ready.then(again);}catch(e){}' +
     '})();<\/script>';
 
+  // ───────── 👫 SHINBUN_NAME_V1 友だちの名前は 紙に出さない ─────────
+  //  子どもが書いた ことば（ふりかえり・インタビュー・おうちの人の ひとこと など）に クラスの子の名前があれば「友だち」にする。
+  //  題字の「今週の主役」以外の 本文ぜんぶに かける（タグの中・写真の data: には さわらない）。
+  //  名前のもと：名簿（getStudentNameMap）・ふりがな（_serverFuriganaMap）・児童一覧（_lastStudentSummaries）。
+  //  漢字の名前は 先頭2〜3文字（名字だけで 書かれたとき）も。ひらがなは 名前ぜんぶ（3文字以上）だけ（「ゆうがた」などを こわさないため）。
+  function nameList() {
+    var c = [], push = function (v, min) { v = String(v == null ? '' : v).replace(/[\s　]+/g, '').trim(); if (v.length >= min && c.indexOf(v) < 0) c.push(v); };
+    var kanji = function (v) { v = String(v || '').replace(/[\s　]+/g, ''); push(v, 2); if (/^[\u4e00-\u9fff々]{2,}/.test(v)) { var m = v.match(/^[\u4e00-\u9fff々]+/)[0]; if (m.length >= 2) { push(m.slice(0, 2), 2); push(m.slice(0, 3), 3); } } };
+    try { var m = typeof global.getStudentNameMap === 'function' ? (global.getStudentNameMap() || {}) : {}; Object.keys(m).forEach(function (k) { kanji(m[k]); }); } catch (e) {}
+    try { var f = global._serverFuriganaMap || {}; Object.keys(f).forEach(function (k) { push(f[k], 3); }); } catch (e) {}
+    try { (global._lastStudentSummaries || []).forEach(function (st) { kanji(st && st.name); }); } catch (e) {}
+    c.sort(function (a, b) { return b.length - a.length; });
+    return c;
+  }
+  function maskNames(html, names) {
+    if (!names || !names.length) return html;
+    return String(html).replace(/>([^<]+)</g, function (all, tx) {
+      var t = tx;
+      for (var i = 0; i < names.length; i++) if (t.indexOf(names[i]) >= 0) t = t.split(names[i]).join('友だち');
+      return '>' + t + '<';
+    });
+  }
+
   // ───────── 組み立て ─────────
   function build(c) {
     var d = c.d || {};
@@ -472,12 +501,15 @@
     var after = c.ai && c.ai.after ? '<div class="after"><b>編集後記</b>　' + esc(cut(c.ai.after, 90)) + '（阪神マン）</div>' : '';
     var foot = function (n) { return '<div class="foot"><span>LearningBM ／ 道しるべ新聞（学びの道しるべ）</span><span>' + n + '面</span></div>'; };
 
+    var NM = nameList(), mk = function (x) { return maskNames(x, NM); };   /* SHINBUN_NAME_V1 */
+    top = mk(top); F = mk(F); B = mk(B); after = mk(after);
+    var memo = mk(memoTable(rows));
     return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>道しるべ新聞</title><style>' + CSS + '</style></head><body>' +
-      '<div class="pg np">' + mast + top + '<div class="flow">' + F + '</div>' + memoTable(rows) + foot(1) + '</div>' +
+      '<div class="pg np">' + mast + top + '<div class="flow">' + F + '</div>' + memo + foot(1) + '</div>' +
       '<div class="pg np last"><div class="mast"><div class="mc" style="font-size:19px;font-weight:800;flex:1">道しるべ新聞　2面</div><div class="no">今週の 主役　' + esc(nm) + ' さん<br>' + esc(ja(days[0])) + '〜' + esc(ja(days[4])) + '号</div></div>' +
       '<div class="flow">' + B + '</div>' + after + foot(2) + '</div>' + FIT + '</body></html>';
   }
 
   global.KARTE_SHINBUN = build;
-  global.__SHINBUN_T = { advLines: advLines, weekStart: weekStart, weekRows: weekRows, topArticle: topArticle, issueNo: issueNo, isoWeek: isoWeek, headlinesOf: headlinesOf, CSS: CSS };
+  global.__SHINBUN_T = { maskNames: maskNames, nameList: nameList, advLines: advLines, weekStart: weekStart, weekRows: weekRows, topArticle: topArticle, issueNo: issueNo, isoWeek: isoWeek, headlinesOf: headlinesOf, CSS: CSS };
 })(window);

@@ -4082,6 +4082,14 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     const _sp = await c.env.DB.prepare('SELECT pokedex, typeshoot, wild FROM ranking_weekly_scores WHERE user_id=? AND week_key=?').bind(studentId, _lwFrom).first<any>()
     if (_sp) lastWeekSpecial = { pokedex: Number(_sp.pokedex || 0), typeshoot: Number(_sp.typeshoot || 0), wild: Number(_sp.wild || 0) }
   } catch (e) {}
+  /* SHINBUN_RANK_V1 週間ランキングの「その子の ポイント」だけ（先週・その前の週・3週つづけて のびたか）。順位・ほかの子の点は 渡さない */
+  let rankPt: any = null
+  try {
+    const _p2 = _lwFmt(new Date(_lwMonD.getTime() - 7 * 86400000)), _p3 = _lwFmt(new Date(_lwMonD.getTime() - 14 * 86400000))
+    const _rp = (((await c.env.DB.prepare('SELECT week_key, correct_pt FROM ranking_weekly_scores WHERE user_id=? AND week_key IN (?,?,?)').bind(studentId, _lwFrom, _p2, _p3).all<any>()).results) || []) as any[]
+    const _v: Record<string, number> = {}; for (const r of _rp) _v[String(r.week_key)] = Math.round(Number(r.correct_pt) || 0)
+    if (_v[_lwFrom] != null) rankPt = { now: _v[_lwFrom], prev: _v[_p2] == null ? null : _v[_p2], prev2: _v[_p3] == null ? null : _v[_p3] }
+  } catch (e) {}
   // 前回のカルテの最後の問いかけ。紙の上でも「あれ、どうなった？」が見えるようにする。
   let prevAsk = ''
   let karteHist: any[] = []   // MICHI_V1 先週の「これやってみる？」を紙に出すため
@@ -4192,6 +4200,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     recentSubmissions: subs.slice(0, 15),
     planSuggestion, mi: miInfo, aiComment: aiComment2, aiCommentMeta,
     lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
+    rankPt,   // SHINBUN_RANK_V1
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
     recentUnits, karteReco, recoFeedback,                 // MICHI_V2
     nextTry,                                              // MAEJIBUN_V1
