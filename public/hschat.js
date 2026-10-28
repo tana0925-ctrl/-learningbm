@@ -23,6 +23,7 @@
  *      ログインしなおすと ここで控えを戻し、対話なら 提出の直前の画面を ひらく（同じ子・同じ日・12時間以内だけ）。
  *      控えは 提出できたら消す。コインは いつもの提出の1回だけ（サーバに もう提出があれば 二重に出さない）。
  *
+ *  ▶ READY_V1（2026-10-28）何分かえらんだら すぐ始めず「じゅんびが できたら スタートしよか？」→ ▶スタート／時間を えらびなおす。
  *  🗣 HSTALK_V1（2026-10-28）答えに 阪神マンが ひとこと返す（受け止め）・前の「次どうする」と天気で 前の自分とつなぐ・
  *    理由をえらんだら「もう一歩」を1問（とばせる）。答えは いつもの weatherReason に「理由：答え」。くわしくは REACT・DEEP・PREV のところ。
  *
@@ -52,6 +53,9 @@
     whyOther: 'ほうほう、わけを 書いてな',
     min: '何分 やる？',
     minOther: '何分にする？ 数字で 書いてな（1〜180）',
+    ready: '{n}分やな！ じゅんびが できたら タイマーを スタートしよか？',   // READY_V1 スタートの前に聞く
+    readyBtn: '▶ スタート',
+    readyBack: '↩️ 時間を えらびなおす',
     go: 'よっしゃ、がんばってな！ タイマー スタートや！',
     running: 'いま がんばり中やで。終わったら「おわる」を おしてな',
     timeUp: '⏰ 時間やで！ まだ やる？',
@@ -382,7 +386,7 @@
       if (s.started) { c.step = 'run'; c.goalMin = 0; say(c, 'b', SAY.sheetStarted); }
       else { var _pl = startLine(); if (_pl) say(c, 'b', _pl); say(c, 'b', SAY.todo); }   /* HSTALK_V1 前の「次どうする」 */
       s._chat = c; saveSess(s);
-    } else if (s.started && (c.step === 'todo' || c.step === 'why' || c.step === 'min')) {
+    } else if (s.started && (c.step === 'todo' || c.step === 'why' || c.step === 'min' || c.step === 'ready')) {
       // シートの「スタート」で先に始まっていたら、タイマーはそのまま使う（やり直さない）
       c.step = 'run'; c.waiting = ''; say(c, 'b', SAY.sheetStarted);
       s._chat = c; saveSess(s);
@@ -449,14 +453,23 @@
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.whyOther); c.waiting = 'why'; }); return; }
     act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', o.k)); say(c, 'b', SAY.min); });
   }
-  function pickMin(n) {
-    unlockAudio();
+  function pickMin(n) {   // READY_V1 分をえらんだら すぐ始めず「スタートしよか？」と聞く
     n = Math.max(1, Math.min(180, parseInt(n, 10) || 0));
     if (!n) return;
     act(function (s, c) {
       say(c, 'm', n + '分');
       c.goalMin = n; c.extMin = 0; c.alarmAt = 0;
       s.todo = c.todoText || s.todo; s.why = c.whyText || s.why; s.aim = buildAim(n);
+      c.step = 'ready'; say(c, 'b', fill(SAY.ready, { n: n }));
+    });
+  }
+  function reMin() { act(function (s, c) { say(c, 'm', SAY.readyBack); c.step = 'min'; say(c, 'b', SAY.min); }); }
+  function startNow() {
+    unlockAudio();
+    act(function (s, c) {
+      if (c.step !== 'ready' || !c.goalMin) return;
+      say(c, 'm', SAY.readyBtn);
+      s.todo = c.todoText || s.todo; s.why = c.whyText || s.why; s.aim = buildAim(c.goalMin);
       saveSess(s);
       call('hsStartStudy');
       var s2 = getSess() || s;
@@ -716,6 +729,9 @@
       var ms = MINS.map(function (n) { return { label: n + '分' }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ms, 'three');
       bind(foot, MINS.map(function (n) { return function () { pickMin(n); }; }).concat([function () { act(function (s2, c2) { say(c2, 'm', '✍️ その他'); say(c2, 'b', SAY.minOther); c2.waiting = 'min'; }); }]));
+    } else if (step === 'ready') {   // READY_V1
+      foot.innerHTML = btns([{ label: SAY.readyBtn, cls: 'main big' }, { label: SAY.readyBack, cls: 'sub' }]);
+      bind(foot, [startNow, reMin]);
     } else if (step === 'run' || step === 'alarm' || step === 'early' || step === 'search') {
       var el = elapsedMs(s), tg = targetMs(c), paused = !!(s && s.paused);
       var left = tg ? tg - el : 0;

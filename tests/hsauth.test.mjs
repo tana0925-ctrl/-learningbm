@@ -89,7 +89,7 @@ async function device({ store = null, ls = null, viewAs = false, role = 'student
 // 対話で 提出の直前（📤 先生に 提出 の画面）まで すすめる
 async function toSubmit(d) {
   d.w.HSCHAT.open(); await sleep(50)
-  await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('15分')
+  await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('15分'); await d.click('スタート')
   d.pass(16); d.w.HSCHAT._t.tick(); await d.click('おわる')
   await d.click('はれ'); await d.click('集中できた'); await d.click('とばす'); await d.click('このままでOK')
   await d.click('あとで もらう')
