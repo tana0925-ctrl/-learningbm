@@ -794,6 +794,8 @@ out.push('【目印の種類】');
       out.push('        ・ノートや作品の材料（「ノート・作品（写真の分析）」「📓 成果物へのひとこと」、成果物の記録、【先生の観察メモ】）があれば、記事の中で1段落 取り上げる。');   /* SHINBUN_V1B */
       out.push('          何を書いたか・どう工夫したか（図・式・ことば・まとめ方）を、材料に書かれている事実だけで書く。家庭学習の話が少ない子は、こちらを記事の中心にしてよい。');
       out.push('          成果物の評価（A・B・C、◎○△）・点数・評価コメントの言いまわしは記事に書かない。');
+      out.push('        ・【アプリの冒険（先週）】（クラス基地防衛戦・図鑑・タイプシュート）があれば、記事やコラムで ふれてよい。書くのは その子が したこと（出場した・作戦・登録した数）だけ。');   /* SHINBUN_ADV_V1 */
+      out.push('          ほかの子の名前、クラスの勝ち負け、順位の数字は書かない。学習の話と つなげられるときは つなげる（例：作戦を考えるのは 算数の 見通しと 同じやな）。');
       out.push('        ・ほめるのは やり方の事実（場所を変えた・図にした・まちがいを見直した など）。点数・順位・ほかの子とのくらべは書かない。');
       out.push('      ▼教室から');
       out.push('        ・【先生の観察メモ】や 成果物の記録があるときだけ。学校での学習の様子を、子どもが読んで うれしい形で 1〜2文・60字以内。事実だけ。');
@@ -1306,6 +1308,15 @@ try {
       out.push('・MIしらべ（自己申告・' + String(_mi.takenAt || '').slice(0, 10) + '）本人が「好き・得意」と答えた上位: ' + _mr.slice(0, 3).map(function (x) { return x.name; }).join('、'));
     }
   }
+} catch (e) {}
+// SHINBUN_ADV_V1 アプリの冒険（先週・その子のことだけ。ほかの子の名前・勝ち負け・順位は 渡さない）
+try {
+  var _adv = data && data.shinbun && data.shinbun.adv && data.shinbun.adv.def, _spw = (data && data.lastWeekSpecial) || {}, _al = [];
+  var _STJ = { attack: 'こうげき重視', guard: 'まもり重視', weakness: '弱点ねらい', balance: 'バランス' }, _MVJ = { seme: 'はたらいたかず', nebari: 'のこったじかん', mamori: 'たえたわりあい', kufu: 'くふう' };
+  if (_adv && Number(_adv.count) > 0) _al.push('クラス基地防衛戦に ' + _adv.count + '回 出場' + ((_adv.monsters || []).length ? '（モンスター: ' + _adv.monsters.join('・') + '）' : '') + (_STJ[_adv.strategy] ? '・作戦: ' + _STJ[_adv.strategy] : '') + ((_adv.mvp || []).length ? '・MVPの部門: ' + _adv.mvp.map(function (k) { return _MVJ[k] || k; }).join('・') : ''));
+  if (Number(_spw.pokedex) > 0) _al.push('図鑑に新しく ' + Number(_spw.pokedex) + 'ひき登録');
+  if (Number(_spw.typeshoot) > 0) _al.push('タイプシュート ' + Number(_spw.typeshoot) + '点');
+  if (_al.length) { out.push(''); out.push('【アプリの冒険（先週）】'); _al.forEach(function (x) { out.push('・' + x); }); }
 } catch (e) {}
 // ===== ②-1 4月からの移りかわり（1週間だけでは言えない話は ここから作る）=====
       try {

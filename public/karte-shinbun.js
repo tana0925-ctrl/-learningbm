@@ -324,14 +324,25 @@
     for (var i = 0; i < 3; i++) { var t = SWITCH[(w * 3 + i) % SWITCH.length]; L.push('<div class="li"><b>● ' + esc(t[0]) + '</b><br>' + esc(t[1]) + '</div>'); }
     return sec('やる気スイッチの 入れ方', L.join(''), 1, '', '阪神マンの ひとくち アドバイス');
   }
+  // 🛡 SHINBUN_ADV_V1 冒険ニュース：その子が アプリで したことだけ（ほかの子の名前・勝ち負け・順位の数字は 出さない）
+  var STRAT = { attack: 'こうげき 重視', guard: 'まもり 重視', weakness: '弱点ねらい', balance: 'バランス' };
+  var MVPJ = { seme: 'はたらいた かず', nebari: 'のこった じかん', mamori: 'たえた わりあい', kufu: 'くふう' };
+  function advLines(d) {
+    var L = [], sp = d.lastWeekSpecial || {}, df = d.shinbun && d.shinbun.adv && d.shinbun.adv.def;
+    if (df && Number(df.count) > 0) {
+      var m = (df.monsters || []).filter(Boolean);
+      L.push('🛡 <b>クラス基地防衛戦</b>　' + df.count + '回 出場' + (m.length ? '。' + m.map(function (x) { return '「' + esc(x) + '」'; }).join('と') + 'で' : '') + (STRAT[df.strategy] ? '、作戦は ' + STRAT[df.strategy] : ''));
+      (df.mvp || []).forEach(function (k) { if (MVPJ[k]) L.push('🏅 <b>MVP</b>　「' + MVPJ[k] + '」部門に えらばれた'); });
+    }
+    if (Number(sp.pokedex) > 0) L.push('📖 <b>図鑑</b>　新しく ' + Number(sp.pokedex) + 'ひき 登録');
+    if (Number(sp.typeshoot) > 0) L.push('🎯 <b>タイプシュート</b>　' + Number(sp.typeshoot) + '点');
+    if (Number(sp.wild) > 0) L.push('🌿 <b>野生</b>　' + Number(sp.wild) + 'ひきと 出会った');
+    return L;
+  }
   function specialSec(c) {
-    var sp = c.d.lastWeekSpecial; if (!sp) return '';
-    var a = [];
-    if (sp.pokedex > 0) a.push('図鑑に ' + sp.pokedex + 'ひき 登録');
-    if (sp.typeshoot > 0) a.push('タイプシュート ' + sp.typeshoot + '点');
-    if (sp.wild > 0) a.push('野生の 出会い ' + sp.wild);
-    if (!a.length) return '';
-    return sec('アプリの とくべつ', li('● ' + a.map(esc).join('　● ')), 1, '', '先週');
+    var L = advLines(c.d);
+    if (!L.length) return '';
+    return sec('冒険ニュース', L.map(function (x) { return li(x); }).join(''), 2, 'news', 'アプリでの 1週間');
   }
   function wisdomSec(c) {
     var mp = c.mp, hn = c.hn || [], h = '';
@@ -468,5 +479,5 @@
   }
 
   global.KARTE_SHINBUN = build;
-  global.__SHINBUN_T = { weekStart: weekStart, weekRows: weekRows, topArticle: topArticle, issueNo: issueNo, isoWeek: isoWeek, headlinesOf: headlinesOf, CSS: CSS };
+  global.__SHINBUN_T = { advLines: advLines, weekStart: weekStart, weekRows: weekRows, topArticle: topArticle, issueNo: issueNo, isoWeek: isoWeek, headlinesOf: headlinesOf, CSS: CSS };
 })(window);

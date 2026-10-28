@@ -4142,6 +4142,19 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     }
     shinbun.album = Object.keys(_byM).sort().reverse().slice(0, 3).map(k => _byM[k])
   } catch (e) {}
+  /* SHINBUN_ADV_V1 冒険ニュース：その子が その週に アプリで したこと（防衛戦・図鑑・タイプシュート）。
+     ほかの子の名前・勝ち負け・順位の数字は 入れない（MVP は 部門の名前だけ）。 */
+  try {
+    const _dv = (((await c.env.DB.prepare('SELECT event_key, monster_json, strategy FROM defense_entries WHERE user_id=? AND event_key >= ? AND event_key < ? ORDER BY event_key').bind(studentId, _lwFrom, _lwNext).all<any>()).results) || []) as any[]
+    const _mons: Record<string, number> = {}, _sts: Record<string, number> = {}
+    for (const e of _dv) {
+      try { const m = JSON.parse(e.monster_json || '{}'); const nm = String((m && m.name) || '').slice(0, 20); if (nm) _mons[nm] = (_mons[nm] || 0) + 1 } catch (_e) {}
+      const st = String(e.strategy || ''); if (st) _sts[st] = (_sts[st] || 0) + 1
+    }
+    const _top = (o: Record<string, number>) => Object.keys(o).sort((a, b) => o[b] - o[a])
+    const _mv = (((await c.env.DB.prepare('SELECT DISTINCT category FROM defense_mvp_rewards WHERE user_id=? AND event_key >= ? AND event_key < ? AND place BETWEEN 1 AND 3').bind(studentId, _lwFrom, _lwNext).all<any>()).results) || []) as any[]
+    shinbun.adv = { def: { count: _dv.length, monsters: _top(_mons).slice(0, 2), strategy: _top(_sts)[0] || '', mvp: _mv.map((r: any) => String(r.category || '')).filter(Boolean) } }
+  } catch (e) {}
   try {
     const _r2 = await c.env.DB.prepare('SELECT week_key, promise_text, promise_result, promise_reason, q_text, school_subj, school_theme, school_learned, school_more FROM week_ref2 WHERE user_id=? ORDER BY week_key DESC LIMIT 1').bind(studentId).first<any>()
     if (_r2) shinbun.ref2 = { weekKey: _r2.week_key || '', promise: _r2.promise_text || '', result: _r2.promise_result || '', reason: _r2.promise_reason || '', q: _r2.q_text || '', subj: _r2.school_subj || '', theme: _r2.school_theme || '', learned: _r2.school_learned || '', more: _r2.school_more || '' }
@@ -17568,11 +17581,11 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=17"></script>
+    <script src="/teacher-ai.js?v=18"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=4"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=2"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-shinbun.js?v=3"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=8"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
