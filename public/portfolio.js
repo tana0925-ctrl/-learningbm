@@ -405,6 +405,7 @@
       '<b style="margin-left:6px">教科</b><select id="pfAiSubj" style="border:1px solid #cbd5e1;border-radius:8px;padding:4px"><option value="">すべて</option><option>家庭学習</option>' + SUBJ.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></div>' +
       '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:6px;margin-top:6px;font-size:12px;color:#991b1b"><b>⚠ 名前が写っている写真は外すか、隠してから貼ってね。</b>' +
       '<div style="color:#475569;margin-top:2px">💡 外部AIは「一時チャット」（履歴に残らないモード）がおすすめです。AIによっては一度に貼れる写真の数に上限があります（目安20まい）。多いときは PDF（1つのファイル）を使ってください。</div></div>' +
+      '<label style="display:block;margin-top:6px;font-size:12px"><input type="checkbox" id="pfAiRec" checked> <b>📊 評価（3観点 A・B・C と根拠）も いっしょに読ませる</b><span style="color:#64748b">（先生だけ。確かめてから 成績・記録に保存。子どもには出ません。分析タブの「成果物・振り返り」の取り込みは ここに まとめました）</span></label>' +   /* WORKREC_V1 */
       '<div style="margin-top:6px">' + btn('① AIに渡すプロンプトをコピー', 'PF._aiCopy()', '#a21caf') +
       btn('② 写真をまとめてダウンロード（ZIP）', 'PF._aiZip()', '#1d4ed8') + btn('②’ 1つのPDFで', 'PF._aiPdf()', '#1e40af') +
       '<span id="pfAiSt" style="font-size:12px;font-weight:bold;color:#86198f;margin-left:4px"></span></div>' +
@@ -413,6 +414,7 @@
       '<textarea id="pfAiPaste" rows="4" placeholder="AIの返事をぜんぶ貼り付け" style="width:100%;font-size:12px;border:1px solid #cbd5e1;border-radius:8px;padding:6px"></textarea>' +
       '<div>' + btn('🔍 下書きに取り込む', 'PF._aiImport()', '#4f46e5') + '<span id="pfAiImpSt" style="font-size:12px;font-weight:bold;color:#3730a3;margin-left:4px"></span>' +
       '<span id="pfAiGo" style="display:none">' + btn('④ 確認して公開へ →', 'PF._aiGo()', '#e11d48') + '</span></div>' +
+      '<div id="pfRecPrev"></div>' +   /* WORKREC_V1 */
       '<p style="font-size:11px;color:#64748b;margin-top:4px">取り込んだ文は「④ 📊分析・カルテ → 📋今日のひと往復 の ④」に下書きとして入ります。先生が確認して公開するまで、子どもには届きません。公開すると「📓 成果物へのひとこと」は子どもの カルテ（アプリ・紙）に、「成果物の分析メモ」は先生だけのメモとして次回のコピーの「先週までの流れ」に入ります。</p>' +
       '</div>';
   }
@@ -483,7 +485,7 @@
     L.push('・前回の分析メモ（下にあれば）からの変化');
     L.push('');
     L.push('【書き方のきまり】');
-    L.push('・評価・点数・◎○△・順位・「よくできた／できていない」の判定は書かない。ほかの子と比べない。');
+    L.push('・WORK と WORKMEMO の欄には、評価・点数・◎○△・ABC・順位・「よくできた／できていない」の判定は書かない。ほかの子と比べない。' + (sn.rec ? '（評価は WORKREC の欄だけに書く）' : ''));
     L.push('・否定的なことば（できていない・雑・きたない・読みにくい・〜しかない など）は使わない。見えた事実と前向きな言い方で。');
     L.push('・次に試せる小さな工夫は 1つだけ。本人が「やってみようかな」と選べる言い方で（命令しない）。');
     L.push('・写真から読み取れないことは書かない。推しはかるときは「〜かも」と分かる書き方にする。');
@@ -494,6 +496,7 @@
     L.push('・WORK の欄 … 子どもに返すひとこと。やさしい話しことばで3〜4文（120字くらい）。見えたよさ → 前とくらべた変化 → 次に試せる小さな工夫1つ。');
     L.push('・目印の行（=== [...] === ）は1文字も変えずにそのまま残す。行の順番も変えない。前置き・あいさつ・まとめは書かない。');
     L.push('');
+    if (sn.rec) recPromptLines(sn).forEach(function (x) { L.push(x); });   /* WORKREC_V1 */
     sn.order.forEach(function (u) {
       var g = sn.groups[u], code = sn.codes[u];
       L.push('--------------------------------------------------');
@@ -509,6 +512,7 @@
       L.push('');
       L.push('=== [WORK:' + u + '] ===');
       L.push('');
+      if (sn.rec) sn.entries.filter(function (e) { return e.uid === u; }).forEach(function (e) { L.push('=== [WORKREC:' + u + ':' + e.no + '] ==='); L.push(''); });   /* WORKREC_V1 写真1まいごと */
     });
     return L.join(NL);
   }
@@ -522,6 +526,7 @@
     try {
       st.textContent = '作っています…';
       var sn = await aiSnap();
+      sn.rec = recOn(); if (sn.rec) sn.grade = await classGrade();   /* WORKREC_V1 */
       var prev = {};
       var f = await getJ('/api/teacher/ai-flow?classId=' + encodeURIComponent(S.classId) + '&days=42');
       if (f && f.ok) Object.keys(f.byUser || {}).forEach(function (u) { var m = (f.byUser[u] || []).filter(function (x) { return x.kind === 'WORKMEMO'; })[0]; if (m) prev[u] = m; });
@@ -604,17 +609,179 @@
       st.textContent = '✓ ' + pages.length + 'ページ（' + mb(blob.size) + '）。このPDFを1つ、AIに貼ってください';
     } catch (e) { st.textContent = String(e && e.message || e); }
   }
+
+  // ═════════ 📊 WORKREC_V1 成果物の評価も ここで（分析タブの「成果物・振り返り」の取り込みを まとめた） ═════════
+  //  ・同じ写真・同じAIの返事から、子どもへの 📓ひとこと（WORK）・先生のメモ（WORKMEMO）・評価の記録（WORKREC）を作る。
+  //  ・WORKREC は 先生だけ。/api/teacher/records/save（分析タブの取り込みと同じ記録）に入る。子どもの画面・紙には出さない。
+  //  ・評価のきまり（3観点・B が標準・根拠を書く・読み取れない観点は付けない・先生の印は写すだけ）は 分析タブのプロンプトと同じ。
+  function recOn() { var c = $('pfAiRec'); return !c || !!c.checked; }
+  async function classGrade() {
+    try {
+      var d = await getJ('/api/teacher/class/' + encodeURIComponent(S.classId) + '/members');
+      var ms = (d && d.members) || [], gc = {}, best = '', bn = 0;
+      ms.forEach(function (m) { var g = m.grade; if (g) { gc[g] = (gc[g] || 0) + 1; if (gc[g] > bn) { bn = gc[g]; best = String(g); } } });
+      return best;
+    } catch (e) { return ''; }
+  }
+  function recPromptLines(sn) {
+    var L = [];
+    L.push('【WORKREC の欄】先生用の評価の記録（子どもには出ません）。写真1まいごとに、目印の行のすぐ下に 次の形で書く。');
+    L.push('題: （成果物の題。なければ内容を短く要約）');
+    L.push('教科: （国語・算数・理科・社会 など。わからなければ空欄）');
+    L.push('単元: （わかれば。なければ空欄）');
+    L.push('本文: （子どもが書いた中身を、読み取れる範囲で。長いときは要約してよい。複数行でよい）');
+    L.push('振り返り: （子どもの振り返りが書いてあれば。なければ空欄）');
+    L.push('先生の印: （写真に先生が書いた ◎ / ○ / △ があれば写す。無ければ空欄。あなたが新しく付けないこと）');
+    L.push('評価コメント:');
+    L.push('知識・技能：A / B / C のどれか');
+    L.push('　「そう判断した根拠を、成果物に書かれていることで示す」');
+    L.push('思考・判断・表現：A / B / C のどれか');
+    L.push('　「そう判断した根拠を、成果物に書かれていることで示す」');
+    L.push('主体的に学習に取り組む態度：A / B / C のどれか');
+    L.push('　「そう判断した根拠を、成果物に書かれていることで示す」');
+    L.push('');
+    L.push('【評価のきまり】小学校学習指導要領の観点別学習状況の評価と同じ3観点。');
+    L.push('・A … その単元の目標を十分に達成している／B … おおむね達成している／C … 達成に向けて支援が必要');
+    L.push('・B が標準。ふつうにできていれば B。A は「ここまでできているのか」と先生が驚くときだけ。A ばかりにしない。');
+    L.push('・この写真から読み取れる範囲だけで書く。その観点が読み取れないときは、評定をつけず「この成果物からは分かりません」と書く（計算プリント1枚から 主体的な態度は読み取れない など）。');
+    L.push('・評定だけで終わらせず、次の行に かぎかっこ「」で根拠を書く。性格や人柄を否定しない（「雑」「やる気がない」などは使わない）。');
+    L.push('・教科と単元が分かるときは、その単元の目標に照らして判断する。');
+    try {
+      var EK = (typeof window._ekTable === 'function') ? window._ekTable() : null, g = EK && sn.grade ? EK[String(sn.grade)] : null;
+      if (g) {
+        L.push('【' + sn.grade + '年の評価規準（本校教育課程より）／教科に合うものに照らして判断する】');
+        ['国語', '算数', '理科', '社会'].forEach(function (k) { var e = g[k]; if (e) L.push('■' + k + '／知識・技能：' + e.kt + '／思考・判断・表現：' + e.sh + '／主体的に学習に取り組む態度：' + e.st); });
+      }
+    } catch (e) {}
+    L.push('');
+    return L;
+  }
+  var REC_KEYS = { '題': 'title', 'タイトル': 'title', '日付': 'day', '教科': 'subject', '単元': 'unit', '本文': 'body', '振り返り': 'reflection', 'ふりかえり': 'reflection', '先生の印': 'evalRank', '評価': 'evalRank', '評価コメント': 'evalComment' };
+  // AIの返事から WORKREC の欄を取り出す（rows）。のこり（rest）は 今日のひと往復の取り込みへ。
+  function splitRec(raw) {
+    var lines = String(raw || '').replace(/\r/g, '').split('\n'), rest = [], rows = [], cur = null, key = '';
+    var mk = /^\s*={2,}\s*\[\s*([A-Za-z]+)\s*[:：]\s*([^\]]*?)\s*\]\s*={2,}\s*$/;
+    lines.forEach(function (ln) {
+      var m = ln.match(mk);
+      if (m) {
+        if (cur) rows.push(cur);
+        cur = null; key = '';
+        if (m[1].toUpperCase() === 'WORKREC') {
+          var parts = m[2].split(/[:：]/);
+          cur = { userId: String(parts[0] || '').trim(), no: String(parts[1] || '').trim(), title: '', day: '', subject: '', unit: '', body: '', reflection: '', evalRank: '', evalComment: '' };
+          return;
+        }
+        rest.push(ln); return;
+      }
+      if (!cur) { rest.push(ln); return; }
+      var km = ln.match(/^\s*([^:：\s]{1,6})\s*[:：]\s*(.*)$/);
+      if (km && REC_KEYS[km[1]] && !(key === 'evalComment' && /^(知識|思考|主体)/.test(km[1]))) { key = REC_KEYS[km[1]]; cur[key] = km[2].trim(); return; }
+      if (key) cur[key] = cur[key] ? cur[key] + '\n' + ln.replace(/\s+$/, '') : ln.trim();
+    });
+    if (cur) rows.push(cur);
+    rows = rows.map(function (r) {
+      Object.keys(r).forEach(function (k) { r[k] = String(r[k] || '').replace(/^\s+|\s+$/g, ''); });
+      var mk2 = r.evalRank.match(/[◎○△]/); r.evalRank = mk2 ? mk2[0] : '';
+      if (/^[（(]?(なし|空欄|ない)[)）]?$/.test(r.reflection)) r.reflection = '';
+      return r;
+    }).filter(function (r) { return r.userId && (r.title || r.body || r.reflection || r.evalComment); });
+    return { rows: rows, rest: rest.join('\n') };
+  }
+  // 写真の 日付・教科で 足りないところを うめる
+  function fillFromPhoto(rows) {
+    var sn = S.ai, by = {};
+    if (sn && sn.entries) sn.entries.forEach(function (e) { by[e.uid + ':' + e.no] = e.it; });
+    rows.forEach(function (r) {
+      var it = by[r.userId + ':' + r.no];
+      if (it) { if (!/^\d{4}-\d{2}-\d{2}$/.test(r.day)) r.day = it.takenOn || ''; if (!r.subject) r.subject = it.subj || (it.src === 'hw' ? '家庭学習' : ''); }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.day)) r.day = '';
+      r.title = (r.title || r.body.split('\n')[0] || '成果物').slice(0, 200);
+    });
+    return rows;
+  }
+  // 3観点を 評価コメントから読む（「この成果物からは分かりません」は 空）
+  function kanten(txt) {
+    var t = String(txt || ''), o = {};
+    [['k', /知識[・･]?技能\s*[：:]\s*([ABCＡＢＣ])/], ['t', /思考[・･]?判断[・･]?表現\s*[：:]\s*([ABCＡＢＣ])/], ['a', /主体的に学習に取り組む態度\s*[：:]\s*([ABCＡＢＣ])/]].forEach(function (x) {
+      var m = t.match(x[1]); o[x[0]] = m ? String.fromCharCode(m[1].charCodeAt(0) > 255 ? m[1].charCodeAt(0) - 65248 : m[1].charCodeAt(0)) : '';
+    });
+    return o;
+  }
+  // 行き先は 分析タブの取り込みと同じ決まり：観点別（A・B・C）があれば「成績」（通知表が読む表）、なければ「記録」
+  function recDest(r) { var k = kanten(r.evalComment); r.k = k.k; r.t = k.t; r.a = k.a; return (k.k || k.t || k.a) ? 'score' : 'record'; }
+  function stuName(uid) { try { var s = (S.sum.students || []).filter(function (x) { return String(x.userId) === String(uid); })[0]; return s ? stuLabel(s) : uid; } catch (e) { return uid; } }
+  function recPreviewHtml(rows) {
+    var h = '<div style="margin-top:8px;border:2px solid #a855f7;border-radius:10px;padding:8px;background:#faf5ff">' +
+      '<b style="font-size:13px">📊 評価の記録（先生だけ）… 確かめてから保存</b><span style="font-size:11px;color:#64748b;margin-left:6px">A・B・C が入っている行は「成績」（通知表・分析が読む表）へ、入っていない行は「記録」へ。分析タブの取り込みと同じ決まりです。</span>' +
+      '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11.5px;margin-top:4px;width:100%"><tr style="background:#ede9fe">' +
+      ['保存', '子ども', '写真', '題', '教科', '知技', '思判表', '主体', '先生の印', '行き先', '根拠（評価コメント）'].map(function (x) { return '<th style="border:1px solid #c4b5fd;padding:2px 4px;white-space:nowrap">' + x + '</th>'; }).join('') + '</tr>';
+    rows.forEach(function (r, i) {
+      var d = recDest(r), cm = String(r.evalComment || '').replace(/\s+/g, ' ');
+      h += '<tr><td style="border:1px solid #ddd;text-align:center"><input type="checkbox" class="pfRecOk" data-i="' + i + '" checked></td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px;white-space:nowrap">' + esc(stuName(r.userId)) + '</td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px;white-space:nowrap">' + esc(r.no) + '</td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px">' + esc(r.title) + '</td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px;white-space:nowrap">' + esc(r.subject) + '</td>' +
+        ['k', 't', 'a'].map(function (k) { return '<td style="border:1px solid #ddd;text-align:center;font-weight:bold">' + esc(r[k] || '－') + '</td>'; }).join('') +
+        '<td style="border:1px solid #ddd;text-align:center">' + esc(r.evalRank || '') + '</td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px;white-space:nowrap">' + (d === 'score' ? '成績' : '記録') + '</td>' +
+        '<td style="border:1px solid #ddd;padding:2px 4px;min-width:240px">' + esc(cm.length > 140 ? cm.slice(0, 139) + '…' : cm) + '</td></tr>';
+    });
+    return h + '</table></div><div style="margin-top:6px">' + btn('💾 チェックした評価を保存', 'PF._recSave()', '#7c3aed') + '<span id="pfRecSt" style="font-size:12px;font-weight:bold;color:#6d28d9;margin-left:4px"></span></div></div>';
+  }
+  async function saveRec(rows) {
+    var recs = [], groups = {}, order = [], out = { record: 0, score: 0 };
+    rows.forEach(function (r) {
+      if (recDest(r) === 'record') { recs.push({ userId: r.userId, title: r.title, body: r.body, reflection: r.reflection, evalRank: r.evalRank, evalComment: r.evalComment, subject: r.subject, unit: r.unit, day: r.day }); return; }
+      var key = [r.title, r.day, r.subject].join('|');   // 同じ成果物（題・日・教科）ごとに1つの「成績」にまとめる
+      if (!groups[key]) { groups[key] = { testName: r.title, testDate: r.day, subject: r.subject, rows: [] }; order.push(key); }
+      groups[key].rows.push({ userId: r.userId, score: null, evalRank: r.evalRank || '', evalKnowledge: r.k, evalThinking: r.t, evalAttitude: r.a, comment: r.evalComment });
+    });
+    for (var i = 0; i < order.length; i++) {
+      var g = groups[order[i]];
+      var d = await postJ('/api/teacher/test-scores/save', { classId: S.classId, testName: g.testName, testDate: g.testDate, subject: g.subject, maxScore: 100, rows: g.rows });
+      if (!d || !d.ok) throw new Error('成績を保存できませんでした' + (d && d.error ? '（' + d.error + '）' : ''));
+      out.score += d.saved || 0;
+    }
+    if (recs.length) {
+      var d2 = await postJ('/api/teacher/records/save', { classId: S.classId, rows: recs });
+      if (!d2 || !d2.ok) throw new Error('記録を保存できませんでした' + (d2 && d2.error ? '（' + d2.error + '）' : ''));
+      out.record += d2.saved || 0;
+    }
+    return out;
+  }
+  async function recSave() {
+    var st = $('pfRecSt'), rows = S.recRows || [], pick = [];
+    var cbs = document.querySelectorAll('.pfRecOk');
+    for (var i = 0; i < cbs.length; i++) if (cbs[i].checked) pick.push(rows[Number(cbs[i].getAttribute('data-i'))]);
+    if (!pick.length) { st.textContent = '保存する行に チェックを入れてください'; return; }
+    st.textContent = '保存中…';
+    try {
+      var o = await saveRec(pick);
+      st.textContent = '✓ 成績に ' + o.score + '件・記録に ' + o.record + '件 保存しました（同じものは 二重に入りません）';
+      S.recRows = null;
+    } catch (e) { st.textContent = String(e && e.message || e); }
+  }
   async function aiImport() {
     var st = $('pfAiImpSt'), ta = $('pfAiPaste');
     var raw = ta ? ta.value : '';
     S.aiRaw = raw;
     if (!raw.trim()) { st.textContent = 'AIの返事を貼り付けてください'; return; }
     if (typeof window.taiImport !== 'function') { st.textContent = 'この画面では取り込めません（今日のひと往復が読み込まれていません）'; return; }
-    if (!/\[\s*WORK(MEMO)?\s*[:：]/i.test(raw)) { st.textContent = '成果物の目印（=== [WORK:…] === など）が見つかりません'; return; }
+    if (!/\[\s*WORK(MEMO|REC)?\s*[:：]/i.test(raw)) { st.textContent = '成果物の目印（=== [WORK:…] === など）が見つかりません'; return; }
     st.textContent = '読み取り中…';
+    /* WORKREC_V1 評価の記録（先生だけ）は ここで保存。のこり（📓ひとこと・メモ）は これまでどおり ひと往復の下書きへ */
+    var sp = splitRec(raw), recMsg = '', box = $('pfRecPrev');
+    if (sp.rows.length) {
+      S.recRows = fillFromPhoto(sp.rows);
+      if (box) box.innerHTML = recPreviewHtml(S.recRows);
+      recMsg = '📊 評価 ' + S.recRows.length + '件は 下の表で 確かめてから保存してね（先生だけ）';
+    } else if (box) box.innerHTML = '';
     var last = '';
-    await window.taiImport({ append: true, raw: raw, classId: S.classId, say: function (m) { last = String(m || ''); st.textContent = last; } });
-    if (/^✓/.test(last)) { if (ta) ta.value = ''; S.aiRaw = ''; var go = $('pfAiGo'); if (go) go.style.display = 'inline'; }
+    if (/\[\s*WORK(MEMO)?\s*[:：]/i.test(sp.rest)) {
+      await window.taiImport({ append: true, raw: sp.rest, classId: S.classId, say: function (m) { last = String(m || ''); st.textContent = last + (recMsg ? '／' + recMsg : ''); } });
+    } else { last = '✓'; st.textContent = recMsg || '取り込むものがありませんでした'; }
+    if (/^✓/.test(last)) { if (ta) ta.value = ''; S.aiRaw = ''; var go = $('pfAiGo'); if (go && /WORK(MEMO)?\s*[:：]/i.test(sp.rest)) go.style.display = 'inline'; }
   }
   function aiGo() {
     var o = $('pfOverlay'); if (o) o.style.display = 'none'; document.body.style.overflow = '';
@@ -680,6 +847,8 @@
     open: open,
     _aiAll: function (on) { var cbs = document.querySelectorAll('.pfAiStu'); for (var i = 0; i < cbs.length; i++) cbs[i].checked = !!on; },
     _aiCopy: aiCopy, _aiZip: aiZip, _aiPdf: aiPdf, _aiImport: aiImport, _aiGo: aiGo,
+    _recSave: recSave,
+    _rec: { splitRec: splitRec, fillFromPhoto: fillFromPhoto, recPromptLines: recPromptLines, kanten: kanten, recDest: recDest, saveRec: saveRec, recPreviewHtml: recPreviewHtml },   /* WORKREC_V1 テスト用 */
     _home: function () { S.stu = null; renderHome(); },
     _stu: openStu, _tap: tap, _lc: lightClose, _save: saveItem, _del: delItem, _zip: zip,
     _cmp: function () { S.cmp = !S.cmp; S.pick = []; renderStu(); },

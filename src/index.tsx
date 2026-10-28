@@ -4926,6 +4926,8 @@ app.post('/api/teacher/test-scores/save', async (c) => {
     let sc: number | null = parseInt(String(it && it.score), 10)
     if (isNaN(sc as any)) sc = null
     if (sc === null && !evalRank) continue
+    /* WORKREC_V1 同じ返事を2回保存しても 二重にしない（同じ子・同じテスト名・同じ日・同じ教科・同じ点と評価・同じコメント） */
+    try { const _cm = String((it && it.comment) || '').slice(0, 2000); const _dup = await c.env.DB.prepare('SELECT id FROM student_test_scores WHERE user_id=? AND IFNULL(test_name,\'\')=? AND IFNULL(test_date,\'\')=? AND IFNULL(subject,\'\')=? AND IFNULL(score,-1)=? AND IFNULL(eval_knowledge,\'\')=? AND IFNULL(eval_thinking,\'\')=? AND IFNULL(eval_attitude,\'\')=? AND IFNULL(comment,\'\')=? LIMIT 1').bind(uid, testName, testDate, subject, sc === null ? -1 : sc, evalKnowledge, evalThinking, evalAttitude, _cm).first<any>(); if (_dup) continue } catch {}
     await c.env.DB.prepare('INSERT INTO student_test_scores (user_id, test_name, test_date, subject, max_score, score, comment, eval_rank, eval_knowledge, eval_thinking, eval_attitude, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uid, testName, testDate, subject, maxScore, sc, String((it && it.comment) || ''), evalRank, evalKnowledge, evalThinking, evalAttitude, u.id, nowIso).run()
     saved++
   }
@@ -5084,6 +5086,8 @@ app.post('/api/teacher/records/save', async (c) => {
     const unit = String((it && it.unit) || '').slice(0, 80)
     const day = String((it && it.day) || '').slice(0, 40)
     const rtype = _impAutoType({ body: bodyTxt, reflection }) || rtypeFallback || 'other'
+    /* WORKREC_V1 同じ返事を2回取り込んでも 二重にしない（同じ子・同じ題・同じ日・同じ本文・同じ評価コメント） */
+    try { const _dup = await c.env.DB.prepare('SELECT id FROM student_records WHERE user_id=? AND IFNULL(title,\'\')=? AND IFNULL(day_key,\'\')=? AND IFNULL(body,\'\')=? AND IFNULL(eval_comment,\'\')=? LIMIT 1').bind(uid, title, day, bodyTxt, evalComment).first<any>(); if (_dup) continue } catch {}
     await c.env.DB.prepare('INSERT INTO student_records (user_id, class_id, type, title, body, reflection, eval_rank, eval_comment, subject, unit, day_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(uid, classId, rtype, title, bodyTxt, reflection, evalRank, evalComment, subj, unit, day, u.id, nowIso).run()
     saved++
   }
@@ -12376,7 +12380,8 @@ app.get('/teacher', (c) => {
             </div>
           </details>
           <div class="bg-white rounded-xl shadow p-4">
-            <div class="font-bold text-slate-700 mb-1">📥 取り込み（テスト・成果物・振り返り）</div>
+            <div class="font-bold text-slate-700 mb-1">📥 取り込み（テスト）</div>
+            <div class="text-xs mb-2 p-2 rounded-lg" style="background:#fdf4ff;border:1px solid #f0abfc"><b>📸 成果物・振り返りの紙は「📸 成果物」から</b>（WORKREC_V1：写真を入れて AI に1回読ませると、評価の記録・📓子どもへのひとこと・先生のメモが まとめてできます）　<button onclick="PF_OPEN()" class="bg-fuchsia-600 text-white rounded-lg px-3 py-1 text-xs font-bold hover:bg-fuchsia-700">📸 成果物をひらく</button><br><span class="text-slate-400">前に作った「成果物・振り返り」のAIの返事（=== [ID] 名前 === の形）は、これまでどおり 下の欄に貼っても読み取れます。</span></div>
             <div class="text-xs text-slate-500 mb-2">貼り付け欄は<b>1つ</b>です。テストでも成果物でも振り返りでも、同じ欄に貼ってください。<b>種類を選ぶ必要はありません。</b>点数があるものには点数を書く、それだけです。<br><span class="text-slate-400">点数か観点別（知技・思判表・主体）が入っていれば「成績」へ、入っていなければ「記録（カルテの材料）」へ、アプリが振り分けます。</span><br><b class="text-rose-600">保存の前にかならず一覧が出ます。おかしな値には印が付き、確認するまで保存されません。</b></div>
             <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
               <label class="text-slate-500">学年 <select id="tsGrade" class="border rounded p-1 bg-white"><option value="">自動</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
@@ -12386,7 +12391,7 @@ app.get('/teacher', (c) => {
             </div>
             <div class="flex items-center gap-2 flex-wrap mb-2">
               <button onclick="copyTestPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 テストを読ませるプロンプト</button>
-              <button onclick="copyRecordPrompt()" class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-emerald-700">📋 成果物・振り返りを読ませるプロンプト</button>
+              <!-- WORKREC_V1 「📋 成果物・振り返りを読ませるプロンプト」は 📸成果物 にまとめたので ボタンを外した（copyRecordPrompt と 読み取りは残している） -->
               <span id="tsPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
               <span id="recPromptStatus" class="text-xs text-emerald-600 font-bold"></span>
             </div>
@@ -17521,7 +17526,7 @@ function _faKarteGraphs(d){
     <script src="/teacher-ai.js?v=16"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
-    <script src="/portfolio.js?v=1"></script><!-- PORTFOLIO_V1 📸 成果物 -->
+    <script src="/portfolio.js?v=2"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-michi.js?v=7"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
