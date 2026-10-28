@@ -6,6 +6,7 @@
      途中で何か失敗したら、もとの紙をそのまま返す（紙が出なくなる事故を防ぐ）。
    ・おもて：🧭まずここから／🗺道順マップ（算数）／📅先週のようす／🔁先週のやってみる／🐯阪神マン
      うら　：✏️これやってみる？／🌟できるようになったこと／💡学び方／📊グラフ／📝先生から
+     （MI_KARTE_V1 2026-10-28：💡学び方に MIしらべ（本人がえらんだ工夫・すきと答えた領域）と こまったときの たすけ を入れる）
      （MIRU_V1 2026-10-28：印刷は「見るだけ」の紙。○つけ・□・書く線・🔁先週のやってみる・🎯めあて は のせない。
        書いたり答えたりするのは アプリの「わたしのカルテ」。印刷とアプリは べつもの）
      （KANTAN_REF_V1 2026-10-26：✂おうちの人へ の欄は先生の判断でなくした。過去の文は消さず、表示しないだけ）
@@ -309,6 +310,52 @@
   }
 
   // 💡 自分に合う学び方（回数が少ない・差がないときは出さない）
+
+  // ───────── 🧭 MI_KARTE_V1 きみに合いそうな 学び方（MIしらべ＋記録）・こまったときの たすけ ─────────
+  //  ・MIしらべは 本人の自己申告。「〜タイプ」とは言わない。「きみが えらんだ／すきと答えた」から出す。
+  //  ・本人が えらんだ工夫（picks）を いちばんに。なければ いちばん高い領域の工夫（同点3つまで）を 週ごとに 入れかえて2つ。
+  //  ・MIしらべを していない子は、記録から 見えたことだけ（これまでどおり）。
+  var MI_HELP = {
+    lang: '問題を 声に 出して ゆっくり 読みなおす',
+    logic: 'どこまで わかったか、じゅんばんに 書き出してみる',
+    nature: 'にている 問題を さがして、くらべてみる',
+    intra: 'ひとりで 少し 考えてから、ヒントを 見る',
+    visual: '絵や 図に かいてみる',
+    body: '少し 体を 動かしてから、もう一度 やってみる',
+    music: 'リズムを つけて となえながら 考える',
+    inter: '友だちや 先生に、どこが わからないか 言葉にして 聞く'
+  };
+  function weekNo() { var t = Date.now() + 9 * 3600000; return Math.floor(t / (7 * 86400000)); }
+  function miPlan(d) {
+    var mi = d && d.mi; if (!mi) return null;
+    var picks = (mi.picks || []).filter(function (x) { return x && x.kid; });
+    var tips = [], from = '', dom = '';
+    if (picks.length) { tips = picks.slice(0, 3).map(function (x) { return x.kid; }); from = 'MIしらべで きみが えらんだ 工夫'; dom = picks[0].dom; }
+    else if (mi.tips && mi.tips.length) {
+      var w = weekNo();
+      mi.tips.forEach(function (g, i) { var L = g.list || []; if (L.length && tips.length < 2) tips.push(L[(w + i) % L.length]); });
+      if (tips.length < 2 && mi.tips.length === 1) { var L1 = mi.tips[0].list || []; if (L1.length > 1) tips.push(L1[(w + 1) % L1.length]); }
+      from = 'MIしらべで きみが「すき」と 答えたことから'; dom = mi.tips[0].dom;
+    }
+    if (!tips.length) return null;
+    return { tips: tips, from: from, help: MI_HELP[dom] || '', dom: dom };
+  }
+  function miSection(d, hn, showHelp) {
+    var mp = miPlan(d);
+    if (!mp && !hn.length) return '';
+    var h = '<div class="sec"' + (mp ? '' : ' data-opt="2"') + ' style="border-color:#c7d2fe;background:#eef2ff"><h2>💡 きみに 合いそうな 学び方</h2>';
+    if (mp) {
+      h += '<div style="font-size:11px;color:#4338ca;font-weight:700">' + esc(mp.from) + '</div>';
+      mp.tips.forEach(function (t) { h += '<div style="font-size:12.5px">・' + esc(t) + '</div>'; });
+    }
+    if (hn.length) {
+      if (mp) h += '<div style="font-size:11px;color:#4338ca;font-weight:700;margin-top:4px">記録から 見えたこと</div>';
+      hn.forEach(function (l) { h += '<div style="font-size:12.5px">・' + esc(l) + '</div>'; });
+    }
+    if (showHelp && mp && mp.help) h += '<div style="margin-top:5px;background:#fff;border-radius:8px;padding:4px 9px;font-size:12.5px">🛟 <b>こまったときは</b> … ' + esc(mp.help) + '</div>';
+    return h + '</div>';
+  }
+
   function hints(d) {
     var subs = (d.recentSubmissions || []).filter(function (s) { return !s.rest_day; });
     var out = [];
@@ -771,7 +818,8 @@
     /* MIRU_V1 印刷は見るだけの紙：えらんだのは／いつ／どれくらい の○つけは なくした（入力はアプリのカルテで） */
     if (small) h += '<div class="pr">👣 <b>はじめの一歩</b>：アプリを ひらいて「' + esc(cut(reco.a.name, 20)) + '」を 1問だけ（5分で おわる 大きさ）。1問 といたら、それで 前進やで</div>';   /* KANTAN_REF_V1 */
     else h += '<div class="pr">👣 <b>はじめの一歩</b>：まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）' + (stalled ? '。1問 すすんだら それで 前進やで' : '') + '</div>';
-    h += '<div class="pr">🛟 <b>こまったら作戦</b>：わからない問題が出たら、ヒントを見る・友だちに聞く・先生に聞く・家の人に聞く</div>';   /* MIRU_V1 ○つけ・「どう思う？」の□は なくした */
+    var _mp = null; try { _mp = miPlan(global._faData || {}); } catch (e) { _mp = null; }   /* MI_KARTE_V1 */
+    h += '<div class="pr">🛟 <b>こまったら作戦</b>：わからない問題が出たら、' + (_mp && _mp.help ? esc(_mp.help) + '。ほかにも ' : '') + (_mp && _mp.dom === 'inter' ? 'ヒントを見る・家の人に聞く' : 'ヒントを見る・友だちに聞く・先生に聞く・家の人に聞く') + '</div>';   /* MIRU_V1 ○つけ・「どう思う？」の□は なくした */
     return h + '</div>';
   }
 
@@ -994,11 +1042,7 @@
       ch2 += '</div>';
       B.push(ch2);
     }
-    if (hn.length) {
-      var hh2 = '<div class="sec" data-opt="2" style="border-color:#c7d2fe;background:#eef2ff"><h2>💡 きみに合う 学び方（記録から 見えたこと）</h2>';
-      hn.forEach(function (l) { hh2 += '<div style="font-size:12.5px">・' + esc(l) + '</div>'; });
-      B.push(hh2 + '</div>');
-    }
+    var _mis = miSection(d, hn, !reco); if (_mis) B.push(_mis);   /* MI_KARTE_V1 おもてに 3つの道（こまったら作戦）が あるときは うらに くり返さない */
     var gr = graphs(d);
     if (gr) B.push(gr);
     /* MIRU_V1 🎯 来週の わたしの めあて（書く線）は なくした。めあては アプリのカルテで書く */

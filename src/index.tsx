@@ -1,7 +1,7 @@
  import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { registerMi } from './mi'
+import { registerMi, MI_TIPS } from './mi'
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる（教師だけ）
 import { registerDefTeacherStart } from './def_teacher_start'
 // __DEF_AUTO_RESOLVE_V1__ 先生が 画面を ひらいていなくても 12:30 に 決戦が おきるようにする
@@ -4003,7 +4003,25 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   let planSuggestion = ''
       for (const _p of (allPlans as any[])) { const _v = String((_p && _p.plan_suggestion) || '').trim(); if (_v) { planSuggestion = _v; break } }
       let miInfo: any = null
-      try { const _mir = await c.env.DB.prepare('SELECT scores_json, left_total, right_total, taken_at FROM mi_results WHERE user_id=? ORDER BY taken_at DESC LIMIT 1').bind(studentId).first<any>(); if (_mir) miInfo = { scores: _mir.scores_json || '', leftTotal: _mir.left_total, rightTotal: _mir.right_total, takenAt: _mir.taken_at } } catch {}
+      try { const _mir = await c.env.DB.prepare('SELECT id, scores_json, left_total, right_total, taken_at FROM mi_results WHERE user_id=? ORDER BY taken_at DESC LIMIT 1').bind(studentId).first<any>(); if (_mir) miInfo = { scores: _mir.scores_json || '', leftTotal: _mir.left_total, rightTotal: _mir.right_total, takenAt: _mir.taken_at }
+        /* MI_KARTE_V1 印刷カルテの「💡 きみに合いそうな 学び方」用。
+           picks＝本人が MIしらべで えらんだ工夫（いちばん大事・しらべを やりなおして まだ えらんでいなくても、いちばん新しく えらんだもの）／tops＝いちばん高い領域（同点が3つまで。4つ以上ならぶときは 出さない）
+           tips＝その領域の工夫（子ども向けの文）。自己申告なので「〜タイプ」とは言わない。 */
+        if (_mir) {
+          try {
+            const _kid: Record<string, { kid: string, dom: string }> = {}
+            for (const _dk of Object.keys(MI_TIPS)) for (const _t of (MI_TIPS as any)[_dk]) _kid[_t.key] = { kid: _t.kid, dom: _dk }
+            let _picks: string[] = []
+            try { const _pr = await c.env.DB.prepare("SELECT picks_json FROM mi_picks WHERE user_id=? AND picks_json<>'[]' ORDER BY updated_at DESC LIMIT 1").bind(studentId).first<any>(); if (_pr && _pr.picks_json) _picks = JSON.parse(_pr.picks_json) || [] } catch {}
+            miInfo.picks = _picks.filter((k: string) => _kid[k]).slice(0, 3).map((k: string) => ({ key: k, dom: _kid[k].dom, kid: _kid[k].kid }))
+            const _rk = ((JSON.parse(_mir.scores_json || '{}') || {}).ranking || []) as any[]
+            const _mx = _rk.length ? Math.max.apply(null, _rk.map((x: any) => Number(x.score) || 0)) : 0
+            const _tp = _rk.filter((x: any) => (Number(x.score) || 0) === _mx)
+            miInfo.tops = (_mx > 0 && _tp.length <= 3) ? _tp.map((x: any) => ({ key: x.key, name: x.name })) : []
+            miInfo.tips = miInfo.tops.map((x: any) => ({ dom: x.key, list: (((MI_TIPS as any)[x.key]) || []).map((t: any) => t.kid) }))
+          } catch {}
+        }
+      } catch {}
       let teacherNotes: any[] = []
   try { const _tnr = await c.env.DB.prepare(`SELECT day_key, body, show_in_karte, ai_ok, subject FROM teacher_student_notes WHERE user_id=? ORDER BY (day_key IS NULL OR day_key=''), day_key DESC, id DESC`).bind(studentId).all<any>(); teacherNotes = (((_tnr && _tnr.results) || []) as any[]).map((r: any) => ({ dayKey: r.day_key, body: r.body, showInKarte: !!r.show_in_karte, aiOk: (r.ai_ok === null || r.ai_ok === undefined) ? true : !!r.ai_ok, subject: r.subject || '' })) } catch {}
   // 2026-09-29 整理(E-4): 授業メモ（クラス全体メモ）はこれまでどこにも渡っていなかった。
@@ -17504,7 +17522,7 @@ function _faKarteGraphs(d){
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=1"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-michi.js?v=6"></script>
+    <script src="/karte-michi.js?v=7"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
