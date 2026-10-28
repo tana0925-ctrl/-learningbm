@@ -23,6 +23,9 @@
  *      ログインしなおすと ここで控えを戻し、対話なら 提出の直前の画面を ひらく（同じ子・同じ日・12時間以内だけ）。
  *      控えは 提出できたら消す。コインは いつもの提出の1回だけ（サーバに もう提出があれば 二重に出さない）。
  *
+ *  🗣 HSTALK_V1（2026-10-28）答えに 阪神マンが ひとこと返す（受け止め）・前の「次どうする」と天気で 前の自分とつなぐ・
+ *    理由をえらんだら「もう一歩」を1問（とばせる）。答えは いつもの weatherReason に「理由：答え」。くわしくは REACT・DEEP・PREV のところ。
+ *
  *  📮 TEISHUTSU_V1（2026-10-27）対話の最初（おっ、来たな！の次）に、今週の家庭学習の提出状況を一言（teishutsu.js・1日1回まで・責めない）。
  *
  *  ✍️ HSSIGN_V1（2026-10-26）サポーター（おうちの人）のサイン
@@ -115,11 +118,75 @@
   };
   var NEXTS = ['⏰ 時間を変える', '🏠 場所を変える', '📏 量を変える', '🔧 やり方を変える', '👍 このままでOK'];
 
+  // ───────── 🗣 HSTALK_V1（2026-10-28）受け止め・前の自分とつなぐ・もう一歩 ─────────
+  //  ・答えたら 阪神マンが ひとこと返す（REACT）。同じ答えでも 日によって ことばが かわる（vary）。
+  //  ・前の提出（今日より前・休みの日はのぞく・14日以内）の「次どうする」と天気を使って話す（PREV）。
+  //  ・理由をボタンでえらんだら「もう一歩」を1問だけ（DEEP）。ボタン・自分で書く・とばす。
+  //    答えは いつもの weatherReason に「理由：もう一歩の答え」で入る（buildText と同じ形）。項目もコインも ふやさない。
+  //  ・ことばは NGWORD_V1 に合わせる（テスト10で確かめる）。自分との比べっこは よくなったときだけ話す。
+  var REACT = {
+    todo: {
+      ka: ['カルテのおすすめやな！ もう一回やると しっかり 身につくで', 'おさらいからやな。くり返しは 力になるで'],
+      kb: ['次に すすむんやな！ チャレンジや', '新しいところやな！ わくわくするな'],
+      plan: ['計画どおりやな！ 自分で 決めたことを やるの、ええやん', '計画に 書いたことからやな。ええ スタートや'],
+      school: ['宿題からやな。まずは ここから いこか', '学校の宿題やな！ 一つずつ いこか'],
+      app: ['アプリの修行やな！ 楽しみながら いこか', '修行やな！ 強くなって もどってきてな'],
+      other: ['ええな！ 自分で 決めたんやな', '自分で 考えたんやな、ええやん']
+    },
+    why: {
+      test: ['テストに そなえるんやな。じゅんびは 大事やで', 'テストまでに 力を ためとこな'],
+      nigate: ['苦手に 向かっていくの、かっこええで', '苦手を なくしたいって 思えるのが すごいで'],
+      plan: ['決めたことを やるって、ほんまに 大事やで', '自分の 計画を まもるんやな、ええやん'],
+      fun: ['楽しいのが いちばんや！', '楽しいと どんどん 力が つくで'],
+      other: ['なるほどな、自分の 理由が あるのが ええな', 'そういう 理由なんやな。ええやん']
+    },
+    reason: {
+      '集中できた': ['集中できたん、ええな！ その感じ、おぼえとこな', '集中できた日は 気もちええよな！'],
+      'わかった': ['わかった！の しゅんかんは さいこうやな', 'わかると 楽しなるよな！'],
+      '時間どおりできた': ['時間どおりは かっこええで！', '決めた時間で できたんやな、ええやん'],
+      'ちょっと集中が切れた': ['そういうときも あるで。気づけたのが えらい', '切れたところに 気づけたんは 大事やで'],
+      '半分くらいわかった': ['半分わかったら 前に すすんでるで！', 'わかったところが ふえてるで'],
+      'むずかしかった': ['むずかしいのに 最後までやったんやな。それが いちばん大事や', 'むずかしいことに 向かっていったんやな、かっこええで'],
+      '気が散った': ['正直に 言えて えらいで', '気が散ったって 気づけたら、次に 生かせるで'],
+      'つかれた': ['つかれても やったんやな、おつかれさん', 'よう がんばったな。体も だいじにしてな'],
+      other: ['そうなんや、教えてくれて ありがとうな', 'なるほどな、ようわかったで']
+    },
+    next: {
+      '時間を変える': ['時間を 変えてみるんやな。いつが ええか 考えとこな', 'やる時間を くふうするんやな、ええ作戦や'],
+      '場所を変える': ['場所を 変えると 気分も 変わるで！', 'ええ場所 見つけてな！'],
+      '量を変える': ['量を 決めなおすのも 大事な 作戦やな', 'ちょうどええ量を さがすんやな、ええやん'],
+      'やり方を変える': ['やり方を くふうするんやな、ええ作戦や', '新しい やり方、ためしてみよな！'],
+      'このままでOK': ['このままで いけるって 言えるの、ええな！', 'ええ調子なんやな！ その感じで いこか'],
+      other: ['ええ作戦やな！ 次 ためしてみてな', '自分で 考えた作戦やな、ええやん'],
+      same: ['前と おなじ作戦を つづけるんやな。つづけるのが 力になるで']
+    }
+  };
+  var DEEP = {
+    '集中できた': { q: '何が よかったから 集中できたと思う？', opts: ['しずかな場所やった', '時間を決めた', 'すきなことやった', 'やることを しぼった'] },
+    'わかった': { q: 'どこで「わかった！」って なった？', opts: ['教科書や ノートを 見て', '問題を といてみて', '人に 聞いて', '自分で 考えて'] },
+    '時間どおりできた': { q: '時間どおりに できた ひけつは？', opts: ['タイマーを 見てた', '量が ちょうどよかった', 'すぐ はじめた'] },
+    'ちょっと集中が切れた': { q: 'どんなときに 切れた？', opts: ['音が 気になった', 'つかれてきた', 'むずかしいところで', 'ほかのことを 考えた'] },
+    '半分くらいわかった': { q: 'どのへんから むずかしく なった？', opts: ['はじめのほう', 'とちゅうから', 'さいごのほう'] },
+    'むずかしかった': { q: 'どこが いちばん むずかしかった？', opts: ['問題の 意味', 'とくところ（計算・書く）', 'おぼえるところ'] },
+    '気が散った': { q: '何に 気が散ったん？', opts: ['テレビ・音', 'ゲーム・スマホ', '家のこと', '考えごと'] },
+    'つかれた': { q: 'どんな つかれ？', opts: ['体が つかれた', '頭が つかれた', 'ねむかった'] }
+  };
+  var DEEP_OTHER = '✍️ 自分で書く', DEEP_SKIP = '⏭ とばす';
+  var PREV = {
+    start: '前は「{next}」って 決めてたな。今日は それ、ためしてみよか！',
+    startOk: '前は「このままでOK」やったな。今日も その調子で いこか！',
+    up: '前は {a} やったけど、今日は {b} や！',
+    upPlan: '「{next}」作戦が きいたかもな。',
+    sameSun: '今日も {b} や！ ええ調子やな。',
+    why: '何が よかったと思う？'
+  };
+  var PREV_DAYS = 14;
+
   // ───────── 小道具 ─────────
   function esc(s) { return String(s == null ? '' : s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;'); }
   function cut(s, n) { var a = Array.from(String(s == null ? '' : s)); return a.length > n ? a.slice(0, n).join('') : a.join(''); }
   function fill(s, o) { s = String(s); Object.keys(o || {}).forEach(function (k) { s = s.split('{' + k + '}').join(String(o[k])); }); return s; }
-  function stripIcon(label) { return String(label || '').replace(/^[^぀-ヿ一-鿿A-Za-z0-9🅰🅱]+\s*/, '').trim(); }
+  function stripIcon(label) { return String(label || '').replace(/^[^\u3040-\u30ff\u4e00-\u9fffA-Za-z0-9\u{1F170}\u{1F171}]+\s*/u, '').trim(); }   // HSTALK_V1 u をつけて 🏠 なども とれるように
   function curP() { try { if (typeof player !== 'undefined' && player) return player; } catch (e) {} return window.player || null; }
   function viewOnly() { return !!window.__VIEWAS_ON__; }
   function teacherAcct() { var r = String(window.__loggedInRole || ''); return !viewOnly() && (r === 'teacher' || r === 'admin'); }   // HSAUTH_V1
@@ -163,6 +230,44 @@
   function buildAim(min) { return min + '分 がんばる'; }
   function buildText(main, extra) { main = String(main || '').trim(); extra = String(extra || '').trim(); return cut(extra ? (main ? main + '：' + extra : extra) : main, 480); }
   function targetMs(c) { return ((Number(c.goalMin) || 0) + (Number(c.extMin) || 0)) * 60000; }
+
+  // 🗣 HSTALK_V1 小道具
+  function dayNum(dk) { var t = Date.parse(String(dk || '') + 'T00:00:00Z'); return isNaN(t) ? 0 : Math.floor(t / 86400000); }
+  function vary(list, key) {   // 同じ日・同じ答えなら同じことば／日がかわると べつのことば
+    if (!list || !list.length) return '';
+    var h = 0, k = String(key || ''); for (var i = 0; i < k.length; i++) h = (h + k.charCodeAt(i)) % 9973;
+    return list[(dayNum(dayKey()) + h) % list.length];
+  }
+  function react(group, key) { var g = REACT[group] || {}; return vary(g[key] || g.other, group + ':' + key); }
+  var W_RANK = { sun: 3, cloud: 2, rain: 1 }, W_ICON = { sun: '☀️', cloud: '☁️', rain: '☂️' };
+  function prevRec() {   // 今日より前の いちばん新しい提出（休みの日はのぞく・14日以内）
+    try {
+      var today = dayKey(), best = null;
+      (call('hsLogs') || []).forEach(function (l) {
+        if (!l || l.restDay || !l.dayKey) return;
+        var dk = String(l.dayKey); if (!(dk < today)) return;
+        if (dayNum(today) - dayNum(dk) > PREV_DAYS) return;
+        if (!best || dk > String(best.dayKey)) best = l;
+      });
+      return best;
+    } catch (e) { return null; }
+  }
+  function prevNext(p) { return cut(stripIcon(String((p && p.nextImprove) || '').replace(/[\r\n]+/g, ' ')), 24); }
+  function startLine() {   // はじめる前：前の「次どうする」
+    var nx = prevNext(prevRec()); if (!nx) return '';
+    return nx === 'このままでOK' ? PREV.startOk : fill(PREV.start, { next: nx });
+  }
+  function weatherLines(w) {   // おわったら：前の天気とくらべて よくなったときだけ話す
+    var p = prevRec(), pw = p ? String(p.endWeather || '') : '';
+    if (!W_RANK[pw] || !W_RANK[w]) return [SAY.reason];
+    if (W_RANK[w] > W_RANK[pw]) {
+      var nx = prevNext(p), plan = nx && nx !== 'このままでOK' ? fill(PREV.upPlan, { next: nx }) : '';
+      return [fill(PREV.up, { a: W_ICON[pw], b: W_ICON[w] }) + plan, PREV.why];
+    }
+    if (w === 'sun' && pw === 'sun') return [fill(PREV.sameSun, { b: W_ICON[w] }) + SAY.reason];
+    return [SAY.reason];
+  }
+  function nextAsk(c) { return c.weather === 'sun' ? SAY.nextSun : SAY.nextElse; }
 
   // ───────── 音 ─────────
   var _ac = null;
@@ -275,7 +380,7 @@
       say(c, 'b', SAY.hello);
       try { var _ts = (typeof window.TEISHUTSU_CHAT_LINE === 'function') ? window.TEISHUTSU_CHAT_LINE() : ''; if (_ts) say(c, 'b', _ts); } catch (_e) {}   /* TEISHUTSU_V1 今週の家庭学習の提出状況（1日1回まで） */
       if (s.started) { c.step = 'run'; c.goalMin = 0; say(c, 'b', SAY.sheetStarted); }
-      else say(c, 'b', SAY.todo);
+      else { var _pl = startLine(); if (_pl) say(c, 'b', _pl); say(c, 'b', SAY.todo); }   /* HSTALK_V1 前の「次どうする」 */
       s._chat = c; saveSess(s);
     } else if (s.started && (c.step === 'todo' || c.step === 'why' || c.step === 'min')) {
       // シートの「スタート」で先に始まっていたら、タイマーはそのまま使う（やり直さない）
@@ -338,11 +443,11 @@
   }
   function pickTodo(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.todoOther); c.waiting = 'todo'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; say(c, 'b', SAY.why); });
+    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', o.k)); say(c, 'b', SAY.why); });
   }
   function pickWhy(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.whyOther); c.waiting = 'why'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; say(c, 'b', SAY.min); });
+    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', o.k)); say(c, 'b', SAY.min); });
   }
   function pickMin(n) {
     unlockAudio();
@@ -374,10 +479,11 @@
     act(function (s, c) {
       var w = c.waiting; c.waiting = '';
       say(c, 'm', v);
-      if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; say(c, 'b', SAY.why); }
-      else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', SAY.min); }
-      else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', c.weather === 'sun' ? SAY.nextSun : SAY.nextElse); }
-      else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; toBye(s, c); }
+      if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', 'other')); say(c, 'b', SAY.why); }
+      else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
+      else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
+      else if (w === 'deep') { deepDone(s, c, v); }
+      else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); toBye(s, c); }
       else if (w === 'more') { s.todo = cut(String(s.todo || '') + '＋' + cut(v, 100), 480); c.todoText = s.todo; say(c, 'b', SAY.searchPick); c.step = 'run'; }
     });
   }
@@ -410,15 +516,36 @@
     act(function (s, c) { say(c, 'm', '💪 もう少しやる（' + n + '分）'); c.extMin = (Number(c.extMin) || 0) + n; c.step = 'run'; ring(false); say(c, 'b', fill(SAY.extend, { n: n })); });
   }
   function pickWeather(o) {
-    act(function (s, c) { say(c, 'm', o.label); c.weather = o.k; s.endWeather = o.k; c.step = 'reason'; say(c, 'b', SAY.reason); });
+    act(function (s, c) { say(c, 'm', o.label); c.weather = o.k; s.endWeather = o.k; c.step = 'reason'; weatherLines(o.k).forEach(function (t) { say(c, 'b', t); }); });
   }
   function pickReason(t, other) {
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.reasonOther); c.waiting = 'reason'; }); return; }
-    act(function (s, c) { say(c, 'm', t); c.reason = t; s.weatherReason = t; c.step = 'next'; say(c, 'b', c.weather === 'sun' ? SAY.nextSun : SAY.nextElse); });
+    act(function (s, c) {
+      say(c, 'm', t); c.reason = t; c.deep = ''; s.weatherReason = t;
+      if (DEEP[t]) { c.step = 'deep'; say(c, 'b', DEEP[t].q); return; }   // HSTALK_V1 もう一歩
+      c.step = 'next'; say(c, 'b', react('reason', t)); say(c, 'b', nextAsk(c));
+    });
+  }
+  // 🗣 HSTALK_V1 もう一歩の答え（ボタン・自分で書く・とばす）→ 受け止め → 次どうする
+  function deepDone(s, c, ans) {
+    ans = cut(String(ans || '').trim(), 200);
+    if (ans) { c.deep = ans; s.weatherReason = buildText(c.reason, ans); }
+    c.step = 'next'; say(c, 'b', react('reason', c.reason)); say(c, 'b', nextAsk(c));
+  }
+  function pickDeep(label, mode) {
+    if (mode === 'other') { act(function (s, c) { say(c, 'm', DEEP_OTHER); say(c, 'b', SAY.reasonOther); c.waiting = 'deep'; }); return; }
+    if (mode === 'skip') { act(function (s, c) { say(c, 'm', DEEP_SKIP); deepDone(s, c, ''); }); return; }
+    act(function (s, c) { say(c, 'm', label); deepDone(s, c, label); });
+  }
+  function nextReact(c) {
+    var nx = stripIcon(c.next), pn = prevNext(prevRec());
+    var key = REACT.next[nx] ? nx : 'other';
+    if (pn && pn !== 'このままでOK' && pn === nx) key = 'same';
+    say(c, 'b', react('next', key));
   }
   function pickNext(label, other) {
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.nextOther); c.waiting = 'next'; }); return; }
-    act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; toBye(s, c); });
+    act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; nextReact(c); toBye(s, c); });
   }
   function toBye(s, c) {
     if (String((s && s.parentComment) || '').trim()) { c.step = 'photo'; say(c, 'b', SAY.bye); return; }   // シートで もう書いてもらっていたら そのまま
@@ -516,7 +643,7 @@
     _sending = true;
     act(function (s, c) {
       s.endWeather = c.weather || s.endWeather || 'sun';
-      s.weatherReason = c.reason || s.weatherReason || '';
+      s.weatherReason = (c.reason ? buildText(c.reason, c.deep) : '') || s.weatherReason || '';   // HSTALK_V1 もう一歩の答えも
       s.nextImprove = c.next || s.nextImprove || '';
       s.minutesManual = String(c.minutes || 0);
       s.minutes = s.minutes || String(c.minutes || 0);
@@ -621,6 +748,11 @@
       var rs = (REASONS[c.weather] || REASONS.sun).map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(rs);
       bind(foot, rs.map(function (r, i) { return function () { if (i === rs.length - 1) pickReason('', true); else pickReason(r.label); }; }));
+    } else if (step === 'deep') {   // 🗣 HSTALK_V1 もう一歩
+      var dp = DEEP[c.reason] || { opts: [] };
+      var ds = dp.opts.map(function (t) { return { label: t }; }).concat([{ label: DEEP_OTHER }, { label: DEEP_SKIP, cls: 'sub' }]);
+      foot.innerHTML = btns(ds);
+      bind(foot, ds.map(function (r, i) { return function () { if (i === ds.length - 1) pickDeep('', 'skip'); else if (i === ds.length - 2) pickDeep('', 'other'); else pickDeep(r.label); }; }));
     } else if (step === 'next') {
       var ns = NEXTS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ns);
@@ -809,6 +941,6 @@
 
   window.HSCHAT = {
     open: open,
-    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, buildAim: buildAim, buildText: buildText, signText: signText, sumOf: sumOf, canSignLater: canSignLater, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick, resumeCheck: resumeCheck }
+    _t: { SAY: SAY, TODO_FIXED: TODO_FIXED, WHYS: WHYS, MINS: MINS, WEATHERS: WEATHERS, REASONS: REASONS, NEXTS: NEXTS, REACT: REACT, DEEP: DEEP, PREV: PREV, prevRec: prevRec, buildAim: buildAim, buildText: buildText, signText: signText, sumOf: sumOf, canSignLater: canSignLater, targetMs: targetMs, mmss: mmss, stripIcon: stripIcon, introKey: introKey, maybeIntro: maybeIntro, tick: tick, resumeCheck: resumeCheck }
   };
 })();

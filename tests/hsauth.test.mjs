@@ -91,7 +91,7 @@ async function toSubmit(d) {
   d.w.HSCHAT.open(); await sleep(50)
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('15分')
   d.pass(16); d.w.HSCHAT._t.tick(); await d.click('おわる')
-  await d.click('はれ'); await d.click('集中できた'); await d.click('このままでOK')
+  await d.click('はれ'); await d.click('集中できた'); await d.click('とばす'); await d.click('このままでOK')
   await d.click('あとで もらう')
 }
 // シートで 提出できる下書きを作る
