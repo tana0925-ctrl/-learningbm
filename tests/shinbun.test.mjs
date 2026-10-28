@@ -131,6 +131,14 @@ await t('7 📓 ノート・作品から は 2面の決まった場所に入る�
   const { html } = await make(rich(), { withPf: true }); const h = html()
   ok(h.indexOf('📓 ノート・作品から') >= 0 && h.indexOf('<!--PF_WORK-->') < 0, '📓が入る')
   ok(h.indexOf('📓 ノート・作品から') > h.indexOf('道しるべ新聞　2面'), '2面に入る')
+  // 📸 SHINBUN_PHOTO_V1 写真：いちばん新しい成果物の写真が 📓 の欄に入る（写真だけでも 欄ができる）
+  const px = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const p1 = await make(rich(), { withPf: true }); p1.w.__PF_KARTE.setPhoto({ 'stu-x': { id: 'i1', src: px, takenOn: '2026-10-22', subj: '算数' } })
+  const hp = p1.html(); ok(hp.indexOf('<figure class="pf-ph"><img src="' + px) >= 0 && hp.indexOf('10/22・算数') >= 0, '写真と日付・教科')
+  const p2 = await make(rich(), { withPf: true }); p2.w.__PF_KARTE.setWork({}); p2.w.__PF_KARTE.setPhoto({ 'stu-x': { id: 'i1', src: px, takenOn: '2026-10-22', hw: true } })
+  const hq = p2.html(); ok(hq.indexOf('📸 写真で見る 成果物') >= 0 && hq.indexOf('10/22・家庭学習') >= 0, '写真だけでも 欄ができる')
+  const p3 = await make(rich(), { withPf: true }); p3.w.__PF_KARTE.setWork({}); ok(p3.html().indexOf('<!--PF_WORK-->') < 0 && p3.html().indexOf('<figure class="pf-ph"') < 0, 'どちらも無ければ 欄なし')
+  ok(pfJs.indexOf("/^data:image\\//.test(du)") >= 0, '写真は data: にしてから 紙に入れる（印刷に まにあう）')
   const m = await make(rich(), { withShinbun: false }); ok(m.html().indexOf('🧭 学びの道しるべ') >= 0 && m.html().indexOf('道しるべ新聞') < 0, '新聞のファイルがなければ これまでの紙')
   const x = await make(rich()); x.w.KARTE_SHINBUN = () => { throw new Error('x') }; ok(x.html().indexOf('🧭 学びの道しるべ') >= 0, 'こわれても これまでの紙')
 })

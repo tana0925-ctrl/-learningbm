@@ -419,7 +419,8 @@
     '.ratio{display:flex;height:15px;border:1.5px solid #1c1c1c}.ratio i{display:flex;align-items:center;justify-content:center;font-size:.75em;font-weight:700;font-style:normal;white-space:nowrap;overflow:hidden}',
     '.after{flex:0 0 auto;background:#efece0;border-top:2px solid #1c1c1c;padding:3px 8px;margin-top:3px}.after b{font-family:' + MINCHO + '}',
     '.foot{flex:0 0 auto;display:flex;justify-content:space-between;border-top:4px double #1c1c1c;padding-top:2px;margin-top:3px;font-size:9px;color:#666}',
-    '.pg .sec div[style]{font-size:inherit!important}'   // 📓（portfolio.js）の中の小さな字も 新聞の大きさに
+    '.pg .sec div[style]{font-size:inherit!important}',
+    '.pf-ph{margin:0 0 3px;break-inside:avoid}.pf-ph img{display:block;width:100%;max-height:52mm;object-fit:contain;border:1px solid #1c1c1c;background:#fff}.pf-ph figcaption{font-size:.75em;color:#5a5a55;text-align:right}'   /* SHINBUN_PHOTO_V1 */   // 📓（portfolio.js）の中の小さな字も 新聞の大きさに
   ].join('\n');
 
   // 印刷の窓で：あふれたら字を小さく → それでも だめなら data-opt の小さい順に省く → あまったら 字を大きく

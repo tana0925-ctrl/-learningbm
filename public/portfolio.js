@@ -808,16 +808,58 @@
     var d = await getJ('/api/teacher/portfolio/work-notes');
     if (d && d.ok) _work = d.byUser || {};
   }
+  // ── 📸 SHINBUN_PHOTO_V1 新聞の「写真で見る」：その子の いちばん新しい成果物の写真（3週間以内・1まい）──
+  //    印刷の窓で 読みこみが まにあわないことがないよう、小さい版（長辺360px）を 前もって data: にしておく。
+  //    先生の画面で その子を ひらいたとき／全員ぶんを 印刷する前に 読む。写真は 子どもの画面には 出さない（先生の印刷だけ）。
+  var _photo = {}, _photoTried = {};
+  function blobToData(b) { return new Promise(function (res) { var r = new FileReader(); r.onload = function () { res(String(r.result || '')); }; r.onerror = function () { res(''); }; r.readAsDataURL(b); }); }
+  async function loadPhotos(classId, uids) {
+    if (!classId) return;
+    var from = ymdAdd(-21), to = jstToday();
+    var d = await getJ('/api/teacher/portfolio/range?classId=' + encodeURIComponent(classId) + '&from=' + from + '&to=' + to + (uids && uids.length ? '&userIds=' + encodeURIComponent(uids.join(',')) : ''));
+    if (!d || !d.ok) return;
+    var latest = {};
+    (d.items || []).forEach(function (it) { if (!Number(it.hasThumb)) return; latest[String(it.userId)] = it; });   // 古い順に来るので 最後が いちばん新しい
+    var us = Object.keys(latest);
+    for (var i = 0; i < us.length; i++) {
+      var it = latest[us[i]];
+      if (_photo[us[i]] && _photo[us[i]].id === it.id) continue;
+      try {
+        var r = await fetch(img(it.id, true), { credentials: 'include' });
+        if (!r.ok) continue;
+        var du = await blobToData(await r.blob());
+        if (/^data:image\//.test(du)) _photo[us[i]] = { id: it.id, src: du, takenOn: it.takenOn || '', subj: it.subj || '', hw: it.src === 'hw' };
+      } catch (e) {}
+    }
+  }
+  function watchPhoto() {   // 先生が 子どもを ひらいたら、その子の写真を 読んでおく
+    try {
+      var fd = window._faData || {}, uid = String((fd.student && fd.student.id) || ''), cid = String(fd.classId || '');
+      if (!uid || !cid || _photoTried[uid]) return;
+      _photoTried[uid] = Date.now();
+      loadPhotos(cid, [uid]);
+    } catch (e) {}
+  }
+  function photoHtml(p) {
+    if (!p || !p.src) return '';
+    var cap = jaDate(p.takenOn) + (p.subj ? '・' + p.subj : (p.hw ? '・家庭学習' : ''));
+    return '<figure class="pf-ph"><img src="' + p.src + '" alt="成果物の写真"><figcaption>' + esc(cap) + '</figcaption></figure>';
+  }
   function karteWithWork(html) {
     try {
       var fd = window._faData || {};
       var uid = String((fd.student && fd.student.id) || fd.studentId || '');
       var w = uid && _work[uid];
+      if (html.indexOf('<!--PF_WORK-->') >= 0) {   /* SHINBUN_V1／SHINBUN_PHOTO_V1 新聞：2面の決まった場所に 写真と ことば */
+        var ph = photoHtml(uid && _photo[uid]), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
+        if (tx.length > 200) tx = tx.slice(0, 199) + '…';
+        if (!ph && !tx) return html.replace('<!--PF_WORK-->', '');
+        return html.replace('<!--PF_WORK-->', '<div class="sec"><h2>' + (tx ? '📓 ノート・作品から' : '📸 写真で見る 成果物') + '</h2>' + ph + (tx ? '<div>' + esc(tx) + '</div>' : '') + '</div>');
+      }
       if (!w || !w.text) return html;
       var t = String(w.text).replace(/\s+/g, ' ');
       if (t.length > 200) t = t.slice(0, 199) + '…';
       var sec = '<div class="sec" style="border-color:#bae6fd;background:#f0f9ff"><h2>📓 ノート・作品から</h2><div style="font-size:12.5px;color:#334155">' + esc(t) + '</div></div>';
-      if (html.indexOf('<!--PF_WORK-->') >= 0) return html.replace('<!--PF_WORK-->', sec);   /* SHINBUN_V1 新聞では 2面の決まった場所に */
       var anchors = ['<div class="sec" style="border-color:#fcd34d"><h2>🎯', '<div class="foot">', '</body>'];
       for (var i = 0; i < anchors.length; i++) { var k = html.indexOf(anchors[i]); if (k >= 0) return html.slice(0, k) + sec + html.slice(k); }
       return html + sec;
@@ -832,7 +874,11 @@
     window._buildKarteHtml = wrapped;
     var oa = window.downloadAllKartes;
     if (typeof oa === 'function' && !oa.__pfwork) {
-      var wa = async function () { try { await loadWork(true); } catch (e) {} return oa.apply(this, arguments); };
+      var wa = async function () {
+        try { await loadWork(true); } catch (e) {}
+        try { var cf = $('analyticsClassFilter'); var cid = (cf && cf.value) || String((window._faData || {}).classId || ''); await loadPhotos(cid); } catch (e) {}   /* SHINBUN_PHOTO_V1 */
+        return oa.apply(this, arguments);
+      };
       wa.__pfwork = true; wa.__michi = true; window.downloadAllKartes = wa;
     }
     return true;
@@ -841,8 +887,9 @@
     var tries = 0;
     var tm = setInterval(function () { tries++; if (installKarte(tries >= 40) || tries >= 45) clearInterval(tm); }, 1000);
     setTimeout(function () { loadWork(true); }, 1500);
+    setInterval(watchPhoto, 2000);   /* SHINBUN_PHOTO_V1 */
   })();
-  try { window.__PF_KARTE = { karteWithWork: karteWithWork, setWork: function (m) { _work = m || {}; }, install: installKarte }; } catch (e) {}
+  try { window.__PF_KARTE = { karteWithWork: karteWithWork, setWork: function (m) { _work = m || {}; }, setPhoto: function (m) { _photo = m || {}; }, loadPhotos: loadPhotos, install: installKarte }; } catch (e) {}
 
   window.PF = {
     open: open,
