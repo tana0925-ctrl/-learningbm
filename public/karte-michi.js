@@ -5,7 +5,9 @@
      もとの関数はそのまま残し、まず もとの紙を作ってから 中の欄を取り出して並べ直す。
      途中で何か失敗したら、もとの紙をそのまま返す（紙が出なくなる事故を防ぐ）。
    ・おもて：🧭まずここから／🗺道順マップ（算数）／📅先週のようす／🔁先週のやってみる／🐯阪神マン
-     うら　：✏️これやってみる？／🌟できるようになったこと／💡学び方／📊グラフ／🎯めあて／📝先生から
+     うら　：✏️これやってみる？／🌟できるようになったこと／💡学び方／📊グラフ／📝先生から
+     （MIRU_V1 2026-10-28：印刷は「見るだけ」の紙。○つけ・□・書く線・🔁先週のやってみる・🎯めあて は のせない。
+       書いたり答えたりするのは アプリの「わたしのカルテ」。印刷とアプリは べつもの）
      （KANTAN_REF_V1 2026-10-26：✂おうちの人へ の欄は先生の判断でなくした。過去の文は消さず、表示しないだけ）
    ・1人ぶんは必ず2ページ（裏表1枚）。全員ぶん印刷で次の子が裏にずれないように、
      面ごとに高さを決めて、はみ出す分は欄ごとの行数上限で切る。
@@ -760,18 +762,16 @@
   }
 
   function pathsHtml(reco, stalled, small) {
-    var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ。どれに する？）</span></h2>';
+    var h = '<div class="sec first"><h2 style="color:#c2410c">🧭 えらべる 3つの道 <span style="font-size:12px;font-weight:700">（どれでも いいよ）</span></h2>';
     h += '<div class="pw"><span class="pk">🅰</span><div><b>もう一度 かためる</b>：「' + esc(reco.a.name) + '」の ふくしゅうも いいかも<div class="pe">' + esc(reco.a.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.a.why, 76)) + '</div></div></div>';
     if (reco.b) h += '<div class="pw"><span class="pk">🅱</span><div><b>つぎに すすむ</b>：「' + esc(reco.b.name) + '」の はじめに いってみる？<div class="pe">' + esc(reco.b.entry) + '</div><div class="py">💡わけ：' + esc(cut(reco.b.why, 76)) + '</div></div></div>';
     if (reco.c && reco.c.say) h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="cw">' + esc(cut(reco.c.say, 46)) + '</span><div class="py">💬 ' + esc(cut(reco.c.from, 48)) + '（かえても いいよ）</div></div></div>';   /* MAEJIBUN_V1 */
-    else h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：<span class="bl" style="width:300px">&nbsp;</span></div></div>';
+    else h += '<div class="pw"><span class="pk">🅲</span><div><b>じぶんで 決める</b>：やりたいことを 自分で 決めても いいよ</div></div>';   /* MIRU_V1 書く線はなくした */
     h += '<div class="pm">' + esc(reco.mark) + (reco.note ? '　／　' + esc(reco.note) : '') + '</div>';
-    h += '<div class="pr"><b>えらんだのは</b><span class="circ">A</span><span class="circ">B</span><span class="circ">C</span>　<b>そのわけ：</b><span class="bl" style="width:250px">&nbsp;</span></div>';
-    h += '<div class="pr"><b>いつ？</b>' + ['月', '火', '水', '木', '金'].map(function (x) { return '<span class="cc">' + x + '</span>'; }).join('') + '　<b>どれくらい？</b>' + (small ? ['1問', '3問', '5問'] : ['3問', '5問', '10問']).map(function (x) { return '<span class="circ">' + x + '</span>'; }).join('') + '<span style="font-size:10.5px;color:#9a3412">（じぶんで ○）</span></div>';
+    /* MIRU_V1 印刷は見るだけの紙：えらんだのは／いつ／どれくらい の○つけは なくした（入力はアプリのカルテで） */
     if (small) h += '<div class="pr">👣 <b>はじめの一歩</b>：アプリを ひらいて「' + esc(cut(reco.a.name, 20)) + '」を 1問だけ（5分で おわる 大きさ）。1問 といたら、それで 前進やで</div>';   /* KANTAN_REF_V1 */
     else h += '<div class="pr">👣 <b>はじめの一歩</b>：まずは いちばん かんたんな 1問だけ（5分で できる 大きさ）' + (stalled ? '。1問 すすんだら それで 前進やで' : '') + '</div>';
-    h += '<div class="pr">🛟 <b>こまったら作戦</b>：もし わからない問題が出たら→<span class="circ sm">ヒントを見る</span><span class="circ sm">友だちに聞く</span><span class="circ sm">先生に聞く</span><span class="circ sm">家の人に聞く</span></div>';
-    h += '<div class="pr pf"><b>このおすすめ、どう思う？</b><span class="bx">□ぴったり</span><span class="bx">□かんたんすぎ</span><span class="bx">□むずかしすぎ</span><span class="bx">□ちがうのがいい</span></div>';
+    h += '<div class="pr">🛟 <b>こまったら作戦</b>：わからない問題が出たら、ヒントを見る・友だちに聞く・先生に聞く・家の人に聞く</div>';   /* MIRU_V1 ○つけ・「どう思う？」の□は なくした */
     return h + '</div>';
   }
 
@@ -963,7 +963,7 @@
         ph += '<div style="font-size:12.5px">先週きかれたこと …「' + esc(cut(pr.ask, 60)) + '」 どうやった？</div>';
       }
       ph += '</div>';
-      if (reco) prHtml = ph; else F.push(ph);   /* MICHI_V2 おもてが いっぱいなので うらへ */
+      /* MIRU_V1 ○をつける欄なので 印刷には出さない（ph は作るだけ） */
     }
     if (ai && ai.main) {
       var hh = '<div class="sec"><h2>🐯 阪神マンから</h2><div style="font-size:12.5px;color:#334155;white-space:pre-wrap">' + esc(cut(ai.main.replace(/\n+/g, ' '), 300)) + '</div>';
@@ -981,10 +981,10 @@
 
     // ── うら ──
     if (prHtml) B.push(prHtml);
-    var th = '<div class="sec" style="border-color:#fda4af;background:#fff1f2"><h2>✏️ これやってみる？（1つ えらんで □ に○）</h2>';
-    tries.forEach(function (t) { th += '<div class="ch"><span class="box"></span>' + esc(t) + '</div>'; });
-    th += '<div class="ch"><span class="box"></span>じぶんで決める：<span style="display:inline-block;width:62%;border-bottom:1.5px dashed #94a3b8">&nbsp;</span></div>';
-    th += '<div style="margin-top:4px;font-size:11.5px;color:#9f1239"><b>やり方も えらべるよ</b>（どれでもOK）<span class="circ">アプリの修行</span><span class="circ">ノートに書く</span><span class="circ">おうちの人に 問題を出してもらう</span></div></div>';
+    /* MIRU_V1 印刷は見るだけの紙：□・書く線・○つけを なくした（入力はアプリのカルテで） */
+    var th = '<div class="sec" style="border-color:#fda4af;background:#fff1f2"><h2>✏️ これやってみる？</h2>';
+    tries.forEach(function (t) { th += '<div class="ch">・' + esc(t) + '</div>'; });
+    th += '<div style="margin-top:4px;font-size:11.5px;color:#9f1239"><b>やり方は どれでもOK</b>：アプリの修行・ノートに書く・おうちの人に 問題を出してもらう など</div></div>';
     if (tries.length) B.push(th);
     if (cd.head || cd.lines.length) {
       var ch2 = '<div class="sec" style="border-color:#bbf7d0;background:#f0fdf4"><h2>🌟 できるようになったこと・やったこと</h2>';
@@ -1001,7 +1001,7 @@
     }
     var gr = graphs(d);
     if (gr) B.push(gr);
-    B.push('<div class="sec" style="border-color:#fcd34d"><h2>🎯 来週の わたしの めあて</h2><div class="line"></div><div class="line"></div></div>');
+    /* MIRU_V1 🎯 来週の わたしの めあて（書く線）は なくした。めあては アプリのカルテで書く */
     if (secNotes) B.push(secNotes.outerHTML);
     /* KANTAN_REF_V1 ✂おうちの人へ の欄は なくした（先生の判断・2026-10-26）。過去に作られた文（ai.home）は消さず、表示しないだけ。 */
 
