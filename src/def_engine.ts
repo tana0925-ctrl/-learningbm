@@ -4,8 +4,8 @@
 // @ts-nocheck
 /* eslint-disable */
 
-export const DEF_ENGINE_SIG = '5778304f80719cfb8549b5d9432984278582605e950bbf3e8f4005c73d360af6'
-export const DEF_ENGINE_BYTES = 30220
+export const DEF_ENGINE_SIG = 'c99f0e77719af6054ad2a9130e04677b7f0c488724f48082427041eda06df088'
+export const DEF_ENGINE_BYTES = 30337
 
 const __DEF_ENGINE = (function () {
   // 図鑑はサーバに無い。raw 経路では結果が捨てられるだけなので null を返す。
