@@ -24,6 +24,7 @@ function defCarrySnapOk(mj: any): boolean {
   try { return defEntryOk(JSON.parse(String(mj))) } catch (_e) { return false }
 }
 import { defStageEnemies, defStageDownIfLosing } from './def_stage'
+import { defReview } from './def_review'
 // QRHUNT_V1 既存「ひみつのQR」の作り替え。中身は src/qrhunt.tsx に閉じている。
 import { registerQrHunt, qrHuntCard } from './qrhunt'
 // MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
@@ -2357,6 +2358,14 @@ async function defenseSettings(env: any) {
 }
 
 // 児童：防衛戦の状態
+// __DEF_REVIEW_V1__ いちばん新しい 決戦の ふりかえり（じぶんと クラスの ことだけ）。読むだけ。
+app.get('/api/defense/review', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  try {
+    const classId = await defenseClassId(c.env, u.id)
+    return c.json(await defReview(c.env, u.id, classId))
+  } catch (_e) { return c.json({ ok: true, none: true }) }
+})
 app.get('/api/defense/status', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   const st = await defenseSettings(c.env)
@@ -10542,6 +10551,7 @@ app.get('/hs_next_recall.js', async (c) => { try { const a = await c.env.ASSETS?
 
 // DEF_JOIN_NUDGE_V1_WIRED 防衛戦のお知らせカードを配る道。student-karte.js とまったく同じ形。
 app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+app.get('/def_review.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_review.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
 // WARMIX_V1 攻略モードの出題づくり。中身は public/war-mix.js。student-karte.js と同じ形。
 app.get('/war-mix.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/war-mix.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -10679,6 +10689,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/defboss_monsters.js?v=1"></script></body>')
       // 🏰 DEF_JOIN_NUDGE_V1_WIRED まだ とうろくしていない子にだけ出るお知らせカード。中身は public/def_join_nudge.js。
       t = t.replace('</body>', '<script src="/def_join_nudge.js?v=2"></script></body>')
+      // 🔁 DEF_REVIEW_V1_WIRED 防衛戦の ふりかえりカード（つぎの 作戦の ヒント）。中身は public/def_review.js。
+      t = t.replace('</body>', '<script src="/def_review.js?v=1"></script></body>')
       // KAHOOT_TICKET_V1 🎫 カフート券のショップUI。見つからなければ足さずに進む（throw しない）。
       if (t.indexOf('</body>') >= 0) { t = t.replace('</body>', '<script src="/kahoot_ticket.js?v=1"></script></body>') } else console.error('KAHOOT_TICKET_V1: </body> が無いので読み込みを足さずに進む')
       // 🧩 DEF2TREE_V1_WIRED 防衛戦の プログラムを くりかえし・ぶんき が つかえる ブロックにする。
