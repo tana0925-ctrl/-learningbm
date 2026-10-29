@@ -342,7 +342,9 @@ export async function defServerResolve(env, st, classId, enemies) {
       forts: false, tactics: true, contact: true, foeLaneMix: true,
       // __DEF_MOP_ENABLE_V1__ 片方が全滅したあと、生き残りが相手の基地まで歩く時間（tick）。
       // 0 だと歩く前に終わってしまい「基地に着いてないのに試合がおわる」になる。
-      mopTicks: 120
+      mopTicks: 120,
+      // __DEF_BASECAP_V1__ 基地への1回の攻撃は 基地の最大HPの 8% まで（1回で基地がこわれて 勝負がつくのを ふせぐ。基地のHPで動く作戦が はたらくように）
+      baseHitCap: 0.08
     })
     if (!rep || (rep.winner !== 'A' && rep.winner !== 'B')) return null
     if (rep.baseHpA == null || !Number.isFinite(Number(rep.baseHpA))) return null
