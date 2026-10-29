@@ -1,3 +1,4 @@
+import { defStageDownIfLosing } from './def_stage' // __DEFSTAGE_DOWN_V1__
 // __DEF_AUTO_RESOLVE_V1__ 先生が 画面を ひらいていなくても 12:30 に 決戦が おきるようにする。
 //
 // 2026-09-14 / 09-15 / 09-16 と 3日つづけて 12:30 に はじまりませんでした。
@@ -124,6 +125,7 @@ async function darResolve(env: any, st: any, classId: any) {
   const lock = await env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, srv.result, srv.logJson, srv.baseHpEnd).run()
   if (!lock || !lock.meta || Number(lock.meta.changes || 0) === 0) return { already: true }
   try { await d.defMvpMakeLedger(env, st.eventKey, classId, srv.mvpLedger) } catch (_e) {}
+  if (srv.result !== 'win') { await defStageDownIfLosing(env, classId, stage) } // __DEFSTAGE_DOWN_V1__
   if (srv.result === 'win') {
     try {
       await env.DB.prepare("INSERT OR IGNORE INTO defense_stage (class_id, stage, updated_at) VALUES (?, 1, datetime('now'))").bind(classId).run()

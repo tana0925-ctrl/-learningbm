@@ -1,3 +1,4 @@
+import { defStageDownIfLosing } from './def_stage' // __DEFSTAGE_DOWN_V1__
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる。
 //
 // 2026-09-14（初日の本番）に 12:30 の 防衛戦が はじまらず、14:05 に なってしまった
@@ -112,6 +113,7 @@ export function registerDefTeacherStart(app: any, deps: any) {
     const lock = await env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, srv.result, srv.logJson, srv.baseHpEnd).run()
     if (!lock || !lock.meta || Number(lock.meta.changes || 0) === 0) return { already: true }
     try { await defMvpMakeLedger(env, st.eventKey, classId, srv.mvpLedger) } catch (_e) {}
+    if (srv.result !== 'win') { await defStageDownIfLosing(env, classId, stage) } // __DEFSTAGE_DOWN_V1__
     if (srv.result === 'win') {
       try {
         await env.DB.prepare("INSERT OR IGNORE INTO defense_stage (class_id, stage, updated_at) VALUES (?, 1, datetime('now'))").bind(classId).run()

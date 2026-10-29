@@ -23,7 +23,7 @@ import { DEFMOP_V1_PATCHES } from './defmop_v1'
 function defCarrySnapOk(mj: any): boolean {
   try { return defEntryOk(JSON.parse(String(mj))) } catch (_e) { return false }
 }
-import { defStageEnemies } from './def_stage'
+import { defStageEnemies, defStageDownIfLosing } from './def_stage'
 // QRHUNT_V1 既存「ひみつのQR」の作り替え。中身は src/qrhunt.tsx に閉じている。
 import { registerQrHunt, qrHuntCard } from './qrhunt'
 // MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
@@ -2649,6 +2649,7 @@ app.post('/api/defense/resolve', async (c) => {
     if (!_srvLock.meta || _srvLock.meta.changes === 0) return c.json({ ok: true, already: true })
     // __DEF_MVP_V1__ 勝っても負けても、その日の部門べつ ベスト3の台帳を作る。
     try { await defMvpMakeLedger(c.env, st.eventKey, classId, (_srv as any).mvpLedger) } catch (_e) {}
+    if (_srv.result !== 'win') { await defStageDownIfLosing(c.env, classId, _dsStage) } // __DEFSTAGE_DOWN_V1__
     if (_srv.result === 'win') {
       // DEF_STAGE_V2 勝ったときだけ 1つ進める。読んだ値を条件に入れる（楽観ロック）。負けても下げない。
       try {
@@ -2700,6 +2701,7 @@ app.post('/api/defense/resolve', async (c) => {
   }
   const lock = await c.env.DB.prepare("INSERT OR IGNORE INTO defense_results (event_key, class_id, result, log_json, base_hp_end, resolved_at) VALUES (?,?,?,?,?,datetime('now'))").bind(st.eventKey, classId, result, logJson, baseHpEnd).run()
   if (!lock.meta || lock.meta.changes === 0) return c.json({ ok: true, already: true })
+  if (result !== 'win') { await defStageDownIfLosing(c.env, classId, _dsStage) } // __DEFSTAGE_DOWN_V1__
   if (result === 'win') {
     // DEF_STAGE_V2 勝ったときだけ 1つ進める。読んだ値を条件に入れる（楽観ロック）。負けても下げない。
     try {

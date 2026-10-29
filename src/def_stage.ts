@@ -33,7 +33,9 @@ export function defStageEnemies(base, stage, n) {
   //   はやさが 10 のままだと よこの道の てきが 基地に とどかず、
   //   みんなを 1つの道に あつめるだけが いつも 最善に なってしまう。
   const _dsSpd = (k <= 0) ? 10 : Math.min(70, 35 + 5 * k)
-  const u = (k <= 0) ? 0 : 0.24 * Math.pow(1.12, k - 1)
+  // __DEFSTAGE_SOFT_V1__ 1.12倍の かけ算だと 子どもの そだち（たし算）が おいつけない。
+  //   ステージ20 までは 今までと おなじ。21 から上は 1段 1.04倍に ゆるめる（24 で u 約2.16、30 で 約2.73）。
+  const u = (k <= 0) ? 0 : (k <= 19 ? 0.24 * Math.pow(1.12, k - 1) : 0.24 * Math.pow(1.12, 18) * Math.pow(1.04, k - 19))
   return base.map(function (e) {
     const o = {}
     for (const p in e) o[p] = e[p]
@@ -46,3 +48,20 @@ export function defStageEnemies(base, stage, n) {
   })
 }
 
+
+// __DEFSTAGE_DOWN_V1__ 負けたとき：いまの ステージに なってから 3回 つづけて 負けたら 1つ 下げる。
+//   defense_stage.updated_at（上がった/下がった時刻）より あとの 負けを かぞえる。勝つと updated_at が
+//   かわるので「つづけて」に なる。下げたら updated_at も かわるので また 3回から かぞえなおし。
+//   読んだ ステージを 条件に 入れて（楽観ロック）、同じ 負けで 2回 下げない。ステージ1より 下げない。
+export const DEF_STAGE_DOWN_AFTER = 3
+export async function defStageDownIfLosing(env, classId, stage) {
+  try {
+    const s = Math.floor(Number(stage))
+    if (!classId || !Number.isFinite(s) || s <= 1) return false
+    const r = await env.DB.prepare("SELECT COUNT(*) AS c FROM defense_results WHERE class_id = ? AND result = 'lose' AND resolved_at > (SELECT updated_at FROM defense_stage WHERE class_id = ?)").bind(String(classId), String(classId)).first()
+    const n = Number(r && r.c)
+    if (!Number.isFinite(n) || n < DEF_STAGE_DOWN_AFTER) return false
+    const dn = await env.DB.prepare("UPDATE defense_stage SET stage = stage - 1, updated_at = datetime('now') WHERE class_id = ? AND stage = ?").bind(String(classId), s).run()
+    return !!(dn && dn.meta && Number(dn.meta.changes || 0) === 1)
+  } catch (_e) { return false }
+}
