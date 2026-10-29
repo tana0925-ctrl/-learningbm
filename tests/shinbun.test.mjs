@@ -203,6 +203,32 @@ await t('11 古い出来事は のせない：先生から・📓・写真は �
   ok(taiJs.indexOf('新聞のきまり（いちばん大事）') >= 0 && taiJs.indexOf('話題にしない') >= 0, 'AIへの指示')
 })
 
+await t('12 一度 のせた ネタは 次の号に のせない（くらべる数は のこす）・キーに ことばを のこさない', async () => {
+  const d = rich()
+  d.recentSubmissions[0].weather_reason = 'わかった：山田さんに 教えてもらった'
+  const x1 = await make(d)
+  x1.w.getStudentNameMap = () => ({ a: '山田 太郎' })
+  const h1 = x1.html()
+  const m = h1.match(/<script type="application\/json" class="neta-v"[^>]*data-ws="([^"]+)">([\s\S]*?)<\/script>/)
+  ok(m, 'ネタの 一覧が 紙に 入る')
+  const used = JSON.parse(m[2])
+  ok(Object.keys(used).length > 10, 'ネタの キーが ある')
+  ok(m[2].indexOf('山田') < 0 && m[2].indexOf('わかった') < 0, 'キーに 子どもの ことば・名前を のこさない')
+  ok(h1.indexOf('data-nk=') >= 0 && h1.indexOf('addEventListener("afterprint"') >= 0, '印刷の あとで 記録する')
+  // 前の号（1週間前）に ぜんぶ のせた ことにして、同じ材料で 作りなおす
+  const neta = {}
+  Object.keys(used).forEach((k) => { neta[k] = { ws: '2000-01-01', v: used[k], lw: '2000-01-01', pv: '', pws: '' } })
+  const d2 = rich(); d2.recentSubmissions[0].weather_reason = d.recentSubmissions[0].weather_reason; d2.neta = neta
+  const x2 = await make(d2)
+  const h2 = x2.html()
+  const secs = (h) => (h.match(/<section[^>]*>[\s\S]*?<\/section>/g) || []).map((x) => x.replace(/<section[^>]*>/, '').replace(/<[^>]+>/g, ''))
+  const s1 = secs(h1), s2 = secs(h2)
+  const same = s2.filter((x) => s1.indexOf(x) >= 0 && !/取材メモ|先週の 天気|3週間前の わたし/.test(x))   // 週の記録（日づけの 表）は 毎週 その週のもの
+  eq(same.length, 0, '同じ 欄は 出ない: ' + same.join('/'))
+  const hl = (h) => (h.match(/<div class="hl">([^<]*)</) || [])[1]
+  ok(hl(h1) !== hl(h2), '見出しが かわる')
+})
+
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== shinbun ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))

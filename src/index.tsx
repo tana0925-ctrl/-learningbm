@@ -3818,6 +3818,30 @@ app.get('/api/teacher/class/:classId/new-since', async (c) => {
   return c.json({ ok: true, count: n })
 })
 
+// __SHINBUN_NETA_V1__ 印刷した新聞のネタを記録する。{ rows:[{ userId, ws, items:[{k,v}] }] }。担任の子だけ。
+app.post('/api/teacher/karte-neta/save', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  let body: any = null
+  try { body = await c.req.json() } catch (_e) { return jsonError(c, 400, 'bad_json') }
+  const rows = Array.isArray(body && body.rows) ? body.rows.slice(0, 60) : []
+  await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS karte_neta (user_id TEXT NOT NULL, k TEXT NOT NULL, ws TEXT NOT NULL, v TEXT, last_ws TEXT, pv TEXT, pws TEXT, created_at TEXT, PRIMARY KEY(user_id, k))").run()
+  const ins = c.env.DB.prepare("INSERT INTO karte_neta (user_id, k, ws, v, last_ws, created_at) VALUES (?,?,?,?,?,datetime('now')) ON CONFLICT(user_id, k) DO UPDATE SET pv=CASE WHEN karte_neta.last_ws <> excluded.last_ws THEN karte_neta.v ELSE karte_neta.pv END, pws=CASE WHEN karte_neta.last_ws <> excluded.last_ws THEN karte_neta.last_ws ELSE karte_neta.pws END, v=excluded.v, last_ws=excluded.last_ws, ws=CASE WHEN excluded.ws < karte_neta.ws THEN excluded.ws ELSE karte_neta.ws END")
+  let saved = 0
+  for (const r of rows) {
+    const uid = String((r && r.userId) || ''), ws = String((r && r.ws) || '')
+    if (!uid || !/^\d{4}-\d{2}-\d{2}$/.test(ws)) continue
+    if (u.role !== 'admin') {
+      const ok = await c.env.DB.prepare("SELECT 1 AS x FROM class_members cm JOIN classes cl ON cl.id = cm.class_id AND cl.teacher_id = ? WHERE cm.user_id = ? LIMIT 1").bind(u.id, uid).first()
+      if (!ok) continue
+    }
+    const items = (Array.isArray(r.items) ? r.items : []).filter((x: any) => x && x.k).slice(0, 200)
+    if (!items.length) continue
+    await c.env.DB.batch(items.map((x: any) => ins.bind(uid, String(x.k).slice(0, 200), ws, x.v == null ? null : String(x.v).slice(0, 300), ws)))
+    saved += items.length
+  }
+  return c.json({ ok: true, saved })
+})
 app.get('/api/teacher/student-full-analysis', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -4104,6 +4128,13 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   // 前回のカルテの最後の問いかけ。紙の上でも「あれ、どうなった？」が見えるようにする。
   let prevAsk = ''
   let karteHist: any[] = []   // MICHI_V1 先週の「これやってみる？」を紙に出すため
+  // __SHINBUN_NETA_V1__ 紙の新聞に一度のせたネタ（キー → はじめて のせた週・さいごに のせた値）。同じネタを くり返さないため
+  let neta: any = {}
+  try {
+    await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS karte_neta (user_id TEXT NOT NULL, k TEXT NOT NULL, ws TEXT NOT NULL, v TEXT, last_ws TEXT, pv TEXT, pws TEXT, created_at TEXT, PRIMARY KEY(user_id, k))").run()
+    const _nt = await c.env.DB.prepare("SELECT k, ws, v, last_ws, pv, pws FROM karte_neta WHERE user_id=? LIMIT 3000").bind(studentId).all<any>()
+    for (const r of ((_nt && _nt.results) || [])) neta[String(r.k)] = { ws: String(r.ws || ''), v: r.v == null ? '' : String(r.v), lw: String(r.last_ws || r.ws || ''), pv: r.pv == null ? '' : String(r.pv), pws: String(r.pws || '') }
+  } catch (_e) {}
   try {
     const _pv = await c.env.DB.prepare("SELECT body, week_key, published_at FROM ai_review_drafts WHERE target_id=? AND kind='KARTE' AND status='published' ORDER BY published_at DESC LIMIT 4").bind(studentId).all<any>()
     const _pvr = (((_pv && _pv.results) || []) as any[])
@@ -4213,6 +4244,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
     rankPt,   // SHINBUN_RANK_V1
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
+    neta,   // __SHINBUN_NETA_V1__
     recentUnits, karteReco, recoFeedback,                 // MICHI_V2
     nextTry,                                              // MAEJIBUN_V1
     teishutsu: await tsPack(c.env, studentId, _lwFrom, Date.now()).catch(() => null),   // TEISHUTSU_V1 カルテの週の家庭学習の日数・しめきり前の提出物・提出のようす・テストの傾向（点数なし）
@@ -17609,11 +17641,11 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=19"></script>
+    <script src="/teacher-ai.js?v=20"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=5"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=5"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-shinbun.js?v=6"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=8"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
