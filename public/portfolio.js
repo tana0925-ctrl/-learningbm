@@ -851,7 +851,12 @@
       var uid = String((fd.student && fd.student.id) || fd.studentId || '');
       var w = uid && _work[uid];
       if (html.indexOf('<!--PF_WORK-->') >= 0) {   /* SHINBUN_V1／SHINBUN_PHOTO_V1 新聞：2面の決まった場所に 写真と ことば */
-        var ph = photoHtml(uid && _photo[uid]), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
+        /* SHINBUN_FRESH_V1 新聞の週の その前の週より 古い 写真・ひとことは のせない */
+        var ws0 = String((fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || (fd.lastWeek && fd.lastWeek.from) || ''), lo0 = '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(ws0)) lo0 = new Date(Date.parse(ws0 + 'T00:00:00Z') - 7 * 86400000).toISOString().slice(0, 10);
+        var pp = uid && _photo[uid]; if (pp && lo0 && String(pp.takenOn || '') < lo0) pp = null;
+        if (w && lo0 && w.at && String(w.at) < lo0) w = null;
+        var ph = photoHtml(pp), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
         if (tx.length > 200) tx = tx.slice(0, 199) + '…';
         if (!ph && !tx) return html.replace('<!--PF_WORK-->', '');
         return html.replace('<!--PF_WORK-->', '<div class="sec"><h2>' + (tx ? '📓 ノート・作品から' : '📸 写真で見る 成果物') + '</h2>' + ph + (tx ? '<div>' + esc(tx) + '</div>' : '') + '</div>');

@@ -242,6 +242,7 @@
     var h = '<div class="cmp">' + box('', ja(a.from) + '〜', a.days || 0, a.minutes || 0, (a.voices || [])[0] || '', a.next) + box('now', ja(c.ws) + '〜', facts.days, facts.minutes, nowV ? nowV.q : '', nowNext) + '</div>';
     return sec('くらべてみよう　3週間前の わたし', h, 3);
   }
+  /* SHINBUN_FRESH_V1 ことばのアルバム（4週より前のことば）は 新聞から はずした。古い出来事が のるため（先生の指摘）。関数は のこす */
   function albumSec(c) {
     var al = (c.d.shinbun && c.d.shinbun.album) || [];
     if (!al.length) return '';
@@ -375,7 +376,8 @@
     return sec('教室から', '<p>' + esc(cut(t, 90)) + '</p>', 0, '', '学校での 学習の ようす');
   }
   function teacherSec(c) {
-    var ns = (c.d.teacherNotes || []).filter(function (n) { return n && n.showInKarte && String(n.body || '').trim(); }).slice(0, 3);
+    var lo = ymd(dms(c.ws) - 7 * 86400000), hi = ymd(dms(c.ws) + 13 * 86400000);   /* SHINBUN_FRESH_V1 この週と その前の週だけ（古いメモは 紙に のせない） */
+    var ns = (c.d.teacherNotes || []).filter(function (n) { var dk = String((n && n.dayKey) || ''); return n && n.showInKarte && String(n.body || '').trim() && dk >= lo && dk <= hi; }).slice(0, 3);
     if (!ns.length) return '';
     return sec('先生から', ns.map(function (n) { return li((n.dayKey ? '<span class="mute">' + esc(jaS(n.dayKey)) + '</span> ' : '') + esc(cut(n.body, 60))); }).join(''), 0);
   }
@@ -497,7 +499,7 @@
     var top = '<div class="top"><span class="kick">今週の トップ</span><div class="hl">' + esc(ta.head) + '</div>' + (ta.sub ? '<div class="sub">' + esc(ta.sub) + '</div>' : '') + '<div class="art">' + ta.body + '<div class="by">' + esc(ta.by) + '</div></div></div>';
 
     var F = [weatherSec(rows), voicesSec(rows), numsSec(c, facts), columnSec(c), progressSec(c), newsSec(c, facts), roadsSec(c), triesSec(c), hqSec(c), lessonSec(c)].join('');
-    var B = [interviewSec(c, ws), compareSec(c, facts, rows), albumSec(c), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c), tipsSec(ws), switchSec(ws)].join('');
+    var B = [interviewSec(c, ws), compareSec(c, facts, rows), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c), tipsSec(ws), switchSec(ws)].join('');
     var after = c.ai && c.ai.after ? '<div class="after"><b>編集後記</b>　' + esc(cut(c.ai.after, 90)) + '（阪神マン）</div>' : '';
     var foot = function (n) { return '<div class="foot"><span>LearningBM ／ 道しるべ新聞（学びの道しるべ）</span><span>' + n + '面</span></div>'; };
 
@@ -511,5 +513,6 @@
   }
 
   global.KARTE_SHINBUN = build;
+  global.__SHINBUN_FRESH = true;
   global.__SHINBUN_T = { maskNames: maskNames, nameList: nameList, advLines: advLines, weekStart: weekStart, weekRows: weekRows, topArticle: topArticle, issueNo: issueNo, isoWeek: isoWeek, headlinesOf: headlinesOf, CSS: CSS };
 })(window);

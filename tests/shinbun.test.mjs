@@ -88,7 +88,7 @@ await t('2 記録の欄：天気・わたしのことば・取材メモ（🏠�
   ok(h.indexOf('おうちの人から') >= 0 && h.indexOf('自分から部屋をうつっていました') >= 0, 'おうちの人から')
   ok(h.indexOf('インタビュー') >= 0 && h.indexOf('「場所を 変える」 … できた') >= 0 && h.indexOf('問題文に 線を ひいて 読む') >= 0, 'インタビュー')
   ok(h.indexOf('くらべてみよう') >= 0 && h.indexOf('9月28日〜') >= 0, 'くらべてみよう（よくなったときだけ）')
-  ok(h.indexOf('ことばの アルバム') >= 0, 'アルバム'); ok(h.indexOf('「火曜と木曜、2日つづけて晴れ」') >= 0 && (h.match(/「場所を変えたら、集中できた」/g) || []).length === 0, 'バックナンバー（今週の号は のせない）')
+  ok(h.indexOf('ことばの アルバム') < 0, 'アルバム（古いことば）は のせない'); ok(h.indexOf('「火曜と木曜、2日つづけて晴れ」') >= 0 && (h.match(/「場所を変えたら、集中できた」/g) || []).length === 0, 'バックナンバー（今週の号は のせない）')
   ok(h.indexOf('来週の 予告') >= 0 && h.indexOf('比を アプリで 5問 やってみる') >= 0, '予告'); ok(h.indexOf('今週の 授業') >= 0 && h.indexOf('社会「江戸の文化」') >= 0, '今週の授業')
   ok(h.indexOf('新聞の見出しのつけ方がうまかった') >= 0 && h.indexOf('これは紙に出さないメモ') < 0, '先生から（カルテに出す印のメモだけ）')
   ok(h.indexOf('阪神マンからの しつもん') >= 0 && h.indexOf('夕ごはんの前') >= 0, '阪神マンのしつもんへの答え')
@@ -188,6 +188,19 @@ await t('10 友だちの名前は 紙に出さない（子どもが書いたこ�
   const T = x.w.__SHINBUN_T
   eq(T.maskNames('<p>ゆうがたに やった</p>', ['ゆうた']), '<p>ゆうがたに やった</p>', 'ひらがなの 一部は こわさない')
   eq(T.maskNames('<img alt="山田"><p>山田さん</p>', ['山田']), '<img alt="山田"><p>友だちさん</p>', 'タグの中には さわらない')
+})
+
+await t('11 古い出来事は のせない：先生から・📓・写真は この週と その前の週だけ／AIへの指示に 新聞のきまり', async () => {
+  const d = rich()
+  d.teacherNotes = [{ dayKey: '2026-09-15', body: 'ブックトークで本を紹介した', showInKarte: true }, { dayKey: '2026-10-21', body: '話し合いで意見をつないだ', showInKarte: true }]
+  const x = await make(d, { withPf: true })
+  x.w.__PF_KARTE.setWork({ 'stu-x': { text: 'ブックトークの ノート', at: '2026-09-16' } })
+  x.w.__PF_KARTE.setPhoto({ 'stu-x': { id: 'i1', src: 'data:image/png;base64,AAAA', takenOn: '2026-09-15', subj: '国語' } })
+  const h = x.html()
+  ok(h.indexOf('ブックトーク') < 0, '9月の 先生メモ・📓・写真は のらない'); ok(h.indexOf('話し合いで意見をつないだ') >= 0, 'この週の 先生メモは のる')
+  const y = await make(rich(), { withPf: true }); y.w.__PF_KARTE.setWork({ 'stu-x': { text: '図で 説明していたね', at: '2026-10-22' } })
+  ok(y.html().indexOf('図で 説明していたね') >= 0, 'この週の 📓 は のる')
+  ok(taiJs.indexOf('新聞のきまり（いちばん大事）') >= 0 && taiJs.indexOf('話題にしない') >= 0, 'AIへの指示')
 })
 
 const pass = results.filter((r) => r.ok).length

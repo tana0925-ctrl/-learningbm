@@ -17590,11 +17590,11 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=18"></script>
+    <script src="/teacher-ai.js?v=19"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
-    <script src="/portfolio.js?v=4"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=3"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/portfolio.js?v=5"></script><!-- PORTFOLIO_V1 📸 成果物 -->
+    <script src="/karte-shinbun.js?v=4"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=8"></script>
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
