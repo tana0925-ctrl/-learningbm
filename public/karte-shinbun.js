@@ -391,7 +391,7 @@
     'html,body{margin:0;padding:0}',
     'body{background:#d6d3c8;color:#1c1c1c}',
     '@media print{body{background:none}.pg{margin:0!important;box-shadow:none!important}}',
-    '.pg{--fs:12px;font-family:' + GOTHIC + ';font-size:var(--fs);line-height:1.55;width:210mm;height:297mm;margin:8px auto;background:#fbfaf4;padding:6.5mm 7.5mm 5mm;display:flex;flex-direction:column;overflow:hidden;break-after:page;page-break-after:always;position:relative}',
+    '.pg{--fs:12px;font-family:' + GOTHIC + ';font-size:var(--fs);line-height:1.55;width:210mm;height:297mm;margin:8px auto;background:#fbfaf4;padding:6.5mm 7.5mm 5mm;display:flex;flex-direction:column;overflow:hidden;break-after:page;page-break-after:always;position:relative;contain:strict}'   /* SHINBUN_FAST_V1 1ページずつ べつに 計算させる（全員ぶんで 止まらないように） */,
     '.pg.last{break-after:auto;page-break-after:auto}',
     '.mc,.pg h1,.pg h2,.hl,.sub,.logo,.nums b{font-family:' + MINCHO + '}',
     '.pg p{margin:0 0 .2em;text-indent:1em}',
@@ -453,7 +453,7 @@
     'function fit(){var ps=document.querySelectorAll(".pg.np");for(var i=0;i<ps.length;i++){if(!ps[i].getAttribute("data-fs"))fitOne(ps[i]);}}' +
     'try{fit();}catch(e){}' +
     'function again(){try{var ps=document.querySelectorAll(".pg.np");for(var i=0;i<ps.length;i++)ps[i].removeAttribute("data-fs");fit();}catch(e){}}' +
-    'window.addEventListener("load",again);try{if(document.fonts&&document.fonts.ready)document.fonts.ready.then(again);}catch(e){}' +
+    'try{if(document.fonts&&document.fonts.status!=="loaded"&&document.fonts.ready)document.fonts.ready.then(again);}catch(e){}' +   /* SHINBUN_FAST_V1 やりなおしは 字が あとから そろったときだけ */
     '})();<\/script>';
 
   // ───────── 👫 SHINBUN_NAME_V1 友だちの名前は 紙に出さない ─────────
