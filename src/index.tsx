@@ -3818,6 +3818,31 @@ app.get('/api/teacher/class/:classId/new-since', async (c) => {
   return c.json({ ok: true, count: n })
 })
 
+// __SHINBUN_ZAIRYO_V1__ 来週の新聞の 材料チェック（今週 月曜〜きょう）。担任の クラスの子ごとに 数だけ 返す。読むだけ。
+app.get('/api/teacher/shinbun-material', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const now = new Date(Date.now() + 9 * 3600000)
+  const wd = (now.getUTCDay() + 6) % 7
+  const p2 = (x: number) => (x < 10 ? '0' : '') + x
+  const f = (t: number) => { const d = new Date(t); return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate()) }
+  const from = f(now.getTime() - wd * 86400000), to = f(now.getTime())
+  const next = f(now.getTime() + 86400000)
+  const cls = await c.env.DB.prepare('SELECT id, name FROM classes WHERE teacher_id = ? LIMIT 10').bind(u.id).all<any>()
+  const cids = ((cls && cls.results) || []).map((r: any) => String(r.id))
+  if (!cids.length) return c.json({ ok: true, from, to, weekday: wd, rows: [] })
+  const ph = cids.map(() => '?').join(',')
+  const mem = await c.env.DB.prepare('SELECT cm.user_id AS uid, cm.class_id AS cid, u.name AS name, u.login_id AS lid FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id IN (' + ph + ') LIMIT 300').bind(...cids).all<any>()
+  const rows: any = {}
+  for (const r of ((mem && mem.results) || [])) rows[String(r.uid)] = { userId: String(r.uid), classId: String(r.cid), name: String(r.name || ''), loginId: String(r.lid || ''), hw: 0, appDays: 0, app: 0, photos: 0, notes: 0 }
+  const sub = 'SELECT user_id FROM class_members WHERE class_id IN (' + ph + ')'
+  const put = (res: any, fn: (o: any, r: any) => void) => { for (const r of ((res && res.results) || [])) { const o = rows[String(r.uid)]; if (o) fn(o, r) } }
+  try { put(await c.env.DB.prepare("SELECT user_id AS uid, COUNT(DISTINCT day_key) AS n FROM homework_submissions WHERE day_key >= ? AND day_key <= ? AND COALESCE(rest_day,0) = 0 AND user_id IN (" + sub + ") GROUP BY user_id").bind(from, to, ...cids).all<any>(), (o, r) => { o.hw = Number(r.n) || 0 }) } catch (_e) {}
+  try { put(await c.env.DB.prepare("SELECT user_id AS uid, COUNT(*) AS n, COUNT(DISTINCT substr(answered_at,1,10)) AS d FROM learning_results WHERE answered_at >= ? AND answered_at < ? AND user_id IN (" + sub + ") GROUP BY user_id").bind(from, next, ...cids).all<any>(), (o, r) => { o.app = Number(r.n) || 0; o.appDays = Number(r.d) || 0 }) } catch (_e) {}
+  try { put(await c.env.DB.prepare("SELECT user_id AS uid, COUNT(*) AS n FROM portfolio_items WHERE taken_on >= ? AND taken_on <= ? AND deleted_at IS NULL AND user_id IN (" + sub + ") GROUP BY user_id").bind(from, to, ...cids).all<any>(), (o, r) => { o.photos = Number(r.n) || 0 }) } catch (_e) {}
+  try { put(await c.env.DB.prepare("SELECT user_id AS uid, COUNT(*) AS n FROM teacher_student_notes WHERE day_key >= ? AND day_key <= ? AND show_in_karte = 1 AND user_id IN (" + sub + ") GROUP BY user_id").bind(from, to, ...cids).all<any>(), (o, r) => { o.notes = Number(r.n) || 0 }) } catch (_e) {}
+  return c.json({ ok: true, from, to, weekday: wd, rows: Object.keys(rows).map((k) => rows[k]) })
+})
 // __SHINBUN_NETA_V1__ 印刷した新聞のネタを記録する。{ rows:[{ userId, ws, items:[{k,v}] }] }。担任の子だけ。
 app.post('/api/teacher/karte-neta/save', async (c) => {
   const u = c.get('user')
@@ -10566,6 +10591,7 @@ app.get('/maejibun.js', async (c) => { try { const a = await c.env.ASSETS?.fetch
 app.get('/kantanref.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/kantanref.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // KANTAN_REF_V1
 app.get('/teibako.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teibako.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/portfolio.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/portfolio.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // PORTFOLIO_V1
+app.get('/shinbun_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/shinbun_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // PORTFOLIO_V1
 app.get('/ai-flow.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/ai-flow.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // AIFLOW_V1
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
@@ -17647,6 +17673,7 @@ function _faKarteGraphs(d){
     <script src="/portfolio.js?v=5"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=6"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=8"></script>
+    <script src="/shinbun_nudge.js?v=1"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
