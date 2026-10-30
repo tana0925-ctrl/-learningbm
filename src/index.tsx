@@ -39,7 +39,7 @@ import { registerPortfolio, pfFromHomework, pfWorkNoteFor } from './portfolio'
 // AIFLOW_V1 🧵 今日のひと往復に「先週までの流れ」。中身は src/aiflow.ts。
 import { registerAiFlow } from './aiflow'
 // TEISHUTSU_V1 📮 提出状況のアドバイス（家庭学習の提出状況・学校の提出物チェック・提出のようす・テストの傾向）。中身は src/teishutsu.ts。
-import { registerTeishutsu, tsPack, tsHwWeek, tsOnTime } from './teishutsu'
+import { registerTeishutsu, tsPack, tsHwWeek, tsOnTime, tsTests } from './teishutsu'
 
 type Bindings = {
   DB: D1Database
@@ -5448,7 +5448,20 @@ app.get('/api/student/my-karte', async (c) => {
   // 📓 PORTFOLIO_AI_V1 先生が公開した「ノート・作品へのひとこと」（文だけ。写真は出さない）
   let work: any = null
   try { work = await pfWorkNoteFor(c.env, String(u.id)) } catch (_e) { work = null }
-  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan, teishutsu, work })
+  // 🔁 SHINBUN_REVIEW_V1 ふく習の 案内（さいきん5週の テストで「もう少し」の 観点が ある テストだけ）。◎○△・ABC・点数は 返さない
+  let review: any = null
+  try {
+    const _rvLo = new Date(Date.now() + 9 * 3600000 - 35 * 86400000).toISOString().slice(0, 10)
+    const _rvT = ((await tsTests(c.env, String(u.id))) || []).filter((x: any) => x && x.date && x.date >= _rvLo && (x.k === '△' || x.t === '△')).slice(0, 3)
+    if (_rvT.length) {
+      const _rvFrom = _rvT.map((x: any) => String(x.date)).sort()[0]
+      const _rvP = await c.env.DB.prepare('SELECT unit, MAX(substr(answered_at,1,10)) AS d FROM learning_results WHERE user_id=? AND answered_at >= ? GROUP BY unit LIMIT 80').bind(u.id, _rvFrom).all<any>()
+      const practiced: any = {}
+      for (const r of (((_rvP && _rvP.results) || []) as any[])) practiced[String(r.unit)] = String(r.d || '')
+      review = { tests: _rvT.map((x: any) => ({ name: String(x.name || ''), subject: String(x.subject || ''), date: String(x.date), kanten: [x.k === '△' ? 'k' : '', x.t === '△' ? 't' : ''].filter(Boolean) })), practiced }
+    }
+  } catch (_e) { review = null }
+  return c.json({ ok: true, published: true, week: { days, done, minutes, voices }, reflection, teacherMessage, kantan, teishutsu, work, review })
 })
 
 // 先生：カルテを子どもの画面に出す（公開）。自分の担任クラスの児童だけ。
@@ -10739,7 +10752,7 @@ app.get('/', async (c) => {
       // 🔒 ひみつのしつもん の入口を「システム」メニューの中へ（モバイル版）。
       t = t.replace(`<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button>`, `<button class="w-full px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="trySetMode('report'); closeSysMenuMobile()"><span>📝</span>バグ報告・要望</button><button class="w-full px-4 py-3 text-sm font-bold text-amber-700 hover:bg-amber-50 flex items-center gap-2 border-t border-slate-100 whitespace-nowrap" onclick="location.href='/himitsu'; closeSysMenuMobile()"><span>🔒</span>ひみつのしつもん</button>`)
       // 📒 わたしのカルテ（子ども向け）のスクリプトを読み込む
-      t = t.replace('</body>', '<script src="/student-karte.js?v=4"></script></body>')
+      t = t.replace('</body>', '<script src="/student-karte.js?v=5"></script></body>')
       // 👾 __DEFSTAGE_CHARS_V1__ 防衛戦ステージ初クリアの げんていキャラ（4体）の名前とすがた。
       //    index.html は手で編集しない。中身は public/defstage_monsters.js。
       t = t.replace('</body>', '<script src="/defstage_monsters.js?v=1"></script></body>')

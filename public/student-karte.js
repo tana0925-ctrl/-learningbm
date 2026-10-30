@@ -208,6 +208,51 @@
     if (el) el.style.display = 'none';
   }
 
+  // ══════ 🔁 SHINBUN_REVIEW_V1 ふく習コーナー ══════
+  var RV_K = { k: ['ことばや 計算の しかた', '教科書の 例題を もう一度 といて、手じゅんを 声に 出して たしかめよう'], t: ['考え方を 説明する ところ', '図や ことばで「なぜ そうなるか」を 1問だけ 書いてみよう'] };
+  function rvUnits() {
+    var out = [], C = window.CURRICULUM; if (!C) return out;
+    Object.keys(C).forEach(function (sk) { var sj = C[sk]; if (!sj || !sj.grades) return; Object.keys(sj.grades).forEach(function (g) { ((sj.grades[g] || {}).units || []).forEach(function (u) { if (u && u.id && u.name) out.push({ id: u.id, name: u.name, subjName: sj.name || '', grade: Number(g), gradeLabel: (sj.grades[g] || {}).label || '' }); }); }); });
+    return out;
+  }
+  function rvFind(testName, subjName) {   // 新聞（karte-michi の unitFind）と 同じ さがし方
+    var norm = function (x) { return String(x || '').replace(/×/g, 'かけ算').replace(/÷/g, 'わり算').replace(/[\s　（）()「」『』・,、。.\-0-9０-９]/g, '').replace(/(の)?(まとめ)?(テスト|小テスト|プリント|ワーク)$/, '').replace(/^(小|中)[1-6１-６](年)?/, ''); };
+    var bg = function (x) { var o = {}; for (var i = 0; i < x.length - 1; i++) o[x.slice(i, i + 2)] = 1; return o; };
+    var tn = norm(testName); if (!tn) return null;
+    var tb = bg(tn), tbn = Object.keys(tb).length, best = null, bs = 0;
+    rvUnits().forEach(function (u) {
+      if (subjName && u.subjName && u.subjName !== subjName) return;
+      var un = norm(u.name); if (!un) return;
+      if (un === tn) { if (2 > bs) { bs = 2; best = u; } return; }
+      if (un.length < 2 || tn.length < 2) return;
+      var ub = bg(un), ubn = Object.keys(ub).length, hit = 0;
+      Object.keys(ub).forEach(function (k) { if (tb[k]) hit++; });
+      var sc = (2 * hit) / (tbn + ubn) + (tn.indexOf(un) >= 0 || un.indexOf(tn) >= 0 ? 0.3 : 0);
+      if (sc > bs) { bs = sc; best = u; }
+    });
+    return bs >= 0.45 ? best : null;
+  }
+  function rvDate(dk) { var p = String(dk || '').split('-'); return p.length < 3 ? '' : Number(p[1]) + '/' + Number(p[2]); }
+  function reviewHtml(rv) {
+    if (!rv || !rv.tests || !rv.tests.length) return '';
+    var pr = rv.practiced || {}, L = [];
+    rv.tests.forEach(function (x) {
+      var nm = String(x.name || '').replace(/(の)?(テスト|小テスト)$/, '');
+      var u = rvFind(x.name, x.subject);
+      if (u && pr[u.id] && pr[u.id] >= x.date) { L.push('<div class="mt-1 text-sm text-emerald-800">✅ <b>ふく習 できた！</b>「' + esc(nm) + '」の テストの あと、「' + esc(u.name) + '」に とりくんだね</div>'); return; }
+      var h = '<div class="mt-2 text-sm text-gray-800"><b>「' + esc(nm) + '」</b><span class="text-xs text-gray-500">（' + rvDate(x.date) + 'の テスト）</span>';
+      (x.kanten || []).forEach(function (k) { if (RV_K[k]) h += '<div class="text-xs text-gray-700">▶ ' + RV_K[k][0] + '：' + RV_K[k][1] + '</div>'; });
+      if (u) h += '<button type="button" class="mt-1 rounded-lg bg-rose-500 text-white text-xs font-bold px-3 py-1" data-rv="' + esc(u.id) + '">📱 「' + esc(u.name) + '」を 3問だけ ふく習 ▶</button>';
+      L.push(h + '</div>');
+    });
+    return '<div class="mt-3 rounded-xl bg-rose-50 border border-rose-200 p-3"><div class="text-xs font-bold text-rose-700">🔁 ふく習コーナー <span class="font-normal text-gray-500">テストから</span></div>' + L.join('') + '<div class="mt-1 text-xs text-gray-500">テストは「できるように なる ための 地図」。1問だけでも OK やで</div></div>';
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-rv]') : null; if (!b) return;
+    var id = b.getAttribute('data-rv');
+    try { if (typeof window.startMiniQuiz === 'function') window.startMiniQuiz(id); } catch (e) {}
+  });
+
   function render(d) {
     if (!d || !d.ok || !d.published) { hide(); return; }
     var el = ensureCard();
@@ -299,6 +344,8 @@
          + '<div class="text-xs font-bold text-sky-700">📓 ノート・作品から</div>'
          + '<div class="text-sm text-gray-800" style="white-space:pre-wrap">' + esc(d.work.text) + '</div></div>';
     }
+    /* SHINBUN_REVIEW_V1 🔁 ふく習コーナー（テストから。印・点数は出さない）。新聞と同じ中身＋その場で3問 */
+    h += reviewHtml(d.review);
     /* KARTE_HANSHIN_V2 (2026-10-05) 注記（※〜）は出さない（先生の指示）。
        見出しの「阪神マンから」と虎の絵はそのまま。 */
     h += '</div>';
