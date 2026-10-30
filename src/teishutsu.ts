@@ -38,7 +38,7 @@ export const TS_SUBJECTS = ['国語', '算数', '理科', '社会', '外国語',
 export const TS_KINDS: [string, RegExp][] = [['ドリル', /ドリル|スキル/], ['ノート', /ノート/], ['プリント', /プリント|ワークシート/], ['ワーク', /ワーク/], ['作文・日記', /作文|日記|感想/]]
 export function tsKindOf(title: string) { for (const k of TS_KINDS) if (k[1].test(String(title || ''))) return k[0]; return 'その他' }
 const MARKS = ['◎', '○', '△']
-function mark(x: any) { const s = String(x || '').trim().replace('〇', '○').replace('◯', '○'); return MARKS.indexOf(s) >= 0 ? s : '' }
+function mark(x: any) { let s = String(x || '').trim().replace('〇', '○').replace('◯', '○'); const AB: any = { A: '◎', 'Ａ': '◎', B: '○', 'Ｂ': '○', C: '△', 'Ｃ': '△' }; if (AB[s]) s = AB[s]; return MARKS.indexOf(s) >= 0 ? s : '' }   // SHINBUN_REVIEW_V1 成果物から 読んだ A・B・C も 同じに あつかう
 
 // ── 家庭学習を出した日（月〜日・週の振り返りの📊と同じ数え方） ──
 export async function tsHwWeek(env: any, userId: string, mon: string) {

@@ -229,6 +229,22 @@ await t('12 一度 のせた ネタは 次の号に のせない（くらべる�
   ok(hl(h1) !== hl(h2), '見出しが かわる')
 })
 
+await t('13 ふく習コーナー：テストの「もう少し」から どこを・どう・アプリの入り口（◎○△・ABC・点数は 出さない）', async () => {
+  const d = rich()
+  d.teishutsu = Object.assign({}, d.teishutsu || {}, { tests: [
+    { name: '比のテスト', subject: '算数', date: '2026-10-16', k: '△', t: '○' },
+    { name: '円の面積', subject: '算数', date: '2026-10-20', k: '◎', t: 'C' },
+    { name: '9月の 漢字', subject: '国語', date: '2026-09-01', k: '△', t: '' }
+  ] })
+  const h = (await make(d)).html()
+  ok(h.indexOf('ふく習 コーナー') >= 0, '欄が 出る')
+  ok(h.indexOf('「比」') >= 0 && h.indexOf('考え方を 説明する ところ') >= 0, '円の面積は 考え方')
+  ok(h.indexOf('アプリ：修行 ▶ 算数 ▶ 小6 ▶「円の面積」') >= 0, 'アプリの 入り口')
+  ok(h.indexOf('9月の 漢字') < 0, '古い テストは のせない')
+  const sec = (h.match(/ふく習 コーナー[\s\S]*?<\/section>/) || [''])[0]
+  ok(!/[◎○△]|Ａ|Ｃ|点/.test(sec.replace(/ふく習 コーナー/, '')), '印や 点数は 出さない')
+})
+
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== shinbun ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))

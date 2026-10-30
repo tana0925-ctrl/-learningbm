@@ -70,6 +70,28 @@
     if (!sk || !g || !nm || nm === id) return null;   // アプリのどこにあるか言えない単元は使わない
     return { id: id, subj: sk, subjName: SUBJ[sk].name, icon: SUBJ[sk].icon, grade: g, gradeLabel: gLabel(g), name: nm, order: 0 };
   }
+  // 🔁 SHINBUN_REVIEW_V1 テストの 名前から、アプリの どの 単元で ふく習 できるかを さがす（いちばん 長く 重なる 名前）
+  function unitFind(testName, subjName, grade) {
+    var norm = function (x) { return String(x || '').replace(/×/g, 'かけ算').replace(/÷/g, 'わり算').replace(/[\s　（）()「」『』・,、。.\-0-9０-９]/g, '').replace(/(の)?(まとめ)?(テスト|小テスト|プリント|ワーク)$/, '').replace(/^(小|中)[1-6１-６](年)?/, ''); };
+    var bg = function (x) { var o = {}; for (var i = 0; i < x.length - 1; i++) o[x.slice(i, i + 2)] = 1; return o; };
+    var tn = norm(testName); if (!tn) return null;
+    var tb = bg(tn), tbn = Object.keys(tb).length;
+    var all = []; var idx = unitIndex(); Object.keys(idx).forEach(function (k) { all.push(idx[k]); });
+    Object.keys(MATH_NAMES).forEach(function (id) { if (!idx[id]) { var m = MATH_NAMES[id]; all.push({ id: id, subj: 'math', subjName: '算数', icon: '🔢', grade: m[0], gradeLabel: gLabel(m[0]), name: m[1], order: 0 }); } });
+    var best = null, bs = 0;
+    all.forEach(function (u) {
+      if (subjName && u.subjName && u.subjName !== subjName) return;
+      var un = norm(u.name); if (!un) return;
+      if (un === tn) { var ex = 2 + (grade && Number(u.grade) === Number(grade) ? 0.05 : 0); if (ex > bs) { bs = ex; best = u; } return; }
+      if (un.length < 2 || tn.length < 2) return;
+      var ub = bg(un), ubn = Object.keys(ub).length, hit = 0;
+      Object.keys(ub).forEach(function (k) { if (tb[k]) hit++; });
+      var sc = (2 * hit) / (tbn + ubn) + (tn.indexOf(un) >= 0 || un.indexOf(tn) >= 0 ? 0.3 : 0) + (grade && Number(u.grade) === Number(grade) ? 0.05 : 0);
+      if (sc > bs) { bs = sc; best = u; }
+    });
+    return bs >= 0.45 ? best : null;
+  }
+  global.michiUnitFind = unitFind;
   function gLabel(g) { g = Number(g); return g <= 6 ? '小' + g : '中' + (g - 6); }
 
   // ───────── 算数の道順（単元のつながり） ─────────
@@ -1071,7 +1093,7 @@
     /* SHINBUN_V1 道しるべ新聞（karte-shinbun.js）があれば そちらで組む。うまくいかなければ これまでの紙 */
     if (typeof global.KARTE_SHINBUN === 'function') {
       try {
-        var _sh = global.KARTE_SHINBUN({ d: d, name: nm, period: pd, ai: ai, hanNote: hanNote, reco: reco, step: step, map: map, cards: progressCards(d, reco), cd: cd, hn: hn, mp: miPlan(d), tries: tries, tsFact: tsFact(d), unitInfo: unitInfo, notes: secNotes ? secNotes.outerHTML : '', stale: !!hanStale, graphs: graphs(d) });
+        var _sh = global.KARTE_SHINBUN({ d: d, name: nm, period: pd, ai: ai, hanNote: hanNote, reco: reco, step: step, map: map, cards: progressCards(d, reco), cd: cd, hn: hn, mp: miPlan(d), tries: tries, tsFact: tsFact(d), unitInfo: unitInfo, unitFind: unitFind, notes: secNotes ? secNotes.outerHTML : '', stale: !!hanStale, graphs: graphs(d) });
         if (_sh) return _sh;
       } catch (e) { try { console.error('SHINBUN_V1 新聞を作れなかったので、これまでの紙を出します', e); } catch (_e) {} }
     }

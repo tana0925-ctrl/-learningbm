@@ -17671,8 +17671,8 @@ function _faKarteGraphs(d){
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=5"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=6"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
-    <script src="/karte-michi.js?v=8"></script>
+    <script src="/karte-shinbun.js?v=7"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-michi.js?v=9"></script>
     <script src="/shinbun_nudge.js?v=1"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>

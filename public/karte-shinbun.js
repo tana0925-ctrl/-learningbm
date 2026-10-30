@@ -504,6 +504,39 @@
     return tag(sec('先生から', ns.map(function (n) { return li((n.dayKey ? '<span class="mute">' + esc(jaS(n.dayKey)) + '</span> ' : '') + esc(cut(n.body, 60))); }).join(''), 0), ns.map(function (n) { return use('tn:' + nk(n.body)); }));
   }
 
+  // ───────── 🔁 SHINBUN_REVIEW_V1 ふく習 コーナー（テストから。点数・◎○△・ABCは 出さない）─────────
+  //  この号の週と その前4週の テストで「もう少し」の 観点が あれば、どこを どう ふく習するかと、アプリの 入り口を 出す。
+  //  テストの あとに アプリで その単元を やっていたら「ふく習 できた」として 出す（どちらも 一度だけ）。
+  var KANTEN = { k: ['ことばや 計算の しかた', 'もう一度 教科書の 例題を とき、手じゅんを 声に 出して たしかめよう'], t: ['考え方を 説明する ところ', '図や ことばで「なぜ そうなるか」を 1問だけ 書いてみよう'] };
+  function weakMark(x) { x = String(x || '').trim(); return x === '△' || x === 'C' || x === 'Ｃ'; }
+  function reviewSec(c) {
+    var d = c.d, ts = (d.teishutsu && d.teishutsu.tests) || [];
+    var lo = ymd(dms(c.ws) - 28 * 86400000), hi = ymd(dms(c.ws) + 6 * 86400000);
+    var lwUnits = ((d.lastWeek || {}).units || []).map(function (u) { return String(u.unit); });
+    var L = [], K = [];
+    ts.forEach(function (x) {
+      if (!x || !x.date || x.date < lo || x.date > hi || L.length >= 2) return;
+      var ws2 = []; if (weakMark(x.k)) ws2.push('k'); if (weakMark(x.t)) ws2.push('t');
+      if (!ws2.length) return;
+      var u = typeof c.unitFind === 'function' ? c.unitFind(x.name, x.subject, d.student && d.student.grade) : null;
+      var nm = cut(String(x.name || '').replace(/(の)?(テスト|小テスト)$/, ''), 18);
+      if (u && lwUnits.indexOf(String(u.id)) >= 0) {   // テストの あと アプリで やった
+        var dk = 'revdone:' + nk(x.name + x.date);
+        if (!old(dk)) { K.push(use(dk)); L.push('<div class="li">✅ <b>ふく習 できた！</b>「' + esc(nm) + '」の テストの あと、アプリで「' + esc(u.name) + '」に とりくんだ</div>'); }
+        return;
+      }
+      var rk = 'rev:' + nk(x.name + x.date + ws2.join(''));
+      if (old(rk)) return;
+      K.push(use(rk));
+      var h = '<div class="li"><b>「' + esc(nm) + '」</b><span class="mute">（' + esc(jaS(x.date)) + 'の テスト）</span>';
+      ws2.forEach(function (w) { h += '<br>▶ ' + KANTEN[w][0] + '：' + KANTEN[w][1]; });
+      if (u) h += '<br>📱 アプリ：修行 ▶ ' + esc(u.subjName) + ' ▶ ' + esc(u.gradeLabel) + ' ▶「' + esc(u.name) + '」';
+      L.push(h + '</div>');
+    });
+    if (!L.length) return '';
+    return tag(sec('ふく習 コーナー', L.join('') + '<div class="mute sm">テストは「できるように なる ための 地図」。1問だけでも OK やで（阪神マン）</div>', 0, '', 'テストから'), K);
+  }
+
   // ───────── 🧩 SHINBUN_QUIZ_V1 きみクイズ（読むだけ。こたえは さかさまに 下に）─────────
   //  その子の 記録から 3問。同じ しつもんでも こたえが かわれば 新しい ネタ。こたえが 前の号と 同じなら 出さない。
   function hashN(x) { x = String(x || ''); var h = 2166136261 >>> 0; for (var i = 0; i < x.length; i++) { h ^= x.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
@@ -678,7 +711,7 @@
     var top = '<div class="top" data-nk="' + esc(tk) + '"><span class="kick">今週の トップ</span><div class="hl">' + esc(ta.head) + '</div>' + (ta.sub ? '<div class="sub">' + esc(ta.sub) + '</div>' : '') + '<div class="art">' + ta.body + '<div class="by">' + esc(ta.by) + '</div></div></div>';
 
     /* SHINBUN_NETA_V1 欄の ならびも 号ごとに かえる（コラムは 1面の 頭のほう・天気は 1面に のこす） */
-    var F0 = [weatherSec(rows), columnSec(c)], F1 = [voicesSec(rows), numsSec(c, facts), progressSec(c), newsSec(c, facts), roadsSec(c), triesSec(c), hqSec(c), lessonSec(c), quizSec(c, facts, rows, seed)];
+    var F0 = [weatherSec(rows), columnSec(c)], F1 = [voicesSec(rows), numsSec(c, facts), progressSec(c), newsSec(c, facts), roadsSec(c), triesSec(c), hqSec(c), lessonSec(c), quizSec(c, facts, rows, seed), reviewSec(c)];
     var F = shuf(F0, seed).concat(shuf(F1, seed + 1)).join('');
     var B = shuf([interviewSec(c, ws), compareSec(c, facts, rows), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c)], seed + 2).concat([tipsSec(ws), switchSec(ws)]).join('');
     var afk = c.ai && c.ai.after ? 'after:' + nk(c.ai.after) : '';
