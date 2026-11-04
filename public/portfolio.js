@@ -420,7 +420,7 @@
       '教科 <select id="pfScSubj" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px">' + SUBJ.map(function (x) { return '<option' + (x === '算数' ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
       '題 <input id="pfScTitle" placeholder="例：データの見方 ルーブリック" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px;min-width:180px">' +
       btn('📋 スキャンPDF用のプロンプトをコピー', 'PF._scCopy()', '#0f766e') + '<span id="pfScSt" style="font-weight:bold;color:#0f766e"></span></div>' +
-      '<div style="color:#475569;margin-top:2px">このプロンプトと スキャンPDF を AIに いっしょに 送る → 返事を 下の ③ に 貼る。AIは 紙の 右上の「◯番」で 子どもを 見分けます（名前は 読ませません）。</div><div id="pfScNo"></div></div>' +
+      '<div style="color:#475569;margin-top:2px">このプロンプトと スキャンPDF を AIに いっしょに 送る → 返事を 下の ③ に 貼る。AIは 紙の「◯番」と「氏名」を 読んで、アプリが 名簿の 子に つなぎます（決められない子は えらんでもらいます）。 <a href="#" onclick="PF._scNoEd();return false" style="color:#b45309">🔢 出席番号を 入れる（任意）</a></div><div id="pfScNo"></div></div>' +
       '<div style="margin-top:6px">' + btn('① AIに渡すプロンプトをコピー', 'PF._aiCopy()', '#a21caf') +
       btn('② 写真をまとめてダウンロード（ZIP）', 'PF._aiZip()', '#1d4ed8') + btn('②’ 1つのPDFで', 'PF._aiPdf()', '#1e40af') +
       '<span id="pfAiSt" style="font-size:12px;font-weight:bold;color:#86198f;margin-left:4px"></span></div>' +
@@ -429,6 +429,7 @@
       '<textarea id="pfAiPaste" rows="4" placeholder="AIの返事をぜんぶ貼り付け" style="width:100%;font-size:12px;border:1px solid #cbd5e1;border-radius:8px;padding:6px"></textarea>' +
       '<div>' + btn('🔍 下書きに取り込む', 'PF._aiImport()', '#4f46e5') + '<span id="pfAiImpSt" style="font-size:12px;font-weight:bold;color:#3730a3;margin-left:4px"></span>' +
       '<span id="pfAiGo" style="display:none">' + btn('④ 確認して公開へ →', 'PF._aiGo()', '#e11d48') + '</span></div>' +
+      '<div id="pfScFixBox"></div>' +   /* SCANPROMPT_V1 */
       '<div id="pfRecPrev"></div>' +   /* WORKREC_V1 */
       '<p style="font-size:11px;color:#64748b;margin-top:4px">取り込んだ文は「④ 📊分析・カルテ → 📋今日のひと往復 の ④」に下書きとして入ります。先生が確認して公開するまで、子どもには届きません。公開すると「📓 成果物へのひとこと」は子どもの カルテ（アプリ・紙）に、「成果物の分析メモ」は先生だけのメモとして次回のコピーの「先週までの流れ」に入ります。</p>' +
       '</div>';
@@ -557,10 +558,11 @@
     L.push('・PDF が 添付されていない・開けないときは、どの欄も 書かずに「写真が見えません」とだけ 返す。想像で 書かない。');
     L.push('');
     L.push('【子どもの 見分け方（大事）】');
-    L.push('・各ページの 上のほうにある「6年 ◯組 ◯番」の「番」の 数字（出席番号）で 見分ける。');
-    L.push('・名前（氏名らん）は 読まない・書かない。返事の どこにも 名前を 書かない。');
-    L.push('・同じ 番号の ページは 同じ子。番号が 書いていない ページは、その 前後の ページ（おもて・うら）と 同じ子として よい。');
-    L.push('・どうしても 番号が 分からない 子は、番号のかわりに「p12」のように PDF の ページ番号を 書く。');
+    L.push('・各ページの 上のほうにある「6年 ◯組 ◯番 氏名」を 読んで 見分ける。番号（出席番号）と 名前の 両方を 目印に 書く。');
+    L.push('・番号が 書いていなければ 名前だけ、名前が 書いていなければ 番号だけで よい。どちらも ない ページは、その 前後の ページ（おもて・うら）と 同じ子として よい。');
+    L.push('・名前は 氏名らんに 書いてある とおりに 写す（ひらがな なら ひらがなで）。読めない 字は ？に する。');
+    L.push('・名前を 書くのは 目印の 行の中 だけ。WORK・WORKMEMO・WORKREC の 本文には 名前を 書かない（「この子」「〜さん」も 使わない）。');
+    L.push('・どうしても 分からない 子は「p12」のように PDF の ページ番号を 書く。');
     if (nos.length) L.push('・このクラスの 出席番号：' + nos.join('、'));
     L.push('');
     L.push('【見るポイント】（紙に 書いてあることだけ）');
@@ -575,11 +577,11 @@
     L.push('・紙から読み取れないことは書かない。推しはかるときは「〜かも」と分かる書き方にする。');
     try { (window.TAI_NG_RULE_LINES || []).forEach(function (x) { L.push(x); }); } catch (e) {}
     L.push('');
-    L.push('【書いてほしい欄】子どもごとに、番号の 小さい順に、次の 目印の行を 書いて、そのすぐ下に 中身を書く。');
-    L.push('・=== [WORKMEMO:番号9] === … 先生用のメモ。事実だけで2〜3文（100字以内）。（9 は その子の 出席番号）');
-    L.push('・=== [WORK:番号9] === … 子どもに返すひとこと。やさしい話しことば（関西弁の 阪神マン）で3〜4文（120字くらい）。見えたよさ → 次に試せる小さな工夫1つ。');
-    if (rec) L.push('・=== [WORKREC:番号9:p3] === … ページごとの 評価の記録（p3 は PDF の 何ページ目か）。下の【WORKREC の欄】の形で。');
-    L.push('・目印の行は、上の 形の とおりに 書く（「番号」の あとに 数字だけ）。前置き・あいさつ・まとめは書かない。');
+    L.push('【書いてほしい欄】子どもごとに、PDF の 順に、次の 目印の行を 書いて、そのすぐ下に 中身を書く。（例は 9番 やまだ たろう の子）');
+    L.push('・=== [WORKMEMO:番号9 名前 やまだたろう] === … 先生用のメモ。事実だけで2〜3文（100字以内）。');
+    L.push('・=== [WORK:番号9 名前 やまだたろう] === … 子どもに返すひとこと。やさしい話しことば（関西弁の 阪神マン）で3〜4文（120字くらい）。見えたよさ → 次に試せる小さな工夫1つ。');
+    if (rec) L.push('・=== [WORKREC:番号9 名前 やまだたろう:p3] === … ページごとの 評価の記録（p3 は PDF の 何ページ目か）。下の【WORKREC の欄】の形で。');
+    L.push('・番号が 分からないときは「番号9 」を はぶいて「名前 やまだたろう」だけ、名前が 分からないときは「番号9」だけ。前置き・あいさつ・まとめは書かない。');
     L.push('');
     if (rec) recPromptLines({ grade: grade }).forEach(function (x) { L.push(String(x).replace(/写真1まいごと/g, 'PDF の 1ページごと').replace(/この写真/g, 'このページ').replace(/写真に/g, '紙に')); });
     return L.join(NL);
@@ -590,8 +592,7 @@
     try { if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) early = navigator.clipboard.write([new ClipboardItem({ 'text/plain': txtP.then(function (t) { return new Blob([t], { type: 'text/plain' }); }) })]); } catch (e) { early = null; }
     if (early) early.catch(function () {});
     try {
-      var _ns = (S.sum && S.sum.students) || [];
-      if (Object.keys(rosterNos()).length < _ns.length) { done(''); st.textContent = '⚠ 出席番号が 入っていない子が います。下で 入れて 保存してから、もう一度 おしてください'; noEditor(); return; }
+      try { if (typeof window.loadServerNameMap === 'function' && !window._serverNameMap) window.loadServerNameMap(); } catch (e) {}
       var rec = recOn(), grade = rec ? await classGrade() : '';
       var txt = scanPromptText(rec, grade);
       S.scan = { date: ($('pfScDate') || {}).value || jstToday(), subj: ($('pfScSubj') || {}).value || '', title: (($('pfScTitle') || {}).value || '').trim() };
@@ -622,15 +623,72 @@
     await loadSummary();
     try { $('pfScDate').value = keep.d; $('pfScSubj').value = keep.s; $('pfScTitle').value = keep.t; $('pfScSt').textContent = '✓ 出席番号を 保存しました。もう一度「📋 スキャンPDF用のプロンプトをコピー」を おしてください'; $('pfScSt').scrollIntoView({ block: 'center' }); } catch (e) {}
   }
-  // 返事の「番号9」を 名簿の 子に おきかえる（AIには 名前も ID も 渡していない）
-  function mapScanNos(raw) {
-    var m = rosterNos(), miss = [];
-    var out = String(raw || '').replace(/\[\s*(WORK(?:MEMO|REC)?)\s*[:：]\s*番号\s*([0-9０-９]+)/g, function (all, k, n) {
-      n = Number(String(n).replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); }));
-      if (m[n]) return '[' + k + ':' + m[n];
-      miss.push(n); return all;
+  // 返事の 目印（番号9 名前 やまだたろう ／ p12）を 名簿の 子に おきかえる。AIには 名簿も ID も 渡していない
+  function kana(x) { return String(x || '').replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 96); }); }
+  function nmNorm(x) { return kana(String(x || '')).replace(/[\s　・,，.。]/g, '').replace(/(さん|くん|君|ちゃん)$/, '').replace(/[？?]/g, '?'); }
+  function nameCands() {
+    var nm = {}, fu = window._serverFuriganaMap || {};
+    try { nm = (typeof window.getStudentNameMap === 'function' ? window.getStudentNameMap() : null) || {}; } catch (e) { nm = {}; }
+    return ((S.sum && S.sum.students) || []).map(function (s) {
+      var c = [realName(s), nm[s.loginId], s.name, fu[s.loginId]].map(nmNorm).filter(function (x, i, a) { return x && x.length >= 2 && a.indexOf(x) === i; });
+      return { uid: s.userId, no: Number(s.rosterNo) || 0, c: c };
     });
-    return { raw: out, miss: miss, used: out !== raw };
+  }
+  function nmScore(a, b) {   // ？は どの字とも あう。2文字ずつの 重なり（ダイス係数）
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.indexOf('?') < 0 && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) && Math.min(a.length, b.length) >= 2) return 0.9;
+    if (a.length === b.length && a.indexOf('?') >= 0) { var ok = true; for (var i = 0; i < a.length; i++) if (a[i] !== '?' && a[i] !== b[i]) { ok = false; break; } if (ok) return 0.85; }
+    var bg = function (x) { var o = {}; for (var i = 0; i < x.length - 1; i++) o[x.slice(i, i + 2)] = 1; return o; };
+    var A = bg(a), B = bg(b), h = 0, na = Object.keys(A).length, nb = Object.keys(B).length;
+    Object.keys(A).forEach(function (k) { if (B[k]) h++; });
+    return na + nb ? 2 * h / (na + nb) : 0;
+  }
+  function whoOf(label, cands) {
+    var t = String(label || '');
+    var mN = t.match(/番号?\s*([0-9０-９]+)/), mM = t.match(/名前\s*[:：]?\s*(.+)$/);
+    var no = mN ? Number(mN[1].replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); })) : 0;
+    var nm = mM ? nmNorm(mM[1]) : (!mN && !/^p\s*\d+$/i.test(t) ? nmNorm(t) : '');
+    var byNo = no ? cands.filter(function (x) { return x.no === no; })[0] : null;
+    var best = null, bs = 0, second = 0;
+    if (nm) cands.forEach(function (x) { var sc = 0; x.c.forEach(function (c) { sc = Math.max(sc, nmScore(nm, c)); }); if (sc > bs) { second = bs; bs = sc; best = x; } else if (sc > second) second = sc; });
+    var byNm = (best && bs >= 0.6 && bs - second >= 0.15) ? best : null;
+    if (byNo && byNm && byNo.uid !== byNm.uid) return { uid: byNm.uid, why: '番号と 名前が ちがう子でした（名前を 優先）' };   // 番号の 書きまちがいより 名前の ほうが たしか
+    if (byNm) return { uid: byNm.uid };
+    if (byNo) return { uid: byNo.uid };
+    return null;
+  }
+  function resolveScan(raw) {
+    var cands = nameCands(), uids = {}, out = { raw: '', unresolved: [], used: false, notes: [] }, memo = {};
+    cands.forEach(function (x) { uids[x.uid] = 1; });
+    out.raw = String(raw || '').replace(/\[\s*(WORK(?:MEMO|REC)?)\s*[:：]\s*([^\]:：]*?)\s*((?:[:：]\s*[A-Za-z0-9\-]+)?)\s*\]/g, function (all, k, label, tail) {
+      label = String(label || '').trim();
+      if (uids[label]) return all;   // もう 名簿の ID（ふつうの 成果物の 返事）
+      if (!/番号|名前/.test(label) && !/^p\s*\d+$/i.test(label)) return all;
+      out.used = true;
+      if (S.scanFix && S.scanFix[label] !== undefined) { var f = S.scanFix[label]; return f ? '[' + k + ':' + f + tail + ']' : all; }
+      if (!(label in memo)) memo[label] = whoOf(label, cands);
+      var w = memo[label];
+      if (w) { if (w.why && out.notes.indexOf(label) < 0) out.notes.push(label); return '[' + k + ':' + w.uid + tail + ']'; }
+      if (out.unresolved.indexOf(label) < 0) out.unresolved.push(label);
+      return all;
+    });
+    return out;
+  }
+  function scanFixHtml(list) {
+    var ss = (S.sum && S.sum.students) || [];
+    var opt = '<option value="">（入れない）</option>' + ss.map(function (x) { return '<option value="' + esc(x.userId) + '">' + esc((x.rosterNo ? x.rosterNo + ' ' : '') + realName(x)) + '</option>'; }).join('');
+    return '<div style="margin-top:6px;background:#fffbeb;border:2px solid #fcd34d;border-radius:8px;padding:6px;font-size:12px"><b>🔎 だれか 決められなかった 子（' + list.length + '人）</b>' +
+      '<div style="color:#92400e">AIが 紙から 読んだ 番号・名前です。どの子か えらんで「取り込む」を おしてください（先生の 画面だけ）。</div>' +
+      list.map(function (l, i) { return '<div style="display:flex;gap:6px;align-items:center;margin-top:3px"><span style="min-width:160px">「' + esc(l) + '」</span><select class="pfScFix" data-l="' + esc(l) + '" style="border:1px solid #cbd5e1;border-radius:6px;padding:2px">' + opt + '</select></div>'; }).join('') +
+      '<div style="margin-top:4px">' + btn('この割りあてで 取り込む', 'PF._scFix()', '#b45309') + '</div></div>';
+  }
+  function scanFixGo() {
+    S.scanFix = S.scanFix || {};
+    var ss = document.querySelectorAll('.pfScFix');
+    for (var i = 0; i < ss.length; i++) S.scanFix[ss[i].getAttribute('data-l')] = ss[i].value;
+    var ta = $('pfAiPaste'); if (ta && S.scanRaw) ta.value = S.scanRaw;
+    aiImport();
   }
 
   async function aiCopy() {
@@ -888,8 +946,14 @@
     if (!raw.trim()) { st.textContent = 'AIの返事を貼り付けてください'; return; }
     if (typeof window.taiImport !== 'function') { st.textContent = 'この画面では取り込めません（今日のひと往復が読み込まれていません）'; return; }
     if (!/\[\s*WORK(MEMO|REC)?\s*[:：]/i.test(raw)) { st.textContent = '成果物の目印（=== [WORK:…] === など）が見つかりません'; return; }
-    var _scm = mapScanNos(raw), _scMiss = '';   /* SCANPROMPT_V1 */
-    if (_scm.used) { raw = _scm.raw; if (_scm.miss.length) _scMiss = '／⚠ 名簿に ない 番号：' + _scm.miss.filter(function (x, i, a) { return a.indexOf(x) === i; }).join('・'); }
+    var _scMiss = '', _fx = $('pfScFixBox');   /* SCANPROMPT_V1 番号・名前 → 名簿の 子 */
+    var _scm = resolveScan(raw);
+    if (_scm.used) {
+      if (_scm.unresolved.length) { S.scanRaw = raw; if (_fx) _fx.innerHTML = scanFixHtml(_scm.unresolved); st.textContent = '⚠ だれか 決められなかった 子が ' + _scm.unresolved.length + '人 います。下で えらんでください'; return; }
+      if (_fx) _fx.innerHTML = '';
+      raw = _scm.raw; S.scanFix = null;
+      if (_scm.notes.length) _scMiss = '／番号と 名前が くいちがった 子は 名前で 決めました：' + _scm.notes.join('、');
+    }
     /* NOPHOTO_V1 AIが 写真を 見られていない 返事（PDF・写真の 添付わすれ）は 取り込まない。前のメモから 想像で 書いた文が 子どもに 届いてしまうため */
     var _pre = raw.split(/===\s*\[/)[0];   // 目印より前の まえおき だけを 見る（本文の「この写真は 字が 読めません」などで 止めない）
     var noPh = /(写真|画像|PDF|ＰＤＦ)[^\n。]{0,12}(添付されていない|添付がない|見え(ない|ません)|開け(ない|ません)|読み込め(ない|ません)|確認できない|確認できません)/.test(_pre);
@@ -1151,7 +1215,7 @@
   }
 
   window.PF = {
-    _scCopy: scCopy, _scNoSave: noSave, _scan: { scanPromptText: scanPromptText, mapScanNos: mapScanNos, rosterNos: rosterNos },
+    _scCopy: scCopy, _scNoSave: noSave, _scNoEd: function () { noEditor(); }, _scFix: scanFixGo, _scan: { scanPromptText: scanPromptText, resolveScan: resolveScan, whoOf: whoOf, rosterNos: rosterNos },
     _pdfGo: pdfGo, _pdfX: function () { P = null; var b = $('pfPdfBox'); if (b) b.innerHTML = ''; },
     open: open,
     _aiAll: function (on) { var cbs = document.querySelectorAll('.pfAiStu'); for (var i = 0; i < cbs.length; i++) cbs[i].checked = !!on; },
