@@ -171,9 +171,10 @@
       '<input id="pfAddMemo" placeholder="メモ（任意）" maxlength="200" style="border:1px solid #cbd5e1;border-radius:8px;padding:6px;flex:1;min-width:140px">' +
       '</div><div style="margin-top:6px"><label style="display:inline-block;background:#4f46e5;color:#fff;border-radius:8px;padding:8px 14px;font-weight:bold;font-size:13px;cursor:pointer">📷 写真をえらぶ／撮る（何まいでも）' +
       '<input id="pfAddFiles" type="file" accept="image/*" multiple style="display:none"></label> ' +
-      '<label style="display:inline-block;background:#0f766e;color:#fff;border-radius:8px;padding:8px 14px;font-weight:bold;font-size:13px;cursor:pointer">📄 スキャンしたPDF（クラス分）を入れる' +
-      '<input id="pfAddPdf" type="file" accept="application/pdf,.pdf" style="display:none"></label> <span id="pfAddSt" style="font-size:12px;font-weight:bold;color:#4338ca"></span></div>' +
-      '<div style="font-size:11px;color:#64748b;margin-top:3px">PDFは 1ページずつ 写真にして、子どもに 割りあててから 入れます（日付・教科・メモは 上の欄のものを 使います）。</div>' +
+      '<span id="pfAddSt" style="font-size:12px;font-weight:bold;color:#4338ca"></span></div>' +
+      '<details style="margin-top:4px;font-size:11px;color:#64748b"><summary style="cursor:pointer">スキャンしたPDFを アプリにも のこしたいとき（ふだんは 下の 🤖「スキャンPDF用」で OK）</summary>' +
+      '<label style="display:inline-block;margin-top:4px;background:#0f766e;color:#fff;border-radius:8px;padding:6px 12px;font-weight:bold;font-size:12px;cursor:pointer">📄 スキャンしたPDFを 写真にして 入れる' +
+      '<input id="pfAddPdf" type="file" accept="application/pdf,.pdf" style="display:none"></label></details>' +
       '<div id="pfPdfBox"></div></div>';
     h += aiPanelHtml(d);
     // 子どもの一覧
@@ -412,6 +413,14 @@
       '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:6px;margin-top:6px;font-size:12px;color:#991b1b"><b>⚠ 名前が写っている写真は外すか、隠してから貼ってね。</b>' +
       '<div style="color:#475569;margin-top:2px">💡 外部AIは「一時チャット」（履歴に残らないモード）がおすすめです。AIによっては一度に貼れる写真の数に上限があります（目安20まい）。多いときは PDF（1つのファイル）を使ってください。</div></div>' +
       '<label style="display:block;margin-top:6px;font-size:12px"><input type="checkbox" id="pfAiRec" checked> <b>📊 評価（3観点 A・B・C と根拠）も いっしょに読ませる</b><span style="color:#64748b">（先生だけ。確かめてから 成績・記録に保存。子どもには出ません。分析タブの「成果物・振り返り」の取り込みは ここに まとめました）</span></label>' +   /* WORKREC_V1 */
+      /* SCANPROMPT_V1 スキャンした PDF を アプリに 入れずに そのまま 外部AIへ。子どもは 紙の「◯番」で 見分ける */
+      '<div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:6px;margin-top:6px;font-size:12px">' +
+      '<b>📄 スキャンしたPDFを そのまま AIに（アプリには 入れない）</b>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px">日付 <input id="pfScDate" type="date" value="' + jstToday() + '" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px">' +
+      '教科 <select id="pfScSubj" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px">' + SUBJ.map(function (x) { return '<option' + (x === '算数' ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+      '題 <input id="pfScTitle" placeholder="例：データの見方 ルーブリック" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px;min-width:180px">' +
+      btn('📋 スキャンPDF用のプロンプトをコピー', 'PF._scCopy()', '#0f766e') + '<span id="pfScSt" style="font-weight:bold;color:#0f766e"></span></div>' +
+      '<div style="color:#475569;margin-top:2px">このプロンプトと スキャンPDF を AIに いっしょに 送る → 返事を 下の ③ に 貼る。AIは 紙の 右上の「◯番」で 子どもを 見分けます（名前は 読ませません）。</div><div id="pfScNo"></div></div>' +
       '<div style="margin-top:6px">' + btn('① AIに渡すプロンプトをコピー', 'PF._aiCopy()', '#a21caf') +
       btn('② 写真をまとめてダウンロード（ZIP）', 'PF._aiZip()', '#1d4ed8') + btn('②’ 1つのPDFで', 'PF._aiPdf()', '#1e40af') +
       '<span id="pfAiSt" style="font-size:12px;font-weight:bold;color:#86198f;margin-left:4px"></span></div>' +
@@ -533,6 +542,97 @@
     try { await navigator.clipboard.writeText(txt); if (box) box.style.display = 'none'; return true; }
     catch (e) { if (box) { box.value = txt; box.style.display = 'block'; box.focus(); box.select(); } return false; }
   }
+  // ═════════ 📄 SCANPROMPT_V1 スキャンPDF用の プロンプト（写真の 一覧なし・出席番号で 見分ける） ═════════
+  function rosterNos() {
+    var m = {}; ((S.sum && S.sum.students) || []).forEach(function (s) { var n = Number(s.rosterNo); if (n > 0) m[n] = s.userId; });
+    return m;
+  }
+  function scanPromptText(rec, grade) {
+    var L = [], NL = String.fromCharCode(10), nos = Object.keys(rosterNos()).map(Number).sort(function (a, b) { return a - b; });
+    var title = (($('pfScTitle') || {}).value || '').trim();
+    L.push('あなたは小学校の先生のアシスタントです。コピー機でスキャンした クラス全員分の ワークシート（PDF）を見て、子どもに返す短いことばと、先生用のメモを書いてください。');
+    L.push('');
+    L.push('【このあと貼るPDF】');
+    L.push('・クラスの子どもの ワークシートを まとめて スキャンしたものです' + (title ? '（題：' + title + '）' : '') + '。1人ぶんが 1〜数ページ（おもて・うら など）です。');
+    L.push('・PDF が 添付されていない・開けないときは、どの欄も 書かずに「写真が見えません」とだけ 返す。想像で 書かない。');
+    L.push('');
+    L.push('【子どもの 見分け方（大事）】');
+    L.push('・各ページの 上のほうにある「6年 ◯組 ◯番」の「番」の 数字（出席番号）で 見分ける。');
+    L.push('・名前（氏名らん）は 読まない・書かない。返事の どこにも 名前を 書かない。');
+    L.push('・同じ 番号の ページは 同じ子。番号が 書いていない ページは、その 前後の ページ（おもて・うら）と 同じ子として よい。');
+    L.push('・どうしても 番号が 分からない 子は、番号のかわりに「p12」のように PDF の ページ番号を 書く。');
+    if (nos.length) L.push('・このクラスの 出席番号：' + nos.join('、'));
+    L.push('');
+    L.push('【見るポイント】（紙に 書いてあることだけ）');
+    L.push('・考え方の書き方（式・ことば・図・表・矢印などで、考えた道すじを書いているか）');
+    L.push('・ていねいさ（字の大きさやそろえ方、行のつかい方 など）');
+    L.push('・ふりかえり・自己評価の らんに 書いてあること');
+    L.push('');
+    L.push('【書き方のきまり】');
+    L.push('・WORK と WORKMEMO の欄には、評価・点数・◎○△・ABC・順位・「よくできた／できていない」の判定は書かない。ほかの子と比べない。' + (rec ? '（評価は WORKREC の欄だけに書く）' : ''));
+    L.push('・否定的なことば（できていない・雑・きたない・読みにくい・〜しかない など）は使わない。見えた事実と前向きな言い方で。');
+    L.push('・次に試せる小さな工夫は 1つだけ。本人が「やってみようかな」と選べる言い方で（命令しない）。');
+    L.push('・紙から読み取れないことは書かない。推しはかるときは「〜かも」と分かる書き方にする。');
+    try { (window.TAI_NG_RULE_LINES || []).forEach(function (x) { L.push(x); }); } catch (e) {}
+    L.push('');
+    L.push('【書いてほしい欄】子どもごとに、番号の 小さい順に、次の 目印の行を 書いて、そのすぐ下に 中身を書く。');
+    L.push('・=== [WORKMEMO:番号9] === … 先生用のメモ。事実だけで2〜3文（100字以内）。（9 は その子の 出席番号）');
+    L.push('・=== [WORK:番号9] === … 子どもに返すひとこと。やさしい話しことば（関西弁の 阪神マン）で3〜4文（120字くらい）。見えたよさ → 次に試せる小さな工夫1つ。');
+    if (rec) L.push('・=== [WORKREC:番号9:p3] === … ページごとの 評価の記録（p3 は PDF の 何ページ目か）。下の【WORKREC の欄】の形で。');
+    L.push('・目印の行は、上の 形の とおりに 書く（「番号」の あとに 数字だけ）。前置き・あいさつ・まとめは書かない。');
+    L.push('');
+    if (rec) recPromptLines({ grade: grade }).forEach(function (x) { L.push(String(x).replace(/写真1まいごと/g, 'PDF の 1ページごと').replace(/この写真/g, 'このページ').replace(/写真に/g, '紙に')); });
+    return L.join(NL);
+  }
+  async function scCopy() {
+    var st = $('pfScSt');
+    var done, txtP = new Promise(function (res) { done = res; }), early = null;
+    try { if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) early = navigator.clipboard.write([new ClipboardItem({ 'text/plain': txtP.then(function (t) { return new Blob([t], { type: 'text/plain' }); }) })]); } catch (e) { early = null; }
+    if (early) early.catch(function () {});
+    try {
+      var _ns = (S.sum && S.sum.students) || [];
+      if (Object.keys(rosterNos()).length < _ns.length) { done(''); st.textContent = '⚠ 出席番号が 入っていない子が います。下で 入れて 保存してから、もう一度 おしてください'; noEditor(); return; }
+      var rec = recOn(), grade = rec ? await classGrade() : '';
+      var txt = scanPromptText(rec, grade);
+      S.scan = { date: ($('pfScDate') || {}).value || jstToday(), subj: ($('pfScSubj') || {}).value || '', title: (($('pfScTitle') || {}).value || '').trim() };
+      var ok2 = false;
+      if (early) { done(txt); try { await early; ok2 = true; } catch (e) { ok2 = false; } }
+      if (!ok2) ok2 = await copyOut(txt);
+      st.textContent = ok2 ? '✓ コピーしました。AIに、このプロンプトと スキャンPDF を いっしょに 送ってください' : '下の枠を 全部えらんで コピーしてください';
+    } catch (e) { st.textContent = String(e && e.message || e); }
+  }
+  // 出席番号が 名簿に ないときの 入力らん（先生の画面だけ。保存は 通知表の 出席番号と 同じ ところ）
+  function realName(s) { try { if (typeof window.resolveStudentName === 'function') return window.resolveStudentName(s.loginId, s.name) || s.name; } catch (e) {} return s.name || s.loginId || ''; }
+  function noEditor() {
+    var box = $('pfScNo'); if (!box) return;
+    var ss = (S.sum && S.sum.students) || [];
+    box.innerHTML = '<div style="margin-top:6px;background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:6px"><b>🔢 出席番号（紙の「◯番」と 同じ 数字）</b>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:3px 10px;margin-top:4px">' +
+      ss.map(function (x) { return '<label style="display:flex;gap:4px;align-items:center"><input class="pfScNoIn" data-uid="' + esc(x.userId) + '" type="number" min="1" max="60" value="' + (x.rosterNo || '') + '" style="width:52px;border:1px solid #cbd5e1;border-radius:6px;padding:2px">' + esc(realName(x)) + '</label>'; }).join('') +
+      '</div><div style="margin-top:4px">' + btn('💾 出席番号を保存', 'PF._scNoSave()', '#b45309') + '<span id="pfScNoSt" style="font-weight:bold;color:#b45309"></span></div></div>';
+  }
+  async function noSave() {
+    var st = $('pfScNoSt'), ins = document.querySelectorAll('.pfScNoIn'), items = [], seen = {}, dup = [];
+    for (var i = 0; i < ins.length; i++) { var v = String(ins[i].value || '').trim(); if (v) { if (seen[v]) dup.push(v); seen[v] = 1; } items.push({ userId: ins[i].getAttribute('data-uid'), rosterNo: v }); }
+    if (dup.length) { st.textContent = '同じ 番号が あります：' + dup.join('・'); return; }
+    st.textContent = '保存中…';
+    var keep = { d: ($('pfScDate') || {}).value, s: ($('pfScSubj') || {}).value, t: ($('pfScTitle') || {}).value };
+    var r = await postJ('/api/teacher/class/' + encodeURIComponent(S.classId) + '/roster-no', { items: items });
+    if (!r || !r.ok) { st.textContent = '保存できませんでした'; return; }
+    await loadSummary();
+    try { $('pfScDate').value = keep.d; $('pfScSubj').value = keep.s; $('pfScTitle').value = keep.t; $('pfScSt').textContent = '✓ 出席番号を 保存しました。もう一度「📋 スキャンPDF用のプロンプトをコピー」を おしてください'; $('pfScSt').scrollIntoView({ block: 'center' }); } catch (e) {}
+  }
+  // 返事の「番号9」を 名簿の 子に おきかえる（AIには 名前も ID も 渡していない）
+  function mapScanNos(raw) {
+    var m = rosterNos(), miss = [];
+    var out = String(raw || '').replace(/\[\s*(WORK(?:MEMO|REC)?)\s*[:：]\s*番号\s*([0-9０-９]+)/g, function (all, k, n) {
+      n = Number(String(n).replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 65248); }));
+      if (m[n]) return '[' + k + ':' + m[n];
+      miss.push(n); return all;
+    });
+    return { raw: out, miss: miss, used: out !== raw };
+  }
+
   async function aiCopy() {
     var st = $('pfAiSt');
     /* PF_COPYFIX_V1 ボタンを おした その場で クリップボードを 予約する（文を 作るのに 時間が かかると、ブラウザが コピーを ことわるため） */
@@ -712,6 +812,7 @@
     rows.forEach(function (r) {
       var it = by[r.userId + ':' + r.no];
       if (it) { if (!/^\d{4}-\d{2}-\d{2}$/.test(r.day)) r.day = it.takenOn || ''; if (!r.subject) r.subject = it.subj || (it.src === 'hw' ? '家庭学習' : ''); }
+      if (!it && S.scan && /^p[0-9]+$/i.test(String(r.no || ''))) { if (!/^\d{4}-\d{2}-\d{2}$/.test(r.day)) r.day = S.scan.date; if (!r.subject) r.subject = S.scan.subj; if (!r.title && S.scan.title) r.title = S.scan.title; }   /* SCANPROMPT_V1 */
       if (!/^\d{4}-\d{2}-\d{2}$/.test(r.day)) r.day = '';
       r.title = (r.title || r.body.split('\n')[0] || '成果物').slice(0, 200);
     });
@@ -787,6 +888,8 @@
     if (!raw.trim()) { st.textContent = 'AIの返事を貼り付けてください'; return; }
     if (typeof window.taiImport !== 'function') { st.textContent = 'この画面では取り込めません（今日のひと往復が読み込まれていません）'; return; }
     if (!/\[\s*WORK(MEMO|REC)?\s*[:：]/i.test(raw)) { st.textContent = '成果物の目印（=== [WORK:…] === など）が見つかりません'; return; }
+    var _scm = mapScanNos(raw), _scMiss = '';   /* SCANPROMPT_V1 */
+    if (_scm.used) { raw = _scm.raw; if (_scm.miss.length) _scMiss = '／⚠ 名簿に ない 番号：' + _scm.miss.filter(function (x, i, a) { return a.indexOf(x) === i; }).join('・'); }
     /* NOPHOTO_V1 AIが 写真を 見られていない 返事（PDF・写真の 添付わすれ）は 取り込まない。前のメモから 想像で 書いた文が 子どもに 届いてしまうため */
     var _pre = raw.split(/===\s*\[/)[0];   // 目印より前の まえおき だけを 見る（本文の「この写真は 字が 読めません」などで 止めない）
     var noPh = /(写真|画像|PDF|ＰＤＦ)[^\n。]{0,12}(添付されていない|添付がない|見え(ない|ません)|開け(ない|ません)|読み込め(ない|ません)|確認できない|確認できません)/.test(_pre);
@@ -806,6 +909,7 @@
       if (box) box.innerHTML = recPreviewHtml(S.recRows);
       recMsg = '📊 評価 ' + S.recRows.length + '件は 下の表で 確かめてから保存してね（先生だけ）';
     } else if (box) box.innerHTML = '';
+    if (_scMiss) recMsg = (recMsg ? recMsg : '') + _scMiss;
     var last = '';
     if (/\[\s*WORK(MEMO)?\s*[:：]/i.test(sp.rest)) {
       await window.taiImport({ append: true, raw: sp.rest, classId: S.classId, say: function (m) { last = String(m || ''); st.textContent = last + (recMsg ? '／' + recMsg : ''); } });
@@ -1047,6 +1151,7 @@
   }
 
   window.PF = {
+    _scCopy: scCopy, _scNoSave: noSave, _scan: { scanPromptText: scanPromptText, mapScanNos: mapScanNos, rosterNos: rosterNos },
     _pdfGo: pdfGo, _pdfX: function () { P = null; var b = $('pfPdfBox'); if (b) b.innerHTML = ''; },
     open: open,
     _aiAll: function (on) { var cbs = document.querySelectorAll('.pfAiStu'); for (var i = 0; i < cbs.length; i++) cbs[i].checked = !!on; },
