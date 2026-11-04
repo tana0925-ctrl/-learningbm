@@ -1195,7 +1195,9 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       if (p) {
         var parsed = {};
         try { parsed = JSON.parse(p.plansJson || '{}'); } catch (e) {}
-        var keys = Object.keys(parsed).filter(function (k) { return k !== '_modified'; });
+        /* PLANDAY_V1 曜日の キー（mon〜fri）で 読む。ならび順だと 水木金の 週が 月火水に ずれる */
+        var _DK = ['mon', 'tue', 'wed', 'thu', 'fri'];
+        var keys = _DK.some(function (k) { return k in parsed; }) ? _DK : Object.keys(parsed).filter(function (k) { return k !== '_modified'; });
         for (var d2 = 0; d2 < 5; d2++) {
           var kk = keys[d2] || '';
           var val = kk ? parsed[kk] : '';

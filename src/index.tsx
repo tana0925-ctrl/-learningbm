@@ -8119,7 +8119,9 @@ app.get('/api/teacher/student-reflection-history', async (c) => {
     for (const r of ((planRows && planRows.results) || [])) {
       let parsed: any = {}
       try { parsed = JSON.parse(r.plansJson || '{}') } catch (_e) { parsed = {} }
-      const keys = Object.keys(parsed).filter((k) => k !== '_modified')
+      // PLANDAY_V1 曜日の キー（mon〜fri）で 読む。ならび順で 読むと、水木金だけの 週が 月火水に ずれる
+      const _DK = ['mon', 'tue', 'wed', 'thu', 'fri']
+      const keys = _DK.some((k) => k in parsed) ? _DK : Object.keys(parsed).filter((k) => k !== '_modified')
       const planLines: string[] = []
       for (let d = 0; d < 5; d++) {
         const v = keys[d] ? parsed[keys[d]] : ''
@@ -14529,7 +14531,9 @@ app.get('/teacher', (c) => {
 
             // 5曜日グリッド
             html += '<div class="grid grid-cols-5 gap-1 text-xs">';
-            const keys = Object.keys(parsed).filter(k => k !== '_modified');
+            /* PLANDAY_V1 曜日の キーで 読む（水木金だけの 週が 月火水に ずれていた） */
+            const _DK = ['mon','tue','wed','thu','fri'];
+            const keys = _DK.some(k => k in parsed) ? _DK : Object.keys(parsed).filter(k => k !== '_modified');
             for(let i = 0; i < 5; i++){
               const k = keys[i] || '';
               const val = k ? parsed[k] : '';
@@ -17771,7 +17775,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=22"></script>
+    <script src="/teacher-ai.js?v=23"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=12"></script><!-- PORTFOLIO_V1 📸 成果物 -->
