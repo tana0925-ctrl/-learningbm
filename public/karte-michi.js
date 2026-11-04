@@ -1226,6 +1226,14 @@
   global.kantanWatchLoad = kwLoad;
   document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'analyticsClassFilter') { _kwAt = 0; kwLoad(false); } });
   setInterval(function () { try { kwLoad(false); } catch (e) {} }, 4000);
+  /* ANTAB_V1 「ふりかえりの きっかけ案内」「📍 いまの単元」は カルテ・AI の ための もの。④-4 カルテ・AI を ひらいている ときだけ 出す
+     （ほかの 小タブに 切りかえても 上に のこって、中身が かわらないように 見えていた） */
+  setInterval(function () {
+    try {
+      var p = document.getElementById('anPane_ai'), on = !!(p && !p.classList.contains('hidden'));
+      ['kantanWatchBox', 'nowUnitBox'].forEach(function (id) { var b = document.getElementById(id); if (b) b.style.display = on ? '' : 'none'; });
+    } catch (e) {}
+  }, 500);
 
   // ───────── NOWUNIT_V1 先生の画面（分析タブ）：「📍 いまの単元」を教科ごとに1つ（選ばなくてもよい） ─────────
   var _nwCid = '', _nwAt = 0;
