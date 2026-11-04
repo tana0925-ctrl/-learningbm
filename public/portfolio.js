@@ -439,7 +439,12 @@
   function safeSubj(it) { return String(it.subj || (it.src === 'hw' ? '家庭学習' : 'その他')).replace(/[\\/:*?"<>|\s]/g, ''); }
   async function aiSnap() {
     var sel = aiSel();
-    if (!sel.uids.length) throw new Error('子どもを えらんでください');
+    if (!sel.uids.length) {   /* PF_COPYFIX_V1 だれも えらんでいないときは、写真がある子を ぜんぶ えらぶ */
+      var cbs = document.querySelectorAll('.pfAiStu'), any = false;
+      for (var i = 0; i < cbs.length; i++) { var lb = cbs[i].parentNode, m = /（(\d+)）/.exec(lb ? lb.textContent : ''); if (m && Number(m[1]) > 0) { cbs[i].checked = true; any = true; } }
+      sel = aiSel();
+      if (!any || !sel.uids.length) throw new Error('写真がある子が いません。子どもに ✓ を 入れてください');
+    }
     if (sel.from > sel.to) throw new Error('期間が逆になっています');
     var k = JSON.stringify(sel);
     if (S.ai && S.ai.key === k) return S.ai;
@@ -523,6 +528,10 @@
   }
   async function aiCopy() {
     var st = $('pfAiSt');
+    /* PF_COPYFIX_V1 ボタンを おした その場で クリップボードを 予約する（文を 作るのに 時間が かかると、ブラウザが コピーを ことわるため） */
+    var done, fail, txtP = new Promise(function (res, rej) { done = res; fail = rej; }), early = null;
+    try { if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) early = navigator.clipboard.write([new ClipboardItem({ 'text/plain': txtP.then(function (t) { return new Blob([t], { type: 'text/plain' }); }) })]); } catch (e) { early = null; }
+    if (early) early.catch(function () {});
     try {
       st.textContent = '作っています…';
       var sn = await aiSnap();
@@ -531,9 +540,11 @@
       var f = await getJ('/api/teacher/ai-flow?classId=' + encodeURIComponent(S.classId) + '&days=42');
       if (f && f.ok) Object.keys(f.byUser || {}).forEach(function (u) { var m = (f.byUser[u] || []).filter(function (x) { return x.kind === 'WORKMEMO'; })[0]; if (m) prev[u] = m; });
       var txt = aiPromptText(sn, prev);
-      var ok2 = await copyOut(txt);
+      var ok2 = false;
+      if (early) { done(txt); try { await early; ok2 = true; var bx = $('pfAiCopyBox'); if (bx) bx.style.display = 'none'; } catch (e) { ok2 = false; } }
+      if (!ok2) ok2 = await copyOut(txt);
       st.textContent = (ok2 ? '✓ コピーしました' : '下の枠を全部えらんでコピーしてください') + '（' + sn.order.length + '人・写真 ' + sn.entries.length + 'まい）。次に ② で写真をダウンロードして、AIにプロンプトと写真を貼ってください';
-    } catch (e) { st.textContent = String(e && e.message || e); }
+    } catch (e) { try { fail(e); } catch (_e) {} st.textContent = String(e && e.message || e); }
   }
   async function aiFetchAll(st, each) {
     var sn = await aiSnap();
