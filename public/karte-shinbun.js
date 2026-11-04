@@ -183,7 +183,7 @@
   function progressSec(c) {
     var cards = c.cards || [];
     var pk = 'prog:' + nk(cards.map(function (x) { return x.name + x.k; }).join('/') || ((c.map && c.map.nodes) || []).slice(0, 4).map(function (n) { return n.name + (n.here ? 'h' : n.st); }).join('/'));
-    if (old(pk)) return '';   /* SHINBUN_NETA_V1 すすみぐあいが かわらなければ のせない */
+    /* SHINBUN_KEEP_V1 すすみぐあいは つづけて 見る ものなので 毎号 のせる（先生の指示 2026-11-04） */
     use(pk);
     if (cards.length) {
       var LAB = { done: 'できた', here: 'いまここ', next: 'つぎ' };
@@ -306,7 +306,7 @@
     var mt = (c.d.monthlyTrends || []).slice(-7);
     if (!mt.length) return '';
     var sum = mt.reduce(function (a, m) { return a + (Number(m.count) || 0); }, 0), mk = 'month:' + mt.map(function (m) { return m.month + '=' + (Number(m.count) || 0); }).join(',');
-    if (old(mk)) return '';   /* SHINBUN_NETA_V1 グラフが 前の号と 同じなら のせない */
+    /* SHINBUN_KEEP_V1 4月からの グラフは つづけて 見る ものなので 毎号 のせる。ふえた ぶんは「前の号から＋」で しめす */
     var pm = prevV('S:month'); use(mk); use('S:month', sum);
     var mx = Math.max.apply(null, mt.map(function (m) { return Number(m.count) || 0; }).concat([1]));
     var h = '<table class="bg"><tr>' + mt.map(function (m, i) { var v = Number(m.count) || 0; return '<td' + (i === mt.length - 1 ? ' class="now"' : '') + '>' + v + '<i style="height:' + (v ? Math.max(0.15, v / mx * 6.2).toFixed(2) : 0) + 'em"></i></td>'; }).join('') + '</tr><tr class="lb">' + mt.map(function (m) { return '<td>' + Number(String(m.month || '').slice(5)) + '月</td>'; }).join('') + '</tr></table>';
@@ -316,7 +316,7 @@
   function moodSec(c) {
     var ov = c.d.overview || {}, a = Number(ov.sunCount) || 0, b = Number(ov.cloudCount) || 0, r = Number(ov.rainCount) || 0, t = a + b + r;
     if (t < 3) return '';
-    var mdk = 'mood:' + a + '-' + b + '-' + r; if (old(mdk)) return '';
+    var mdk = 'mood:' + a + '-' + b + '-' + r;   /* SHINBUN_KEEP_V1 */
     var pmd = prevV('S:mood'); use(mdk); use('S:mood', a + '-' + b + '-' + r);
     var cmp = '';
     if (pmd) { var pp = String(pmd).split('-').map(Number); var dd = [['☀', a - pp[0]], ['☁', b - pp[1]], ['☂', r - pp[2]]].filter(function (x) { return x[1] > 0; }); if (dd.length) cmp = '<div class="mute sm">前の号から ' + dd.map(function (x) { return x[0] + '＋' + x[1]; }).join(' ') + '</div>'; }
@@ -329,7 +329,7 @@
     (c.d.subjects || []).forEach(function (s) { var k = fn(s.unit); if (k) tot[k] = (tot[k] || 0) + (Number(s.total) || 0); });
     var rows = A.filter(function (a) { return tot[a[0]] > 0; });
     if (!rows.length) return '';
-    var sjk = 'subj:' + rows.map(function (a) { return a[0] + tot[a[0]]; }).join(','); if (old(sjk)) return '';
+    var sjk = 'subj:' + rows.map(function (a) { return a[0] + tot[a[0]]; }).join(',');   /* SHINBUN_KEEP_V1 */
     var psj = {}; String(prevV('S:subj') || '').split(',').forEach(function (x) { var q = x.split('='); if (q[0]) psj[q[0]] = Number(q[1]) || 0; });
     use(sjk); use('S:subj', rows.map(function (a) { return a[0] + '=' + tot[a[0]]; }).join(','));
     var mx = Math.max.apply(null, rows.map(function (a) { return tot[a[0]]; }));
@@ -338,7 +338,7 @@
   function unitsSec(c) {   // 4月から いちばん とりくんだ 単元（問題の数だけ）
     var us = (c.d.subjects || []).filter(function (s) { return Number(s.total) >= 10; }).sort(function (a, b) { return (Number(b.total) || 0) - (Number(a.total) || 0); }).slice(0, 6);
     if (us.length < 2) return '';
-    var uk = 'units:' + us.map(function (u) { return u.unit + '=' + Number(u.total); }).join(','); if (old(uk)) return '';
+    var uk = 'units:' + us.map(function (u) { return u.unit + '=' + Number(u.total); }).join(',');   /* SHINBUN_KEEP_V1 */
     var pu = {}; String(prevV('S:units') || '').split(',').forEach(function (x) { var q = x.split('='); if (q[0]) pu[q[0]] = Number(q[1]) || 0; });
     use(uk); use('S:units', us.map(function (u) { return u.unit + '=' + Number(u.total); }).join(','));
     var mx = Number(us[0].total) || 1;
@@ -486,7 +486,7 @@
     if (Number(ov.totalMinutes) >= 60) a.push([Math.round(ov.totalMinutes / 60), 'やった 時間（時間）']);
     if (Number(ov.maxStreak) >= 2) a.push([ov.maxStreak, 'いちばん 長い れんぞく（日）']);
     if (!a.length) return '';
-    var ak = 'ayumi:' + a.map(function (x) { return x[0]; }).join('-'); if (old(ak)) return '';
+    var ak = 'ayumi:' + a.map(function (x) { return x[0]; }).join('-');   /* SHINBUN_KEEP_V1 */
     var pa = String(prevV('S:ayumi') || '').split('-');
     use(ak); use('S:ayumi', a.map(function (x) { return x[0]; }).join('-'));
     return tag(sec('4月からの あゆみ', '<div class="nums">' + a.map(function (x, i) { var p = Number(pa[i]); return '<div><b>' + x[0] + '</b><small>' + x[1] + (pa.length === a.length && p >= 0 && Number(x[0]) > p ? '<br>前の号から ＋' + (Number(x[0]) - p) : '') + '</small></div>'; }).join('') + '</div>', 3), [ak]);

@@ -223,7 +223,7 @@ await t('12 一度 のせた ネタは 次の号に のせない（くらべる�
   const h2 = x2.html()
   const secs = (h) => (h.match(/<section[^>]*>[\s\S]*?<\/section>/g) || []).map((x) => x.replace(/<section[^>]*>/, '').replace(/<[^>]+>/g, ''))
   const s1 = secs(h1), s2 = secs(h2)
-  const same = s2.filter((x) => s1.indexOf(x) >= 0 && !/取材メモ|先週の 天気|3週間前の わたし/.test(x))   // 週の記録（日づけの 表）は 毎週 その週のもの
+  const same = s2.filter((x) => s1.indexOf(x) >= 0 && !/取材メモ|先週の 天気|3週間前の わたし|すすみぐあい|教科ごとの 修行|きもちの 天気の わりあい|月ごとの 家庭学習|4月からの あゆみ|単元の あゆみ/.test(x))   // 週の記録の 表と、つづけて 見る グラフ（SHINBUN_KEEP_V1）は 毎号 のせる
   eq(same.length, 0, '同じ 欄は 出ない: ' + same.join('/'))
   const hl = (h) => (h.match(/<div class="hl">([^<]*)</) || [])[1]
   ok(hl(h1) !== hl(h2), '見出しが かわる')
