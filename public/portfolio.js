@@ -131,6 +131,7 @@
     var d = await getJ('/api/teacher/portfolio/summary' + (S.classId ? '?classId=' + encodeURIComponent(S.classId) : ''));
     if (!d || !d.ok) { $('pfBody').innerHTML = '<p style="color:#dc2626;font-size:13px">' + esc(errJa(d)) + '</p>'; return; }
     S.sum = d; S.classId = d.classId;
+    S.ai = null;   /* SCANPDF_V1 写真が ふえたら ① ② を 作りなおす（前の 一覧を つかいまわさない） */
     $('pfClass').innerHTML = (d.classes || []).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === d.classId ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('');
     renderNotice();
     if (S.stu) { var s2 = (d.students || []).filter(function (x) { return x.userId === S.stu.userId; })[0]; if (s2) { S.stu = s2; return loadItems(); } }
@@ -169,7 +170,11 @@
       '<select id="pfAddSubj" style="border:1px solid #cbd5e1;border-radius:8px;padding:6px"><option value="">教科（任意）</option>' + SUBJ.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select>' +
       '<input id="pfAddMemo" placeholder="メモ（任意）" maxlength="200" style="border:1px solid #cbd5e1;border-radius:8px;padding:6px;flex:1;min-width:140px">' +
       '</div><div style="margin-top:6px"><label style="display:inline-block;background:#4f46e5;color:#fff;border-radius:8px;padding:8px 14px;font-weight:bold;font-size:13px;cursor:pointer">📷 写真をえらぶ／撮る（何まいでも）' +
-      '<input id="pfAddFiles" type="file" accept="image/*" multiple style="display:none"></label> <span id="pfAddSt" style="font-size:12px;font-weight:bold;color:#4338ca"></span></div></div>';
+      '<input id="pfAddFiles" type="file" accept="image/*" multiple style="display:none"></label> ' +
+      '<label style="display:inline-block;background:#0f766e;color:#fff;border-radius:8px;padding:8px 14px;font-weight:bold;font-size:13px;cursor:pointer">📄 スキャンしたPDF（クラス分）を入れる' +
+      '<input id="pfAddPdf" type="file" accept="application/pdf,.pdf" style="display:none"></label> <span id="pfAddSt" style="font-size:12px;font-weight:bold;color:#4338ca"></span></div>' +
+      '<div style="font-size:11px;color:#64748b;margin-top:3px">PDFは 1ページずつ 写真にして、子どもに 割りあててから 入れます（日付・教科・メモは 上の欄のものを 使います）。</div>' +
+      '<div id="pfPdfBox"></div></div>';
     h += aiPanelHtml(d);
     // 子どもの一覧
     h += '<div style="background:#fff;border-radius:12px;padding:10px;margin-bottom:10px"><b style="font-size:14px">👧👦 子どもごと</b>' +
@@ -189,6 +194,7 @@
       '<p style="font-size:11px;color:#64748b;margin-top:6px">※ どの設定でも、自動で消すことはありません。消すのは先生がボタンを押したときだけです。</p></details>';
     $('pfBody').innerHTML = h;
     $('pfAddFiles').onchange = function () { addFiles(this.files); this.value = ''; };
+    $('pfAddPdf').onchange = function () { var f = this.files && this.files[0]; this.value = ''; if (f) pdfOpen(f); };
     try { if (S.aiRaw && $('pfAiPaste')) $('pfAiPaste').value = S.aiRaw; } catch (e) {}
   }
 
@@ -919,7 +925,129 @@
   })();
   try { window.__PF_KARTE = { karteWithWork: karteWithWork, setWork: function (m) { _work = m || {}; }, setPhoto: function (m) { _photo = m || {}; }, loadPhotos: loadPhotos, install: installKarte }; } catch (e) {}
 
+  // ═════════ 📄 SCANPDF_V1 コピー機で スキャンした PDF（クラス分）を 1ページずつ 写真にして 子どもに 割りあてる ═════════
+  //  ・PDF を 読むのは この端末（pdf.js）。サーバーには 1ページずつ JPEG で 送る（ふつうの 写真と 同じ 入り口）。
+  //  ・ならびは 名簿（出席番号）順に「1人 N ページ」で 自動で 割りあて、先生が 名前らんの 拡大を 見て なおせる。
+  //  ・外部AIに 名前を 渡さないため、入れる ときに 右上の 名前らんを 白く ぬれる（ふつうは オン）。
+  var PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  var P = null;   // { pages:[{cv, url, nameUrl}], per, start, mask }
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    return new Promise(function (res, rej) {
+      var sc = document.createElement('script'); sc.src = PDFJS + 'pdf.min.js';
+      sc.onload = function () { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; res(window.pdfjsLib); } catch (e) { rej(e); } };
+      sc.onerror = function () { rej(new Error('PDFを読む道具を読みこめませんでした（ネットにつながっているか 確かめてください）')); };
+      document.head.appendChild(sc);
+    });
+  }
+  var MASK = { y: 0, h: 0.075, x: 0.46, w: 0.54 };   // 右上（「6年 組 番 氏名」の らん）
+  var NAMEVIEW = { y: 0.012, h: 0.05, x: 0.55, w: 0.34 };   // 先生が 見て たしかめる ための 拡大（紙には 入れない）
+  function cropUrl(cv, r, outW) {
+    var sx = Math.round(cv.width * r.x), sy = Math.round(cv.height * r.y), sw = Math.round(cv.width * r.w), sh = Math.round(cv.height * r.h);
+    var c2 = document.createElement('canvas'); c2.width = outW; c2.height = Math.max(1, Math.round(outW * sh / sw));
+    c2.getContext('2d').drawImage(cv, sx, sy, sw, sh, 0, 0, c2.width, c2.height);
+    return c2.toDataURL('image/jpeg', 0.7);
+  }
+  async function pdfOpen(file) {
+    var st = $('pfAddSt'), box = $('pfPdfBox');
+    try {
+      st.textContent = 'PDFを ひらいています…';
+      var lib = await loadPdfJs();
+      var doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+      if (doc.numPages > 120) throw new Error('ページが ' + doc.numPages + 'ページ あります。120ページまでに 分けてください');
+      var pages = [];
+      for (var i = 1; i <= doc.numPages; i++) {
+        st.textContent = '📄 ' + i + '/' + doc.numPages + 'ページ 読みこみ中…';
+        var pg = await doc.getPage(i), vp0 = pg.getViewport({ scale: 1 });
+        var sc = 1700 / Math.max(vp0.width, vp0.height), vp = pg.getViewport({ scale: sc });
+        var cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+        var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: g, viewport: vp }).promise;
+        var th = document.createElement('canvas'); th.width = 150; th.height = Math.round(150 * cv.height / cv.width);
+        th.getContext('2d').drawImage(cv, 0, 0, th.width, th.height);
+        pages.push({ cv: cv, url: th.toDataURL('image/jpeg', 0.6), nameUrl: cropUrl(cv, NAMEVIEW, 320) });
+      }
+      P = { pages: pages, per: pages.length >= 2 && pages.length % 2 === 0 ? 2 : 1, start: 0, mask: true, name: file.name };
+      st.textContent = '';
+      pdfRender();
+      try { box.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+    } catch (e) { st.textContent = '⚠ ' + String(e && e.message || e); }
+  }
+  function pdfAssign() {
+    var studs = (S.sum && S.sum.students) || [];
+    P.pages.forEach(function (p, i) { var k = P.start + Math.floor(i / P.per); p.uid = studs[k] ? studs[k].userId : ''; });
+  }
+  function pdfRender() {
+    var box = $('pfPdfBox'); if (!box || !P) return;
+    var studs = (S.sum && S.sum.students) || [];
+    if (P.pages[0] && P.pages[0].uid === undefined) pdfAssign();
+    var opt = function (sel) { return '<option value="">（入れない）</option>' + studs.map(function (s, i) { return '<option value="' + esc(s.userId) + '"' + (s.userId === sel ? ' selected' : '') + '>' + esc(stuLabel(s)) + '</option>'; }).join(''); };
+    var n = P.pages.filter(function (p) { return p.uid; }).length, kids = {};
+    P.pages.forEach(function (p) { if (p.uid) kids[p.uid] = 1; });
+    var h = '<div style="margin-top:8px;border:2px solid #0f766e;border-radius:10px;padding:8px;background:#f0fdfa">' +
+      '<b>📄 ' + esc(P.name) + '（' + P.pages.length + 'ページ）を 子どもに 割りあてる</b>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;font-size:12px">' +
+      '1人 <select id="pfPdfPer" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px">' + [1, 2, 3, 4].map(function (k) { return '<option' + (k === P.per ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select> ページずつ、' +
+      'はじめの子 <select id="pfPdfStart" style="border:1px solid #cbd5e1;border-radius:6px;padding:3px">' + studs.map(function (s, i) { return '<option value="' + i + '"' + (i === P.start ? ' selected' : '') + '>' + esc(stuLabel(s)) + '</option>'; }).join('') + '</select> から 名簿順' +
+      '<label><input type="checkbox" id="pfPdfMask"' + (P.mask ? ' checked' : '') + '> 右上の 名前らんを 白く ぬって 入れる（AIに 名前を 渡さない）</label></div>' +
+      '<div style="font-size:11px;color:#0f766e;margin-top:3px">下の 名前らんの 拡大を 見て、ちがう子は えらびなおしてください。白紙や いらない ページは「（入れない）」に。</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;margin-top:6px">' +
+      P.pages.map(function (p, i) {
+        return '<div style="background:#fff;border:1px solid ' + (p.uid ? '#99f6e4' : '#e2e8f0') + ';border-radius:8px;padding:4px;font-size:11px">' +
+          '<b>p.' + (i + 1) + '</b><img src="' + p.nameUrl + '" style="display:block;width:100%;border:1px solid #fca5a5;margin:2px 0" title="名前らん（先生だけ）">' +
+          '<img src="' + p.url + '" style="display:block;width:70px;float:right;margin-left:4px;border:1px solid #e2e8f0">' +
+          '<select data-pg="' + i + '" class="pfPdfStu" style="width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:2px;font-size:11px">' + opt(p.uid) + '</select><div style="clear:both"></div></div>';
+      }).join('') + '</div>' +
+      '<div style="margin-top:8px">' + btn('📤 この割りあてで 入れる（' + Object.keys(kids).length + '人・' + n + 'まい）', 'PF._pdfGo()', '#0f766e') + btn('やめる', 'PF._pdfX()', '#94a3b8') +
+      '<span id="pfPdfSt" style="font-size:12px;font-weight:bold;color:#0f766e;margin-left:4px"></span></div></div>';
+    box.innerHTML = h;
+    $('pfPdfPer').onchange = function () { P.per = Number(this.value) || 1; pdfAssign(); pdfRender(); };
+    $('pfPdfStart').onchange = function () { P.start = Number(this.value) || 0; pdfAssign(); pdfRender(); };
+    $('pfPdfMask').onchange = function () { P.mask = this.checked; };
+    var ss = box.querySelectorAll('.pfPdfStu');
+    for (var i = 0; i < ss.length; i++) ss[i].onchange = function () {
+      var k = Number(this.getAttribute('data-pg')), g0 = Math.floor(k / P.per) * P.per, v = this.value;
+      for (var j = g0; j < Math.min(P.pages.length, g0 + P.per); j++) P.pages[j].uid = v;   // 同じ子の ページ（1人 N ページの くみ）は いっしょに かえる
+      pdfRender();
+    };
+  }
+  async function pdfGo() {
+    if (!P || S.busy) return;
+    var st = $('pfPdfSt'), todo = P.pages.filter(function (p) { return p.uid; });
+    if (!todo.length) { st.textContent = '入れる ページが ありません'; return; }
+    S.busy = true;
+    var date = ($('pfAddDate') || {}).value || jstToday(), subj = ($('pfAddSubj') || {}).value || '', memo = ($('pfAddMemo') || {}).value || '';
+    var ok = 0, ng = 0, kids = {}, seq = {};
+    for (var i = 0; i < todo.length; i++) {
+      var p = todo[i];
+      st.textContent = '📤 ' + (i + 1) + '/' + todo.length + 'まい 送っています…';
+      try {
+        var cv = document.createElement('canvas'); cv.width = p.cv.width; cv.height = p.cv.height;
+        var g = cv.getContext('2d'); g.drawImage(p.cv, 0, 0);
+        if (P.mask) { g.fillStyle = '#fff'; g.fillRect(Math.round(cv.width * MASK.x), Math.round(cv.height * MASK.y), Math.round(cv.width * MASK.w), Math.round(cv.height * MASK.h)); }
+        var blob = await new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.85); });
+        var b = await makeBoth(blob);
+        seq[p.uid] = (seq[p.uid] || 0) + 1;
+        var r = await upload({ userId: p.uid, takenOn: date, subj: subj, memo: (memo ? memo + '／' : '') + 'スキャン ' + seq[p.uid] + 'まい目', src: 'teacher' }, b.big, b.th);
+        if (r && r.ok) { ok++; kids[p.uid] = 1; } else { ng++; if (r && r.error === 'store_not_ready') { st.textContent = errJa(r); break; } }
+      } catch (e) { ng++; }
+    }
+    S.busy = false;
+    var uids = Object.keys(kids);
+    P = null;
+    await loadSummary();
+    // 🤖 の らんを この子たち・この日に そろえておく（すぐ ① ②’ へ）
+    try {
+      var cbs = document.querySelectorAll('.pfAiStu'); for (var j = 0; j < cbs.length; j++) cbs[j].checked = uids.indexOf(cbs[j].value) >= 0;
+      if ($('pfAiFrom')) $('pfAiFrom').value = date; if ($('pfAiTo')) $('pfAiTo').value = date;
+      if (subj && $('pfAiSubj')) $('pfAiSubj').value = subj;
+      $('pfAddSt').textContent = '✓ ' + uids.length + '人に ' + ok + 'まい 入れました' + (ng ? '（' + ng + 'まい できませんでした）' : '') + '。下の 🤖 は この子たち・この日に そろえました → ① と ②’ へ';
+      var ap = $('pfAiSt'); if (ap) ap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {}
+  }
+
   window.PF = {
+    _pdfGo: pdfGo, _pdfX: function () { P = null; var b = $('pfPdfBox'); if (b) b.innerHTML = ''; },
     open: open,
     _aiAll: function (on) { var cbs = document.querySelectorAll('.pfAiStu'); for (var i = 0; i < cbs.length; i++) cbs[i].checked = !!on; },
     _aiCopy: aiCopy, _aiZip: aiZip, _aiPdf: aiPdf, _aiImport: aiImport, _aiGo: aiGo,
