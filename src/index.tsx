@@ -12275,8 +12275,7 @@ app.get('/teacher', (c) => {
 
       <!-- イベント管理 -->
       <details class="bg-white rounded-xl shadow px-4 py-3"><summary class="cursor-pointer font-bold text-slate-700 select-none">🎉 イベント管理<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません（学校全体の設定です）</span></summary>
-          <div class="mt-3"><div class="bg-white rounded-xl shadow p-4">
-        <h2 class="font-bold mb-3">🎉 イベント管理</h2>
+          <div class="mt-3"><div class="p-1">
         <div class="flex flex-wrap gap-3" id="festToggles">
           <button id="festFractionBtn" onclick="toggleFest('fraction')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">🍰 分数フェス OFF</button>
           <button id="festDecimalBtn" onclick="toggleFest('decimal')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">💧 小数フェス OFF</button>
@@ -13184,7 +13183,7 @@ app.get('/teacher', (c) => {
       function updateUnitFestUI(){
         var st = document.getElementById('unitFestStatus'); if(!st) return;
         if(_festState.unit_fest_active){ st.textContent = '✅ ON：' + _festUnitName(_festState.unit_fest_target); st.className='text-xs text-fuchsia-700 font-bold'; }
-        else { st.textContent = 'OFF'; st.className='text-xs text-slate-400 font-bold'; }
+        else { st.textContent = 'いまは OFF' + (_festState.unit_fest_target && _festState.unit_fest_target!=='all' ? '（前回：' + _festUnitName(_festState.unit_fest_target) + '）' : ''); st.className='text-xs text-slate-400 font-bold'; }
       }
       function setUnitFestSelectsFromState(){
         try{ var t=_festState.unit_fest_target||'all'; var gsel=document.getElementById('unitFestGrade'), usel=document.getElementById('unitFestUnit'); if(!gsel||!usel) return;
