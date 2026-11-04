@@ -316,6 +316,8 @@ var DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
       try { var dn = nameOf(r.loginId, r.name); if (dn) _aliasByKey[_akey(dn)] = a; } catch (e) {}
     }
     try { sessionStorage.setItem(TAI_ALIAS_KEY, JSON.stringify(_aliasByUid)); } catch (e) {}
+    /* ALIAS_HIST_V1 プロンプトを 作るたびに 符号が かわるので、前に作った 符号も 10回ぶん のこす（別のタブ・別の日に コピーした プロンプトの 返事でも 照合できるように） */
+    try { var _h = JSON.parse(localStorage.getItem('taiAliasHist') || '[]') || []; _h.unshift({ at: Date.now(), map: _aliasByUid }); localStorage.setItem('taiAliasHist', JSON.stringify(_h.slice(0, 10))); } catch (e) {}
   }
   // 名簿に無い子は名前を出さずに伏せる。実名が漏れるより、分からないほうが安全。
   function anonOf(loginId, name) { return _aliasByKey[_akey(loginId)] || _aliasByKey[_akey(name)] || '（名簿外）'; }
@@ -1945,10 +1947,15 @@ async function taiImport(opts) {
     var _alMap = null;
     try { _alMap = JSON.parse(sessionStorage.getItem(TAI_ALIAS_KEY) || 'null'); } catch (e) {}
     var _af = String(afterName || '').trim();
-    if (_alMap && /^A[0-9]{2}$/.test(_af)) {
-      var _want = _alMap[uid] || '';
-      if (_want && _af !== _want) {
-        hold('符号と児童が食い違っています（ID→' + _want + ' ／ 目印には「' + _af + '」）', label, '');
+    if (/^[AＡ][0-9０-９]{2}$/.test(_af)) {
+      /* ALIAS_HIST_V1 符号（A08 など）は 名前ではない。いま・前に作った どれかの 符号表で この子が その符号なら OK。
+         どの表にも この子が いないとき（表が 消えた など）は、目印の ID を 正として 受け入れる */
+      _af = _af.replace(/[Ａ０-９]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 65248); });
+      var _maps = []; if (_alMap) _maps.push(_alMap);
+      try { (JSON.parse(localStorage.getItem('taiAliasHist') || '[]') || []).forEach(function (x) { if (x && x.map) _maps.push(x.map); }); } catch (e) {}
+      var _known = _maps.filter(function (m) { return m[uid]; });
+      if (_known.length && !_known.some(function (m) { return m[uid] === _af; })) {
+        hold('符号と児童が食い違っています（ID→' + _known[0][uid] + ' ／ 目印には「' + _af + '」）', label, '');
         return;
       }
     } else if (afterName && expect) {
