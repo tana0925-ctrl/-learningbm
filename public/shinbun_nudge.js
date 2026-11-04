@@ -90,6 +90,9 @@
       .catch(function () {});
   }
 
+  /* SHINBUN_ZAIRYO_V3 ④ 分析・カルテ の タブを 見ている ときだけ 出す（ほかの タブでは じゃまに なる） */
+  function onKarteTab() { var p = document.getElementById('tabPaneAnalytics'); return !!(p && !p.classList.contains('hidden')); }
+  setInterval(function () { var el = document.getElementById(ID); if (el) el.style.display = onKarteTab() ? '' : 'none'; }, 700);
   window.__shinbunZairyo = { classify: classify, load: load };
   // 画面が おちついてから 1回だけ
   setTimeout(function () { load(false); }, 4000);

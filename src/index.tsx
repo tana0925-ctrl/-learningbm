@@ -3954,8 +3954,9 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   // 2026-09-30: 連続日数の数え方を1本に統一した。
   //   土日・祝日・学校独自の休みはとばす／その日に出していたら数える／今日はまだ数えない。
   //   上にある『これまでの連続の一覧』は今までどおりのまま残してある。
-  currentStreak = hwStreakCurrent(dayKeys, khtTodayKey(Date.now()), {})
-  maxStreak = hwStreakMax(dayKeys, {})
+  const _hwRest = await hwClassRestOfUser(c.env, String(studentId))   // __HW_CLASSREST_V1__
+  currentStreak = hwStreakCurrent(dayKeys, khtTodayKey(Date.now()), _hwRest)
+  maxStreak = hwStreakMax(dayKeys, _hwRest)
 
   // 月別トレンド
   const mMap: Record<string, { count: number, totalMin: number, sun: number, weatherTotal: number }> = {}
@@ -5408,6 +5409,12 @@ async function ensureKarteShareTable(env: any) {
   try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS student_karte_shared (user_id TEXT PRIMARY KEY, class_id TEXT, shared_at TEXT, shared_by TEXT)').run() } catch (e) {}
 }
 
+// __HW_CLASSREST_V1__ 子どもの クラスの 休み（先生メニューで 外した 平日・学校独自の休み）。連続日数の 計算だけに 使う
+app.get('/api/student/rest-days', async (c) => {
+  const u = c.get('user'); if (!u) return c.json({ ok: false })
+  const m = await hwClassRestOfUser(c.env, String(u.id))
+  return c.json({ ok: true, days: Object.keys(m).sort().slice(-400) })
+})
 app.get('/api/student/my-karte', async (c) => {
   const u = requireStudent(c)
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -5720,6 +5727,7 @@ app.get('/api/teacher/factor-analysis', async (c) => {
   const wdCount = (a: number, b: number) => { if (b < a) return 0; let n = 0; for (let t = a; t <= b; t += DAY) { if (isWd(t)) n++ } return n }
   const memberIds = (((await c.env.DB.prepare('SELECT user_id FROM class_members WHERE class_id=?').bind(classId).all<any>()).results) || []).map((r: any) => r.user_id)
   const students: any[] = []
+  const _hwRestC2 = await hwClassRest(c.env, String(classId))   // __HW_CLASSREST_V1__
   for (const uid of memberIds) {
     const lr = perLR[uid]; const subs = subsByStu[uid] || []
     const days = (Array.from(new Set(subs.map((s: any) => s.day_key).filter(Boolean))) as string[]).sort()
@@ -5729,7 +5737,7 @@ app.get('/api/teacher/factor-analysis', async (c) => {
       f.subRate = exp > 0 ? Math.min(100, Math.round(days.length / exp * 100)) : null
       let maxStreak = 0, run = 0, prev = ''
       for (const dk of days) { if (prev && Math.round((dms(dk) - dms(prev)) / DAY) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
-      f.streak = hwStreakMax(days, {})
+      f.streak = hwStreakMax(days, _hwRestC2)   // __HW_CLASSREST_V1__
       const totMin = subs.reduce((a: number, s: any) => a + Number(s.minutes || 0), 0)
       f.totMin = totMin; f.avgMin = subs.length ? Math.round(totMin / subs.length) : null
       let sun = 0, wt = 0; for (const s of subs) { if (s.end_weather) { wt++; if (s.end_weather === 'sun') sun++ } }
@@ -5807,6 +5815,7 @@ app.get('/api/teacher/learning-analytics', async (c) => {
   // Area1 continuity
   const byStu: Record<string, string[]> = {}
   for (const s of subs) { if (!s.day_key) continue; (byStu[s.user_id] = byStu[s.user_id] || []).push(s.day_key) }
+  const _hwRestC = await hwClassRest(c.env, String(classId))   // __HW_CLASSREST_V1__
   const perStudent = members.map((m: any) => {
     const days = Array.from(new Set(byStu[m.id] || [])).sort()
     let maxStreak = 0, run = 0, prev = ''
@@ -5817,8 +5826,8 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     const prev7 = days.filter(dk => { const a = todayMs - dkMs(dk); return a > 7 * dayMs && a <= 14 * dayMs }).length
     const dropping = (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) || (prev7 >= 3 && recent7 === 0)
     // 2026-09-30: 連続日数の数え方を1本に統一した（カルテと同じ）。
-    currentStreak = hwStreakCurrent(days, khtTodayKey(Date.now()), {})
-    maxStreak = hwStreakMax(days, {})
+    currentStreak = hwStreakCurrent(days, khtTodayKey(Date.now()), _hwRestC)   // __HW_CLASSREST_V1__
+    maxStreak = hwStreakMax(days, _hwRestC)
     return { userId: m.id, name: m.name, loginId: m.loginId, submissions: days.length, currentStreak, maxStreak, recent7, prev7, dropping }
   })
   const droppingStudents = perStudent.filter((p: any) => p.dropping).map((p: any) => ({ userId: p.userId, name: p.name, loginId: p.loginId, recent7: p.recent7, prev7: p.prev7 }))
@@ -9205,7 +9214,9 @@ async function khtLoad(env: any, classId: string): Promise<any> {
   } catch (_e) { return { raw: '', st: khtFresh(Date.now()) } }
   let st: any = null
   if (raw) { try { st = JSON.parse(raw) } catch (_e) { st = null } }
-  return { raw: raw, st: khtNorm(st, Date.now()) }
+  const _st = khtNorm(st, Date.now())
+  try { Object.defineProperty(_st, '__cid', { value: String(classId), enumerable: false }) } catch (_e) {}   // __HW_CLASSREST_V1__ 保存の JSON には 入らない
+  return { raw: raw, st: _st }
 }
 
 // 「読んだときの value のままの行だけ」書き換える文。batch に入れて使う。
@@ -9273,6 +9284,39 @@ function khtExtraMap(st: any): any {
   const list = (st && Array.isArray(st.extraHolidays)) ? st.extraHolidays : []
   for (const d of list) { if (typeof d === 'string' && d) m[d] = 1 }
   return m
+}
+
+// __HW_CLASSREST_V1__ 先生メニューの「今週の家庭学習がある曜日」で 外した 平日も 休みとして とばす（例：11/2 月）。
+//   ＋ カフート券で 先生が 足した 学校独自の休み。連続の 数え方は ここで 足した 休みを 使う（カルテ・先生の一覧・カフート券・子どもの画面）。
+const _hwRestCache: any = {}
+function hwWeekMonday(wk: string): string {
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(String(wk || ''))
+  if (!m) return ''
+  const j4 = Date.UTC(Number(m[1]), 0, 4), wd = (new Date(j4).getUTCDay() + 6) % 7
+  return khtFmtDay(j4 - wd * KHT_DAY_MS + (Number(m[2]) - 1) * 7 * KHT_DAY_MS)
+}
+async function hwClassRest(env: any, classId: string): Promise<any> {
+  const out: any = {}
+  if (!classId) return out
+  const ck = String(classId), hit = _hwRestCache[ck]
+  if (hit && Date.now() - hit.at < 60000) return Object.assign({}, hit.m)
+  const DK = ['mon', 'tue', 'wed', 'thu', 'fri']
+  try {
+    const r = await env.DB.prepare('SELECT week_key, active_days FROM class_weekly_menu WHERE class_id=? ORDER BY week_key DESC LIMIT 60').bind(ck).all<any>()
+    for (const row of ((r && r.results) || []) as any[]) {
+      let act: any = null
+      try { act = JSON.parse(String(row.active_days || '')) } catch (_e) { act = null }
+      if (!Array.isArray(act) || !act.length) continue   // 曜日が 入っていない 週は ふだんどおり
+      const mon = hwWeekMonday(String(row.week_key)); if (!mon) continue
+      DK.forEach((d, i) => { if (act.indexOf(d) < 0) out[khtAddDay(mon, i)] = 1 })
+    }
+  } catch (_e) {}
+  try { const ld = await khtLoad(env, ck); Object.assign(out, khtExtraMap(ld.st)) } catch (_e) {}
+  _hwRestCache[ck] = { at: Date.now(), m: Object.assign({}, out) }
+  return out
+}
+async function hwClassRestOfUser(env: any, userId: string): Promise<any> {
+  try { const r = await env.DB.prepare('SELECT class_id AS cid FROM class_members WHERE user_id=? LIMIT 1').bind(String(userId)).first<any>(); return r && r.cid ? await hwClassRest(env, String(r.cid)) : {} } catch (_e) { return {} }
 }
 
 // 休みの日＝土日・祝日・先生が足した学校独自の休み。
@@ -9403,7 +9447,7 @@ function khtPriceOf(streak: number, recent: boolean): number {
 async function khtQuote(env: any, userId: string, st: any): Promise<any> {
   const todayKey = khtTodayKey(Date.now())
   const days = await khtDays(env, userId, khtAddDay(todayKey, -70), todayKey)
-  const extra = khtExtraMap(st)
+  const extra = Object.assign(khtExtraMap(st), (st && st.__cid) ? await hwClassRest(env, st.__cid) : {})
   const streak = khtStreak(days, todayKey, extra)
   const recent = khtRecent(days, todayKey, extra, KHT_RECENT_DAYS)
   const price = khtPriceOf(streak, recent)
@@ -9543,7 +9587,7 @@ app.get('/api/teacher/class/:classId/kahoot', async (c) => {
   const st = loaded.st
   const need = khtNeed(st, size)
   const paid = khtPaid(st)
-  const extra = khtExtraMap(st)
+  const extra = Object.assign(khtExtraMap(st), (st && st.__cid) ? await hwClassRest(c.env, st.__cid) : {})
   const todayKey = khtTodayKey(Date.now())
   const fromKey = khtAddDay(todayKey, -70)
   // 値段ごとの人数と、自分の値段を払えない子の人数。名前は出さない。
@@ -9583,7 +9627,7 @@ app.get('/api/teacher/class/:classId/kahoot/pending', async (c) => {
   if (!(await khtTeacherOwns(c, u, classId))) return jsonError(c, 404, 'class_not_found')
   const loaded = await khtLoad(c.env, classId)
   const st = loaded.st
-  const extra = khtExtraMap(st)
+  const extra = Object.assign(khtExtraMap(st), (st && st.__cid) ? await hwClassRest(c.env, st.__cid) : {})
   const todayKey = khtTodayKey(Date.now())
   const fromKey = khtAddDay(todayKey, -70)
   const bought: any = {}
@@ -10873,7 +10917,7 @@ app.get('/', async (c) => {
       // HS_NEXT_RECALL_V1_WIRED 入力の すぐ上に まえの「つぎにすること」を 出すだけ。中身は public/hs_next_recall.js。
       t = t.replace('</body>', '<script src="/hs_next_recall.js?v=1"></script></body>')
       // ✍️ WEEKREF_V1 週の振り返り：阪神マンの声かけ・書き出しのヒント・ボーナスの表示・2週前の返事。中身は public/weekref.js。
-      t = t.replace('</body>', '<script src="/weekref.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/weekref.js?v=2"></script></body>')
       // 🪞 MAEJIBUN_V1 前の自分とくらべる・来週やってみたいこと。中身は public/maejibun.js。
       t = t.replace('</body>', '<script src="/maejibun.js?v=1"></script></body>')
       // 👆 KANTAN_REF_V1 かんたんふりかえり（タップで答える振り返り）・阪神マンの1タップ案内・アプリを開いた日。中身は public/kantanref.js。
@@ -10955,6 +10999,12 @@ app.get('/', async (c) => {
       t = t.replace("for(var _cj=0;_cj<B.length;_cj++){ B[_cj].adv=0; B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cj%CLN)); } }", "/* __DEFLANE_MIX_V1__ 防衛戦だけ: てきのレーンを seed から きめる。強い順に 1体ずつ くばるので 1つの道に かたよらない。 */ var _cLB=null; if(opts.foeLaneMix){ var _cO=[],_cx,_cy,_ct; for(_cx=0;_cx<B.length;_cx++) _cO.push(_cx); _cO.sort(function(x,y){ var sx=(Number(B[x].maxHp)||0)+3*(Number(B[x].atk)||0), sy=(Number(B[y].maxHp)||0)+3*(Number(B[y].atk)||0); return (sy-sx)||(x-y); }); _cLB=new Array(B.length); var _cL2=[]; for(_cx=0;_cx<CLN;_cx++) _cL2.push(_cx); for(var _cr=0;_cr*CLN<B.length;_cr++){ for(_cx=CLN-1;_cx>0;_cx--){ _cy=Math.floor(rng()*(_cx+1)); _ct=_cL2[_cx]; _cL2[_cx]=_cL2[_cy]; _cL2[_cy]=_ct; } for(_cx=0;_cx<CLN&&_cr*CLN+_cx<B.length;_cx++) _cLB[_cO[_cr*CLN+_cx]]=_cL2[_cx]; } } for(var _cj=0;_cj<B.length;_cj++){ B[_cj].adv=0; B[_cj].curLn=(B[_cj].lane!=null?B[_cj].lane:(_cLB?_cLB[_cj]:(_cj%CLN))); } }")
       // __STATUS_BALANCE_V1__ ステータスの「学習の分析」左がスカスカ → TOP3・苦手TOP3・復習おすすめ・ミニ復習を 左の列（教科別の下）へ
       if (t.indexOf('__STATUS_BALANCE_V1__') < 0 && t.indexOf("    <div>\n      <div class=\"font-bold text-indigo-700\">よくやる単元 TOP3（回数が多い順）</div>\n      <div class=\"mt-2\" id=\"homeTopTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n    <div>\n      <div class=\"font-bold text-indigo-700\">苦手っぽい単元 TOP3（正解率が低い順）</div>\n      <div class=\"mt-2\" id=\"homeWeakTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n<div id=\"homeReviewSuggest\" style=\"display:none\">\n<div class=\"font-bold text-indigo-700\">📚 復習おすすめ</div>\n<div class=\"mt-2 space-y-1\" id=\"homeReviewSuggestList\"></div>\n<div class=\"text-xs text-gray-500 mt-1\">※前にできていた単元も、時間がたつと忘れちゃう。タップで復習に進めるよ。</div>\n</div>\n\n<div id=\"homeMiniReview\" style=\"display:none\"><div class=\"font-bold text-rose-700\">⚡ ミニ復習（3問）</div><div class=\"mt-2\" id=\"homeMiniReviewBody\"></div><div class=\"text-xs text-gray-500 mt-1\">※いちばん苦手な単元を、3問だけサッと。すぐ終わるよ！</div></div>\n") >= 0) { t = t.replace("    <div>\n      <div class=\"font-bold text-indigo-700\">よくやる単元 TOP3（回数が多い順）</div>\n      <div class=\"mt-2\" id=\"homeTopTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n    <div>\n      <div class=\"font-bold text-indigo-700\">苦手っぽい単元 TOP3（正解率が低い順）</div>\n      <div class=\"mt-2\" id=\"homeWeakTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n<div id=\"homeReviewSuggest\" style=\"display:none\">\n<div class=\"font-bold text-indigo-700\">📚 復習おすすめ</div>\n<div class=\"mt-2 space-y-1\" id=\"homeReviewSuggestList\"></div>\n<div class=\"text-xs text-gray-500 mt-1\">※前にできていた単元も、時間がたつと忘れちゃう。タップで復習に進めるよ。</div>\n</div>\n\n<div id=\"homeMiniReview\" style=\"display:none\"><div class=\"font-bold text-rose-700\">⚡ ミニ復習（3問）</div><div class=\"mt-2\" id=\"homeMiniReviewBody\"></div><div class=\"text-xs text-gray-500 mt-1\">※いちばん苦手な単元を、3問だけサッと。すぐ終わるよ！</div></div>\n", '<!-- __STATUS_BALANCE_V1__ -->'); t = t.replace("<div class=\"text-xs text-gray-500 mt-1\">※直近100問は「最近の調子」、全体は「積み上げ」です。</div>\n  </div>", "<div class=\"text-xs text-gray-500 mt-1\">※直近100問は「最近の調子」、全体は「積み上げ」です。</div>\n  <div class=\"space-y-4 mt-4\">\n    <div>\n      <div class=\"font-bold text-indigo-700\">よくやる単元 TOP3（回数が多い順）</div>\n      <div class=\"mt-2\" id=\"homeTopTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n    <div>\n      <div class=\"font-bold text-indigo-700\">苦手っぽい単元 TOP3（正解率が低い順）</div>\n      <div class=\"mt-2\" id=\"homeWeakTopics\"></div>\n      <div class=\"text-xs text-gray-500 mt-1\">※10問以上やった単元だけ表示します。</div>\n    </div>\n\n<div id=\"homeReviewSuggest\" style=\"display:none\">\n<div class=\"font-bold text-indigo-700\">📚 復習おすすめ</div>\n<div class=\"mt-2 space-y-1\" id=\"homeReviewSuggestList\"></div>\n<div class=\"text-xs text-gray-500 mt-1\">※前にできていた単元も、時間がたつと忘れちゃう。タップで復習に進めるよ。</div>\n</div>\n\n<div id=\"homeMiniReview\" style=\"display:none\"><div class=\"font-bold text-rose-700\">⚡ ミニ復習（3問）</div><div class=\"mt-2\" id=\"homeMiniReviewBody\"></div><div class=\"text-xs text-gray-500 mt-1\">※いちばん苦手な単元を、3問だけサッと。すぐ終わるよ！</div></div>\n  </div>\n  </div>"); }
+      // __HW_CLASSREST_V1__ 子どもの画面の 連続日数も、先生メニューで 外した 平日（例：11/2 月）を 休みとして とばす
+      t = t.replace('    return hsIsWeekend(dayKey) || set.has(dayKey);', '    return hsIsWeekend(dayKey) || set.has(dayKey) || !!(window._hsClassRest && window._hsClassRest[dayKey]);')
+      t = t.replace('</body>', '<script>(function(){function go(){try{fetch("/api/student/rest-days",{credentials:"include"}).then(function(r){return r.json();}).then(function(d){if(d&&d.ok&&d.days){var m={};d.days.forEach(function(k){m[k]=1;});window._hsClassRest=m;}}).catch(function(){});}catch(e){}}go();setInterval(go,600000);})();</script></body>')
+      // __HANSHIN_LABEL_V1__ 子どもの画面の「先生からのおへんじ」は 阪神マンの ことばなので 阪神マンに そろえる（先生の指示 2026-11-04）
+      t = t.split('💬 先生からのおへんじ').join('💬 阪神マンからのおへんじ')
+      t = t.split('\\u270D\\uFE0F 先生・阪神マンへ、ひとこと返す（にんい）').join('\\u270D\\uFE0F 阪神マンへ、ひとこと返す（にんい）')
       // __DEF_BASECAP_V1__ 防衛戦だけ 基地への1回の攻撃に上限（基地の最大HPの opts.baseHitCap ぶんまで）。てきが強くなって 1回で基地がこわれ、
       //   「基地に さわってないのに 勝負がついた」「基地のHPで動く作戦（allyBaseBelow）が いちども はたらかない」になっていた。ジムチャレンジは わたさないので これまでどおり
       t = t.replace("} else if(structKind==='base'){ if(f.side==='A'){ baseHpB-=dmg;", "} else if(structKind==='base'){ /* __DEF_BASECAP_V1__ */ if(opts.baseHitCap>0){ dmg=Math.min(dmg,Math.max(1,Math.round(baseMax*opts.baseHitCap))); } if(f.side==='A'){ baseHpB-=dmg;")
@@ -17781,7 +17831,7 @@ function _faKarteGraphs(d){
     <script src="/portfolio.js?v=12"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=9"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=9"></script>
-    <script src="/shinbun_nudge.js?v=2"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
+    <script src="/shinbun_nudge.js?v=3"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>

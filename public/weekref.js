@@ -162,7 +162,7 @@
     var el = document.createElement('div');
     el.id = 'weekRefOldCmt';
     el.className = 'bg-sky-50 border-2 border-sky-300 rounded-xl p-3 space-y-1';
-    el.innerHTML = '<div class="font-bold text-sky-800 text-sm">💬 先生からのおへんじ <span class="text-[10px] font-normal text-sky-600">（' + esc(label) + '）</span></div>'
+    el.innerHTML = '<div class="font-bold text-sky-800 text-sm">💬 阪神マンからのおへんじ <span class="text-[10px] font-normal text-sky-600">（' + esc(label) + '）</span></div>'
       + '<div class="text-xs text-slate-700 whitespace-pre-wrap"><b>🔄 ふりかえりに…</b> ' + esc(cmt) + '</div>';
     notice.insertBefore(el, notice.firstChild);
     notice.classList.remove('hidden');
