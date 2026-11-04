@@ -1876,6 +1876,15 @@ async function taiImport(opts) {
   _rosterCache[cid] = _rosterPeople;
 
   var parsed = _taiParse(raw);
+  // PASTE_PROMPT_V1 貼ったのが「AIの返事」ではなく「AIに渡すプロンプト」そのものだったとき（返事のコピーに失敗して、
+  //   クリップボードに プロンプトが のこっていた など）。123件の「割り当てなかったもの」を出さずに、はっきり伝える。
+  var _promptHead = /あなたは小学校の(担任の)?先生(を手伝う|の)アシスタント|【まもってほしいこと】|【目印の種類】|【書いてほしい欄】|【書き方のきまり】/.test(raw);
+  var _realN = parsed.blocks.filter(function (b) { return !b.isSample && String(b.body || '').replace(/[\s　]/g, '').length >= 8; }).length;
+  if (_promptHead && _realN === 0) {
+    showHolds([]);
+    say2('⚠ 貼り付けたのは「AIに渡すプロンプト」のようです（AIの返事が入っていません）。AIの画面で、返事のほうをコピーしてから 貼り直してください（返事の下の 📋コピー ボタンが確実です）。');
+    return;
+  }
   // HW_DAILY_ALL_V1 「入らなかった分だけ もう一度コピー」の返事なら、いまの下書きを消さずに追加する
   var _exp = dailyExpGet(cid);
   if (!appendMode && _exp && _exp.retry && parsed.blocks.length) {
