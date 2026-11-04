@@ -784,6 +784,10 @@
     /* NOPHOTO_V1 AIが 写真を 見られていない 返事（PDF・写真の 添付わすれ）は 取り込まない。前のメモから 想像で 書いた文が 子どもに 届いてしまうため */
     var _pre = raw.split(/===\s*\[/)[0];   // 目印より前の まえおき だけを 見る（本文の「この写真は 字が 読めません」などで 止めない）
     var noPh = /(写真|画像|PDF|ＰＤＦ)[^\n。]{0,12}(添付されていない|添付がない|見え(ない|ません)|開け(ない|ません)|読み込め(ない|ません)|確認できない|確認できません)/.test(_pre);
+    /* 目印の 中身が ほとんど「写真が見えません」だけの 返事も 同じ（プロンプトの きまりどおりに AIが 答えたとき） */
+    var _bodies = raw.split(/===\s*\[[^\]]*\]\s*[^\n]*===/).slice(1).map(function (b) { return b.replace(/\s+/g, ''); }).filter(Boolean);
+    var _nos = _bodies.filter(function (b) { return /^写真が見えません。?$/.test(b); }).length;
+    if (_bodies.length && _nos * 2 >= _bodies.length) noPh = true;
     if (noPh) {
       st.textContent = '⚠ この返事は、AIが 写真を 見られていません（「写真が添付されていない」と 書いてあります）。取り込みませんでした。AIに ① のプロンプトと いっしょに ②’ の PDF（または ② の 写真）を 添付して、もう一度 送ってください。';
       return;
