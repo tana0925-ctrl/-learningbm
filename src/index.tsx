@@ -5293,7 +5293,15 @@ app.get('/api/teacher/quicknote/roster', async (c) => {
     const r = await c.env.DB.prepare("SELECT user_id as uid, COUNT(*) as n FROM teacher_student_notes WHERE user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND COALESCE(NULLIF(day_key,''), substr(created_at,1,10)) >= ? GROUP BY user_id").bind(classId, weekFrom).all<any>()
     for (const x of (((r && r.results) || []) as any[])) wrote[String(x.uid)] = Number(x.n) || 0
   } catch (e) { console.error('quicknote/roster: 今週の件数が読めません', e) }
-  return c.json({ ok: true, roster, weekFrom, wrote })
+  // QUICKNOTE_EDIT_V1 書いた一言を あとから 直せるように、今週（または えらんだ日から）の 一言を 返す
+  const notes: Record<string, any[]> = {}
+  try {
+    const _qf = String(c.req.query('from') || '')
+    const _from = /^\d{4}-\d{2}-\d{2}$/.test(_qf) && _qf < weekFrom ? _qf : weekFrom
+    const r = await c.env.DB.prepare("SELECT id, user_id as uid, day_key, body, show_in_karte, ai_ok, subject FROM teacher_student_notes WHERE user_id IN (SELECT user_id FROM class_members WHERE class_id=?) AND COALESCE(NULLIF(day_key,''), substr(created_at,1,10)) >= ? ORDER BY id DESC LIMIT 500").bind(classId, _from).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) { const k = String(x.uid); (notes[k] = notes[k] || []).push({ id: Number(x.id), dayKey: String(x.day_key || ''), body: String(x.body || ''), showInKarte: Number(x.show_in_karte) === 1, aiOk: Number(x.ai_ok) !== 0, subject: String(x.subject || '') }) }
+  } catch (e) { console.error('quicknote/roster: 一言が読めません', e) }
+  return c.json({ ok: true, roster, weekFrom, wrote, notes })
 })
 app.post('/api/teacher/student-notes', async (c) => {
   const u = requireTeacher(c)
@@ -5309,8 +5317,36 @@ app.post('/api/teacher/student-notes', async (c) => {
   if (!txt.trim()) return jsonError(c, 400, 'empty')
   try { await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS teacher_student_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, class_id TEXT, day_key TEXT, body TEXT, show_in_karte INTEGER DEFAULT 0, created_by TEXT, created_at TEXT)").run() } catch {}
   const showK = (body.showInKarte === 1 || body.showInKarte === true || body.showInKarte === '1') ? 1 : 0; const aiOk = showK === 1 ? 1 : ((body.aiOk === 0 || body.aiOk === false || body.aiOk === '0') ? 0 : 1); const subj = String(body.subject || '').slice(0, 20)
-  try { await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, ai_ok, subject, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, aiOk, subj, u.id, new Date().toISOString()).run() } catch (e) { if (aiOk === 0) { console.error('student-notes: ai_ok の列が無いので「先生だけ」は保存しません', e); return jsonError(c, 500, 'ai_ok_column_missing') } await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, created_by, created_at) VALUES (?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, u.id, new Date().toISOString()).run() }
-  return c.json({ ok: true })
+  let _newId: any = null   // QUICKNOTE_EDIT_V1 あとで 直せるように id を 返す
+  try { const _ins: any = await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, ai_ok, subject, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, aiOk, subj, u.id, new Date().toISOString()).run(); _newId = _ins && _ins.meta ? _ins.meta.last_row_id : null } catch (e) { if (aiOk === 0) { console.error('student-notes: ai_ok の列が無いので「先生だけ」は保存しません', e); return jsonError(c, 500, 'ai_ok_column_missing') } await c.env.DB.prepare('INSERT INTO teacher_student_notes (user_id, class_id, day_key, body, show_in_karte, created_by, created_at) VALUES (?,?,?,?,?,?,?)').bind(studentId, String(mem.classId || ''), String(body.dayKey || '').slice(0, 40), txt, showK, u.id, new Date().toISOString()).run() }
+  return c.json({ ok: true, id: _newId })
+})
+
+// QUICKNOTE_EDIT_V1 書いた一言を 直す・消す。{ id, body?, vis?(1🐯 2🔒 3👧), subject?, dayKey?, delete? }。担任の クラスの子の 一言だけ
+app.post('/api/teacher/student-notes/update', async (c) => {
+  const u = requireTeacher(c)
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  const body = await c.req.json().catch(() => null)
+  const id = Number(body && body.id)
+  if (!body || !Number.isFinite(id) || id <= 0) return jsonError(c, 400, 'invalid')
+  const note = await c.env.DB.prepare('SELECT id, user_id FROM teacher_student_notes WHERE id=? LIMIT 1').bind(id).first<any>()
+  if (!note) return jsonError(c, 404, 'note_not_found')
+  if (u.role !== 'admin') {
+    const ok = await c.env.DB.prepare('SELECT 1 AS x FROM class_members cm JOIN classes cl ON cl.id=cm.class_id AND cl.teacher_id=? WHERE cm.user_id=? LIMIT 1').bind(u.id, String(note.user_id)).first()
+    if (!ok) return jsonError(c, 403, 'forbidden')
+  }
+  if (body.delete === true || body.delete === 1) {
+    await c.env.DB.prepare('DELETE FROM teacher_student_notes WHERE id=?').bind(id).run()
+    return c.json({ ok: true, deleted: true })
+  }
+  const sets: string[] = [], vals: any[] = []
+  if (body.body != null) { const t = String(body.body).slice(0, 2000); if (!t.trim()) return jsonError(c, 400, 'empty'); sets.push('body=?'); vals.push(t) }
+  if (body.vis != null) { const v = Number(body.vis); const k = v === 3 ? 1 : 0, a = v === 2 ? 0 : 1; sets.push('show_in_karte=?', 'ai_ok=?'); vals.push(k, a) }
+  if (body.subject != null) { sets.push('subject=?'); vals.push(String(body.subject).slice(0, 20)) }
+  if (body.dayKey != null && /^\d{4}-\d{2}-\d{2}$/.test(String(body.dayKey))) { sets.push('day_key=?'); vals.push(String(body.dayKey)) }
+  if (!sets.length) return c.json({ ok: true, changed: 0 })
+  await c.env.DB.prepare('UPDATE teacher_student_notes SET ' + sets.join(', ') + ' WHERE id=?').bind(...vals, id).run()
+  return c.json({ ok: true, changed: 1 })
 })
 
 // ===== 復習おすすめAPI（忘れかけ単元の検出・児童本人のみ） =====
@@ -17513,6 +17549,12 @@ function _faKarteGraphs(d){
       .qnSub button{border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer}
       .qnSub button.on{background:#0d9488;border-color:#0d9488;color:#fff;font-weight:700}
       .qnSaved{font-size:11px;color:#15803d;margin-top:3px}
+      .qnItem{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:12px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:3px 6px;margin-top:3px}
+      .qnItem .qnIt{flex:1;min-width:120px}
+      .qnItem small{color:#94a3b8}
+      .qnItem button{border:1px solid #e2e8f0;background:#fff;border-radius:6px;padding:1px 6px;font-size:12px;cursor:pointer}
+      .qnItem input{flex:1;min-width:140px;border:1px solid #0d9488;border-radius:6px;padding:4px 6px;font-size:13px}
+      .qnItem .qnEdSave{background:#0d9488;color:#fff;border-color:#0d9488;font-weight:700}
     </style>
     <script>
     /* QUICKNOTE_V1  先生が授業中に気づいた一言を、1人10秒で入れる口。
@@ -17530,6 +17572,27 @@ function _faKarteGraphs(d){
       var PHRASE = ['ふりかえり書こう','ここできてる','自分から動けてた','友だちに説明できてた','もう一歩いける'];
       var St = {};
       var lastInput = null;
+      /* QUICKNOTE_EDIT_V1 書いた一言を ✏️で直す・🗑で消す（間違えて入れたとき） */
+      var NOTES = {};
+      function visOf(n){ return n.showInKarte ? VIS[2] : (n.aiOk===false ? VIS[1] : VIS[0]); }
+      function md(dk){ var p=String(dk||'').split('-'); return p.length<3?'':(Number(p[1])+'/'+Number(p[2])); }
+      function itemHtml(n){
+        NOTES[n.id]=n; var v=visOf(n);
+        return '<div class="qnItem" data-id="'+n.id+'"><span title="'+esc(v.tip)+'">'+v.mark+'</span>'+(n.subject?'<span>['+esc(n.subject)+']</span>':'')
+          +'<span class="qnIt">'+esc(n.body)+'</span>'+(n.dayKey?'<small>'+esc(md(n.dayKey))+'</small>':'')
+          +'<button type="button" class="qnEd" data-id="'+n.id+'" title="直す">✏️</button><button type="button" class="qnDel" data-id="'+n.id+'" title="消す">🗑</button></div>';
+      }
+      function editHtml(n){
+        var v=visOf(n);
+        return '<button type="button" class="qnEdVis" data-id="'+n.id+'" data-k="'+v.k+'" title="'+esc(v.tip)+'">'+v.mark+'</button>'
+          +'<input type="text" class="qnEdText" data-id="'+n.id+'" value="'+esc(n.body)+'">'
+          +'<button type="button" class="qnEdSave" data-id="'+n.id+'">保存</button><button type="button" class="qnEdCancel" data-id="'+n.id+'">やめる</button>';
+      }
+      function itemEl(id){ return document.querySelector('.qnItem[data-id="'+id+'"]'); }
+      function upd(id, payload){
+        payload.id=id;
+        return fetch('/api/teacher/student-notes/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();});
+      }
       function $(id){ return document.getElementById(id); }
       function esc(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;'); }
       function today(){ var n=new Date(); var j=new Date(n.getTime()+n.getTimezoneOffset()*60000+9*3600000); var p=function(x){return (x<10?'0':'')+x;}; return j.getFullYear()+'-'+p(j.getMonth()+1)+'-'+p(j.getDate()); }
@@ -17597,7 +17660,7 @@ function _faKarteGraphs(d){
           h+='<button type="button" class="qnVis" data-uid="'+esc(uid)+'" title="'+esc(VIS[0].tip)+'">'+VIS[0].mark+'</button></div>';
           h+='<div class="qnSub">';
           for(var k=0;k<SUBJ.length;k++){ h+='<button type="button" class="qnSubBtn" data-uid="'+esc(uid)+'" data-s="'+esc(SUBJ[k])+'">'+esc(SUBJ[k])+'</button>'; }
-          h+='</div><div class="qnSaved" data-uid="'+esc(uid)+'"></div></div>';
+          h+='</div><div class="qnSaved" data-uid="'+esc(uid)+'">'+((d.notes&&d.notes[uid])||[]).map(itemHtml).join('')+'</div></div>';
         }
         list.innerHTML = h || '<div style="padding:14px;color:#94a3b8;font-size:13px">このクラスの児童が見つかりません</div>';
       }
@@ -17606,7 +17669,7 @@ function _faKarteGraphs(d){
         var list=$('qnList');
         if(!cid){ if(list) list.innerHTML='<div style="padding:14px;color:#94a3b8;font-size:13px">上でクラスをえらんでください</div>'; return; }
         if(list) list.innerHTML='<div style="padding:14px;color:#94a3b8;font-size:13px">よみこみ中…</div>';
-        fetch('/api/teacher/quicknote/roster?classId='+encodeURIComponent(cid))
+        fetch('/api/teacher/quicknote/roster?classId='+encodeURIComponent(cid)+'&from='+encodeURIComponent((($('qnDate')||{}).value)||''))
           .then(function(r){return r.json();})
           .then(function(d){ if(d && d.ok) render(d); else if(list) list.innerHTML='<div style="padding:14px;color:#dc2626;font-size:13px">名簿が読めませんでした</div>'; })
           .catch(function(e){ if(list) list.innerHTML='<div style="padding:14px;color:#dc2626;font-size:13px">エラー: '+esc(e.message)+'</div>'; });
@@ -17623,7 +17686,7 @@ function _faKarteGraphs(d){
             inp.disabled=false;
             if(d && d.ok){
               inp.value=''; if(row) row.className='qnRow qnOk';
-              if(sv) sv.innerHTML = '✓ '+v.mark+' '+(stt.sub?'['+esc(stt.sub)+'] ':'')+esc(txt) + (sv.innerHTML?'<br>'+sv.innerHTML:'');
+              if(sv){ if(d.id){ sv.innerHTML = itemHtml({ id:d.id, dayKey:($('qnDate')||{}).value||today(), body:txt, showInKarte:v.karte===1, aiOk:v.ai!==0, subject:stt.sub }) + sv.innerHTML; } else { sv.innerHTML = '✓ '+v.mark+' '+(stt.sub?'['+esc(stt.sub)+'] ':'')+esc(txt) + (sv.innerHTML?'<br>'+sv.innerHTML:''); } }
               var c=$('qnCount'); var m=/[0-9]+/.exec(c&&c.textContent||''); var cur=m?Number(m[0]):0;
               if(c && !(row && row.getAttribute('data-counted'))){ c.textContent='今週 '+(cur+1)+'人に書きました'; if(row) row.setAttribute('data-counted','1'); }
             } else { if(sv) sv.textContent='保存できませんでした'; }
@@ -17662,6 +17725,31 @@ function _faKarteGraphs(d){
           if(St[u2].sub===s){ St[u2].sub=''; } else { St[u2].sub=s; t.className='qnSubBtn on'; }
           return;
         }
+        /* QUICKNOTE_EDIT_V1 */
+        var cn=String(t.className||'');
+        if(cn==='qnEd'){ var n1=NOTES[t.getAttribute('data-id')], e1=itemEl(t.getAttribute('data-id')); if(n1&&e1){ e1.innerHTML=editHtml(n1); var ip=e1.querySelector('.qnEdText'); if(ip){ ip.focus(); ip.select(); } } return; }
+        if(cn==='qnEdCancel'){ var n2=NOTES[t.getAttribute('data-id')], e2=itemEl(t.getAttribute('data-id')); if(n2&&e2) e2.outerHTML=itemHtml(n2); return; }
+        if(cn==='qnEdVis'){ var k=Number(t.getAttribute('data-k'))||1; k=k>=3?1:k+1; var vv=VIS[k-1]; t.setAttribute('data-k',k); t.textContent=vv.mark; t.title=vv.tip; return; }
+        if(cn==='qnEdSave'){
+          var id3=t.getAttribute('data-id'), n3=NOTES[id3], e3=itemEl(id3); if(!n3||!e3) return;
+          var tx=String((e3.querySelector('.qnEdText')||{}).value||'').trim(); if(!tx){ alert('一言が空です。消すときは 🗑 を おしてください'); return; }
+          var kk=Number((e3.querySelector('.qnEdVis')||{getAttribute:function(){return 1;}}).getAttribute('data-k'))||1;
+          t.disabled=true;
+          upd(id3,{ body:tx, vis:kk }).then(function(d){
+            if(d&&d.ok){ n3.body=tx; n3.showInKarte=(kk===3); n3.aiOk=(kk!==2); var e4=itemEl(id3); if(e4) e4.outerHTML=itemHtml(n3); }
+            else { t.disabled=false; alert('直せませんでした'); }
+          }).catch(function(){ t.disabled=false; alert('直せませんでした'); });
+          return;
+        }
+        if(cn==='qnDel'){
+          var id5=t.getAttribute('data-id'), n5=NOTES[id5]; if(!n5) return;
+          if(!confirm('この一言を消しますか？ 「'+n5.body+'」')) return;
+          upd(id5,{ delete:true }).then(function(d){
+            if(d&&d.ok){ var e5=itemEl(id5); if(e5) e5.parentNode.removeChild(e5); delete NOTES[id5]; }
+            else alert('消せませんでした');
+          }).catch(function(){ alert('消せませんでした'); });
+          return;
+        }
         if(t.parentNode && t.parentNode.id==='qnChips'){
           var p=t.getAttribute('data-p');
           if(lastInput){ lastInput.value = (lastInput.value?lastInput.value+' ':'') + p; lastInput.focus(); }
@@ -17671,12 +17759,13 @@ function _faKarteGraphs(d){
       document.addEventListener('focusin', function(ev){ if(ev.target && ev.target.className==='qnText') lastInput=ev.target; });
       document.addEventListener('keydown', function(ev){
         if(ev.key==='Enter' && ev.target && ev.target.className==='qnText'){ ev.preventDefault(); save(ev.target.getAttribute('data-uid'), ev.target); }
+        if(ev.key==='Enter' && ev.target && ev.target.className==='qnEdText'){ ev.preventDefault(); var sb=ev.target.parentNode && ev.target.parentNode.querySelector('.qnEdSave'); if(sb) sb.click(); }
         if(ev.key==='Escape'){ var w=$('qnWrap'); if(w && w.style.display==='block') close_(); }
       });
       document.addEventListener('focusout', function(ev){
         if(ev.target && ev.target.className==='qnText' && String(ev.target.value||'').trim()) save(ev.target.getAttribute('data-uid'), ev.target);
       });
-      document.addEventListener('change', function(ev){ if(ev.target && ev.target.id==='qnClass') load(); });
+      document.addEventListener('change', function(ev){ if(ev.target && (ev.target.id==='qnClass' || ev.target.id==='qnDate')) load(); });
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
