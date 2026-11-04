@@ -41,6 +41,17 @@
     if (!c.thin.length && !c.noPm.length) return;
     var el = document.createElement('div');
     el.id = ID;
+    /* SHINBUN_ZAIRYO_V2 ふだんは 小さな ボタンだけ（画面の ボタンに かぶらないように）。おすと ひらく */
+    var opened = false; try { opened = sessionStorage.getItem(KEY + 'Open') === '1'; } catch (e) {}
+    if (!opened) {
+      el.setAttribute('style', 'position:fixed;left:12px;bottom:12px;z-index:9997;display:flex;gap:4px;align-items:center;background:#fffdf5;border:2px solid #c8312b;border-radius:999px;box-shadow:0 4px 12px rgba(0,0,0,.18);padding:4px 6px 4px 12px;font-size:12px;color:#1c1c1c');
+      el.innerHTML = '<button type="button" id="' + ID + 'Open" style="border:0;background:none;font-weight:800;cursor:pointer;font-size:12px">📰 新聞の材料' + (c.thin.length ? '：うすい子 ' + c.thin.length + '人' : '') + ' ▸</button>'
+        + '<button type="button" id="' + ID + 'X2" title="きょうは とじる" style="border:0;background:#f3f4f6;border-radius:999px;width:22px;height:22px;cursor:pointer">✕</button>';
+      document.body.appendChild(el);
+      document.getElementById(ID + 'Open').onclick = function () { try { sessionStorage.setItem(KEY + 'Open', '1'); } catch (e) {} render(d); };
+      document.getElementById(ID + 'X2').onclick = function () { try { localStorage.setItem(KEY, today()); } catch (e) {} var x = document.getElementById(ID); if (x) x.parentNode.removeChild(x); };
+      return;
+    }
     el.setAttribute('style', 'position:fixed;left:12px;bottom:12px;z-index:9997;width:min(380px,calc(100vw - 24px));max-height:70vh;overflow:auto;background:#fffdf5;border:2px solid #c8312b;border-radius:14px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:13px;color:#1c1c1c');
     var h = '<div style="display:flex;align-items:center;gap:6px"><b style="font-size:14px;flex:1">📰 来週の 新聞の 材料チェック</b>'
       + '<button type="button" id="' + ID + 'Min" style="border:0;background:#f3f4f6;border-radius:8px;padding:2px 8px;cursor:pointer">▾</button></div>'
@@ -64,7 +75,7 @@
     if ($('Pf')) $('Pf').onclick = function () { try { window.PF_OPEN(); } catch (e) {} };
     $('Re').onclick = function () { load(true); };
     $('X').onclick = function () { try { localStorage.setItem(KEY, today()); } catch (e) {} var x = document.getElementById(ID); if (x) x.parentNode.removeChild(x); };
-    $('Min').onclick = function () { var b = $('Body'); if (!b) return; var hid = b.style.display === 'none'; b.style.display = hid ? '' : 'none'; this.textContent = hid ? '▾' : '▸'; };
+    $('Min').onclick = function () { try { sessionStorage.setItem(KEY + 'Open', '0'); } catch (e) {} render(d); };   // 小さく たたむ
   }
 
   function load(force) {

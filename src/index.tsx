@@ -17777,7 +17777,7 @@ function _faKarteGraphs(d){
     <script src="/portfolio.js?v=12"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=9"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=9"></script>
-    <script src="/shinbun_nudge.js?v=1"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
+    <script src="/shinbun_nudge.js?v=2"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>
