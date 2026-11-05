@@ -11002,6 +11002,10 @@ app.get('/', async (c) => {
       // __HW_CLASSREST_V1__ 子どもの画面の 連続日数も、先生メニューで 外した 平日（例：11/2 月）を 休みとして とばす
       t = t.replace('    return hsIsWeekend(dayKey) || set.has(dayKey);', '    return hsIsWeekend(dayKey) || set.has(dayKey) || !!(window._hsClassRest && window._hsClassRest[dayKey]);')
       t = t.replace('</body>', '<script>(function(){function go(){try{fetch("/api/student/rest-days",{credentials:"include"}).then(function(r){return r.json();}).then(function(d){if(d&&d.ok&&d.days){var m={};d.days.forEach(function(k){m[k]=1;});window._hsClassRest=m;}}).catch(function(){});}catch(e){}}go();setInterval(go,600000);})();</script></body>')
+      // __KUKU_NEWCHARS_RATE_V1__ 九九バトルフィールドの 新キャラ（クラスの子が 考えた 1701〜1707）を 出やすく（先生の指示 2026-11-05）
+      //   九九エリアだけ エリアのくじを ひく わりあいを 10% → 30%。いちばん深い ところの 特別（1706・1707）は くじを 2まいずつに。
+      t = t.replace("const rate = (areaId === 'social-nagoyasouth') ? 0.20 : (areaId === 'social-seto' ? 0.15 : 0.10); // 20% / 15% / 10%", "const rate = (areaId === 'kuku') ? 0.30 : (areaId === 'social-nagoyasouth') ? 0.20 : (areaId === 'social-seto' ? 0.15 : 0.10); // 九九30% / 20% / 15% / 10%")
+      t = t.replace("1704, 1704, 1705, 1705, 1706, 1707] }, // NEWCHARS_V1", "1704, 1704, 1705, 1705, 1706, 1706, 1707, 1707] }, // NEWCHARS_V1")
       // __HANSHIN_LABEL_V1__ 子どもの画面の「先生からのおへんじ」は 阪神マンの ことばなので 阪神マンに そろえる（先生の指示 2026-11-04）
       t = t.split('💬 先生からのおへんじ').join('💬 阪神マンからのおへんじ')
       t = t.split('\\u270D\\uFE0F 先生・阪神マンへ、ひとこと返す（にんい）').join('\\u270D\\uFE0F 阪神マンへ、ひとこと返す（にんい）')
