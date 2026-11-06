@@ -18,7 +18,7 @@
   .wrap { max-width:1040px; margin:0 auto; padding:14px 18px 60px; }
   @media (min-width:700px) { .tabs button { font-size:17px; padding:13px 8px; } .row { padding:10px 6px; } .btn.sm { padding:7px 12px; font-size:14px; } }
   .tabs { display:flex; gap:6px; margin:4px 0 12px; }
-  .tabs button { flex:1; border:2px solid var(--line); background:#fff; border-radius:12px; padding:10px 6px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
+  .tabs button { flex:1; min-width:0; white-space:nowrap; border:2px solid var(--line); background:#fff; border-radius:12px; padding:10px 6px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
   .tabs button.on { border-color:var(--acc); color:var(--acc2); background:#ecfdf5; }
   .btn { border:0; border-radius:12px; padding:10px 16px; font-weight:900; font-size:15px; cursor:pointer; background:var(--acc); color:#fff; }
   .btn:disabled { background:#9ca3af; cursor:default; }
@@ -197,16 +197,18 @@
       tb.querySelectorAll('button').forEach(function (b) { b.onclick = function () { testAct(b.getAttribute('data-t')); }; });
     }
     if (!SP) { chooser(); return; }
+    if (S.starterGot && !S.starterGot[SP] && !window.__pjStarterAsk) { window.__pjStarterAsk = 1; setTimeout(giveStarter, 0); }
     var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;
     var h = '<div class="spbar" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"><b>' + spName() + '</b><button class="btn sm sub" id="spChg">⚾⚽ きりかえる</button></div>'
       + '<div class="tabs"><button data-tab="scout" class="' + (TAB === 'scout' ? 'on' : '') + '">🎟 スカウト</button>'
       + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + myRoster().length + '/' + S.teamMax + '）</button>'
       + '<button data-tab="order" class="' + (TAB === 'order' ? 'on' : '') + '">📋 オーダー</button>'
+      + '<button data-tab="match" class="' + (TAB === 'match' ? 'on' : '') + '">🏟 試合</button>'
       + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + zn + '）</button></div><div id="pane"></div>';
     $('main').innerHTML = h;
     $('spChg').onclick = function () { SP = null; try { localStorage.removeItem('pjSport'); } catch (e) {} render(); };
     $('main').querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { TAB = b.getAttribute('data-tab'); render(); }; });
-    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else if (TAB === 'order') paneOrder(); else paneZukan();
+    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else if (TAB === 'order') paneOrder(); else if (TAB === 'match') paneMatch(); else paneZukan();
   }
 
   function chooser() {
@@ -215,7 +217,14 @@
       + '<div class="mk2"><button data-sp="bb" style="background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:34px 12px;font-size:24px">⚾ 野球<small>チーム ' + bbT + '人・図鑑 ' + zb + '人</small></button>'
       + '<button data-sp="sc" style="background:linear-gradient(135deg,#065f46,#16a34a);padding:34px 12px;font-size:24px">⚽ サッカー<small>チーム ' + (S.roster.length - bbT) + '人・図鑑 ' + (S.zukan - zb) + '人</small></button></div>'
       + '<div class="note" style="text-align:center">あとで 上の「きりかえる」で いつでも かえられるよ。スカウト券は 2つ あわせて 1日 ' + S.max + 'まいまで。</div>';
-    $('main').querySelectorAll('[data-sp]').forEach(function (b) { b.onclick = function () { SP = b.getAttribute('data-sp'); try { localStorage.setItem('pjSport', SP); } catch (e) {} TAB = 'scout'; render(); }; });
+    $('main').querySelectorAll('[data-sp]').forEach(function (b) { b.onclick = function () { SP = b.getAttribute('data-sp'); try { localStorage.setItem('pjSport', SP); } catch (e) {} TAB = 'scout'; render(); giveStarter(); }; });
+  }
+  // 🎁 はじめての スポーツなら、スタートの 選手 15人と 監督を もらう
+  function giveStarter() {
+    if (!SP || (S.starterGot && S.starterGot[SP])) return;
+    act('/api/pj/starter', { sport: SP }).then(function (d) {
+      if (d && d.starter) { TAB = 'team'; render(); modal('<div class="kind">🎁 スタートの 選手 ' + d.starter.n + '人と 監督が チームに 来たよ！</div><div class="note">まずは この チームで オーダーを 組んでみよう。スカウトで 強い 選手を さがして、チームを つよくしていこう！<br>（スタートの 選手も 20日で 引退するよ）</div>'); }
+    });
   }
 
   function paneScout() {
@@ -471,12 +480,13 @@
   //  ページは 暗号化して とどく → ここで ほどいて、きみの 選手だけを 出す。1回 ひらくと この画面を とじるまで おぼえておく。
   var MKURL = {};
   function hexB(h) { var a = new Uint8Array(h.length / 2); for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
-  function openMeikan(f) {
+  // 元の ページを 中で ひらく（名鑑・試合 どちらも）。onReady(w, info) で ページの 中を うごかす
+  function openGame(f, title, onReady, onClose) {
     var v = document.createElement('div'); v.id = 'mkv';
-    v.innerHTML = '<div class="bar"><button class="btn sub sm" id="mkX">← もどる</button><b>' + (f === 'bb' ? '⚾ 野球' : '⚽ サッカー') + 'の 選手名鑑（きみの 選手）</b></div><iframe id="mkF" title="選手名鑑"></iframe><div class="load" id="mkL">名鑑を ひらいています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span></div>';
+    v.innerHTML = '<div class="bar"><button class="btn sub sm" id="mkX">← もどる</button><b>' + title + '</b></div><iframe id="mkF" title="' + esc(title) + '"></iframe><div class="load" id="mkL">ひらいています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span></div>';
     document.body.appendChild(v);
     document.body.style.overflow = 'hidden';
-    $('mkX').onclick = function () { v.remove(); document.body.style.overflow = ''; };
+    $('mkX').onclick = function () { v.remove(); document.body.style.overflow = ''; if (onClose) onClose(); };
     var info;
     api('/api/pj/meikan').then(function (d) {
       if (!d || !d.ok || !d.key) throw new Error((d && d.error) || 'info');
@@ -494,14 +504,57 @@
     }).then(function (url) {
       var fr = $('mkF'); if (!fr) return;
       fr.onload = function () {
-        try {
-          var w = fr.contentWindow, ids = f === 'bb' ? info.bb : info.sc;
-          var go = function (n) { if (w.__pjStart) { w.__pjStart(ids, f); var l = $('mkL'); if (l) l.remove(); } else if (n < 40) setTimeout(function () { go(n + 1); }, 150); };
-          go(0);
-        } catch (e) { var l = $('mkL'); if (l) l.textContent = '名鑑を ひらけませんでした。'; }
+        var w = fr.contentWindow;
+        var go = function (n) {
+          if (w.__pjStart && w.__pjEval) { try { onReady(w, info); var l = $('mkL'); if (l) l.remove(); } catch (e) { var l2 = $('mkL'); if (l2) l2.textContent = 'ひらけませんでした。'; } }
+          else if (n < 40) setTimeout(function () { go(n + 1); }, 150);
+        };
+        go(0);
       };
       fr.src = url;
-    }).catch(function () { var l = $('mkL'); if (l) l.innerHTML = '名鑑を ひらけませんでした。<br>もう一度 ためしてね。'; });
+    }).catch(function () { var l = $('mkL'); if (l) l.innerHTML = 'ひらけませんでした。<br>もう一度 ためしてね。'; });
+  }
+  function openMeikan(f) {
+    openGame(f, (f === 'bb' ? '⚾ 野球' : '⚽ サッカー') + 'の 選手名鑑（きみの 選手）', function (w, info) { w.__pjStart(f === 'bb' ? info.bb : info.sc, f); });
+  }
+
+  // 🏟 試合タブ（PJ_PRACTICE_V1）
+  function orderReady() {
+    var o = (S.order && S.order[SP]) || {};
+    if (SP === 'sc') return (o.L || []).filter(Boolean).length === 11;
+    return (o.L || []).length === 9 && (o.SP || []).length >= 1;
+  }
+  function paneMatch() {
+    var pr = S.practice || {}, ready = orderReady(), can = pr.can && ready && SP === 'sc';
+    var why = SP === 'bb' ? '⚾ 野球の 試合は いま じゅんびちゅうだよ。もう少し まってね。'
+      : !pr.hw ? '📝 きょうの 家庭学習を 出すと、練習試合が できるよ。'
+      : pr.used ? 'きょうの 練習試合は もう やったよ。また あした！'
+      : !ready ? '📋 先に オーダーで スタメン 11人を きめてね。' : '';
+    var h = '<div class="box scout"><div style="font-size:40px">🏟</div>'
+      + '<div style="font-weight:900;font-size:18px;margin:4px 0 6px">練習試合（CPUと たいせん）</div>'
+      + '<div class="note" style="margin-bottom:12px">きみの オーダーと 監督で たたかうよ。試合の とちゅうで 作戦や 交代も できる。<br>家庭学習を 出した日に 1日 1回。</div>'
+      + '<button class="btn big" id="prGo" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>🏟 練習試合を はじめる</button>'
+      + (why ? '<div class="note" style="margin-top:8px;color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '')
+      + (!ready && SP === 'sc' ? '<div style="margin-top:8px"><button class="btn sub sm" id="toOrder">📋 オーダーへ</button></div>' : '') + '</div>'
+      + '<div class="box note">🏆 リーグ戦（クラスの 友だちと）は じゅんびちゅう。リーグ戦は 見るだけで、同じ 試合は 2回まで 見られるよ。</div>';
+    $('pane').innerHTML = h;
+    var t = $('toOrder'); if (t) t.onclick = function () { TAB = 'order'; render(); };
+    var g = $('prGo'); if (g) g.onclick = startPractice;
+  }
+  function startPractice() {
+    var o = S.order.sc, mk = function (k) { var p = S.players[k]; return p && p.mk ? String(p.mk).slice(1) : null; };
+    var cm = S.mgr && S.mgr.sc, coach = cm && S.players[cm] ? S.players[cm].n : '';
+    var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: 'きみのチーム' };
+    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } }); };
+    openGame('sc', '🏟 練習試合', function (w) {
+      w.__pjEval('(function(o){var d=newDrafter(o.name,o.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});'
+        + 'fs.forEach(function(s,i){var k=o.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});d.slots=fs;'
+        + 'o.B.forEach(function(k){if(PL[k])d.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});'
+        + 'd.coach=coachOf(o.coach||"かんとく");d.tours=[];'
+        + 'var B=cpuTeam();var CK=Object.keys(COACH);B.coach=coachOf(CK[Math.floor(Math.random()*CK.length)]);S.ds=[d,B];'
+        + 'var _p=play;play=function(){if(window.__pjPlayed){try{toast("練習試合は 1日 1回だよ")}catch(e){}return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _p.apply(this,arguments)};'
+        + 'matchSetup();return 1})(' + JSON.stringify(arg) + ')');
+    }, function () { render(); });
   }
 
   function runImport(parts) {

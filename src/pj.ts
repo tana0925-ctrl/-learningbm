@@ -174,6 +174,16 @@ function cleanOrder(st: any) {
 }
 
 export function installPj(app: any, d: Deps) {
+  // 練習試合が できるか（家庭学習の「学習日」＝朝8:30 区切り。先生の ためしモードは いつでも）
+  async function practiceInfo(c: any, w: any, st: any, ctx: any) {
+    const day = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 10)
+    if (w.test) return { can: true, hw: true, used: false, day, test: true }
+    let hw = false
+    try { const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key=? AND COALESCE(rest_day,0)=0 LIMIT 1').bind(String(w.u.id), day).first(); hw = !!r } catch (_e) { hw = false }
+    const used = !!(st.pr && st.pr.d === day && Number(st.pr.n) >= 1)
+    return { can: hw && !used, hw, used, day }
+  }
+
   // その子の「きょう」と 休みの日
   async function dayCtx(c: any, w: any, st: any) {
     let today = jstToday()
@@ -222,7 +232,7 @@ export function installPj(app: any, d: Deps) {
       ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
-      order: cleanOrder(st),
+      order: cleanOrder(st), starterGot: st.sg || {}, practice: await practiceInfo(c, w, st, ctx),
       mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
       pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
     }, extra || {})
@@ -393,6 +403,54 @@ export function installPj(app: any, d: Deps) {
     b.st.od = cleanOrder(b.st)
     if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, b.st, b.ctx))
+  })
+
+  // 🎁 さいしょの 選手（PJ_STARTER_V1）：はじめて その スポーツを ひらいたら、弱めの 選手 15人と 監督 1人
+  const STARTER: any = {
+    bb: [['投手', '先発', 2], ['投手', '中継ぎ', 2], ['投手', '抑え', 1], ['捕手', '', 1], ['一塁手', '', 1], ['二塁手', '', 1], ['三塁手', '', 1], ['遊撃手', '', 1], ['外野手', '', 3], ['', '', 2]],
+    sc: [['ゴールキーパー', '', 2], ['センターバック', '', 3], ['サイドバック', '', 2], ['守備的MF', '', 2], ['攻撃的MF', '', 2], ['ウイング', '', 2], ['センターフォワード', '', 2]]
+  }
+  function weakScore(j: any) { const a = (j && j.ab) || {}; let t = 0; Object.keys(a).forEach((k) => { t += Number(a[k]) || 0 }); return t }
+  app.post('/api/pj/starter', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
+    const st = b.st, ctx = b.ctx
+    st.sg = st.sg || {}
+    if (st.sg[sp]) return c.json(await view(c, b.w, st, ctx))
+    const got: string[] = [], seen: any = {}
+    st.ro.forEach((r: any) => { seen[r.k] = 1 })
+    for (const [pos, role, n] of STARTER[sp]) {
+      let q = 'SELECT k, j FROM pj_players WHERE s=? AND json_extract(j,\'$.st\')=1', args: any[] = [sp]
+      if (pos) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + pos + '%') }
+      if (role) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + role + '%') }
+      if (sp === 'bb' && !pos) q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
+      const r = await c.env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 24').bind(...args).all()
+      const cand = ((r && r.results) || []).map((x: any) => ({ k: String(x.k), sc: weakScore(JSON.parse(String(x.j))) })).filter((x: any) => !seen[x.k]).sort((x: any, y: any) => x.sc - y.sc)
+      cand.slice(0, Math.max(n, Math.ceil(cand.length / 2))).sort(() => Math.random() - 0.5).slice(0, n).forEach((x: any) => { seen[x.k] = 1; got.push(x.k) })
+    }
+    got.forEach((k) => {
+      if (st.ro.filter((r: any) => (r.k[0] === 'b') === (sp === 'bb')).length >= TEAM_MAX) return
+      st.ro.push({ k, s: ctx.today, e: 0 })
+      const z = st.zk[k]; st.zk[k] = { n: (z ? Number(z.n) || 0 : 0) + 1, f: z ? z.f : ctx.today }
+    })
+    st.mg = st.mg || {}; st.cm = st.cm || {}
+    if (!st.cm[sp]) {
+      const m = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sp + 'm').first()
+      if (m) { st.mg[String(m.k)] = { f: ctx.today }; st.cm[sp] = String(m.k) }
+    }
+    st.sg[sp] = ctx.today
+    if (!(await save(c.env, b.w.u.id, st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await view(c, b.w, st, ctx, { starter: { sport: sp, n: got.length } }))
+  })
+
+  // 🏟 練習試合（PJ_PRACTICE_V1）：その日に 家庭学習を 出した子だけ、1日 1回
+  app.post('/api/pj/practice/use', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const p = await practiceInfo(c, b.w, b.st, b.ctx)
+    if (!p.can) return err(c, 403, p.hw ? 'practice_used' : 'practice_hw')
+    if (!b.w.test) { b.st.pr = { d: p.day, n: 1 }; if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy') }
+    return c.json({ ok: true })
   })
 
   app.post('/api/pj/news-seen', async (c: any) => {
