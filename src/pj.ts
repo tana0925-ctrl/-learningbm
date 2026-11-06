@@ -491,6 +491,9 @@ export function installPj(app: any, d: Deps) {
     const b = await begin(c); if (b.res) return b.res
     const sp = c.req.query('s') === 'sc' ? 'sc' : 'bb'
     const lv = ['weak', 'mid', 'strong'].indexOf(String(c.req.query('lv'))) >= 0 ? String(c.req.query('lv')) : 'mid'
+    // PJ_PRACTICE_LOCK_V1 練習試合が できない日は 相手チームも わたさない（1日1回・家庭学習を サーバで まもる）
+    const p = await practiceInfo(c, b.w, b.st, b.ctx)
+    if (!p.can) return err(c, 403, p.hw ? 'practice_used' : 'practice_hw')
     const r = await cpuRoster(c.env, sp, lv)
     return c.json(Object.assign({ ok: true, coach: await cpuCoach(c.env, sp) }, r))
   })
