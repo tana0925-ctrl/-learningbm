@@ -15,7 +15,7 @@ type Deps = {
   isRest: (dk: string, extra: any) => boolean
   addDay: (dk: string, n: number) => string
   ownsClass: (c: any, u: any, classId: string) => Promise<any>
-  weekKey: () => string
+  weekKey: (offsetDays?: number) => string
 }
 
 const PRICES = [200, 300, 400]
@@ -132,9 +132,9 @@ async function who(c: any, d: any) {
   if (!m || !m.cid) return { error: 'off' }   // クラスに 入っていない子には 出さない
   const p = await c.env.DB.prepare('SELECT enabled FROM pj_class WHERE class_id=?').bind(String(m.cid)).first()
   if (!p || Number(p.enabled) !== 1) return { error: 'off' }
-  // 今週の 学習計画が 承認された子だけ つかえる（PJ_PLANGATE_V1）
+  // 先週の 学習計画が 承認された子が 今週 つかえる（PJ_PLANGATE_V2：先週 がんばった ごほうび。月曜の 朝から 1週間 きまっている）
   let plan = false
-  try { const q = await c.env.DB.prepare('SELECT plan_approved AS a FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(String(u.id), d.weekKey()).first(); plan = !!(q && Number(q.a) === 1) } catch (_e) { plan = false }
+  try { const q = await c.env.DB.prepare('SELECT plan_approved AS a FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(String(u.id), d.weekKey(-7)).first(); plan = !!(q && Number(q.a) === 1) } catch (_e) { plan = false }
   return { u, test: false, classId: String(m.cid), plan }
 }
 
