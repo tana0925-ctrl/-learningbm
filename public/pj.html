@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>先生PJ 野球・サッカー</title>
+<style>
+  /* ⚾⚽ __PJ_V1__ 先生PJ。絵は つかわない（重くしない）。データは ひつような ぶんだけ とりにいく。 */
+  :root { --bg:#f0fdf4; --card:#fff; --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --acc:#059669; --acc2:#047857; --warn:#f59e0b; --hot:#ea580c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:linear-gradient(135deg,#065f46,#059669); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; flex:1; min-width:180px; }
+  header a { color:#fff; font-weight:700; text-decoration:none; background:rgba(255,255,255,.18); border-radius:10px; padding:5px 10px; font-size:13px; }
+  .coins { background:#fef3c7; color:#92400e; border-radius:999px; padding:4px 12px; font-weight:900; font-size:14px; }
+  .test { background:#fff7ed; border-bottom:2px dashed #fb923c; padding:8px 14px; font-size:13px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .test b { color:#c2410c; }
+  .wrap { max-width:860px; margin:0 auto; padding:12px 14px 60px; }
+  .tabs { display:flex; gap:6px; margin:4px 0 12px; }
+  .tabs button { flex:1; border:2px solid var(--line); background:#fff; border-radius:12px; padding:10px 6px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
+  .tabs button.on { border-color:var(--acc); color:var(--acc2); background:#ecfdf5; }
+  .btn { border:0; border-radius:12px; padding:10px 16px; font-weight:900; font-size:15px; cursor:pointer; background:var(--acc); color:#fff; }
+  .btn:disabled { background:#9ca3af; cursor:default; }
+  .btn.sub { background:#fff; color:var(--ink); border:1.5px solid #d1d5db; font-weight:700; }
+  .btn.sm { padding:5px 10px; font-size:12.5px; border-radius:9px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:12px; }
+  .scout { text-align:center; padding:18px 14px; }
+  .scout .big { font-size:18px; padding:14px 22px; }
+  .note { color:var(--sub); font-size:13px; line-height:1.7; }
+  .row { display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px dotted var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row .nm { flex:1; min-width:0; }
+  .row .nm b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .nm span { color:var(--sub); font-size:12px; }
+  .left { font-weight:900; border-radius:999px; padding:3px 10px; font-size:12.5px; background:#ecfdf5; color:var(--acc2); white-space:nowrap; }
+  .left.y { background:#fef9c3; color:#854d0e; }
+  .left.o { background:#ffedd5; color:#c2410c; }
+  .star { color:#f59e0b; letter-spacing:-1px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .zi { background:#fff; border:1px solid var(--line); border-radius:12px; padding:8px 10px; cursor:pointer; font-size:13px; }
+  .zi b { display:block; font-size:14px; }
+  .tag { display:inline-block; font-size:11px; border-radius:6px; padding:1px 6px; margin-right:3px; font-weight:700; }
+  .tag.h { background:#ede9fe; color:#6d28d9; }
+  .tag.t { background:#dcfce7; color:#166534; }
+  .filters { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .filters button { border:1.5px solid var(--line); background:#fff; border-radius:999px; padding:4px 12px; cursor:pointer; font-weight:700; }
+  .filters button.on { border-color:var(--acc); color:var(--acc2); background:#ecfdf5; }
+  .ov { position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:20; display:flex; align-items:flex-start; justify-content:center; padding:20px 12px; overflow:auto; }
+  .ov .in { background:#fff; border-radius:18px; max-width:520px; width:100%; padding:16px; box-shadow:0 20px 50px rgba(0,0,0,.3); }
+  .card h2 { margin:2px 0 2px; font-size:22px; }
+  .card .meta { color:var(--sub); font-size:13px; line-height:1.7; }
+  .bars { display:grid; grid-template-columns:auto 1fr auto; gap:4px 8px; align-items:center; margin:8px 0; font-size:13px; }
+  .bar { height:9px; background:#e5e7eb; border-radius:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#34d399,#059669); }
+  .bio { background:#f8fafc; border-radius:10px; padding:8px 10px; font-size:14px; line-height:1.8; margin-top:8px; }
+  .kind { font-weight:900; font-size:16px; margin-bottom:8px; color:var(--acc2); }
+  .msg { text-align:center; padding:40px 10px; font-size:16px; line-height:1.9; }
+  @keyframes pop { 0% { transform:scale(.7) rotateY(80deg); opacity:0 } 100% { transform:none; opacity:1 } }
+  .pop { animation: pop .45s ease-out; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚾⚽ 先生PJ　野球・サッカー人気アップ</h1>
+  <span class="coins" id="coins">💰 …</span>
+  <a href="/">← アプリへ もどる</a>
+</header>
+<div id="testBar" class="test" style="display:none"></div>
+<div class="wrap" id="main"><div class="msg">よみこみ中…</div></div>
+<div id="ov"></div>
+<script>
+(function () {
+  'use strict';
+  var S = null, TAB = 'scout', ZF = '', ZP = 0, ZITEMS = [], busy = false;
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function api(path, body) {
+    var o = { credentials: 'same-origin', cache: 'no-store' };
+    if (body !== undefined) { o.method = 'POST'; o.headers = { 'content-type': 'application/json' }; o.body = JSON.stringify(body || {}); }
+    return fetch(path, o).then(function (r) { return r.json().catch(function () { return { ok: false, error: 'net' }; }); }).catch(function () { return { ok: false, error: 'net' }; });
+  }
+  function md(dk) { var p = String(dk || '').split('-'); return p.length < 3 ? '' : Number(p[1]) + '/' + Number(p[2]); }
+  function stars(n) { return '<span class="star">' + '★★★'.slice(0, n || 1) + '</span>'; }
+  function icon(p) { return p && p.s === 'sc' ? '⚽' : '⚾'; }
+  function sub(p) {
+    if (!p) return '';
+    if (p.s === 'sc') return [p.cn, p.cl].filter(Boolean).join('・');
+    return p.y + '年 ' + (p.hp ? '助っ人' : p.tm);
+  }
+
+  // ---------- 選手カード ----------
+  var AB = { velo: ['球速', 165, 'km/h'], ctrl: ['コントロール', 100], stam: ['スタミナ', 100], meet: ['ミート', 100], power: ['パワー', 100], run: ['走力', 100], arm: ['肩の強さ', 100], field: ['守備', 100],
+    sho: ['シュート', 100], pas: ['パス', 100], dri: ['ドリブル', 100], spd: ['スピード', 100], phy: ['フィジカル', 100], def: ['守備', 100], gk: ['キーパー', 100] };
+  function bars(ab) {
+    if (!ab) return '';
+    var h = '<div class="bars">';
+    Object.keys(ab).forEach(function (k) {
+      var a = AB[k]; if (!a) return;
+      var v = Number(ab[k]) || 0, w = k === 'velo' ? Math.max(0, Math.min(100, (v - 120) / (a[1] - 120) * 100)) : Math.max(0, Math.min(100, v / a[1] * 100));
+      h += '<span>' + a[0] + '</span><div class="bar"><i style="width:' + w.toFixed(0) + '%"></i></div><span>' + (k === 'velo' ? v + 'km/h' : '') + '</span>';
+    });
+    return h + '</div>';
+  }
+  function record(p) {
+    if (p.s === 'sc') {
+      var t = [];
+      if (p.cp != null) t.push('代表 ' + p.cp + '試合 ' + (p.gl || 0) + '点');
+      if (p.tr && p.tr.length) t.push('出た大会：' + p.tr.join('、'));
+      return t.length ? '<div class="meta">📊 ' + esc(t.join(' ／ ')) + '</div>' : '';
+    }
+    var k = p.pk;
+    if (k) {
+      var s = (k['年度'] || '') + '年' + (k['所属球団'] ? '（' + k['所属球団'] + '）' : '') + '：';
+      if (k['登板'] != null) s += (k['勝利'] || 0) + '勝' + (k['敗北'] || 0) + '敗' + (k['セーブ'] ? ' ' + k['セーブ'] + 'セーブ' : '') + (k['防御率'] != null ? ' 防御率' + k['防御率'] : '') + (k['三振'] != null ? ' ' + k['三振'] + '奪三振' : '');
+      else s += '打率' + String(k['打率'] != null ? k['打率'] : '-').replace(/^0\./, '.') + ' ' + (k['本塁打'] || 0) + '本塁打 ' + (k['打点'] || 0) + '打点' + (k['盗塁'] ? ' ' + k['盗塁'] + '盗塁' : '');
+      return '<div class="meta">📊 いちばん かつやくした年 — ' + esc(s) + '</div>';
+    }
+    if (p.pkt) return '<div class="meta">📊 ' + esc(p.pkt) + '</div>';
+    return '';
+  }
+  function card(p, extra) {
+    if (!p) return '<div class="note">選手の データが 見つかりませんでした。</div>';
+    var m = [];
+    m.push(icon(p) + ' ' + esc(p.pos || ''));
+    if (p.s === 'sc') { if (p.en) m.push(esc(p.en)); if (p.y) m.push(esc(p.y) + '年ごろ かつやく'); if (p.h) m.push(p.h + 'cm'); if (p.ft) m.push(esc(p.ft)); }
+    else {
+      m.push(esc(p.y) + '年 ' + (p.hp ? '外国人選手（助っ人）' : esc(p.tm) + (p.dr ? '・ドラフト' + esc(p.dr) : '')));
+      if (p.bt) m.push(esc(p.bt)); if (p.h) m.push(p.h + 'cm' + (p.w ? ' ' + p.w + 'kg' : ''));
+      if (p.pf) m.push(esc(p.pf) + '出身'); if (p.sch) m.push(esc(p.sch)); if (p.bd) m.push(esc(p.bd) + '生まれ');
+      if (p.pt && p.pt.length) m.push('変化球：' + esc(p.pt.join('・')));
+    }
+    var h = '<div class="card pop">' + (extra || '') + stars(p.st) + '<h2>' + esc(p.n) + '</h2>'
+      + '<div class="meta">' + (p.s === 'sc' && p.cn ? esc(p.cn) + (p.cl ? '・' + esc(p.cl) : '') + '<br>' : '') + m.join('　') + '</div>'
+      + bars(p.ab) + record(p);
+    if (p.bio) h += '<div class="bio">' + esc(p.bio) + '</div>';
+    return h + '</div>';
+  }
+  function modal(html) {
+    $('ov').innerHTML = '<div class="ov" id="ovBg"><div class="in">' + html + '<div style="text-align:right;margin-top:12px"><button class="btn sub" id="ovX">とじる</button></div></div></div>';
+    $('ovX').onclick = closeModal;
+    $('ovBg').onclick = function (e) { if (e.target.id === 'ovBg') closeModal(); };
+  }
+  function closeModal() { $('ov').innerHTML = ''; }
+
+  // ---------- 画面 ----------
+  function render() {
+    if (!S) return;
+    $('coins').textContent = '💰 ' + S.coins + (S.test ? '（ためし）' : '');
+    if (S.test) {
+      var tb = $('testBar'); tb.style.display = '';
+      tb.innerHTML = '<b>🧪 先生の ためしモード</b><span>本物のコインは つかいません。きょう＝' + esc(md(S.today)) + (S.school ? '（学校の日）' : '（休み）') + '</span>'
+        + '<button class="btn sm sub" data-t="day1">1日 すすめる</button><button class="btn sm sub" data-t="day5">5日 すすめる</button>'
+        + '<button class="btn sm sub" data-t="coins">ためしコイン＋1000</button><button class="btn sm sub" data-t="reset">さいしょから</button>';
+      tb.querySelectorAll('button').forEach(function (b) { b.onclick = function () { testAct(b.getAttribute('data-t')); }; });
+    }
+    var h = '<div class="tabs"><button data-tab="scout" class="' + (TAB === 'scout' ? 'on' : '') + '">🎟 スカウト</button>'
+      + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + S.roster.length + '/' + S.teamMax + '）</button>'
+      + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + S.zukan + '）</button></div><div id="pane"></div>';
+    $('main').innerHTML = h;
+    $('main').querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { TAB = b.getAttribute('data-tab'); render(); }; });
+    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else paneZukan();
+  }
+
+  function paneScout() {
+    var left = S.max - S.bought, can = S.school && left > 0 && !S.pending && S.coins >= (S.price || 0);
+    var why = '';
+    if (S.pending) why = '引いた 選手を チームに 入れるか、先に きめてね。';
+    else if (!S.school) why = 'きょうは 学校が 休みの日なので、スカウト券は 買えないよ。';
+    else if (left <= 0) why = 'きょうは もう ' + S.max + 'まい 買ったよ。また つぎの 学校の日に。';
+    else if (S.coins < S.price) why = 'コインが たりないよ。家庭学習を 出すと コインが もらえるよ。';
+    var h = '<div class="box scout"><div style="font-size:40px">🎟</div>'
+      + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">スカウト券で 選手を さがそう！</div>'
+      + '<button class="btn big" id="buy"' + (can ? '' : ' disabled') + '>' + (S.price ? S.price + 'コインで 1まい 買って ひく' : 'きょうは おしまい') + '</button>'
+      + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン）</div>'
+      + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
+      + '<div class="box note">⚾ 野球の 選手も ⚽ サッカーの 選手も 出るよ。<br>'
+      + '・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
+      + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
+    if (S.pending) h = fullBox() + h;
+    $('pane').innerHTML = h;
+    var b = $('buy'); if (b) b.onclick = buy;
+    wireFull();
+  }
+
+  function fullBox() {
+    var p = S.players[S.pending];
+    var h = '<div class="box" style="border:2px solid #fb923c"><div class="kind">チームが いっぱい（' + S.teamMax + '人）！</div>'
+      + '<div class="note">' + icon(p) + ' <b>' + esc(p ? p.n : '') + '</b> を 入れるなら、だれかを 自由契約に しよう。自由契約に しても 図鑑には のこるよ。</div>'
+      + '<div style="margin:8px 0"><button class="btn sub sm" id="pass">入れずに 見送る</button></div><div style="max-height:260px;overflow:auto">';
+    S.roster.forEach(function (r) {
+      var q = S.players[r.k];
+      h += '<div class="row"><span>' + icon(q) + '</span><div class="nm"><b>' + esc(q ? q.n : r.k) + '</b><span>' + esc(sub(q)) + '</span></div>' + leftTag(r.left)
+        + '<button class="btn sm" data-rel="' + esc(r.k) + '">かわりに 入れる</button></div>';
+    });
+    return h + '</div></div>';
+  }
+  function wireFull() {
+    var p = $('pass'); if (p) p.onclick = function () { keep(null); };
+    document.querySelectorAll('[data-rel]').forEach(function (b) { b.onclick = function () { keep(b.getAttribute('data-rel')); }; });
+  }
+  function leftTag(n) { return '<span class="left' + (n <= 1 ? ' o' : n <= 5 ? ' y' : '') + '">あと' + n + '日</span>'; }
+
+  function paneTeam() {
+    if (!S.roster.length) { $('pane').innerHTML = '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; return; }
+    var soon = S.roster.filter(function (r) { return r.left <= 5; }), rest = S.roster.filter(function (r) { return r.left > 5; });
+    function list(arr) {
+      return arr.map(function (r) {
+        var q = S.players[r.k];
+        return '<div class="row"><span style="font-size:18px">' + icon(q) + '</span><div class="nm" data-open="' + esc(r.k) + '" style="cursor:pointer"><b>' + (q ? stars(q.st) + ' ' + esc(q.n) : esc(r.k)) + '</b><span>' + esc(q ? q.pos + '・' + sub(q) : '') + '</span></div>'
+          + leftTag(r.left) + '<button class="btn sm sub" data-free="' + esc(r.k) + '">自由契約</button></div>';
+      }).join('');
+    }
+    var h = '';
+    if (soon.length) h += '<div class="box"><div class="kind" style="color:#c2410c">もうすぐ 引退する 選手</div>' + list(soon) + '</div>';
+    if (rest.length) h += '<div class="box"><div class="kind">チームの 選手</div>' + list(rest) + '</div>';
+    $('pane').innerHTML = h;
+    document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { modal(card(S.players[e.getAttribute('data-open')])); }; });
+    document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
+  }
+
+  function paneZukan() {
+    var h = '<div class="filters"><button data-f="" class="' + (ZF === '' ? 'on' : '') + '">ぜんぶ</button><button data-f="bb" class="' + (ZF === 'bb' ? 'on' : '') + '">⚾ 野球</button><button data-f="sc" class="' + (ZF === 'sc' ? 'on' : '') + '">⚽ サッカー</button></div>'
+      + '<div class="note" style="margin-bottom:8px">あつめた 選手 ' + S.zukan + '人 ／ ぜんぶで ' + S.total + '人</div><div class="grid" id="zg"></div><div style="text-align:center;margin-top:10px" id="zmore"></div>';
+    $('pane').innerHTML = h;
+    document.querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { ZF = b.getAttribute('data-f'); ZP = 0; ZITEMS = []; paneZukan(); }; });
+    if (ZITEMS.length) drawZ(); else loadZ();
+  }
+  function loadZ() {
+    $('zmore').innerHTML = '<span class="note">よみこみ中…</span>';
+    api('/api/pj/zukan?s=' + ZF + '&p=' + ZP).then(function (d) {
+      if (!d || !d.ok) { $('zmore').innerHTML = ''; return; }
+      ZITEMS = ZITEMS.concat(d.items); ZP = d.page + 1;
+      drawZ(d.more);
+    });
+  }
+  function drawZ(more) {
+    var g = $('zg'); if (!g) return;
+    if (!ZITEMS.length) { g.innerHTML = '<div class="note">まだ いないよ。</div>'; $('zmore').innerHTML = ''; return; }
+    g.innerHTML = ZITEMS.map(function (it, i) {
+      var p = it.p;
+      return '<div class="zi" data-z="' + i + '">' + icon(p) + ' ' + stars(p ? p.st : 1) + '<b>' + esc(p ? p.n : it.k) + '</b><span class="note">' + esc(sub(p)) + '</span><div>'
+        + (it.h ? '<span class="tag h">🏛 殿堂入り</span>' : '') + (it.team ? '<span class="tag t">チーム</span>' : '') + (it.n > 1 ? '<span class="tag">×' + it.n + '</span>' : '') + '</div></div>';
+    }).join('');
+    g.querySelectorAll('[data-z]').forEach(function (e) { e.onclick = function () { var it = ZITEMS[Number(e.getAttribute('data-z'))]; modal(card(it.p, it.h ? '<span class="tag h">🏛 殿堂入り</span> ' : '')); }; });
+    $('zmore').innerHTML = more ? '<button class="btn sub" id="zm">もっと 見る</button>' : '';
+    if ($('zm')) $('zm').onclick = loadZ;
+  }
+
+  // ---------- うごき ----------
+  var ERR = { coins: 'コインが たりないよ。', limit: 'きょうは もう 買えないよ。', rest_day: 'きょうは 休みの日だよ。', pending: '先に、引いた 選手を どうするか きめてね。', busy: 'ほかの 画面と ぶつかったよ。もう一度 おしてね。', no_players: 'じゅんびちゅうだよ。' };
+  function act(path, body) {
+    if (busy) return Promise.resolve(null); busy = true;
+    return api(path, body).then(function (d) {
+      busy = false;
+      if (d && d.ok) { S = d; ZITEMS = []; ZP = 0; render(); return d; }
+      if (d && d.error === 'import') { start(); return null; }
+      alert(ERR[d && d.error] || 'うまく いかなかったよ。もう一度 ためしてね。');
+      return null;
+    });
+  }
+  function buy() {
+    var b = $('buy'); if (b) { b.disabled = true; b.textContent = 'さがしている…'; }
+    act('/api/pj/scout', {}).then(function (d) {
+      if (!d || !d.pull) return;
+      var p = d.players[d.pull.k], k = d.pull.kind;
+      var t = k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';
+      modal('<div class="kind">' + (d.pull.first ? '🆕 ' : '') + esc(t) + '</div>' + card(p));
+    });
+  }
+  function keep(rel) { act('/api/pj/keep', rel ? { release: rel } : { pass: true }); }
+  function testAct(t) {
+    if (t === 'reset' && !confirm('ためしモードの 選手・図鑑を ぜんぶ けして、さいしょから に しますか？')) return;
+    act('/api/pj/test', t === 'day1' ? { act: 'day', n: 1 } : t === 'day5' ? { act: 'day', n: 5 } : { act: t });
+  }
+  function showNews() {
+    if (!S || !S.news || !S.news.length) return;
+    var h = '<div class="kind">🏛 引退した 選手が いるよ</div>';
+    S.news.forEach(function (n) {
+      var p = S.players[n.k];
+      h += '<div class="box"><b>' + icon(p) + ' ' + esc(p ? p.n : n.k) + '</b> 選手が、きみの チームで ' + n.days + '日間 かつやくして 引退しました。図鑑に「殿堂入り」で のこるよ。'
+        + (p && p.bio ? '<div class="bio">' + esc(p.bio) + '</div>' : '') + '</div>';
+    });
+    modal(h);
+    api('/api/pj/news-seen', {});
+  }
+
+  function runImport(parts) {
+    var i = 0;
+    function step() {
+      $('main').innerHTML = '<div class="msg">選手データを じゅんびしています… ' + i + ' / ' + parts + '<br><span class="note">はじめの 1回だけです（先生の 画面で 行います）</span></div>';
+      if (i >= parts) { start(); return; }
+      api('/api/pj/admin/import', { part: i }).then(function (d) {
+        if (!d || !d.ok) { $('main').innerHTML = '<div class="msg">じゅんびが とちゅうで 止まりました（' + esc(d && (d.detail || d.error)) + '）。<br><button class="btn" id="re">もう一度</button></div>'; $('re').onclick = step; return; }
+        i++; step();
+      });
+    }
+    step();
+  }
+
+  function start() {
+    api('/api/pj/state').then(function (d) {
+      if (d && d.ok) { S = d; render(); showNews(); return; }
+      var e = d && d.error;
+      if (e === 'import') { if (d.test) runImport(d.parts); else $('main').innerHTML = '<div class="msg">いま じゅんびちゅうだよ。また あとで ひらいてね。</div>'; return; }
+      var m = e === 'login' ? 'ログインしてから ひらいてね。<br><a href="/">アプリへ</a>'
+        : e === 'plan' ? '📝 今週の 学習計画が 先生に 承認されたら つかえるよ。<br>学習計画を 出して、先生の OK を もらおう！'
+        : e === 'off' ? 'いまは つかえません。'
+        : '読みこめませんでした。もう一度 ひらいてね。';
+      $('main').innerHTML = '<div class="msg">' + m + '</div>';
+      $('coins').style.display = 'none';
+    });
+  }
+  start();
+})();
+</script>
+</body>
+</html>

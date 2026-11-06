@@ -25,6 +25,7 @@ function defCarrySnapOk(mj: any): boolean {
 }
 import { defStageEnemies, defStageDownIfLosing } from './def_stage'
 import { defReview } from './def_review'
+import { installPj } from './pj'   // __PJ_V1__ 先生PJ（野球・サッカー）
 // QRHUNT_V1 既存「ひみつのQR」の作り替え。中身は src/qrhunt.tsx に閉じている。
 import { registerQrHunt, qrHuntCard } from './qrhunt'
 // MINNA_FURI_V1 📋振り返り一覧（先生）＋📖みんなのふりかえり（子ども）。中身は src/minna.tsx に閉じている。
@@ -437,6 +438,15 @@ app.use('/api/*', async (c, next) => {
 
 // 👀 VIEWAS_V1 先生が子どもの画面に「見るだけ」で入る（src/viewas.ts）。認証ミドルウェアの直後でなければならない。
 installViewAs(app, { readSession, makeSession, getCookie, setCookie, deleteCookie })
+// ⚾⚽ __PJ_V1__ 先生PJ（src/pj.ts）。はじめは どのクラスも OFF。先生は ためしモードで さわれる。
+installPj(app, {
+  coinStmt: (env: any, userId: string, delta: number) => khtCoinStmt(env, userId, delta),
+  classRest: (env: any, classId: string) => hwClassRest(env, classId),
+  isRest: (dk: string, extra: any) => khtIsRest(dk, extra),
+  addDay: (dk: string, n: number) => khtAddDay(dk, n),
+  ownsClass: (c: any, u: any, classId: string) => aiDraftOwnsClass(c, u, classId),
+  weekKey: () => getWeekKey(new Date(Date.now() + 9 * 3600 * 1000))
+})
 
 // -------------------- NGワードフィルター --------------------
 const _NG_NAME_PATTERNS = [
@@ -10704,6 +10714,8 @@ app.get('/hs_next_recall.js', async (c) => { try { const a = await c.env.ASSETS?
 
 // DEF_JOIN_NUDGE_V1_WIRED 防衛戦のお知らせカードを配る道。student-karte.js とまったく同じ形。
 app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+app.get('/pj', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pj.html'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }); } catch (e) {} return c.text('not found', 404) })
+app.get('/pj_entry.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pj_entry.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/def_review.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_review.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 
 // WARMIX_V1 攻略モードの出題づくり。中身は public/war-mix.js。student-karte.js と同じ形。
@@ -10844,6 +10856,8 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/def_join_nudge.js?v=2"></script></body>')
       // 🔁 DEF_REVIEW_V1_WIRED 防衛戦の ふりかえりカード（つぎの 作戦の ヒント）。中身は public/def_review.js。
       t = t.replace('</body>', '<script src="/def_review.js?v=1"></script></body>')
+      // ⚾⚽ __PJ_V1__ 先生PJの 入口（クラスが ON のときだけ ボタンが 出る）。中身は public/pj_entry.js。
+      t = t.replace('</body>', '<script src="/pj_entry.js?v=1"></script></body>')
       // KAHOOT_TICKET_V1 🎫 カフート券のショップUI。見つからなければ足さずに進む（throw しない）。
       if (t.indexOf('</body>') >= 0) { t = t.replace('</body>', '<script src="/kahoot_ticket.js?v=1"></script></body>') } else console.error('KAHOOT_TICKET_V1: </body> が無いので読み込みを足さずに進む')
       // 🧩 DEF2TREE_V1_WIRED 防衛戦の プログラムを くりかえし・ぶんき が つかえる ブロックにする。
@@ -14103,6 +14117,33 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(stkBtn);
+
+          // ====== ⚾⚽ __PJ_V1__ 先生PJ（はじめは OFF。ON にすると、このクラスの 子に 入口が 出る） ======
+          const pjBtn = document.createElement('button');
+          const pjCls = function(on){ return on
+            ? 'text-xs px-2 py-1 rounded font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200'
+            : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200'; };
+          pjBtn.className = pjCls(false);
+          pjBtn.textContent = '⚾ 先生PJ …';
+          pjBtn.dataset.on = '';
+          api('/api/teacher/pj/class/'+cls.id).then(function(r){ var on = !!(r && r.enabled); pjBtn.dataset.on = on ? '1' : ''; pjBtn.className = pjCls(on); pjBtn.textContent = on ? '⚾ 先生PJ ON' : '⚾ 先生PJ OFF'; }).catch(function(){ pjBtn.textContent = '⚾ 先生PJ OFF'; });
+          pjBtn.title = 'クリックで このクラスの 子に「先生PJ」を 出す／かくす（今週の学習計画が承認された子だけ使えます）';
+          pjBtn.onclick = async ()=>{
+            const newVal = !pjBtn.dataset.on;
+            if (newVal && !confirm('このクラスの子どもに「先生PJ（野球・サッカー）」を出します。よろしいですか？')) return;
+            try{
+              await api('/api/teacher/pj/class/'+cls.id,{ method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({enabled: newVal}) });
+              pjBtn.dataset.on = newVal ? '1' : '';
+              pjBtn.className = pjCls(newVal);
+              pjBtn.textContent = newVal ? '⚾ 先生PJ ON' : '⚾ 先生PJ OFF';
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(pjBtn);
+          const pjTry = document.createElement('a');
+          pjTry.href = '/pj'; pjTry.target = '_blank'; pjTry.rel = 'noopener';
+          pjTry.className = 'text-xs px-2 py-1 rounded font-bold bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50';
+          pjTry.textContent = '🧪 先生PJを ためす';
+          btnGroup.appendChild(pjTry);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════
           //   ここに出すのは「人数」まで。名前は押したときだけ別の道で取りに行く。
