@@ -444,6 +444,27 @@ export function installPj(app: any, d: Deps) {
     return c.json(await view(c, b.w, st, ctx, { starter: { sport: sp, n: got.length } }))
   })
 
+  // 🤖 CPUの チーム（練習試合の あいて）：ポジションが そろうように ★1〜2の 選手から
+  app.get('/api/pj/cpu-team', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const sp = c.req.query('s') === 'sc' ? 'sc' : 'bb'
+    const want: any[] = sp === 'bb'
+      ? [['捕手'], ['一塁手'], ['二塁手'], ['三塁手'], ['遊撃手'], ['外野手'], ['外野手'], ['外野手'], [''], [''], [''], [''], ['投手', '先発'], ['投手', '先発'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '抑え']]
+      : []
+    const ids: any[] = [], seen: any = {}
+    for (const w of want) {
+      let q = "SELECT k FROM pj_players WHERE s=? AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = [sp]
+      if (w[0]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[0] + '%') } else q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
+      if (w[1]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[1] + '%') }
+      if (w[0] && w[0] !== '投手') q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
+      const r = await c.env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
+      const k = ((r && r.results) || []).map((x: any) => String(x.k)).filter((x: string) => !seen[x])[0]
+      if (k) seen[k] = 1
+      ids.push(k ? Number(k.slice(1)) : null)
+    }
+    return c.json({ ok: true, ids })
+  })
+
   // 🏟 練習試合（PJ_PRACTICE_V1）：その日に 家庭学習を 出した子だけ、1日 1回
   app.post('/api/pj/practice/use', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
