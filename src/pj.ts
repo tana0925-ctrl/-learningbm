@@ -517,6 +517,256 @@ export function installPj(app: any, d: Deps) {
     return new Response(r.body, { headers: { 'content-type': 'application/octet-stream', 'cache-control': 'private, max-age=2592000' } })
   })
 
+  // ===================== 🏆 リーグ戦（PJ_LEAGUE_V1） =====================
+  //  ・野球と サッカーは べつべつ。両方でも 片方でも 参加できる。参加したい子だけ。
+  //  ・1週間（月〜金の 学校の日）。6チームずつの グループ（足りない ぶんは CPU）。1日 1試合、12:40 に 試合。
+  //  ・試合は「たね（seed）」と その日の オーダー（12:40 の 時点で こおらせる）で きまる → だれが 見ても 同じ 試合。
+  //  ・結果は 見た人の 画面（元の ゲームの 計算）で 出して サーバに 1回だけ のこす。
+  //  ・見られるのは その日に 家庭学習を 出した子だけ、同じ 試合は 2回まで。結果だけなら だれでも 見られる。
+  const LG_TIME = '12:40', LG_BUILD = '12:30', LG_SIZE = 6
+  function nowHM() { const d = new Date(Date.now() + 9 * 3600 * 1000); return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0') }
+  function mondayOf(dk: string) { const w = new Date(dk + 'T00:00:00Z').getUTCDay(); return d.addDay(dk, w === 0 ? -6 : 1 - w) }
+  function lgCid(w: any) { return w.test ? 'T:' + w.u.id : w.classId }
+  function seedOf(...xs: any[]) { let h = 2166136261; for (const ch of xs.join('|')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) } return h >>> 0 }
+  async function ensureLg(env: any) {
+    for (const q of ["CREATE TABLE IF NOT EXISTS pj_league (cid TEXT NOT NULL, wk TEXT NOT NULL, sp TEXT NOT NULL, j TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (cid, wk, sp))",
+      "CREATE TABLE IF NOT EXISTS pj_lentry (cid TEXT NOT NULL, wk TEXT NOT NULL, sp TEXT NOT NULL, uid TEXT NOT NULL, created_at TEXT, PRIMARY KEY (cid, wk, sp, uid))"]) { try { await env.DB.prepare(q).run() } catch (_e) {} }
+  }
+  async function lgLoad(env: any, cid: string, wk: string, sp: string) {
+    const r = await env.DB.prepare('SELECT j, ver FROM pj_league WHERE cid=? AND wk=? AND sp=?').bind(cid, wk, sp).first()
+    if (!r) return null
+    try { return { L: JSON.parse(String(r.j)), ver: Number(r.ver) } } catch (_e) { return null }
+  }
+  async function lgSave(env: any, cid: string, wk: string, sp: string, L: any, ver: number) {
+    if (!ver) { try { await env.DB.prepare('INSERT INTO pj_league (cid, wk, sp, j, ver) VALUES (?,?,?,?,1)').bind(cid, wk, sp, JSON.stringify(L)).run(); return true } catch (_e) { return false } }
+    const r = await env.DB.prepare('UPDATE pj_league SET j=?, ver=ver+1 WHERE cid=? AND wk=? AND sp=? AND ver=?').bind(JSON.stringify(L), cid, wk, sp, ver).run()
+    return !!(r && r.meta && Number(r.meta.changes) === 1)
+  }
+  // 名前（子どもの 本名は 出さない）：チーム名は「〇〇の 名前を つかわない」きまった 名前
+  const TN = { bb: ['イーグルス', 'タイガース', 'ドラゴンズ', 'スターズ', 'ホークス', 'ライオンズ', 'マリンズ', 'ベアーズ', 'ファルコンズ', 'ウェーブズ', 'サンダーズ', 'フェニックス'], sc: ['FCブルー', 'FCレッド', 'ユナイテッド', 'シティ', 'ローヴァーズ', 'ワンダラーズ', 'アスレチック', 'レンジャーズ', 'FCグリーン', 'スターズFC', 'ウィングス', 'ヴィクトリー'] }
+  async function cpuRoster(env: any, sp: string) {
+    if (sp === 'bb') {
+      const want: any[] = [['捕手'], ['一塁手'], ['二塁手'], ['三塁手'], ['遊撃手'], ['外野手'], ['外野手'], ['外野手'], [''], [''], [''], [''], ['投手', '先発'], ['投手', '先発'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '抑え']]
+      const ids: any[] = [], seen: any = {}
+      for (const w of want) {
+        let q = "SELECT k FROM pj_players WHERE s='bb' AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = []
+        if (w[0]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[0] + '%') }
+        if (w[1]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[1] + '%') }
+        if (w[0] !== '投手') q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
+        const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
+        const k = ((r && r.results) || []).map((x: any) => String(x.k)).filter((x: string) => !seen[x])[0]
+        if (k) seen[k] = 1
+        ids.push(k ? Number(k.slice(1)) : null)
+      }
+      return { ids, order: [0, 1, 2, 3, 4, 5, 6, 7, 8] }
+    }
+    const roles: any[] = [['ゴールキーパー'], ['サイドバック'], ['センターバック'], ['センターバック'], ['サイドバック'], ['守備的MF'], ['攻撃的MF'], ['守備的MF'], ['ウイング'], ['センターフォワード'], ['ウイング'], [''], [''], [''], [''], ['']]
+    const out: any[] = [], seen: any = {}
+    for (const w of roles) {
+      let q = "SELECT k, j FROM pj_players WHERE s='sc' AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = []
+      if (w[0]) { q += " AND json_extract(j,'$.pos') = ?"; args.push(w[0]) } else q += " AND json_extract(j,'$.pos') <> 'ゴールキーパー'"
+      const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
+      const x = ((r && r.results) || []).filter((y: any) => !seen[y.k])[0]
+      if (x) { seen[x.k] = 1; try { out.push(String(JSON.parse(String(x.j)).mk || '').slice(1) || null) } catch (_e) { out.push(null) } } else out.push(null)
+    }
+    return { f: '4-3-3', L: out.slice(0, 11), B: out.slice(11).filter(Boolean) }
+  }
+  async function cpuCoach(env: any, sp: string) { const m = await env.DB.prepare('SELECT j FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sp + 'm').first(); try { return m ? String(JSON.parse(String(m.j)).n) : '' } catch (_e) { return '' } }
+  function schedule(n: number) {
+    // 円の まわし方（6チーム → 5回戦 × 3試合）
+    const t = Array.from({ length: n }, (_, i) => i), R: any[] = []
+    for (let r = 0; r < n - 1; r++) { const m: any[] = []; for (let i = 0; i < n / 2; i++) m.push(r % 2 ? [t[n - 1 - i], t[i]] : [t[i], t[n - 1 - i]]); R.push(m); t.splice(1, 0, t.pop()) }
+    return R
+  }
+  async function weekDays(c: any, w: any, wk: string) {
+    const rest = w.classId ? await d.classRest(c.env, w.classId) : {}
+    const out: string[] = []
+    for (let i = 0; i < 5; i++) { const dk = d.addDay(wk, i); if (!d.isRest(dk, rest)) out.push(dk) }
+    return out
+  }
+  async function buildLeague(c: any, w: any, cid: string, wk: string, sp: string) {
+    const er = await c.env.DB.prepare('SELECT uid FROM pj_lentry WHERE cid=? AND wk=? AND sp=? ORDER BY created_at, uid').bind(cid, wk, sp).all()
+    let uids = ((er && er.results) || []).map((x: any) => String(x.uid))
+    if (!uids.length) return null
+    const seed = seedOf(cid, wk, sp)
+    uids = uids.map((u: string, i: number) => ({ u, r: seedOf(seed, u, i) })).sort((a: any, b: any) => a.r - b.r).map((x: any) => x.u)
+    const ng = Math.ceil(uids.length / LG_SIZE), groups: any[] = []
+    const names = (TN as any)[sp].slice()
+    let ni = 0
+    for (let g = 0; g < ng; g++) {
+      const mem = uids.filter((_: any, i: number) => i % ng === g)
+      const teams: any[] = mem.map((u: string) => ({ uid: u, name: names[(ni++) % names.length] }))
+      while (teams.length < LG_SIZE) teams.push({ cpu: 1, name: 'CPU ' + names[(ni++) % names.length], roster: await cpuRoster(c.env, sp), coach: await cpuCoach(c.env, sp) })
+      groups.push({ teams })
+    }
+    const days = await weekDays(c, w, wk)
+    const sch = schedule(LG_SIZE), matches: any[] = []
+    groups.forEach((g: any, gi: number) => sch.forEach((round: any, r: number) => { if (r >= days.length) return; round.forEach((p: any, m: number) => matches.push({ id: 'g' + gi + 'r' + r + 'm' + m, g: gi, r, a: p[0], b: p[1], day: days[r], seed: seedOf(seed, gi, r, m) & 2147483647 })) }))
+    return { sp, wk, groups, matches, days, snap: {}, res: {}, t: LG_TIME }
+  }
+  function played(L: any, m: any, ctx: any, w: any) { if (m.day < ctx.today) return true; if (m.day > ctx.today) return false; return w.test || nowHM() >= L.t }
+  // その日の オーダーを こおらせる（子どもの オーダーが たりなければ サーバで おまかせ）
+  async function lineupOf(c: any, sp: string, uid: string) {
+    const L0 = await load(c.env, uid)
+    const st = L0.st, od = cleanOrder(st)[sp] || {}
+    const coach = st.cm && st.cm[sp] ? String(st.cm[sp]).slice(3) : ''
+    const keys = st.ro.map((r: any) => r.k).filter((k: string) => (k[0] === 'b') === (sp === 'bb'))
+    const P = await players(c.env, keys)
+    const isP = (k: string) => /^投手/.test((P[k] && P[k].pos) || '')
+    const score = (k: string) => { const a = (P[k] && P[k].ab) || {}; let s = 0; Object.keys(a).forEach((x) => { s += Number(a[x]) || 0 }); return s + ((P[k] && P[k].st) || 1) * 30 }
+    const used: any = {}
+    const best = (f: any) => { const k = keys.filter((x: string) => !used[x] && P[x] && f(x)).sort((a: string, b: string) => score(b) - score(a))[0]; if (k) used[k] = 1; return k || null }
+    if (sp === 'bb') {
+      const POS = ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'], RE: any = { C: /捕手/, '1B': /一塁手/, '2B': /二塁手/, '3B': /三塁手/, SS: /遊撃手/, LF: /外野手/, CF: /外野手/, RF: /外野手/, DH: null }
+      const field: any = {}; (od.L || []).forEach((x: any) => { field[x.p] = x.k; used[x.k] = 1 })
+      const grp: any = {}; ['SP', 'RP', 'CL', 'BN'].forEach((g) => { grp[g] = (od[g] || []).slice(); grp[g].forEach((k: string) => { used[k] = 1 }) })
+      POS.forEach((p) => { if (!field[p]) field[p] = best((k: string) => !isP(k) && (!RE[p] || RE[p].test(P[k].pos))) || best((k: string) => !isP(k)) })
+      while (grp.SP.length < 2) { const k = best((x: string) => isP(x) && /先発/.test(P[x].pos)) || best(isP); if (!k) break; grp.SP.push(k) }
+      if (!grp.CL.length) { const k = best((x: string) => isP(x) && /抑え/.test(P[x].pos)) || best(isP); if (k) grp.CL.push(k) }
+      while (grp.RP.length < 3) { const k = best(isP); if (!k) break; grp.RP.push(k) }
+      while (grp.BN.length < 3) { const k = best((x: string) => !isP(x)); if (!k) break; grp.BN.push(k) }
+      if (grp.SP.length === 1) grp.SP.push(grp.SP[0])
+      const num = (k: any) => k ? Number(String(k).slice(1)) : null
+      const ids = POS.map((p) => num(field[p])).concat([0, 1, 2].map((i) => num(grp.BN[i])), [0, 1].map((i) => num(grp.SP[i])), [0, 1, 2].map((i) => num(grp.RP[i])), [num(grp.CL[0])])
+      const ord = (od.L || []).length === 9 ? od.L.map((x: any) => POS.indexOf(x.p)) : [0, 1, 2, 3, 4, 5, 6, 7, 8]
+      return { ids, order: ord, coach }
+    }
+    const F: any = { '4-4-2': ['GK', 'D', 'D', 'D', 'D', 'M', 'M', 'M', 'M', 'F', 'F'], '4-3-3': ['GK', 'D', 'D', 'D', 'D', 'M', 'M', 'M', 'F', 'F', 'F'], '4-2-3-1': ['GK', 'D', 'D', 'D', 'D', 'M', 'M', 'F', 'M', 'F', 'F'], '3-5-2': ['GK', 'D', 'D', 'D', 'D', 'M', 'M', 'M', 'D', 'F', 'F'], '3-4-2-1': ['GK', 'D', 'D', 'D', 'D', 'M', 'M', 'D', 'M', 'M', 'F'] }
+    const f = F[od.f] ? od.f : '4-3-3', L = (od.L || []).slice(0, 11), B = (od.B || []).slice()
+    L.forEach((k: any) => { if (k) used[k] = 1 }); B.forEach((k: any) => { used[k] = 1 })
+    const G: any = { GK: /ゴールキーパー/, D: /センターバック|サイドバック/, M: /守備的MF|攻撃的MF/, F: /ウイング|センターフォワード/ }
+    F[f].forEach((r: string, i: number) => { if (!L[i]) L[i] = best((k: string) => G[r].test(P[k].pos)) || (r === 'GK' ? null : best((k: string) => !G.GK.test(P[k].pos))) })
+    while (B.length < 5) { const k = best(() => true); if (!k) break; B.push(k) }
+    const mk = (k: any) => k && P[k] && P[k].mk ? String(P[k].mk).slice(1) : null
+    return { f, L: L.map(mk), B: B.map(mk).filter(Boolean), coach }
+  }
+  async function freeze(c: any, w: any, L: any, ctx: any) {
+    let ch = false
+    for (const m of L.matches) {
+      if (!played(L, m, ctx, w) || L.snap[m.r + ':' + m.g]) continue
+      const g = L.groups[m.g], snap: any[] = []
+      for (const t of g.teams) snap.push(t.cpu ? Object.assign({}, t.roster, { coach: t.coach }) : await lineupOf(c, L.sp, t.uid))
+      L.snap[m.r + ':' + m.g] = snap; ch = true
+    }
+    return ch
+  }
+  function standings(L: any, gi: number) {
+    const g = L.groups[gi], T = g.teams.map((t: any, i: number) => ({ i, name: t.name, cpu: !!t.cpu, w: 0, l: 0, dr: 0, gf: 0, ga: 0, pt: 0 }))
+    L.matches.filter((m: any) => m.g === gi && L.res[m.id]).forEach((m: any) => {
+      const [x, y] = L.res[m.id], A = T[m.a], B = T[m.b]
+      A.gf += x; A.ga += y; B.gf += y; B.ga += x
+      if (x > y) { A.w++; B.l++; A.pt += 3 } else if (x < y) { B.w++; A.l++; B.pt += 3 } else { A.dr++; B.dr++; A.pt++; B.pt++ }
+    })
+    return T.sort((a: any, b: any) => b.pt - a.pt || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf || a.i - b.i)
+  }
+  async function lgCtx(c: any) {
+    await ensureLg(c.env)
+    const b = await begin(c); if (b.res) return b
+    const sp = (c.req.query('s') || '') === 'sc' ? 'sc' : 'bb'
+    return Object.assign(b, { sp, cid: lgCid(b.w), wk: mondayOf(b.ctx.today) })
+  }
+  async function lgView(c: any, b: any, sp: string) {
+    const { w, ctx, cid, wk } = b
+    let row = await lgLoad(c.env, cid, wk, sp)
+    const buildOk = w.test || ctx.today > wk || nowHM() >= LG_BUILD
+    if (!row && buildOk) {
+      const L = await buildLeague(c, w, cid, wk, sp)
+      if (L) { await lgSave(c.env, cid, wk, sp, L, 0); row = await lgLoad(c.env, cid, wk, sp) }
+    }
+    const nwk = d.addDay(wk, 7)
+    const ent = await c.env.DB.prepare('SELECT wk FROM pj_lentry WHERE cid=? AND sp=? AND uid=? AND wk IN (?,?)').bind(cid, sp, String(w.u.id), wk, nwk).all()
+    const myE: any = {}; ((ent && ent.results) || []).forEach((x: any) => { myE[x.wk] = 1 })
+    const out: any = { ok: true, sp, wk, today: ctx.today, now: nowHM(), time: LG_TIME, entryThis: !!myE[wk], entryNext: !!myE[nwk], canEnterThis: !row && !buildOk, test: !!w.test, league: null }
+    if (!row) return out
+    const L = row.L
+    if (await freeze(c, w, L, ctx)) { if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++ }
+    const gi = L.groups.findIndex((g: any) => g.teams.some((t: any) => t.uid === String(w.u.id)))
+    if (gi < 0) { out.league = { joined: false, groups: L.groups.length }; return out }
+    const me = L.groups[gi].teams.findIndex((t: any) => t.uid === String(w.u.id))
+    const views = ((b.st.lv || {})[wk] || {})
+    out.league = {
+      joined: true, g: gi, groups: L.groups.length, me, teams: L.groups[gi].teams.map((t: any) => ({ name: t.name, cpu: !!t.cpu })),
+      days: L.days, table: standings(L, gi),
+      matches: L.matches.filter((m: any) => m.g === gi).map((m: any) => ({ id: m.id, r: m.r, a: m.a, b: m.b, day: m.day, done: played(L, m, ctx, w), res: L.res[m.id] || null, frozen: !!L.snap[m.r + ':' + m.g], views: Number(views[sp + ':' + m.id]) || 0 }))
+    }
+    return out
+  }
+  app.get('/api/pj/league', async (c: any) => {
+    const b = await lgCtx(c); if (b.res) return b.res
+    return c.json(await lgView(c, b, b.sp))
+  })
+  app.post('/api/pj/league/enter', async (c: any) => {
+    await ensureLg(c.env)
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb', cid = lgCid(b.w), wk0 = mondayOf(b.ctx.today)
+    const wk = body && body.week === 'this' ? wk0 : d.addDay(wk0, 7)
+    if (body && body.week === 'this') { const row = await lgLoad(c.env, cid, wk0, sp); if (row || (!b.w.test && (b.ctx.today > wk0 || nowHM() >= LG_BUILD))) return err(c, 409, 'closed') }
+    if (body && body.on === false) await c.env.DB.prepare('DELETE FROM pj_lentry WHERE cid=? AND wk=? AND sp=? AND uid=?').bind(cid, wk, sp, String(b.w.u.id)).run()
+    else await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(cid, wk, sp, String(b.w.u.id)).run()
+    return c.json(await lgView(c, Object.assign(b, { cid, wk: wk0 }), sp))
+  })
+  // 試合の じゅんび（計算 または 観戦）：両チームの こおらせた オーダーと たねを わたす
+  async function fixture(c: any, b: any, sp: string, mid: string) {
+    const row = await lgLoad(c.env, b.cid, b.wk, sp)
+    if (!row) return null
+    const L = row.L, m = L.matches.find((x: any) => x.id === mid)
+    if (!m || !played(L, m, b.ctx, b.w)) return null
+    if (await freeze(c, b.w, L, b.ctx)) await lgSave(c.env, b.cid, b.wk, sp, L, row.ver)
+    const snap = L.snap[m.r + ':' + m.g]; if (!snap) return null
+    const g = L.groups[m.g]
+    return { id: m.id, r: m.r, seed: m.seed, names: [g.teams[m.a].name, g.teams[m.b].name], A: snap[m.a], B: snap[m.b], res: L.res[m.id] || null }
+  }
+  app.post('/api/pj/league/fixture', async (c: any) => {
+    const b = await lgCtx(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
+    const fx = await fixture(c, b, sp, String(body && body.mid || ''))
+    if (!fx) return err(c, 409, 'not_ready')
+    if (body && body.watch) {
+      const day = (L0: any) => L0
+      const pr = await practiceInfo(c, b.w, b.st, b.ctx)
+      const m = (await lgLoad(c.env, b.cid, b.wk, sp)).L.matches.find((x: any) => x.id === fx.id)
+      if (!b.w.test) {
+        if (m.day !== b.ctx.today) return err(c, 403, 'not_today')
+        if (!pr.hw) return err(c, 403, 'practice_hw')
+      }
+      b.st.lv = b.st.lv || {}; Object.keys(b.st.lv).forEach((k) => { if (k < d.addDay(b.wk, -14)) delete b.st.lv[k] })
+      const v = b.st.lv[b.wk] = b.st.lv[b.wk] || {}, key = sp + ':' + fx.id
+      if (!b.w.test && (Number(v[key]) || 0) >= 2) return err(c, 403, 'watch_limit')
+      v[key] = (Number(v[key]) || 0) + 1
+      if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+      void day
+    }
+    return c.json(Object.assign({ ok: true }, fx))
+  })
+  app.post('/api/pj/league/result', async (c: any) => {
+    const b = await lgCtx(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
+    const sc = body && Array.isArray(body.sc) ? body.sc.map((x: any) => Math.max(0, Math.min(99, Math.floor(Number(x) || 0)))) : null
+    if (!sc || sc.length !== 2) return err(c, 400, 'sc')
+    for (let i = 0; i < 3; i++) {
+      const row = await lgLoad(c.env, b.cid, b.wk, sp); if (!row) return err(c, 404, 'league')
+      const L = row.L, m = L.matches.find((x: any) => x.id === String(body.mid || ''))
+      if (!m || !played(L, m, b.ctx, b.w) || !L.snap[m.r + ':' + m.g]) return err(c, 409, 'not_ready')
+      if (L.res[m.id]) return c.json({ ok: true, res: L.res[m.id] })
+      L.res[m.id] = sc
+      if (await lgSave(c.env, b.cid, b.wk, sp, L, row.ver)) return c.json({ ok: true, res: sc })
+    }
+    return err(c, 409, 'busy')
+  })
+  // 先生の ためし：今週の テストリーグを 作りなおす（先生 ＋ CPU 5）
+  app.post('/api/pj/league/test-reset', async (c: any) => {
+    const b = await lgCtx(c); if (b.res) return b.res
+    if (!b.w.test) return err(c, 403, 'teacher_only')
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
+    await c.env.DB.prepare('DELETE FROM pj_league WHERE cid=? AND sp=?').bind(b.cid, sp).run()
+    await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(b.cid, b.wk, sp, String(b.w.u.id)).run()
+    return c.json(await lgView(c, b, sp))
+  })
+
   // 先生の ためしモード（ためし用コインと 日付だけ。本物は うごかない）
   app.post('/api/pj/test', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res

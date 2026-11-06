@@ -96,6 +96,13 @@
   .row.od select { min-height:40px; font-size:15px; border:1.5px solid #d1d5db; border-radius:9px; padding:4px 6px; background:#fff; max-width:100%; }
   .row.od .no { width:26px; text-align:center; font-size:17px; color:#047857; }
   .row.od .mv { display:flex; gap:3px; }
+  .lgt { width:100%; border-collapse:collapse; margin:8px 0; font-size:14px; }
+  .lgt th, .lgt td { padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:center; }
+  .lgt td:nth-child(2) { text-align:left; font-weight:700; }
+  .lgt tr.me td { background:#ecfdf5; }
+  .lgday { margin-top:10px; } .lgday > b { display:block; color:#047857; margin-bottom:2px; }
+  .lgm.mine { background:#fffbeb; border-radius:10px; }
+  .lgs { font-size:17px; white-space:nowrap; margin:0 6px; }
   .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
   .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -675,11 +682,113 @@
       + '<button class="btn big" id="prGo" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>🏟 練習試合を はじめる</button>'
       + (why ? '<div class="note" style="margin-top:8px;color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '')
       + (!ready ? '<div style="margin-top:8px"><button class="btn sub sm" id="toOrder">📋 オーダーへ</button></div>' : '') + '</div>'
-      + '<div class="box note">🏆 リーグ戦（クラスの 友だちと）は じゅんびちゅう。リーグ戦は 見るだけで、同じ 試合は 2回まで 見られるよ。</div>';
+      + leagueHtml();
     $('pane').innerHTML = h;
+    if (!LG[SP]) loadLeague(function () { if (TAB === 'match') paneMatch(); }); else wireLeague();
     var t = $('toOrder'); if (t) t.onclick = function () { TAB = 'order'; render(); };
     var g = $('prGo'); if (g) g.onclick = startPractice;
   }
+  // ---------- 🏆 リーグ戦（PJ_LEAGUE_V1） ----------
+  var LG = {};
+  var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function dlab(dk) { var p = String(dk).split('-'); var w = new Date(dk + 'T00:00:00Z').getUTCDay(); return Number(p[1]) + '/' + Number(p[2]) + '（' + WD[w] + '）'; }
+  function loadLeague(cb) { api('/api/pj/league?s=' + SP).then(function (d) { if (d && d.ok) { LG[SP] = d; } if (cb) cb(); }); }
+  function leagueHtml() {
+    var d = LG[SP];
+    if (!d) return '<div class="box note">🏆 リーグを よみこみ中…</div>';
+    var h = '<div class="box"><div class="kind">🏆 今週の リーグ戦（' + spName() + '）</div>';
+    var L = d.league;
+    if (L && L.joined) {
+      h += '<div class="note">グループ ' + (L.g + 1) + (L.groups > 1 ? '（ぜんぶで ' + L.groups + 'グループ）' : '') + '　試合は 学校の日の ' + d.time + '。その日に 家庭学習を 出すと、その日の 試合を 見られるよ（同じ 試合は 2回まで）。</div>';
+      h += '<table class="lgt"><tr><th>順位</th><th>チーム</th><th>勝</th><th>分</th><th>負</th><th>' + (SP === 'bb' ? '得失点' : '得失点') + '</th><th>勝点</th></tr>';
+      L.table.forEach(function (t, i) { h += '<tr class="' + (t.i === L.me ? 'me' : '') + '"><td>' + (i + 1) + '</td><td>' + esc(t.name) + (t.i === L.me ? ' ⭐' : '') + '</td><td>' + t.w + '</td><td>' + t.dr + '</td><td>' + t.l + '</td><td>' + (t.gf - t.ga > 0 ? '+' : '') + (t.gf - t.ga) + '</td><td><b>' + t.pt + '</b></td></tr>'; });
+      h += '</table>';
+      var days = {}; L.matches.forEach(function (m) { (days[m.day] = days[m.day] || []).push(m); });
+      Object.keys(days).sort().forEach(function (dk) {
+        h += '<div class="lgday"><b>' + dlab(dk) + (dk === d.today ? ' きょう' : '') + '</b>';
+        days[dk].forEach(function (m) {
+          var mine = m.a === L.me || m.b === L.me, A = L.teams[m.a].name, B = L.teams[m.b].name;
+          var sc = m.res ? '<b class="lgs">' + m.res[0] + ' - ' + m.res[1] + '</b>' : m.done ? '<span class="note">けっか けいさん中…</span>' : '<span class="note">' + d.time + ' から</span>';
+          var watch = m.done && m.res && dk === d.today ? '<button class="btn sm" data-watch="' + m.id + '"' + (m.views >= 2 && !d.test ? ' disabled' : '') + '>▶ 見る（あと ' + Math.max(0, 2 - m.views) + '回）</button>' : '';
+          h += '<div class="row lgm' + (mine ? ' mine' : '') + '"><div class="nm"><b>' + esc(A) + ' <span class="note">vs</span> ' + esc(B) + '</b></div>' + sc + watch + '</div>';
+        });
+        h += '</div>';
+      });
+    } else if (L && !L.joined) h += '<div class="note">今週の リーグには 参加していないよ。</div>';
+    else h += '<div class="note">今週の リーグは まだ ないよ。' + (d.canEnterThis ? '' : '「来週の リーグに 参加する」を おしておこう！') + '</div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">';
+    if (d.canEnterThis) h += '<button class="btn" data-lge="this:' + (d.entryThis ? 0 : 1) + '">' + (d.entryThis ? '✅ 今週の リーグに 参加中（やめる）' : '🏆 今週の リーグに 参加する（月曜 12:30まで）') + '</button>';
+    h += '<button class="btn' + (d.entryNext ? ' sub' : '') + '" data-lge="next:' + (d.entryNext ? 0 : 1) + '">' + (d.entryNext ? '✅ 来週の リーグに 参加する（やめる）' : '🏆 来週の リーグに 参加する') + '</button>';
+    if (d.test) h += '<button class="btn sub" id="lgTest">🧪 今週の テストリーグを 作りなおす（先生＋CPU）</button>';
+    return h + '</div></div>';
+  }
+  function wireLeague() {
+    document.querySelectorAll('[data-lge]').forEach(function (b) { b.onclick = function () { var a = b.getAttribute('data-lge').split(':'); api('/api/pj/league/enter', { sport: SP, week: a[0], on: a[1] === '1' }).then(function (d) { if (d && d.ok) LG[SP] = d; else if (d && d.error === 'closed') alert('今週の 受付は おわったよ。来週の リーグに 参加しよう！'); paneMatch(); }); }; });
+    var t = $('lgTest'); if (t) t.onclick = function () { api('/api/pj/league/test-reset', { sport: SP }).then(function (d) { if (d && d.ok) LG[SP] = d; paneMatch(); }); };
+    document.querySelectorAll('[data-watch]').forEach(function (b) { b.onclick = function () { watchMatch(b.getAttribute('data-watch')); }; });
+    computeMissing();
+  }
+  // 結果が まだの 試合を、見えない ところで 元の ゲームの 計算で 出して のこす
+  var LGBUSY = false;
+  function gameUrl(f) {
+    return api('/api/pj/meikan').then(function (d) {
+      if (!d || !d.ok || !d.key) throw new Error('info');
+      var v = f + (d.v && d.v[f]); if (MKURL[v]) return MKURL[v];
+      return fetch('/api/pj/game/' + f + '?v=' + encodeURIComponent((d.v && d.v[f]) || ''), { credentials: 'same-origin' }).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+        var u = new Uint8Array(ab);
+        return crypto.subtle.importKey('raw', hexB(d.key), { name: 'AES-GCM' }, false, ['decrypt']).then(function (k) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12)); });
+      }).then(function (plain) { return new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).blob(); })
+        .then(function (b) { var url = URL.createObjectURL(new Blob([b], { type: 'text/html' })); MKURL[v] = url; return url; });
+    });
+  }
+  function simCode(sp, fx, watch) {
+    var o = JSON.stringify(fx);
+    if (sp === 'bb') return '(function(fx){var MK=Object.keys(MGR_S);var mi=function(n){var i=MK.indexOf(n);return i<0?0:i};'
+      + 'var data={cfg:{rosterSizes:{bench:3,sp:2,rp:3},mode:"free",defenseTactics:1},teams:[{human:1,teamName:fx.names[0],seat:0},{human:1,teamName:fx.names[1],seat:1}]};'
+      + 'var mt={id:fx.id,pair:[0,1],round:fx.r,seed:fx.seed,lineups:[{ids:fx.A.ids,order:fx.A.order,rotation:[0,1],manager:mi(fx.A.coach)},{ids:fx.B.ids,order:fx.B.order,rotation:[0,1],manager:mi(fx.B.coach)}]};'
+      + (watch ? 'bbLeagueReplayFinal=function(g,next,nd){try{next.textContent="おわり";next.onclick=function(){parent.__pjCloseGame&&parent.__pjCloseGame()};if(nd)nd.style.display="none"}catch(e){}};bbLeagueWatch(data,mt);return 1'
+               : 'var G=bbLeagueSimulate(data,mt);var s=function(a){return (a||[]).reduce(function(x,y){return x+(Number(y)||0)},0)};return [s(G.score[0]),s(G.score[1])]')
+      + '})(' + o + ')';
+    return '(function(fx){function mk(t,nm){var d=newDrafter(nm,t.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});fs.forEach(function(s,i){var k=t.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});d.slots=fs;(t.B||[]).forEach(function(k){if(PL[k])d.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});d.coach=coachOf(t.coach||"かんとく");d.tours=[];return d}'
+      + 'var A=mk(fx.A,fx.names[0]),B=mk(fx.B,fx.names[1]);'
+      + (watch ? 'var st=document.createElement("style");st.textContent="#tacbx{display:none!important}";document.head.appendChild(st);S.ds=[A,B];play(simMatch(A,B,false,{seed:fx.seed,ai:[true,true]}));return 1'
+               : 'var M=simMatch(A,B,false,{seed:fx.seed,ai:[true,true]});return M.sc')
+      + '})(' + o + ')';
+  }
+  function computeMissing() {
+    var d = LG[SP]; if (LGBUSY || !d || !d.league || !d.league.joined) return;
+    var need = d.league.matches.filter(function (m) { return m.done && !m.res; }); if (!need.length) return;
+    LGBUSY = true; var sp = SP;
+    gameUrl(sp).then(function (url) {
+      var fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;height:600px;border:0;'; document.body.appendChild(fr);
+      fr.onload = function () {
+        var w = fr.contentWindow, i = 0;
+        var next = function () {
+          if (i >= need.length) { fr.remove(); LGBUSY = false; loadLeague(function () { if (TAB === 'match') paneMatch(); }); return; }
+          var m = need[i++];
+          api('/api/pj/league/fixture?s=' + sp, { sport: sp, mid: m.id }).then(function (fx) {
+            if (!fx || !fx.ok || fx.res) return next();
+            var sc = null; try { sc = w.__pjEval(simCode(sp, fx, false)); } catch (e) { try { console.error('pj sim', e); } catch (_e) {} }
+            if (!sc) return next();
+            api('/api/pj/league/result?s=' + sp, { sport: sp, mid: m.id, sc: sc }).then(next);
+          });
+        };
+        var go = function (n) { if (w.__pjEval) next(); else if (n < 40) setTimeout(function () { go(n + 1); }, 150); else { fr.remove(); LGBUSY = false; } };
+        go(0);
+      };
+      fr.src = url;
+    }).catch(function () { LGBUSY = false; });
+  }
+  var LGERR = { practice_hw: '📝 きょうの 家庭学習を 出すと、きょうの 試合を 見られるよ。', watch_limit: 'この 試合は もう 2回 見たよ。', not_today: '見られるのは きょうの 試合だけだよ。結果は いつでも 見られるよ。', not_ready: 'まだ 試合が はじまっていないよ。' };
+  function watchMatch(mid) {
+    var sp = SP;
+    api('/api/pj/league/fixture?s=' + sp, { sport: sp, mid: mid, watch: true }).then(function (fx) {
+      if (!fx || !fx.ok) { alert(LGERR[fx && fx.error] || 'いまは 見られないよ。'); return; }
+      window.__pjCloseGame = function () { var v = $('mkv'); if (v) v.remove(); document.body.style.overflow = ''; loadLeague(function () { if (TAB === 'match') paneMatch(); }); };
+      openGame(sp, '🏆 ' + esc(fx.names[0]) + ' vs ' + esc(fx.names[1]), function (w) { w.__pjEval(simCode(sp, fx, true)); }, function () { loadLeague(function () { if (TAB === 'match') paneMatch(); }); });
+    });
+  }
+
   function startPractice() {
     if (SP === 'bb') return startPracticeBB();
     var o = S.order.sc, mk = function (k) { var p = S.players[k]; return p && p.mk ? String(p.mk).slice(1) : null; };
