@@ -127,7 +127,16 @@ async function players(env: any, keys: string[]) {
 async function who(c: any, d: any) {
   const u = c.get('user')
   if (!u) return { error: 'login' }
-  if (u.role === 'teacher' || u.role === 'admin') return { u, test: true, classId: '' }
+  if (u.role === 'teacher' || u.role === 'admin') {
+    // 🔥 PJ_GACHI_V1 先生の「がちモード」：本物の コイン・本物の 日づけ・1日の 回数制限で あそぶ（ためしとは べつの セーブ）。
+    //    先生は 学習計画・家庭学習を 出さないので、その 2つの 条件だけは みたしている あつかい。リーグは 先生 1人＋CPU。
+    let g = false
+    try { const r = await c.env.DB.prepare('SELECT v FROM pj_meta WHERE k=?').bind('gm:' + String(u.id)).first(); g = !!(r && String(r.v) === '1') } catch (_e) { g = false }
+    if (!g) return { u, test: true, teacher: true, classId: '', sid: String(u.id) }
+    let rc = ''
+    try { const r = await c.env.DB.prepare('SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1').bind(String(u.id)).first(); rc = r ? String(r.id) : '' } catch (_e) { rc = '' }
+    return { u, test: false, gachi: true, teacher: true, classId: '', restCid: rc, plan: true, apw: [], sid: String(u.id) + '#g' }
+  }
   if (u.role !== 'student') return { error: 'forbidden' }
   const m = await c.env.DB.prepare('SELECT class_id AS cid FROM class_members WHERE user_id=? LIMIT 1').bind(String(u.id)).first()
   if (!m || !m.cid) return { error: 'off' }   // クラスに 入っていない子には 出さない
@@ -139,7 +148,7 @@ async function who(c: any, d: any) {
   // 承認された 週（契約の 日数を 数えるのに つかう：つかえない 週は 日数を へらさない＝PJ_PAUSE_CONTRACT_V1）
   let apw: string[] = []
   try { const r = await c.env.DB.prepare('SELECT week_key AS w FROM student_weekly_plans WHERE user_id=? AND plan_approved=1').bind(String(u.id)).all(); apw = ((r && r.results) || []).map((x: any) => String(x.w)) } catch (_e) { apw = [] }
-  return { u, test: false, classId: String(m.cid), plan, apw }
+  return { u, test: false, classId: String(m.cid), plan, apw, sid: String(u.id) }
 }
 
 function blank() { return { ro: [], zk: {}, by: { d: '', n: 0 }, pd: null, nw: [], tc: TEST_COINS, off: 0, mg: {}, cm: {} } }
@@ -195,8 +204,8 @@ export function installPj(app: any, d: Deps) {
   async function practiceInfo(c: any, w: any, st: any, ctx: any) {
     const day = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 10)
     if (w.test) return { can: true, hw: true, used: false, day, test: true }
-    let hw = false
-    try { const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key=? AND COALESCE(rest_day,0)=0 LIMIT 1').bind(String(w.u.id), day).first(); hw = !!r } catch (_e) { hw = false }
+    let hw = !!w.gachi
+    if (!hw) try { const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key=? AND COALESCE(rest_day,0)=0 LIMIT 1').bind(String(w.u.id), day).first(); hw = !!r } catch (_e) { hw = false }
     const used = !!(st.pr && st.pr.d === day && Number(st.pr.n) >= 1)
     return { can: hw && !used, hw, used, day }
   }
@@ -205,11 +214,12 @@ export function installPj(app: any, d: Deps) {
   async function dayCtx(c: any, w: any, st: any) {
     let today = jstToday()
     if (w.test && st.off) today = d.addDay(today, Number(st.off) || 0)
-    const rest = w.classId ? await d.classRest(c.env, w.classId) : {}
+    const rc = w.classId || w.restCid || ''
+    const rest = rc ? await d.classRest(c.env, rc) : {}
     // 子どもは「先週か今週の 計画が 承認された 週」の 学校の日だけ 数える（つかえない 週は 契約が へらない）
     const ap: any = {}; (w.apw || []).forEach((x: string) => { ap[x] = 1 })
     const okWeek: any = {}
-    const allowed = (dk: string) => { if (w.test) return true; const wk = d.weekOf(dk); if (!(wk in okWeek)) okWeek[wk] = !!(ap[wk] || ap[d.weekOf(d.addDay(dk, -7))]); return okWeek[wk] }
+    const allowed = (dk: string) => { if (w.test || w.gachi) return true; const wk = d.weekOf(dk); if (!(wk in okWeek)) okWeek[wk] = !!(ap[wk] || ap[d.weekOf(d.addDay(dk, -7))]); return okWeek[wk] }
     const school = (dk: string) => !d.isRest(dk, rest) && allowed(dk)
     return { today, school }
   }
@@ -250,7 +260,7 @@ export function installPj(app: any, d: Deps) {
     let total = 0
     try { const t = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM pj_players WHERE s IN (\'bb\',\'sc\')').first(); total = Number(t && t.n) || 0 } catch (_e) {}
     return Object.assign({
-      ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
+      ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
@@ -268,7 +278,7 @@ export function installPj(app: any, d: Deps) {
     const m = await manifest(c.env)
     if (m && (await catVer(c.env)) !== String(m.v)) return { res: c.json({ ok: false, error: 'import', test: !!w.test, parts: m.parts }) }
     await ensureMgr(c.env)
-    const L = await load(c.env, w.u.id)
+    const L = await load(c.env, w.sid)
     const ctx = await dayCtx(c, w, L.st)
     return { w, st: L.st, ver: L.ver, ctx }
   }
@@ -280,9 +290,19 @@ export function installPj(app: any, d: Deps) {
     return c.json({ ok: true, on: !w.error, plan: !!(w.test || w.plan) })
   })
 
+  // 🔥 先生だけ：ためし ⇄ がち を きりかえる
+  app.post('/api/pj/mode', async (c: any) => {
+    await ensure(c.env)
+    const u = c.get('user')
+    if (!u || !(u.role === 'teacher' || u.role === 'admin')) return err(c, 403, 'teacher_only')
+    const body = await c.req.json().catch(() => ({}))
+    await c.env.DB.prepare('INSERT OR REPLACE INTO pj_meta (k, v) VALUES (?, ?)').bind('gm:' + String(u.id), body && body.gachi ? '1' : '0').run()
+    return c.json({ ok: true, gachi: !!(body && body.gachi) })
+  })
+
   app.get('/api/pj/state', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
-    if (retire(b.st, b.ctx)) await save(c.env, b.w.u.id, b.st, b.ver)
+    if (retire(b.st, b.ctx)) await save(c.env, b.w.sid, b.st, b.ver)
     return c.json(await view(c, b.w, b.st, b.ctx))
   })
 
@@ -328,7 +348,7 @@ export function installPj(app: any, d: Deps) {
       st.by = { d: ctx.today, n: bought + 1 }
       st.mg[mk] = { f: dupM ? st.mg[mk].f : ctx.today }
       if (!st.cm[sport]) st.cm[sport] = mk
-      if (!(await save(c.env, w.u.id, st, b.ver))) {
+      if (!(await save(c.env, w.sid, st, b.ver))) {
         if (!w.test) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }
         return err(c, 409, 'busy')
       }
@@ -359,7 +379,7 @@ export function installPj(app: any, d: Deps) {
     // チームは 野球・サッカー それぞれ 30人まで（PJ_SPORTMODE_V1）
     else if (st.ro.filter((r: any) => (r.k[0] === 'b') === (k[0] === 'b')).length < TEAM_MAX) { st.ro.push({ k, s: ctx.today, e: 0 }); kind = z ? 'back' : 'new' }
     else { st.pd = k; kind = 'full' }
-    const okSave = await save(c.env, w.u.id, st, b.ver)
+    const okSave = await save(c.env, w.sid, st, b.ver)
     if (!okSave) {
       if (!w.test) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }   // 保存できなければ 返す
       return err(c, 409, 'busy')
@@ -382,7 +402,7 @@ export function installPj(app: any, d: Deps) {
       st.ro.push({ k: st.pd, s: ctx.today, e: 0 })
     }
     st.pd = null
-    if (!(await save(c.env, w.u.id, st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, w.sid, st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, w, st, ctx))
   })
 
@@ -394,7 +414,7 @@ export function installPj(app: any, d: Deps) {
     const i = st.ro.findIndex((r: any) => r.k === String(body && body.k))
     if (i < 0) return err(c, 400, 'k')
     st.ro.splice(i, 1)
-    if (!(await save(c.env, w.u.id, st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, w.sid, st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, w, st, ctx))
   })
 
@@ -412,7 +432,7 @@ export function installPj(app: any, d: Deps) {
     const k = String(body && body.k || ''), sp = k.indexOf('mb:') === 0 ? 'bb' : (k.indexOf('ms:') === 0 ? 'sc' : '')
     if (!sp || !(b.st.mg || {})[k]) return err(c, 400, 'k')
     b.st.cm = b.st.cm || {}; b.st.cm[sp] = k
-    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, b.st, b.ctx))
   })
 
@@ -423,7 +443,7 @@ export function installPj(app: any, d: Deps) {
     b.st.od = b.st.od || {}
     b.st.od[sp] = body && body.od && typeof body.od === 'object' ? body.od : {}
     b.st.od = cleanOrder(b.st)
-    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, b.st, b.ctx))
   })
 
@@ -462,7 +482,7 @@ export function installPj(app: any, d: Deps) {
       if (m) { st.mg[String(m.k)] = { f: ctx.today }; st.cm[sp] = String(m.k) }
     }
     st.sg[sp] = ctx.today
-    if (!(await save(c.env, b.w.u.id, st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, b.w.sid, st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, st, ctx, { starter: { sport: sp, n: got.length } }))
   })
 
@@ -480,7 +500,7 @@ export function installPj(app: any, d: Deps) {
     const b = await begin(c); if (b.res) return b.res
     const p = await practiceInfo(c, b.w, b.st, b.ctx)
     if (!p.can) return err(c, 403, p.hw ? 'practice_used' : 'practice_hw')
-    if (!b.w.test) { b.st.pr = { d: p.day, n: 1 }; if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy') }
+    if (!b.w.test) { b.st.pr = { d: p.day, n: 1 }; if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy') }
     return c.json({ ok: true })
   })
 
@@ -490,14 +510,14 @@ export function installPj(app: any, d: Deps) {
     const sp = body && body.sport === 'sc' ? 'sc' : 'bb', v = [Math.floor(Number(body && body.a)), Math.floor(Number(body && body.b))]
     if (!tnName(sp, v)) return err(c, 400, 'name')
     b.st.tn = b.st.tn || {}; b.st.tn[sp] = v
-    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, b.st, b.ctx))
   })
 
   app.post('/api/pj/news-seen', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
     b.st.nw = []
-    await save(c.env, b.w.u.id, b.st, b.ver)
+    await save(c.env, b.w.sid, b.st, b.ver)
     return c.json({ ok: true })
   })
 
@@ -546,7 +566,7 @@ export function installPj(app: any, d: Deps) {
   const LG_TIME = '12:40', LG_BUILD = '12:30', LG_SIZE = 6
   function nowHM() { const d = new Date(Date.now() + 9 * 3600 * 1000); return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0') }
   function mondayOf(dk: string) { const w = new Date(dk + 'T00:00:00Z').getUTCDay(); return d.addDay(dk, w === 0 ? -6 : 1 - w) }
-  function lgCid(w: any) { return w.test ? 'T:' + w.u.id : w.classId }
+  function lgCid(w: any) { return w.test ? 'T:' + w.u.id : w.gachi ? 'G:' + w.u.id : w.classId }
   function seedOf(...xs: any[]) { let h = 2166136261; for (const ch of xs.join('|')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) } return h >>> 0 }
   async function ensureLg(env: any) {
     for (const q of ["CREATE TABLE IF NOT EXISTS pj_league (cid TEXT NOT NULL, wk TEXT NOT NULL, sp TEXT NOT NULL, j TEXT NOT NULL, ver INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (cid, wk, sp))",
@@ -602,7 +622,8 @@ export function installPj(app: any, d: Deps) {
     return R
   }
   async function weekDays(c: any, w: any, wk: string) {
-    const rest = w.classId ? await d.classRest(c.env, w.classId) : {}
+    const rc = w.classId || w.restCid || ''
+    const rest = rc ? await d.classRest(c.env, rc) : {}
     const out: string[] = []
     for (let i = 0; i < 5; i++) { const dk = d.addDay(wk, i); if (!d.isRest(dk, rest)) out.push(dk) }
     return out
@@ -698,15 +719,15 @@ export function installPj(app: any, d: Deps) {
       if (L) { await lgSave(c.env, cid, wk, sp, L, 0); row = await lgLoad(c.env, cid, wk, sp) }
     }
     const nwk = d.addDay(wk, 7)
-    const ent = await c.env.DB.prepare('SELECT wk FROM pj_lentry WHERE cid=? AND sp=? AND uid=? AND wk IN (?,?)').bind(cid, sp, String(w.u.id), wk, nwk).all()
+    const ent = await c.env.DB.prepare('SELECT wk FROM pj_lentry WHERE cid=? AND sp=? AND uid=? AND wk IN (?,?)').bind(cid, sp, String(w.sid), wk, nwk).all()
     const myE: any = {}; ((ent && ent.results) || []).forEach((x: any) => { myE[x.wk] = 1 })
     const out: any = { ok: true, sp, wk, today: ctx.today, now: nowHM(), time: LG_TIME, entryThis: !!myE[wk], entryNext: !!myE[nwk], canEnterThis: !row && !buildOk, test: !!w.test, league: null }
     if (!row) return out
     const L = row.L
     if (await freeze(c, w, L, ctx)) { if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++ }
-    const gi = L.groups.findIndex((g: any) => g.teams.some((t: any) => t.uid === String(w.u.id)))
+    const gi = L.groups.findIndex((g: any) => g.teams.some((t: any) => t.uid === String(w.sid)))
     if (gi < 0) { out.league = { joined: false, groups: L.groups.length }; return out }
-    const me = L.groups[gi].teams.findIndex((t: any) => t.uid === String(w.u.id))
+    const me = L.groups[gi].teams.findIndex((t: any) => t.uid === String(w.sid))
     const views = ((b.st.lv || {})[wk] || {})
     out.league = {
       joined: true, g: gi, groups: L.groups.length, me, teams: L.groups[gi].teams.map((t: any) => ({ name: t.name, cpu: !!t.cpu })),
@@ -726,8 +747,8 @@ export function installPj(app: any, d: Deps) {
     const sp = body && body.sport === 'sc' ? 'sc' : 'bb', cid = lgCid(b.w), wk0 = mondayOf(b.ctx.today)
     const wk = body && body.week === 'this' ? wk0 : d.addDay(wk0, 7)
     if (body && body.week === 'this') { const row = await lgLoad(c.env, cid, wk0, sp); if (row || (!b.w.test && (b.ctx.today > wk0 || nowHM() >= LG_BUILD))) return err(c, 409, 'closed') }
-    if (body && body.on === false) await c.env.DB.prepare('DELETE FROM pj_lentry WHERE cid=? AND wk=? AND sp=? AND uid=?').bind(cid, wk, sp, String(b.w.u.id)).run()
-    else await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(cid, wk, sp, String(b.w.u.id)).run()
+    if (body && body.on === false) await c.env.DB.prepare('DELETE FROM pj_lentry WHERE cid=? AND wk=? AND sp=? AND uid=?').bind(cid, wk, sp, String(b.w.sid)).run()
+    else await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(cid, wk, sp, String(b.w.sid)).run()
     return c.json(await lgView(c, Object.assign(b, { cid, wk: wk0 }), sp))
   })
   // 試合の じゅんび（計算 または 観戦）：両チームの こおらせた オーダーと たねを わたす
@@ -759,7 +780,7 @@ export function installPj(app: any, d: Deps) {
       const v = b.st.lv[b.wk] = b.st.lv[b.wk] || {}, key = sp + ':' + fx.id
       if (!b.w.test && (Number(v[key]) || 0) >= 2) return err(c, 403, 'watch_limit')
       v[key] = (Number(v[key]) || 0) + 1
-      if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+      if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
       void day
     }
     return c.json(Object.assign({ ok: true }, fx))
@@ -787,7 +808,7 @@ export function installPj(app: any, d: Deps) {
     const body = await c.req.json().catch(() => ({}))
     const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
     await c.env.DB.prepare('DELETE FROM pj_league WHERE cid=? AND sp=?').bind(b.cid, sp).run()
-    await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(b.cid, b.wk, sp, String(b.w.u.id)).run()
+    await c.env.DB.prepare("INSERT OR IGNORE INTO pj_lentry (cid, wk, sp, uid, created_at) VALUES (?,?,?,?,datetime('now'))").bind(b.cid, b.wk, sp, String(b.w.sid)).run()
     return c.json(await lgView(c, b, sp))
   })
 
@@ -801,9 +822,9 @@ export function installPj(app: any, d: Deps) {
     else if (body.act === 'coins') st.tc = (Number(st.tc) || 0) + 1000
     else if (body.act === 'reset') { const n = blank(); Object.keys(st).forEach((k) => delete st[k]); Object.assign(st, n) }
     else return err(c, 400, 'act')
-    if (!(await save(c.env, b.w.u.id, st, b.ver))) return err(c, 409, 'busy')
+    if (!(await save(c.env, b.w.sid, st, b.ver))) return err(c, 409, 'busy')
     const ctx = await dayCtx(c, b.w, st)
-    retire(st, ctx); await save(c.env, b.w.u.id, st, b.ver + 1)
+    retire(st, ctx); await save(c.env, b.w.sid, st, b.ver + 1)
     return c.json(await view(c, b.w, st, ctx))
   })
 
