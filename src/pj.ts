@@ -16,6 +16,7 @@ type Deps = {
   addDay: (dk: string, n: number) => string
   ownsClass: (c: any, u: any, classId: string) => Promise<any>
   weekKey: (offsetDays?: number) => string
+  weekOf: (dk: string) => string
 }
 
 const PRICES = [200, 300, 400]
@@ -135,7 +136,10 @@ async function who(c: any, d: any) {
   // 先週 か 今週、どちらかの 学習計画が 承認された子が つかえる（PJ_PLANGATE_V3：先週 がんばった子は 月曜から、今週 早く 出した子は 承認された その時から）
   let plan = false
   try { const q = await c.env.DB.prepare('SELECT 1 AS a FROM student_weekly_plans WHERE user_id=? AND week_key IN (?, ?) AND plan_approved=1 LIMIT 1').bind(String(u.id), d.weekKey(-7), d.weekKey(0)).first(); plan = !!q } catch (_e) { plan = false }
-  return { u, test: false, classId: String(m.cid), plan }
+  // 承認された 週（契約の 日数を 数えるのに つかう：つかえない 週は 日数を へらさない＝PJ_PAUSE_CONTRACT_V1）
+  let apw: string[] = []
+  try { const r = await c.env.DB.prepare('SELECT week_key AS w FROM student_weekly_plans WHERE user_id=? AND plan_approved=1').bind(String(u.id)).all(); apw = ((r && r.results) || []).map((x: any) => String(x.w)) } catch (_e) { apw = [] }
+  return { u, test: false, classId: String(m.cid), plan, apw }
 }
 
 function blank() { return { ro: [], zk: {}, by: { d: '', n: 0 }, pd: null, nw: [], tc: TEST_COINS, off: 0, mg: {}, cm: {} } }
@@ -202,7 +206,11 @@ export function installPj(app: any, d: Deps) {
     let today = jstToday()
     if (w.test && st.off) today = d.addDay(today, Number(st.off) || 0)
     const rest = w.classId ? await d.classRest(c.env, w.classId) : {}
-    const school = (dk: string) => !d.isRest(dk, rest)
+    // 子どもは「先週か今週の 計画が 承認された 週」の 学校の日だけ 数える（つかえない 週は 契約が へらない）
+    const ap: any = {}; (w.apw || []).forEach((x: string) => { ap[x] = 1 })
+    const okWeek: any = {}
+    const allowed = (dk: string) => { if (w.test) return true; const wk = d.weekOf(dk); if (!(wk in okWeek)) okWeek[wk] = !!(ap[wk] || ap[d.weekOf(d.addDay(dk, -7))]); return okWeek[wk] }
+    const school = (dk: string) => !d.isRest(dk, rest) && allowed(dk)
     return { today, school }
   }
   function used(start: string, today: string, school: any) {

@@ -445,7 +445,8 @@ installPj(app, {
   isRest: (dk: string, extra: any) => khtIsRest(dk, extra),
   addDay: (dk: string, n: number) => khtAddDay(dk, n),
   ownsClass: (c: any, u: any, classId: string) => aiDraftOwnsClass(c, u, classId),
-  weekKey: (off?: number) => getWeekKey(new Date(Date.now() + 9 * 3600 * 1000 + (Number(off) || 0) * 86400000))
+  weekKey: (off?: number) => getWeekKey(new Date(Date.now() + 9 * 3600 * 1000 + (Number(off) || 0) * 86400000)),
+  weekOf: (dk: string) => getWeekKey(new Date(dk + 'T12:00:00Z'))
 })
 
 // -------------------- NGワードフィルター --------------------
