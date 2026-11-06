@@ -326,9 +326,24 @@
       });
     };
   }
+  function nameBox() {
+    var nm = (S.teamName || {})[SP] || '', o = S.tnOpts || { a: [], bb: [], sc: [] }, sel = (S.tnSel || {})[SP] || [0, 0];
+    return '<div class="box"><div class="kind">🏷 チーム名</div><div class="row"><div class="nm"><b style="font-size:19px">' + esc(nm || 'まだ きめていないよ') + '</b><span>リーグの 順位表や 試合に 出る 名前だよ（ことばを 2つ えらんで つくる）</span></div>'
+      + '<button class="btn sm sub" id="tnOpen">かえる</button></div><div id="tnEdit" style="display:none;margin-top:6px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      + '<select id="tnA" class="pkq" style="width:auto;margin:0">' + o.a.map(function (x, i) { return '<option value="' + i + '"' + (i === Number(sel[0]) ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'
+      + '<select id="tnB" class="pkq" style="width:auto;margin:0">' + (o[SP] || []).map(function (x, i) { return '<option value="' + i + '"' + (i === Number(sel[1]) ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'
+      + '<b id="tnPrev" style="font-size:17px"></b><button class="btn sm" id="tnSave">けってい</button></div><div class="note">今週の リーグに もう 入っているときは、来週の リーグから かわるよ。</div></div></div>';
+  }
+  function wireName() {
+    var o = S.tnOpts || { a: [], bb: [], sc: [] }, op = $('tnOpen'); if (!op) return;
+    var prev = function () { var a = o.a[+$('tnA').value], b = (o[SP] || [])[+$('tnB').value]; $('tnPrev').textContent = '→ ' + (b === 'FC' || b === 'SC' ? b + a : a + b); };
+    op.onclick = function () { $('tnEdit').style.display = ''; op.style.display = 'none'; prev(); };
+    $('tnA').onchange = prev; $('tnB').onchange = prev;
+    $('tnSave').onclick = function () { act('/api/pj/teamname', { sport: SP, a: +$('tnA').value, b: +$('tnB').value }); };
+  }
   function paneTeam() {
     var R = myRoster();
-    if (!R.length) { $('pane').innerHTML = mgrBox() + '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; wireMgr(); return; }
+    if (!R.length) { $('pane').innerHTML = nameBox() + mgrBox() + '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; wireMgr(); wireName(); return; }
     var soon = R.filter(function (r) { return r.left <= 5; }), rest = R.filter(function (r) { return r.left > 5; });
     function list(arr) {
       return arr.map(function (r) {
@@ -337,12 +352,12 @@
           + leftTag(r.left) + '<button class="btn sm sub" data-free="' + esc(r.k) + '">自由契約</button></div>';
       }).join('');
     }
-    var h = mgrBox();
+    var h = nameBox() + mgrBox();
     if (soon.length) h += '<div class="box"><div class="kind" style="color:#c2410c">もうすぐ 引退する 選手</div>' + list(soon) + '</div>';
     if (rest.length) h += '<div class="box"><div class="kind">チームの 選手</div>' + list(rest) + '</div>';
     $('pane').innerHTML = h;
     document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { var k = e.getAttribute('data-open'), p = S.players[k]; show3D(k, p ? p.n : ''); }; });
-    wireMgr();
+    wireMgr(); wireName();
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
 
@@ -655,10 +670,10 @@
     window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } }); };
     api('/api/pj/cpu-team?s=bb&lv=' + PLV).then(function (cpu) {
       if (!cpu || !cpu.ok) { alert('あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
-      var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids, cc: cpu.coach || '' };
+      var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids, cc: cpu.coach || '', name: (S.teamName && S.teamName.bb) || 'きみのチーム' };
       openGame('bb', '🏟 練習試合', function (w) {
         w.__pjEval('(function(o){var MK=Object.keys(MGR_S);var mi=Math.max(0,MK.indexOf(o.coach));'
-          + 'var data={cfg:{rosterSizes:{bench:3,sp:o.nsp,rp:3},mode:"free",defenseTactics:1},teams:[{human:1,teamName:"きみのチーム",seat:0},{seat:1}]};'
+          + 'var data={cfg:{rosterSizes:{bench:3,sp:o.nsp,rp:3},mode:"free",defenseTactics:1},teams:[{human:1,teamName:o.name,seat:0},{seat:1}]};'
           + 'var B=o.B.slice(0,12).concat(o.B.slice(12,12+o.nsp)).concat(o.B.slice(14));'
           + 'var cmi=MK.indexOf(o.cc);var mt={pair:[0,1],round:0,seed:1,lineups:[{ids:o.A,order:o.order,rotation:o.nsp>1?[0,1]:[0],manager:mi},{ids:B,order:[0,1,2,3,4,5,6,7,8],rotation:o.nsp>1?[0,1]:[0],manager:cmi<0?Math.floor(Math.random()*MK.length):cmi}]};'
           + 'S=bbLeagueFixture(data,mt);delete S.leagueSeed;'
@@ -802,7 +817,7 @@
     if (SP === 'bb') return startPracticeBB();
     var o = S.order.sc, mk = function (k) { var p = S.players[k]; return p && p.mk ? String(p.mk).slice(1) : null; };
     var cm = S.mgr && S.mgr.sc, coach = cm && S.players[cm] ? S.players[cm].n : '';
-    var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: 'きみのチーム' };
+    var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: (S.teamName && S.teamName.sc) || 'きみのチーム' };
     window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } }); };
     api('/api/pj/cpu-team?s=sc&lv=' + PLV).then(function (cpu) {
     if (!cpu || !cpu.ok) { alert('あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }

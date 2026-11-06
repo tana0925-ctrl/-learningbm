@@ -173,6 +173,19 @@ function cleanOrder(st: any) {
   return out
 }
 
+// 🏷 チーム名（PJ_TEAMNAME_V1）：ことばを 2つ えらんで くみあわせる（自由入力は しない＝本名・からかいが 入らない）
+const TN_A = ['ひかり', 'かぜ', 'そら', 'ほのお', 'いなずま', 'にじ', 'ほし', 'たいよう', 'つき', 'うみ', 'もり', 'さくら', 'ゆき', 'あおぞら', 'みらい', 'ゆうき', 'きぼう', 'はやぶさ', 'サンダー', 'スター', 'ブレイブ', 'ミラクル', 'ドリーム', 'ロケット', 'ギャラクシー', 'ゴールデン', 'スーパー', 'ファイヤー', 'アクア', 'シャイン']
+const TN_B: any = {
+  bb: ['イーグルス', 'タイガース', 'ドラゴンズ', 'スターズ', 'ホークス', 'ライオンズ', 'マリンズ', 'ベアーズ', 'ファルコンズ', 'ウェーブズ', 'サンダーズ', 'フェニックス', 'ジャガーズ', 'パイレーツ', 'ブルース', 'ファイターズ'],
+  sc: ['FC', 'ユナイテッド', 'シティ', 'ローヴァーズ', 'ワンダラーズ', 'アスレチック', 'レンジャーズ', 'ウィングス', 'ヴィクトリー', 'ドリームズ', 'スターズ', 'ファイターズ', 'SC', 'ユース']
+}
+function tnName(sp: string, v: any) {
+  if (!Array.isArray(v)) return ''
+  const a = TN_A[Number(v[0])], b = (TN_B[sp] || [])[Number(v[1])]
+  if (!a || !b) return ''
+  return b === 'FC' || b === 'SC' ? b + a : a + b
+}
+
 export function installPj(app: any, d: Deps) {
   // 練習試合が できるか（家庭学習の「学習日」＝朝8:30 区切り。先生の ためしモードは いつでも）
   async function practiceInfo(c: any, w: any, st: any, ctx: any) {
@@ -232,6 +245,7 @@ export function installPj(app: any, d: Deps) {
       ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
+      teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: await practiceInfo(c, w, st, ctx),
       mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
       pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
@@ -462,6 +476,16 @@ export function installPj(app: any, d: Deps) {
     return c.json({ ok: true })
   })
 
+  app.post('/api/pj/teamname', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb', v = [Math.floor(Number(body && body.a)), Math.floor(Number(body && body.b))]
+    if (!tnName(sp, v)) return err(c, 400, 'name')
+    b.st.tn = b.st.tn || {}; b.st.tn[sp] = v
+    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await view(c, b.w, b.st, b.ctx))
+  })
+
   app.post('/api/pj/news-seen', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
     b.st.nw = []
@@ -586,7 +610,8 @@ export function installPj(app: any, d: Deps) {
     let ni = 0
     for (let g = 0; g < ng; g++) {
       const mem = uids.filter((_: any, i: number) => i % ng === g)
-      const teams: any[] = mem.map((u: string) => ({ uid: u, name: names[(ni++) % names.length] }))
+      const teams: any[] = []
+      for (const u of mem) { let nm = ''; try { const L0 = await load(c.env, u); nm = tnName(sp, (L0.st.tn || {})[sp]) } catch (_e) {} if (!nm) nm = names[(ni++) % names.length]; let k = 2, base = nm; while (teams.some((t: any) => t.name === nm)) nm = base + '②③④⑤⑥'.charAt(k++ - 2); teams.push({ uid: u, name: nm }) }
       while (teams.length < LG_SIZE) teams.push({ cpu: 1, name: 'CPU ' + names[(ni++) % names.length], roster: await cpuRoster(c.env, sp), coach: await cpuCoach(c.env, sp) })
       groups.push({ teams })
     }
