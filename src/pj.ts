@@ -157,6 +157,22 @@ async function save(env: any, uid: string, st: any, ver: number) {
   return !!(r && r.meta && Number(r.meta.changes) === 1)
 }
 
+// 📋 オーダー（PJ_ORDER_V1）：野球＝スタメン9（打順・守備）＋先発2・中継ぎ3・抑え1・控え野手3／サッカー＝フォーメーション＋11人＋ベンチ5
+const BB_POS = ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH']
+const SC_FORMS = ['4-4-2', '4-3-3', '4-2-3-1', '3-5-2', '3-4-2-1']
+const LIM: any = { SP: 2, RP: 3, CL: 1, BN: 3, B: 5 }
+function cleanOrder(st: any) {
+  const have: any = {}; (st.ro || []).forEach((r: any) => { have[r.k] = 1 })
+  const od = st.od || {}, out: any = {}
+  const bb = od.bb || {}, used: any = {}
+  const ok = (k: any, b: boolean) => typeof k === 'string' && have[k] && (k[0] === 'b') === b && !used[k] && (used[k] = 1)
+  out.bb = { L: (bb.L || []).filter((x: any) => x && BB_POS.indexOf(x.p) >= 0 && ok(x.k, true)).slice(0, 9) }
+  ;['SP', 'RP', 'CL', 'BN'].forEach((g) => { out.bb[g] = (bb[g] || []).filter((k: any) => ok(k, true)).slice(0, LIM[g]) })
+  const sc = od.sc || {}
+  out.sc = { f: SC_FORMS.indexOf(sc.f) >= 0 ? sc.f : '4-3-3', L: (sc.L || []).slice(0, 11).map((k: any) => (k && ok(k, false)) ? k : null), B: (sc.B || []).filter((k: any) => ok(k, false)).slice(0, LIM.B) }
+  return out
+}
+
 export function installPj(app: any, d: Deps) {
   // その子の「きょう」と 休みの日
   async function dayCtx(c: any, w: any, st: any) {
@@ -206,6 +222,7 @@ export function installPj(app: any, d: Deps) {
       ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
+      order: cleanOrder(st),
       mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
       pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
     }, extra || {})
@@ -363,6 +380,17 @@ export function installPj(app: any, d: Deps) {
     const k = String(body && body.k || ''), sp = k.indexOf('mb:') === 0 ? 'bb' : (k.indexOf('ms:') === 0 ? 'sc' : '')
     if (!sp || !(b.st.mg || {})[k]) return err(c, 400, 'k')
     b.st.cm = b.st.cm || {}; b.st.cm[sp] = k
+    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await view(c, b.w, b.st, b.ctx))
+  })
+
+  app.post('/api/pj/order', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb'
+    b.st.od = b.st.od || {}
+    b.st.od[sp] = body && body.od && typeof body.od === 'object' ? body.od : {}
+    b.st.od = cleanOrder(b.st)
     if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, b.w, b.st, b.ctx))
   })

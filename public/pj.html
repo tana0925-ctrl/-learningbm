@@ -62,6 +62,9 @@
   @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
   .lvg { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:13px; }
   .lvg i { color:#f59e0b; font-style:normal; letter-spacing:1px; }
+  .row.od select { min-height:40px; font-size:15px; border:1.5px solid #d1d5db; border-radius:9px; padding:4px 6px; background:#fff; max-width:100%; }
+  .row.od .no { width:26px; text-align:center; font-size:17px; color:#047857; }
+  .row.od .mv { display:flex; gap:3px; }
   .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
   .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -198,11 +201,12 @@
     var h = '<div class="spbar" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"><b>' + spName() + '</b><button class="btn sm sub" id="spChg">⚾⚽ きりかえる</button></div>'
       + '<div class="tabs"><button data-tab="scout" class="' + (TAB === 'scout' ? 'on' : '') + '">🎟 スカウト</button>'
       + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + myRoster().length + '/' + S.teamMax + '）</button>'
+      + '<button data-tab="order" class="' + (TAB === 'order' ? 'on' : '') + '">📋 オーダー</button>'
       + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + zn + '）</button></div><div id="pane"></div>';
     $('main').innerHTML = h;
     $('spChg').onclick = function () { SP = null; try { localStorage.removeItem('pjSport'); } catch (e) {} render(); };
     $('main').querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { TAB = b.getAttribute('data-tab'); render(); }; });
-    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else paneZukan();
+    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else if (TAB === 'order') paneOrder(); else paneZukan();
   }
 
   function chooser() {
@@ -294,6 +298,125 @@
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
 
+  // 📋 オーダー（PJ_ORDER_V1）
+  var BBP = [['C', '捕', /捕手/], ['1B', '一', /一塁手/], ['2B', '二', /二塁手/], ['3B', '三', /三塁手/], ['SS', '遊', /遊撃手/], ['LF', '左', /外野手/], ['CF', '中', /外野手/], ['RF', '右', /外野手/], ['DH', '指', null]];
+  var BBG = [['SP', '先発投手', 2, /先発/], ['RP', '中継ぎ', 3, /中継ぎ/], ['CL', '抑え', 1, /抑え/], ['BN', '控えの 野手', 3, null]];
+  var FORMS = {
+    '4-4-2': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['左MF', 'MF'], ['CMF', 'MF'], ['CMF', 'MF'], ['右MF', 'MF'], ['FW', 'FW'], ['FW', 'FW']],
+    '4-3-3': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['DMF', 'MF'], ['CMF', 'MF'], ['CMF', 'MF'], ['左WG', 'FW'], ['CF', 'FW'], ['右WG', 'FW']],
+    '4-2-3-1': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['DMF', 'MF'], ['DMF', 'MF'], ['左WG', 'FW'], ['トップ下', 'MF'], ['右WG', 'FW'], ['CF', 'FW']],
+    '3-5-2': [['GK', 'GK'], ['CB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['左WB', 'DF'], ['CMF', 'MF'], ['DMF', 'MF'], ['CMF', 'MF'], ['右WB', 'DF'], ['FW', 'FW'], ['FW', 'FW']],
+    '3-4-2-1': [['GK', 'GK'], ['CB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['左WB', 'DF'], ['DMF', 'MF'], ['DMF', 'MF'], ['右WB', 'DF'], ['シャドー', 'MF'], ['シャドー', 'MF'], ['CF', 'FW']]
+  };
+  var SCG = { GK: /ゴールキーパー/, DF: /センターバック|サイドバック/, MF: /守備的MF|攻撃的MF/, FW: /ウイング|センターフォワード/ };
+  var OD = null;
+  function isPitcher(p) { return /^投手/.test(p && p.pos || ''); }
+  function score(p) {
+    if (!p) return 0; var a = p.ab || {}, s = 0;
+    if (p.s === 'bb') s = isPitcher(p) ? (Number(a.velo) || 140) - 100 + (Number(a.ctrl) || 50) + (Number(a.stam) || 50) : (Number(a.meet) || 50) + (Number(a.power) || 50) + (Number(a.run) || 50) * .5 + (Number(a.field) || 50) * .5;
+    else Object.keys(a).forEach(function (k) { s += Number(a[k]) || 0; });
+    return s + (p.st || 1) * 10;
+  }
+  function eligBB(p, re, pitcherSlot) { if (!p) return false; if (pitcherSlot) return re ? re.test(p.pos || '') && isPitcher(p) : isPitcher(p); return !isPitcher(p) && (!re || re.test(p.pos || '')); }
+  function odInit() { OD = JSON.parse(JSON.stringify((S.order && S.order[SP]) || {})); if (SP === 'bb') { OD.L = OD.L || []; BBG.forEach(function (g) { OD[g[0]] = OD[g[0]] || []; }); } else { OD.f = OD.f || '4-3-3'; OD.L = OD.L || []; OD.B = OD.B || []; } }
+  function usedSet(except) {
+    var u = {}; if (SP === 'bb') { OD.L.forEach(function (x, i) { if (x && x.k && except !== 'L' + i) u[x.k] = 1; }); BBG.forEach(function (g) { (OD[g[0]] || []).forEach(function (k, i) { if (k && except !== g[0] + i) u[k] = 1; }); }); }
+    else { OD.L.forEach(function (k, i) { if (k && except !== 'L' + i) u[k] = 1; }); OD.B.forEach(function (k, i) { if (k && except !== 'B' + i) u[k] = 1; }); }
+    return u;
+  }
+  function opts(cur, filter, slotId) {
+    var u = usedSet(slotId), R = myRoster().map(function (r) { return S.players[r.k] ? r.k : null; }).filter(Boolean);
+    R = R.filter(function (k) { return filter(S.players[k]); }).sort(function (a, b) { return score(S.players[b]) - score(S.players[a]); });
+    var h = '<option value="">（えらぶ）</option>';
+    R.forEach(function (k) { var p = S.players[k]; h += '<option value="' + esc(k) + '"' + (k === cur ? ' selected' : '') + '>' + esc((u[k] ? '↔ ' : '') + '★'.repeat(p.st || 1) + ' ' + p.n + '（' + p.pos + '）') + '</option>'; });
+    return h;
+  }
+  function paneOrder() {
+    if (!OD || OD._sp !== SP) { odInit(); OD._sp = SP; }
+    var h = '<div class="box"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="flex:1;font-size:16px">📋 ' + spName() + 'の オーダー</b>'
+      + '<button class="btn sub" id="odAuto">✨ おまかせで 組む</button><button class="btn" id="odSave">💾 ほぞんする</button></div>'
+      + '<div class="note">チームの 選手から えらぶよ。「↔」が ついた 選手は ほかの ところに 入っているので、えらぶと 入れかわるよ。</div></div>';
+    if (SP === 'bb') {
+      h += '<div class="box"><div class="kind">⚾ スタメン 9人（上から 打順）</div>';
+      for (var i = 0; i < 9; i++) {
+        var x = OD.L[i] || {}, posOpts = BBP.map(function (q) { return '<option value="' + q[0] + '"' + (x.p === q[0] ? ' selected' : '') + '>' + q[1] + '</option>'; }).join('');
+        var pd = BBP.filter(function (q) { return q[0] === x.p; })[0];
+        h += '<div class="row od"><b class="no">' + (i + 1) + '</b><span class="mv"><button class="btn sm sub" data-up="' + i + '">▲</button><button class="btn sm sub" data-dn="' + i + '">▼</button></span>'
+          + '<select data-lp="' + i + '"><option value="">守備</option>' + posOpts + '</select>'
+          + '<select data-lk="' + i + '" style="flex:1">' + opts(x.k, function (p) { return eligBB(p, pd ? pd[2] : null, false); }, 'L' + i) + '</select></div>';
+      }
+      h += '</div>';
+      BBG.forEach(function (g) {
+        h += '<div class="box"><div class="kind">' + (g[0] === 'BN' ? '🧢 ' : '⚾ ') + g[1] + '（' + g[2] + '人）</div>';
+        for (var j = 0; j < g[2]; j++) h += '<div class="row od"><select data-g="' + g[0] + '" data-gi="' + j + '" style="flex:1">' + opts((OD[g[0]] || [])[j], function (p) { return g[0] === 'BN' ? eligBB(p, null, false) : eligBB(p, g[3], true); }, g[0] + j) + '</select></div>';
+        h += '</div>';
+      });
+    } else {
+      var F = FORMS[OD.f] || FORMS['4-3-3'];
+      h += '<div class="box"><div class="kind">⚽ フォーメーション</div><div class="filters">' + Object.keys(FORMS).map(function (f) { return '<button data-form="' + f + '" class="' + (OD.f === f ? 'on' : '') + '">' + f + '</button>'; }).join('') + '</div>';
+      h += '<div class="kind" style="margin-top:6px">スタメン 11人</div>';
+      F.forEach(function (sl, i) { h += '<div class="row od"><b class="no" style="width:62px">' + esc(sl[0]) + '</b><select data-sk="' + i + '" style="flex:1">' + opts(OD.L[i], function (p) { return sl[1] === 'GK' ? SCG.GK.test(p.pos || '') : !SCG.GK.test(p.pos || ''); }, 'L' + i) + '</select></div>'; });
+      h += '</div><div class="box"><div class="kind">🪑 ベンチ（5人）</div>';
+      for (var b = 0; b < 5; b++) h += '<div class="row od"><select data-sb="' + b + '" style="flex:1">' + opts(OD.B[b], function () { return true; }, 'B' + b) + '</select></div>';
+      h += '</div>';
+    }
+    $('pane').innerHTML = h;
+    wireOrder();
+  }
+  function takeFrom(k, slotId) {
+    if (!k) return;
+    if (SP === 'bb') { OD.L.forEach(function (x, i) { if (x && x.k === k && slotId !== 'L' + i) x.k = null; }); BBG.forEach(function (g) { (OD[g[0]] || []).forEach(function (v, i) { if (v === k && slotId !== g[0] + i) OD[g[0]][i] = null; }); }); }
+    else { OD.L.forEach(function (v, i) { if (v === k && slotId !== 'L' + i) OD.L[i] = null; }); OD.B.forEach(function (v, i) { if (v === k && slotId !== 'B' + i) OD.B[i] = null; }); }
+  }
+  function wireOrder() {
+    var q = function (sel, fn) { document.querySelectorAll(sel).forEach(fn); };
+    q('[data-up]', function (b) { b.onclick = function () { var i = +b.getAttribute('data-up'); if (i > 0) { var t = OD.L[i - 1]; OD.L[i - 1] = OD.L[i]; OD.L[i] = t; paneOrder(); } }; });
+    q('[data-dn]', function (b) { b.onclick = function () { var i = +b.getAttribute('data-dn'); if (i < 8) { var t = OD.L[i + 1]; OD.L[i + 1] = OD.L[i]; OD.L[i] = t; paneOrder(); } }; });
+    q('[data-lp]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-lp'); OD.L[i] = OD.L[i] || {}; var v = s.value; if (v && v !== 'DH') OD.L.forEach(function (x, j) { if (j !== i && x && x.p === v) x.p = ''; }); if (v === 'DH') OD.L.forEach(function (x, j) { if (j !== i && x && x.p === 'DH') x.p = ''; }); OD.L[i].p = v; paneOrder(); }; });
+    q('[data-lk]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-lk'); takeFrom(s.value, 'L' + i); OD.L[i] = OD.L[i] || {}; OD.L[i].k = s.value || null; paneOrder(); }; });
+    q('[data-g]', function (s) { s.onchange = function () { var g = s.getAttribute('data-g'), i = +s.getAttribute('data-gi'); takeFrom(s.value, g + i); OD[g][i] = s.value || null; paneOrder(); }; });
+    q('[data-form]', function (b) { b.onclick = function () { OD.f = b.getAttribute('data-form'); paneOrder(); }; });
+    q('[data-sk]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-sk'); takeFrom(s.value, 'L' + i); OD.L[i] = s.value || null; paneOrder(); }; });
+    q('[data-sb]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-sb'); takeFrom(s.value, 'B' + i); OD.B[i] = s.value || null; paneOrder(); }; });
+    $('odAuto').onclick = function () { autoOrder(); paneOrder(); };
+    $('odSave').onclick = function () {
+      var od = SP === 'bb' ? { L: OD.L.map(function (x) { return x && x.k && x.p ? { k: x.k, p: x.p } : null; }).filter(Boolean), SP: (OD.SP || []).filter(Boolean), RP: (OD.RP || []).filter(Boolean), CL: (OD.CL || []).filter(Boolean), BN: (OD.BN || []).filter(Boolean) }
+        : { f: OD.f, L: OD.L.slice(0, 11), B: OD.B.filter(Boolean) };
+      if (SP === 'bb') { var miss = OD.L.filter(function (x) { return x && x.k && !x.p; }).length; if (miss && !confirm('守備が きまっていない 選手が ' + miss + '人 いるよ。その選手は 入らないけど ほぞんする？')) return; }
+      act('/api/pj/order', { sport: SP, od: od }).then(function (d) { if (d) { OD = null; TAB = 'order'; render(); alert('オーダーを ほぞんしたよ！'); } });
+    };
+  }
+  function autoOrder() {
+    var R = myRoster().map(function (r) { return r.k; }).filter(function (k) { return S.players[k]; }), used = {};
+    var best = function (filter) { var c = R.filter(function (k) { return !used[k] && filter(S.players[k]); }).sort(function (a, b) { return score(S.players[b]) - score(S.players[a]); })[0]; if (c) used[c] = 1; return c || null; };
+    if (SP === 'bb') {
+      var L = [];
+      BBP.forEach(function (q) { if (q[0] !== 'DH') L.push({ p: q[0], k: best(function (p) { return eligBB(p, q[2], false); }) }); });
+      L.push({ p: 'DH', k: best(function (p) { return eligBB(p, null, false); }) });
+      L.forEach(function (x) { if (!x.k) x.k = best(function (p) { return !isPitcher(p); }); });
+      // 打順：ミートと 走力が 高い 選手を 上に、パワーの ある 選手を 3〜5番に
+      var bat = function (x) { var a = (S.players[x.k] || {}).ab || {}; return { k: x, m: (Number(a.meet) || 0) + (Number(a.run) || 0), p: Number(a.power) || 0 }; };
+      var arr = L.filter(function (x) { return x.k; }).map(bat), out = [];
+      arr.sort(function (a, b) { return b.p - a.p; }); var slug = arr.splice(0, 3);
+      arr.sort(function (a, b) { return b.m - a.m; }); var top = arr.splice(0, 2);
+      out = top.concat([slug[1], slug[0], slug[2]].filter(Boolean)).concat(arr).map(function (o) { return o.k; });
+      OD.L = out.concat(L.filter(function (x) { return !x.k; }));
+      OD.SP = [best(function (p) { return eligBB(p, /先発/, true); }), best(function (p) { return eligBB(p, /先発/, true); })];
+      OD.CL = [best(function (p) { return eligBB(p, /抑え/, true); }) || best(function (p) { return isPitcher(p); })];
+      OD.RP = [0, 1, 2].map(function () { return best(function (p) { return eligBB(p, /中継ぎ/, true); }) || best(function (p) { return isPitcher(p); }); });
+      OD.BN = [0, 1, 2].map(function () { return best(function (p) { return !isPitcher(p); }); });
+    } else {
+      var F = FORMS[OD.f] || FORMS['4-3-3'];
+      OD.L = F.map(function () { return null; });
+      F.forEach(function (sl, i) { if (sl[1] === 'GK') OD.L[i] = best(function (p) { return SCG.GK.test(p.pos || ''); }); });
+      var PREF = function (lb) { return /SB|WB/.test(lb) ? /サイドバック/ : lb === 'CB' ? /センターバック/ : /DMF/.test(lb) ? /守備的MF/ : /トップ下|シャドー/.test(lb) ? /攻撃的MF/ : /WG/.test(lb) ? /ウイング/ : /CF|FW/.test(lb) ? /センターフォワード/ : null; };
+      F.forEach(function (sl, i) { var re = PREF(sl[0]); if (sl[1] !== 'GK' && re) OD.L[i] = best(function (p) { return re.test(p.pos || ''); }); });
+      F.forEach(function (sl, i) { if (sl[1] !== 'GK' && !OD.L[i]) OD.L[i] = best(function (p) { return SCG[sl[1]].test(p.pos || ''); }); });
+      F.forEach(function (sl, i) { if (!OD.L[i] && sl[1] !== 'GK') OD.L[i] = best(function (p) { return !SCG.GK.test(p.pos || ''); }); });
+      OD.B = [0, 1, 2, 3, 4].map(function () { return best(function () { return true; }); });
+    }
+  }
+
   // 図鑑＝手作りアプリの 選手名鑑（3D）。かんたん一覧は なし。
   function paneZukan() {
     var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;
@@ -311,7 +434,7 @@
     if (busy) return Promise.resolve(null); busy = true;
     return api(path, body).then(function (d) {
       busy = false;
-      if (d && d.ok) { S = d; ZITEMS = []; ZP = 0; render(); return d; }
+      if (d && d.ok) { S = d; ZITEMS = []; ZP = 0; if (path !== '/api/pj/order') OD = null; render(); return d; }
       if (d && d.error === 'import') { start(); return null; }
       alert(ERR[d && d.error] || 'うまく いかなかったよ。もう一度 ためしてね。');
       return null;
