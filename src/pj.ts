@@ -448,21 +448,9 @@ export function installPj(app: any, d: Deps) {
   app.get('/api/pj/cpu-team', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
     const sp = c.req.query('s') === 'sc' ? 'sc' : 'bb'
-    const want: any[] = sp === 'bb'
-      ? [['捕手'], ['一塁手'], ['二塁手'], ['三塁手'], ['遊撃手'], ['外野手'], ['外野手'], ['外野手'], [''], [''], [''], [''], ['投手', '先発'], ['投手', '先発'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '抑え']]
-      : []
-    const ids: any[] = [], seen: any = {}
-    for (const w of want) {
-      let q = "SELECT k FROM pj_players WHERE s=? AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = [sp]
-      if (w[0]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[0] + '%') } else q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
-      if (w[1]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[1] + '%') }
-      if (w[0] && w[0] !== '投手') q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
-      const r = await c.env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
-      const k = ((r && r.results) || []).map((x: any) => String(x.k)).filter((x: string) => !seen[x])[0]
-      if (k) seen[k] = 1
-      ids.push(k ? Number(k.slice(1)) : null)
-    }
-    return c.json({ ok: true, ids })
+    const lv = ['weak', 'mid', 'strong'].indexOf(String(c.req.query('lv'))) >= 0 ? String(c.req.query('lv')) : 'mid'
+    const r = await cpuRoster(c.env, sp, lv)
+    return c.json(Object.assign({ ok: true, coach: await cpuCoach(c.env, sp) }, r))
   })
 
   // 🏟 練習試合（PJ_PRACTICE_V1）：その日に 家庭学習を 出した子だけ、1日 1回
@@ -544,17 +532,20 @@ export function installPj(app: any, d: Deps) {
   }
   // 名前（子どもの 本名は 出さない）：チーム名は「〇〇の 名前を つかわない」きまった 名前
   const TN = { bb: ['イーグルス', 'タイガース', 'ドラゴンズ', 'スターズ', 'ホークス', 'ライオンズ', 'マリンズ', 'ベアーズ', 'ファルコンズ', 'ウェーブズ', 'サンダーズ', 'フェニックス'], sc: ['FCブルー', 'FCレッド', 'ユナイテッド', 'シティ', 'ローヴァーズ', 'ワンダラーズ', 'アスレチック', 'レンジャーズ', 'FCグリーン', 'スターズFC', 'ウィングス', 'ヴィクトリー'] }
-  async function cpuRoster(env: any, sp: string) {
+  // lv: weak＝★1の 中でも 弱め／mid＝★1〜2／strong＝★2〜3（練習試合の つよさ）
+  async function cpuRoster(env: any, sp: string, lv?: string) {
+    const ST = lv === 'strong' ? "CAST(json_extract(j,'$.st') AS INTEGER) >= 2" : lv === 'weak' ? "CAST(json_extract(j,'$.st') AS INTEGER) = 1" : "CAST(json_extract(j,'$.st') AS INTEGER) <= 2"
+    const pickK = (rows: any[], seen: any) => { const c = rows.filter((x: any) => !seen[x.k]); if (lv === 'weak') c.sort((a: any, b: any) => weakScore(JSON.parse(String(a.j))) - weakScore(JSON.parse(String(b.j)))); return c[0] || null }
     if (sp === 'bb') {
       const want: any[] = [['捕手'], ['一塁手'], ['二塁手'], ['三塁手'], ['遊撃手'], ['外野手'], ['外野手'], ['外野手'], [''], [''], [''], [''], ['投手', '先発'], ['投手', '先発'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '中継ぎ'], ['投手', '抑え']]
       const ids: any[] = [], seen: any = {}
       for (const w of want) {
-        let q = "SELECT k FROM pj_players WHERE s='bb' AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = []
+        let q = "SELECT k, j FROM pj_players WHERE s='bb' AND " + ST, args: any[] = []
         if (w[0]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[0] + '%') }
         if (w[1]) { q += " AND json_extract(j,'$.pos') LIKE ?"; args.push('%' + w[1] + '%') }
         if (w[0] !== '投手') q += " AND json_extract(j,'$.pos') NOT LIKE '投手%'"
-        const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
-        const k = ((r && r.results) || []).map((x: any) => String(x.k)).filter((x: string) => !seen[x])[0]
+        const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 12').bind(...args).all()
+        const x = pickK((r && r.results) || [], seen), k = x ? String(x.k) : null
         if (k) seen[k] = 1
         ids.push(k ? Number(k.slice(1)) : null)
       }
@@ -563,10 +554,10 @@ export function installPj(app: any, d: Deps) {
     const roles: any[] = [['ゴールキーパー'], ['サイドバック'], ['センターバック'], ['センターバック'], ['サイドバック'], ['守備的MF'], ['攻撃的MF'], ['守備的MF'], ['ウイング'], ['センターフォワード'], ['ウイング'], [''], [''], [''], [''], ['']]
     const out: any[] = [], seen: any = {}
     for (const w of roles) {
-      let q = "SELECT k, j FROM pj_players WHERE s='sc' AND CAST(json_extract(j,'$.st') AS INTEGER) <= 2", args: any[] = []
+      let q = "SELECT k, j FROM pj_players WHERE s='sc' AND " + ST, args: any[] = []
       if (w[0]) { q += " AND json_extract(j,'$.pos') = ?"; args.push(w[0]) } else q += " AND json_extract(j,'$.pos') <> 'ゴールキーパー'"
-      const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 6').bind(...args).all()
-      const x = ((r && r.results) || []).filter((y: any) => !seen[y.k])[0]
+      const r = await env.DB.prepare(q + ' ORDER BY RANDOM() LIMIT 12').bind(...args).all()
+      const x = pickK((r && r.results) || [], seen)
       if (x) { seen[x.k] = 1; try { out.push(String(JSON.parse(String(x.j)).mk || '').slice(1) || null) } catch (_e) { out.push(null) } } else out.push(null)
     }
     return { f: '4-3-3', L: out.slice(0, 11), B: out.slice(11).filter(Boolean) }

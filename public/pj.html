@@ -103,6 +103,7 @@
   .lgday { margin-top:10px; } .lgday > b { display:block; color:#047857; margin-bottom:2px; }
   .lgm.mine { background:#fffbeb; border-radius:10px; }
   .lgs { font-size:17px; white-space:nowrap; margin:0 6px; }
+  .lvg2 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-width:420px; margin:0 auto; }
   .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
   .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -592,12 +593,17 @@
   var MKURL = {};
   function hexB(h) { var a = new Uint8Array(h.length / 2); for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
   // 元の ページを 中で ひらく（名鑑・試合 どちらも）。onReady(w, info) で ページの 中を うごかす
-  function openGame(f, title, onReady, onClose) {
+  function openGame(f, title, onReady, onClose, withPause) {
     var v = document.createElement('div'); v.id = 'mkv';
     v.innerHTML = '<div class="bar"><button class="btn sub sm" id="mkX">← もどる</button><b>' + title + '</b></div><iframe id="mkF" title="' + esc(title) + '"></iframe><div class="load" id="mkL">ひらいています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span></div>';
     document.body.appendChild(v);
     document.body.style.overflow = 'hidden';
     $('mkX').onclick = function () { v.remove(); document.body.style.overflow = ''; if (onClose) onClose(); };
+    if (withPause) {
+      var pb = document.createElement('button'); pb.className = 'btn sm'; pb.id = 'mkP'; pb.style.cssText = 'margin-left:auto;background:#f59e0b;color:#1f2937;font-size:15px;padding:8px 16px'; pb.textContent = '⏸ 一時停止';
+      v.querySelector('.bar').appendChild(pb);
+      pb.onclick = function () { var w = $('mkF') && $('mkF').contentWindow; if (!w || !w.__pjPause) return; var on = w.__pjPause(!pb.dataset.on); pb.dataset.on = on ? '1' : ''; pb.textContent = on ? '▶ つづける' : '⏸ 一時停止'; pb.style.background = on ? '#22c55e' : '#f59e0b'; };
+    }
     var info;
     api('/api/pj/meikan').then(function (d) {
       if (!d || !d.ok || !d.key) throw new Error((d && d.error) || 'info');
@@ -647,18 +653,18 @@
     var order = o.L.map(function (x) { return POS.indexOf(x.p); });
     var cm = S.mgr && S.mgr.bb, coach = cm && S.players[cm] ? S.players[cm].n : '';
     window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } }); };
-    api('/api/pj/cpu-team?s=bb').then(function (cpu) {
+    api('/api/pj/cpu-team?s=bb&lv=' + PLV).then(function (cpu) {
       if (!cpu || !cpu.ok) { alert('あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
-      var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids };
+      var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids, cc: cpu.coach || '' };
       openGame('bb', '🏟 練習試合', function (w) {
         w.__pjEval('(function(o){var MK=Object.keys(MGR_S);var mi=Math.max(0,MK.indexOf(o.coach));'
           + 'var data={cfg:{rosterSizes:{bench:3,sp:o.nsp,rp:3},mode:"free",defenseTactics:1},teams:[{human:1,teamName:"きみのチーム",seat:0},{seat:1}]};'
           + 'var B=o.B.slice(0,12).concat(o.B.slice(12,12+o.nsp)).concat(o.B.slice(14));'
-          + 'var mt={pair:[0,1],round:0,seed:1,lineups:[{ids:o.A,order:o.order,rotation:o.nsp>1?[0,1]:[0],manager:mi},{ids:B,order:[0,1,2,3,4,5,6,7,8],rotation:o.nsp>1?[0,1]:[0],manager:Math.floor(Math.random()*MK.length)}]};'
+          + 'var cmi=MK.indexOf(o.cc);var mt={pair:[0,1],round:0,seed:1,lineups:[{ids:o.A,order:o.order,rotation:o.nsp>1?[0,1]:[0],manager:mi},{ids:B,order:[0,1,2,3,4,5,6,7,8],rotation:o.nsp>1?[0,1]:[0],manager:cmi<0?Math.floor(Math.random()*MK.length):cmi}]};'
           + 'S=bbLeagueFixture(data,mt);delete S.leagueSeed;'
           + 'var _sg=startGame;startGame=function(){if(window.__pjPlayed){return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _sg.apply(this,arguments)};'
           + 'startGame();return 1})(' + JSON.stringify(arg) + ')');
-      }, function () { render(); });
+      }, function () { render(); }, true);
     });
   }
   function openMeikan(f) {
@@ -671,6 +677,7 @@
     if (SP === 'sc') return (o.L || []).filter(Boolean).length === 11;
     return (o.L || []).length === 9 && (o.SP || []).length >= 1 && (o.CL || []).length >= 1;
   }
+  var PLV = 'mid'; try { PLV = localStorage.getItem('pjLv') || 'mid'; } catch (e) {}
   function paneMatch() {
     var pr = S.practice || {}, ready = orderReady(), can = pr.can && ready;
     var why = !pr.hw ? '📝 きょうの 家庭学習を 出すと、練習試合が できるよ。'
@@ -679,7 +686,8 @@
     var h = '<div class="box scout"><div style="font-size:40px">🏟</div>'
       + '<div style="font-weight:900;font-size:18px;margin:4px 0 6px">練習試合（CPUと たいせん）</div>'
       + '<div class="note" style="margin-bottom:12px">きみの オーダーと 監督で たたかうよ。試合の とちゅうで 作戦や 交代も できる。<br>家庭学習を 出した日に 1日 1回。</div>'
-      + '<button class="btn big" id="prGo" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>🏟 練習試合を はじめる</button>'
+      + '<div class="note" style="font-weight:900;margin-bottom:6px">あいての つよさ</div><div class="lvg2">' + [['weak', 'よわい'], ['mid', 'ふつう'], ['strong', 'つよい']].map(function (x) { return '<button class="btn' + (PLV === x[0] ? '' : ' sub') + '" data-plv="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
+      + '<button class="btn big" id="prGo" style="margin-top:10px;background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>🏟 練習試合を はじめる</button>'
       + (why ? '<div class="note" style="margin-top:8px;color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '')
       + (!ready ? '<div style="margin-top:8px"><button class="btn sub sm" id="toOrder">📋 オーダーへ</button></div>' : '') + '</div>'
       + leagueHtml();
@@ -687,6 +695,7 @@
     if (!LG[SP]) loadLeague(function () { if (TAB === 'match') paneMatch(); }); else wireLeague();
     var t = $('toOrder'); if (t) t.onclick = function () { TAB = 'order'; render(); };
     var g = $('prGo'); if (g) g.onclick = startPractice;
+    document.querySelectorAll('[data-plv]').forEach(function (x) { x.onclick = function () { PLV = x.getAttribute('data-plv'); try { localStorage.setItem('pjLv', PLV); } catch (e) {} paneMatch(); }; });
   }
   // ---------- 🏆 リーグ戦（PJ_LEAGUE_V1） ----------
   var LG = {};
@@ -785,7 +794,7 @@
     api('/api/pj/league/fixture?s=' + sp, { sport: sp, mid: mid, watch: true }).then(function (fx) {
       if (!fx || !fx.ok) { alert(LGERR[fx && fx.error] || 'いまは 見られないよ。'); return; }
       window.__pjCloseGame = function () { var v = $('mkv'); if (v) v.remove(); document.body.style.overflow = ''; loadLeague(function () { if (TAB === 'match') paneMatch(); }); };
-      openGame(sp, '🏆 ' + esc(fx.names[0]) + ' vs ' + esc(fx.names[1]), function (w) { w.__pjEval(simCode(sp, fx, true)); }, function () { loadLeague(function () { if (TAB === 'match') paneMatch(); }); });
+      openGame(sp, '🏆 ' + esc(fx.names[0]) + ' vs ' + esc(fx.names[1]), function (w) { w.__pjEval(simCode(sp, fx, true)); }, function () { loadLeague(function () { if (TAB === 'match') paneMatch(); }); }, true);
     });
   }
 
@@ -795,15 +804,20 @@
     var cm = S.mgr && S.mgr.sc, coach = cm && S.players[cm] ? S.players[cm].n : '';
     var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: 'きみのチーム' };
     window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } }); };
+    api('/api/pj/cpu-team?s=sc&lv=' + PLV).then(function (cpu) {
+    if (!cpu || !cpu.ok) { alert('あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
+    arg.cpu = { f: cpu.f, L: cpu.L, B: cpu.B, coach: cpu.coach };
     openGame('sc', '🏟 練習試合', function (w) {
       w.__pjEval('(function(o){var d=newDrafter(o.name,o.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});'
         + 'fs.forEach(function(s,i){var k=o.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});d.slots=fs;'
         + 'o.B.forEach(function(k){if(PL[k])d.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});'
         + 'd.coach=coachOf(o.coach||"かんとく");d.tours=[];'
-        + 'var B=cpuTeam();var CK=Object.keys(COACH);B.coach=coachOf(CK[Math.floor(Math.random()*CK.length)]);S.ds=[d,B];'
+        + 'var c=o.cpu;var B=newDrafter("CPU",c.f||"4-3-3");var bs=B.slots.filter(function(s){return s.role!=="SUB"});bs.forEach(function(s,i){var k=c.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});B.slots=bs;(c.B||[]).forEach(function(k){if(PL[k])B.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});B.cpu=true;B.coach=coachOf(c.coach||"かんとく");B.tours=[];'
+        + 'if(B.slots.some(function(s){return s.role!=="SUB"&&!s.p})){B=cpuTeam();var CK=Object.keys(COACH);B.coach=coachOf(CK[Math.floor(Math.random()*CK.length)])}S.ds=[d,B];'
         + 'var _p=play;play=function(){if(window.__pjPlayed){try{toast("練習試合は 1日 1回だよ")}catch(e){}return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _p.apply(this,arguments)};'
         + 'matchSetup();return 1})(' + JSON.stringify(arg) + ')');
-    }, function () { render(); });
+    }, function () { render(); }, true);
+    });
   }
 
   function runImport(parts) {
