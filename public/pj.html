@@ -62,6 +62,15 @@
   @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
   .lvg { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:13px; }
   .lvg i { color:#f59e0b; font-style:normal; letter-spacing:1px; }
+  .pitch { position:relative; width:100%; max-width:620px; margin:6px auto 0; aspect-ratio: 68 / 88; background:repeating-linear-gradient(180deg,#2f8f4e 0 10%,#2a8447 10% 20%); border-radius:14px; border:3px solid #e5f4ea; overflow:hidden; }
+  .pitch .pl1 { position:absolute; left:0; right:0; top:50%; border-top:2px solid rgba(255,255,255,.55); }
+  .pitch .pl2 { position:absolute; left:50%; top:50%; width:22%; aspect-ratio:1; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.55); border-radius:50%; }
+  .pitch .pl3 { position:absolute; left:28%; right:28%; bottom:0; height:13%; border:2px solid rgba(255,255,255,.55); border-bottom:0; }
+  .pm { position:absolute; transform:translate(-50%,-50%); background:none; border:0; cursor:pointer; display:flex; flex-direction:column; align-items:center; width:110px; padding:0; font:inherit; }
+  .pm .dot { width:44px; height:44px; border-radius:50%; border:3px solid #fff; color:#fff; font-weight:900; font-size:16px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.3); }
+  .pm .pn { margin-top:2px; color:#fff; font-weight:800; font-size:12.5px; text-shadow:0 1px 3px rgba(0,0,0,.7); max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pm .pp { color:#d1fae5; font-size:11px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+  @media (max-width:600px) { .pm { width:76px; } .pm .dot { width:34px; height:34px; font-size:13px; } .pm .pn { font-size:11px; max-width:76px; } }
   .slotg { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media (min-width:900px) { .slotg { grid-template-columns:1fr 1fr 1fr; } }
   .slotc { position:relative; text-align:left; background:#fff; border:1.5px solid #e5e7eb; border-radius:14px; padding:12px 34px 12px 14px; cursor:pointer; min-height:72px; display:flex; flex-direction:column; gap:2px; font:inherit; color:inherit; }
@@ -327,11 +336,11 @@
   var BBP = [['C', '捕', /捕手/], ['1B', '一', /一塁手/], ['2B', '二', /二塁手/], ['3B', '三', /三塁手/], ['SS', '遊', /遊撃手/], ['LF', '左', /外野手/], ['CF', '中', /外野手/], ['RF', '右', /外野手/], ['DH', '指', null]];
   var BBG = [['SP', '先発投手', 2, /先発/], ['RP', '中継ぎ', 3, /中継ぎ/], ['CL', '抑え', 1, /抑え/], ['BN', '控えの 野手', 3, null]];
   var FORMS = {
-    '4-4-2': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['左MF', 'MF'], ['CMF', 'MF'], ['CMF', 'MF'], ['右MF', 'MF'], ['FW', 'FW'], ['FW', 'FW']],
-    '4-3-3': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['DMF', 'MF'], ['CMF', 'MF'], ['CMF', 'MF'], ['左WG', 'FW'], ['CF', 'FW'], ['右WG', 'FW']],
-    '4-2-3-1': [['GK', 'GK'], ['左SB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['右SB', 'DF'], ['DMF', 'MF'], ['DMF', 'MF'], ['左WG', 'FW'], ['トップ下', 'MF'], ['右WG', 'FW'], ['CF', 'FW']],
-    '3-5-2': [['GK', 'GK'], ['CB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['左WB', 'DF'], ['CMF', 'MF'], ['DMF', 'MF'], ['CMF', 'MF'], ['右WB', 'DF'], ['FW', 'FW'], ['FW', 'FW']],
-    '3-4-2-1': [['GK', 'GK'], ['CB', 'DF'], ['CB', 'DF'], ['CB', 'DF'], ['左WB', 'DF'], ['DMF', 'MF'], ['DMF', 'MF'], ['右WB', 'DF'], ['シャドー', 'MF'], ['シャドー', 'MF'], ['CF', 'FW']]
+    '4-4-2': [['GK', 'GK', 50, 94], ['左SB', 'DF', 14, 74], ['CB', 'DF', 38, 78], ['CB', 'DF', 62, 78], ['右SB', 'DF', 86, 74], ['左MF', 'MF', 14, 48], ['CMF', 'MF', 38, 54], ['CMF', 'MF', 62, 54], ['右MF', 'MF', 86, 48], ['FW', 'FW', 38, 22], ['FW', 'FW', 62, 22]],
+    '4-3-3': [['GK', 'GK', 50, 94], ['左SB', 'DF', 14, 74], ['CB', 'DF', 38, 78], ['CB', 'DF', 62, 78], ['右SB', 'DF', 86, 74], ['DMF', 'MF', 50, 60], ['CMF', 'MF', 28, 48], ['CMF', 'MF', 72, 48], ['左WG', 'FW', 16, 24], ['CF', 'FW', 50, 18], ['右WG', 'FW', 84, 24]],
+    '4-2-3-1': [['GK', 'GK', 50, 94], ['左SB', 'DF', 14, 74], ['CB', 'DF', 38, 78], ['CB', 'DF', 62, 78], ['右SB', 'DF', 86, 74], ['DMF', 'MF', 36, 58], ['DMF', 'MF', 64, 58], ['左WG', 'FW', 16, 36], ['トップ下', 'MF', 50, 38], ['右WG', 'FW', 84, 36], ['CF', 'FW', 50, 16]],
+    '3-5-2': [['GK', 'GK', 50, 94], ['CB', 'DF', 26, 78], ['CB', 'DF', 50, 80], ['CB', 'DF', 74, 78], ['左WB', 'DF', 10, 52], ['CMF', 'MF', 32, 52], ['DMF', 'MF', 50, 62], ['CMF', 'MF', 68, 52], ['右WB', 'DF', 90, 52], ['FW', 'FW', 38, 20], ['FW', 'FW', 62, 20]],
+    '3-4-2-1': [['GK', 'GK', 50, 94], ['CB', 'DF', 26, 78], ['CB', 'DF', 50, 80], ['CB', 'DF', 74, 78], ['左WB', 'DF', 10, 54], ['DMF', 'MF', 38, 60], ['DMF', 'MF', 62, 60], ['右WB', 'DF', 90, 54], ['シャドー', 'MF', 32, 36], ['シャドー', 'MF', 68, 36], ['CF', 'FW', 50, 16]]
   };
   var SCG = { GK: /ゴールキーパー/, DF: /センターバック|サイドバック/, MF: /守備的MF|攻撃的MF/, FW: /ウイング|センターフォワード/ };
   var OD = null;
@@ -401,7 +410,12 @@
     } else {
       var F = FORMS[OD.f] || FORMS['4-3-3'];
       h += '<div class="box"><div class="kind">フォーメーション</div><div class="filters">' + Object.keys(FORMS).map(function (f) { return '<button data-form="' + f + '" class="' + (OD.f === f ? 'on' : '') + '">' + f + '</button>'; }).join('') + '</div>'
-        + '<div class="kind" style="margin-top:6px">スタメン</div><div class="slotg">' + F.map(function (sl, i) { return slotCard('S:' + i, sl[0], OD.L[i]); }).join('') + '</div></div>'
+        + '<div class="kind" style="margin-top:6px">スタメン（○を おして 選手を おこう）</div><div class="pitch"><span class="pl1"></span><span class="pl2"></span><span class="pl3"></span>'
+        + F.map(function (sl, i) {
+            var k = OD.L[i], p = k && S.players[k], c = sl[1] === 'GK' ? '#f59e0b' : sl[1] === 'DF' ? '#2563eb' : sl[1] === 'MF' ? '#16a34a' : '#dc2626';
+            return '<button class="pm" data-slot="S:' + i + '" style="left:' + sl[2] + '%;top:' + sl[3] + '%"><span class="dot" style="background:' + (p ? c : 'rgba(255,255,255,.25)') + ';border-color:' + (p ? '#fff' : 'rgba(255,255,255,.8)') + '">' + (p ? ovr(p) : '＋') + '</span>'
+              + '<span class="pn">' + esc(p ? p.n : sl[0]) + '</span>' + (p ? '<span class="pp">' + esc(sl[0]) + '</span>' : '') + '</button>';
+          }).join('') + '</div></div>'
         + '<div class="box"><div class="kind">ベンチ</div><div class="slotg">';
       for (var b = 0; b < 5; b++) h += slotCard('B:' + b, 'ベンチ ' + (b + 1), OD.B[b]);
       h += '</div></div>';
