@@ -14144,7 +14144,7 @@ app.get('/teacher', (c) => {
           const pjTry = document.createElement('a');
           pjTry.href = '/pj'; pjTry.target = '_blank'; pjTry.rel = 'noopener';
           pjTry.className = 'text-xs px-2 py-1 rounded font-bold bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50';
-          pjTry.textContent = '🧪 先生PJを ためす';
+          pjTry.textContent = '⚾ 先生PJを ひらく';
           btnGroup.appendChild(pjTry);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════

@@ -263,20 +263,7 @@
   function render() {
     if (!S) return;
     $('coins').textContent = '💰 ' + S.coins + (S.test ? '（ためし）' : '');
-    if (S.test) {
-      var tb = $('testBar'); tb.style.display = '';
-      tb.innerHTML = '<b>🧪 先生の ためしモード</b><span>本物のコインは つかいません。きょう＝' + esc(md(S.today)) + (S.school ? '（学校の日）' : '（休み）') + '</span>'
-        + '<button class="btn sm sub" data-t="day1">1日 すすめる</button><button class="btn sm sub" data-t="day5">5日 すすめる</button>'
-        + '<button class="btn sm sub" data-t="coins">ためしコイン＋1000</button><button class="btn sm sub" data-t="reset">さいしょから</button>'
-        + '<button class="btn sm" data-t="gachi" style="background:#dc2626;margin-left:auto">🔥 がちモードへ（本物の コイン）</button>';
-      tb.querySelectorAll('button').forEach(function (b) { b.onclick = function () { testAct(b.getAttribute('data-t')); }; });
-    } else if (S.gachi) {
-      // 🔥 PJ_GACHI_V1 先生の がちモード：本物の コイン・本物の 日づけ・回数制限
-      var gb = $('testBar'); gb.style.display = ''; gb.style.background = '#fef2f2'; gb.style.borderBottomColor = '#f87171';
-      gb.innerHTML = '<b style="color:#b91c1c">🔥 がちモード</b><span>本物の コインを つかうよ。きょう＝' + esc(md(S.today)) + (S.school ? '（学校の日）' : '（休み：スカウト券は 買えない）') + '・子どもと 同じ 回数制限（家庭学習の 条件だけ なし）</span>'
-        + '<button class="btn sm sub" data-t="test" style="margin-left:auto">🧪 ためしモードに もどる</button>';
-      gb.querySelector('button').onclick = function () { testAct('test'); };
-    }
+    // PJ_NOTEST_V1 ためしモードは なし（先生も 本物の コインで あそぶ）
     if (!SP) { chooser(); return; }
     if (S.starterGot && !S.starterGot[SP] && !window.__pjStarterAsk) { window.__pjStarterAsk = 1; setTimeout(giveStarter, 0); }
     var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;

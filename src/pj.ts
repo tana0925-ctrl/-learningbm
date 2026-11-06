@@ -133,14 +133,9 @@ async function who(c: any, d: any) {
   if (u.role === 'teacher' || u.role === 'admin') {
     // 🔥 PJ_GACHI_V1 先生の「がちモード」：本物の コイン・本物の 日づけ・1日の 回数制限で あそぶ（ためしとは べつの セーブ）。
     //    先生は 学習計画・家庭学習を 出さないので、その 2つの 条件だけは みたしている あつかい。リーグは 先生 1人＋CPU。
-    let g = false, rc = ''
-    // 2つを 同時に しらべる（片方が しっぱいしても もう片方は つかう）
-    const [r1, r2]: any = await Promise.all([
-      c.env.DB.prepare('SELECT v FROM pj_meta WHERE k=?').bind('gm:' + String(u.id)).first().catch(() => null),
-      c.env.DB.prepare('SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1').bind(String(u.id)).first().catch(() => null)
-    ])
-    g = !!(r1 && String(r1.v) === '1'); rc = r2 && r2.id ? String(r2.id) : ''
-    if (!g) return { u, test: true, teacher: true, classId: '', sid: String(u.id) }
+    // PJ_NOTEST_V1 ためしモードは なし。先生は いつも 本物の コイン（がちモード）で あそぶ
+    let rc = ''
+    try { const r2 = await c.env.DB.prepare('SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1').bind(String(u.id)).first(); rc = r2 && r2.id ? String(r2.id) : '' } catch (_e) { rc = '' }
     return { u, test: false, gachi: true, teacher: true, classId: '', restCid: rc, plan: true, apw: [], sid: String(u.id) + '#g' }
   }
   if (u.role !== 'student') return { error: 'forbidden' }
