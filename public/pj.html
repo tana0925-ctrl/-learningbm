@@ -62,6 +62,22 @@
   @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
   .lvg { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:13px; }
   .lvg i { color:#f59e0b; font-style:normal; letter-spacing:1px; }
+  .slotg { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (min-width:900px) { .slotg { grid-template-columns:1fr 1fr 1fr; } }
+  .slotc { position:relative; text-align:left; background:#fff; border:1.5px solid #e5e7eb; border-radius:14px; padding:12px 34px 12px 14px; cursor:pointer; min-height:72px; display:flex; flex-direction:column; gap:2px; font:inherit; color:inherit; }
+  .slotc .sl { font-size:13px; color:#6b7280; font-weight:700; }
+  .slotc b { font-size:16px; } .slotc b.emp { color:#1f2937; }
+  .slotc .ss { font-size:12px; color:#6b7280; }
+  .slotc i { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-style:normal; font-size:22px; color:#92400e; }
+  .pkq { width:100%; font-size:16px; padding:10px 12px; border:1.5px solid #d1d5db; border-radius:12px; margin-top:10px; }
+  .pkc { border:1.5px solid #e5e7eb; border-radius:14px; padding:10px 12px; margin-bottom:8px; cursor:pointer; background:#fff; }
+  .pkc.cur { border-color:#059669; background:#ecfdf5; }
+  .pkc .pick { color:#92400e; font-weight:900; white-space:nowrap; }
+  .ovb { border:2px solid #e11d48; color:#e11d48; border-radius:8px; padding:0 6px; font-weight:900; }
+  .gchs { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+  .gch { font-size:12.5px; font-weight:700; display:inline-flex; align-items:center; gap:3px; }
+  .gch b { color:#fff; border-radius:5px; padding:0 5px; font-size:12px; }
+  .gch.t { background:#eff6ff; color:#1d4ed8; border-radius:6px; padding:1px 6px; }
   .row.od select { min-height:40px; font-size:15px; border:1.5px solid #d1d5db; border-radius:9px; padding:4px 6px; background:#fff; max-width:100%; }
   .row.od .no { width:26px; text-align:center; font-size:17px; color:#047857; }
   .row.od .mv { display:flex; gap:3px; }
@@ -340,53 +356,105 @@
     R.forEach(function (k) { var p = S.players[k]; h += '<option value="' + esc(k) + '"' + (k === cur ? ' selected' : '') + '>' + esc((u[k] ? '↔ ' : '') + '★'.repeat(p.st || 1) + ' ' + p.n + '（' + p.pos + '）') + '</option>'; });
     return h;
   }
+  // ---- オーダー画面（PJ_ORDER_V2：元の ゲームと 同じ「カードを おす → 候補から 選ぶ」形） ----
+  function grade(v) { v = Number(v) || 0; return v >= 90 ? 'S' : v >= 80 ? 'A' : v >= 70 ? 'B' : v >= 60 ? 'C' : v >= 50 ? 'D' : v >= 40 ? 'E' : v >= 30 ? 'F' : 'G'; }
+  var GCOL = { S: '#be185d', A: '#ea580c', B: '#ca8a04', C: '#16a34a', D: '#2563eb', E: '#7c3aed', F: '#64748b', G: '#94a3b8' };
+  function chip(l, v) { var g = grade(v); return '<span class="gch">' + l + '<b style="background:' + GCOL[g] + '">' + g + '</b></span>'; }
+  function ovr(p) {
+    var a = (p && p.ab) || {};
+    if (p.s === 'bb') { if (isPitcher(p)) return Math.round(((Number(a.velo) || 140) - 125) * 1.6 * .4 + (Number(a.ctrl) || 50) * .3 + (Number(a.stam) || 50) * .3); return Math.round((Number(a.meet) || 50) * .3 + (Number(a.power) || 50) * .3 + (Number(a.run) || 50) * .15 + (Number(a.arm) || 50) * .1 + (Number(a.field) || 50) * .15); }
+    var ks = Object.keys(a); if (!ks.length) return 50; var s = ks.map(function (k) { return Number(a[k]) || 0; }).sort(function (x, y) { return y - x; }); return Math.round((s[0] + s[1] + (s[2] || s[1])) / 3);
+  }
+  function abChips(p) {
+    var a = (p && p.ab) || {};
+    if (p.s === 'bb') {
+      if (isPitcher(p)) return (a.velo ? '<span class="gch">球速<b style="background:#0f172a">' + a.velo + 'km</b></span>' : '') + chip('コン', a.ctrl) + chip('スタ', a.stam) + (p.pt && p.pt.length ? '<span class="gch t">' + esc(p.pt.slice(0, 3).join('・')) + '</span>' : '');
+      return chip('ミ', a.meet) + chip('パ', a.power) + chip('走', a.run) + chip('肩', a.arm) + chip('守', a.field);
+    }
+    var L = p.pos === 'ゴールキーパー' ? [['セーブ', a.gk], ['パス', a.pas], ['フィジ', a.phy]] : [['シュ', a.sho], ['パス', a.pas], ['ドリ', a.dri], ['スピ', a.spd], ['フィジ', a.phy], ['守', a.def]];
+    return L.map(function (x) { return chip(x[0], x[1]); }).join('');
+  }
+  function slotCard(id, label, k, extra) {
+    var p = k && S.players[k];
+    return '<button class="slotc" data-slot="' + id + '"><span class="sl">' + esc(label) + (extra || '') + '</span>'
+      + (p ? '<b>' + stars(p.st) + ' ' + esc(p.n) + '</b><span class="ss">総合 ' + ovr(p) + '・' + esc(p.pos) + '</span>' : '<b class="emp">選手を選ぶ</b>') + '<i>›</i></button>';
+  }
+  var BBN = { C: '捕手', '1B': '一塁', '2B': '二塁', '3B': '三塁', SS: '遊撃', LF: '左翼', CF: '中堅', RF: '右翼', DH: 'DH' };
+  function bbSlotK(pos) { var x = OD.L.filter(function (y) { return y && y.p === pos; })[0]; return x ? x.k : null; }
   function paneOrder() {
     if (!OD || OD._sp !== SP) { odInit(); OD._sp = SP; }
     var h = '<div class="box"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="flex:1;font-size:16px">📋 ' + spName() + 'の オーダー</b>'
-      + '<button class="btn sub" id="odAuto">✨ おまかせで 組む</button><button class="btn" id="odSave">💾 ほぞんする</button></div>'
-      + '<div class="note">チームの 選手から えらぶよ。「↔」が ついた 選手は ほかの ところに 入っているので、えらぶと 入れかわるよ。</div></div>';
+      + '<button class="btn sub" id="odAuto">✨ おまかせで 組む</button><button class="btn" id="odSave">💾 ほぞんする</button></div></div>';
     if (SP === 'bb') {
-      h += '<div class="box"><div class="kind">⚾ スタメン 9人（上から 打順）</div>';
-      for (var i = 0; i < 9; i++) {
-        var x = OD.L[i] || {}, posOpts = BBP.map(function (q) { return '<option value="' + q[0] + '"' + (x.p === q[0] ? ' selected' : '') + '>' + q[1] + '</option>'; }).join('');
-        var pd = BBP.filter(function (q) { return q[0] === x.p; })[0];
-        h += '<div class="row od"><b class="no">' + (i + 1) + '</b><span class="mv"><button class="btn sm sub" data-up="' + i + '">▲</button><button class="btn sm sub" data-dn="' + i + '">▼</button></span>'
-          + '<select data-lp="' + i + '"><option value="">守備</option>' + posOpts + '</select>'
-          + '<select data-lk="' + i + '" style="flex:1">' + opts(x.k, function (p) { return eligBB(p, pd ? pd[2] : null, false); }, 'L' + i) + '</select></div>';
-      }
-      h += '</div>';
-      BBG.forEach(function (g) {
-        h += '<div class="box"><div class="kind">' + (g[0] === 'BN' ? '🧢 ' : '⚾ ') + g[1] + '（' + g[2] + '人）</div>';
-        for (var j = 0; j < g[2]; j++) h += '<div class="row od"><select data-g="' + g[0] + '" data-gi="' + j + '" style="flex:1">' + opts((OD[g[0]] || [])[j], function (p) { return g[0] === 'BN' ? eligBB(p, null, false) : eligBB(p, g[3], true); }, g[0] + j) + '</select></div>';
+      h += '<div class="box"><div class="kind">スタメン</div><div class="slotg">' + BBP.map(function (q) { return slotCard('P:' + q[0], BBN[q[0]], bbSlotK(q[0])); }).join('') + '</div></div>';
+      var bat = OD.L.filter(function (x) { return x && x.k && x.p; });
+      if (bat.length) {
+        h += '<div class="box"><div class="kind">打順（▲▼で ならべかえ）</div>';
+        bat.forEach(function (x, i) { var p = S.players[x.k]; h += '<div class="row od"><b class="no">' + (i + 1) + '</b><span class="mv"><button class="btn sm sub" data-up="' + i + '">▲</button><button class="btn sm sub" data-dn="' + i + '">▼</button></span><span class="tag t">' + BBN[x.p] + '</span><div class="nm"><b>' + esc(p ? p.n : x.k) + '</b></div></div>'; });
         h += '</div>';
+      }
+      BBG.forEach(function (g) {
+        h += '<div class="box"><div class="kind">' + g[1] + '</div><div class="slotg">';
+        for (var j = 0; j < g[2]; j++) h += slotCard('G:' + g[0] + ':' + j, g[1] + (g[2] > 1 ? ' ' + (j + 1) : ''), (OD[g[0]] || [])[j]);
+        h += '</div></div>';
       });
     } else {
       var F = FORMS[OD.f] || FORMS['4-3-3'];
-      h += '<div class="box"><div class="kind">⚽ フォーメーション</div><div class="filters">' + Object.keys(FORMS).map(function (f) { return '<button data-form="' + f + '" class="' + (OD.f === f ? 'on' : '') + '">' + f + '</button>'; }).join('') + '</div>';
-      h += '<div class="kind" style="margin-top:6px">スタメン 11人</div>';
-      F.forEach(function (sl, i) { h += '<div class="row od"><b class="no" style="width:62px">' + esc(sl[0]) + '</b><select data-sk="' + i + '" style="flex:1">' + opts(OD.L[i], function (p) { return sl[1] === 'GK' ? SCG.GK.test(p.pos || '') : !SCG.GK.test(p.pos || ''); }, 'L' + i) + '</select></div>'; });
-      h += '</div><div class="box"><div class="kind">🪑 ベンチ（5人）</div>';
-      for (var b = 0; b < 5; b++) h += '<div class="row od"><select data-sb="' + b + '" style="flex:1">' + opts(OD.B[b], function () { return true; }, 'B' + b) + '</select></div>';
-      h += '</div>';
+      h += '<div class="box"><div class="kind">フォーメーション</div><div class="filters">' + Object.keys(FORMS).map(function (f) { return '<button data-form="' + f + '" class="' + (OD.f === f ? 'on' : '') + '">' + f + '</button>'; }).join('') + '</div>'
+        + '<div class="kind" style="margin-top:6px">スタメン</div><div class="slotg">' + F.map(function (sl, i) { return slotCard('S:' + i, sl[0], OD.L[i]); }).join('') + '</div></div>'
+        + '<div class="box"><div class="kind">ベンチ</div><div class="slotg">';
+      for (var b = 0; b < 5; b++) h += slotCard('B:' + b, 'ベンチ ' + (b + 1), OD.B[b]);
+      h += '</div></div>';
     }
     $('pane').innerHTML = h;
     wireOrder();
   }
+  // スロットの 情報：名前・しぼりこみ・いまの選手・入れる関数
+  function slotInfo(id) {
+    var a = id.split(':');
+    if (a[0] === 'P') { var q = BBP.filter(function (x) { return x[0] === a[1]; })[0]; return { label: BBN[a[1]], cur: bbSlotK(a[1]), filt: function (p) { return eligBB(p, q[2], false); }, put: function (k) { takeFrom(k, null); var x = OD.L.filter(function (y) { return y && y.p === a[1]; })[0]; if (x) x.k = k; else OD.L.push({ k: k, p: a[1] }); OD.L = OD.L.filter(function (y) { return y && y.k; }); } }; }
+    if (a[0] === 'G') { var g = BBG.filter(function (x) { return x[0] === a[1]; })[0], i = +a[2]; return { label: g[1], cur: (OD[g[0]] || [])[i], filt: function (p) { return g[0] === 'BN' ? eligBB(p, null, false) : eligBB(p, g[3], true); }, put: function (k) { takeFrom(k, null); OD[g[0]][i] = k; } }; }
+    if (a[0] === 'S') { var F = FORMS[OD.f] || FORMS['4-3-3'], sl = F[+a[1]]; return { label: sl[0], cur: OD.L[+a[1]], filt: function (p) { return sl[1] === 'GK' ? SCG.GK.test(p.pos || '') : !SCG.GK.test(p.pos || ''); }, put: function (k) { takeFrom(k, null); OD.L[+a[1]] = k; } }; }
+    var bi = +a[1]; return { label: 'ベンチ', cur: OD.B[bi], filt: function () { return true; }, put: function (k) { takeFrom(k, null); OD.B[bi] = k; } };
+  }
+  function whereIs(k) {
+    if (SP === 'bb') { var x = OD.L.filter(function (y) { return y && y.k === k; })[0]; if (x) return BBN[x.p]; var r = ''; BBG.forEach(function (g) { if ((OD[g[0]] || []).indexOf(k) >= 0) r = g[1]; }); return r; }
+    var F = FORMS[OD.f] || FORMS['4-3-3'], i = OD.L.indexOf(k); if (i >= 0) return F[i][0]; return OD.B.indexOf(k) >= 0 ? 'ベンチ' : '';
+  }
+  function pickModal(id) {
+    var inf = slotInfo(id), q = '';
+    function draw() {
+      var R = myRoster().map(function (r) { return r.k; }).filter(function (k) { var p = S.players[k]; return p && inf.filt(p) && (!q || p.n.indexOf(q) >= 0 || String(p.y || '').indexOf(q) >= 0); });
+      R.sort(function (a, b) { return ovr(S.players[b]) - ovr(S.players[a]); });
+      var h = '<div style="display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:18px">' + esc(inf.label) + 'の 候補</b>' + (inf.cur ? '<button class="btn sm sub" id="pkClr">はずす</button>' : '') + '</div>'
+        + '<input id="pkQ" class="pkq" placeholder="名前や 年で さがす" value="' + esc(q) + '">'
+        + '<div class="note" style="margin:6px 0">' + R.length + '人</div><div style="max-height:62vh;overflow:auto">';
+      R.forEach(function (k) {
+        var p = S.players[k], w = whereIs(k);
+        h += '<div class="pkc' + (k === inf.cur ? ' cur' : '') + '" data-pk="' + esc(k) + '"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:16px">' + stars(p.st) + ' ' + esc(p.n) + '</b>'
+          + (k === inf.cur ? '<span class="tag t">いま ここ</span>' : w ? '<span class="tag">↔ ' + esc(w) + '</span>' : '') + '<span class="pick">選ぶ ›</span></div>'
+          + '<div class="note">' + esc(sub(p)) + (p.bt ? '　' + esc(p.bt) : '') + '　<span class="ovb">総合 ' + ovr(p) + '</span></div>'
+          + '<div class="gchs">' + abChips(p) + '</div><div class="note">' + esc(p.pos) + '</div></div>';
+      });
+      if (!R.length) h += '<div class="note">この ポジションに 入れられる 選手が いないよ。スカウトで さがそう！</div>';
+      modal(h + '</div>');
+      var inp = $('pkQ'); inp.oninput = function () { q = inp.value.trim(); var pos = inp.selectionStart; draw(); var n = $('pkQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
+      var c = $('pkClr'); if (c) c.onclick = function () { takeFrom(inf.cur, null); closeModal(); paneOrder(); };
+      document.querySelectorAll('[data-pk]').forEach(function (e) { e.onclick = function () { inf.put(e.getAttribute('data-pk')); closeModal(); paneOrder(); }; });
+    }
+    draw();
+  }
   function takeFrom(k, slotId) {
     if (!k) return;
-    if (SP === 'bb') { OD.L.forEach(function (x, i) { if (x && x.k === k && slotId !== 'L' + i) x.k = null; }); BBG.forEach(function (g) { (OD[g[0]] || []).forEach(function (v, i) { if (v === k && slotId !== g[0] + i) OD[g[0]][i] = null; }); }); }
+    if (SP === 'bb') { OD.L.forEach(function (x, i) { if (x && x.k === k && slotId !== 'L' + i) x.k = null; }); OD.L = OD.L.filter(function (x) { return x && x.k; }); BBG.forEach(function (g) { (OD[g[0]] || []).forEach(function (v, i) { if (v === k && slotId !== g[0] + i) OD[g[0]][i] = null; }); }); }
     else { OD.L.forEach(function (v, i) { if (v === k && slotId !== 'L' + i) OD.L[i] = null; }); OD.B.forEach(function (v, i) { if (v === k && slotId !== 'B' + i) OD.B[i] = null; }); }
   }
   function wireOrder() {
     var q = function (sel, fn) { document.querySelectorAll(sel).forEach(fn); };
+    q('[data-slot]', function (b) { b.onclick = function () { pickModal(b.getAttribute('data-slot')); }; });
     q('[data-up]', function (b) { b.onclick = function () { var i = +b.getAttribute('data-up'); if (i > 0) { var t = OD.L[i - 1]; OD.L[i - 1] = OD.L[i]; OD.L[i] = t; paneOrder(); } }; });
-    q('[data-dn]', function (b) { b.onclick = function () { var i = +b.getAttribute('data-dn'); if (i < 8) { var t = OD.L[i + 1]; OD.L[i + 1] = OD.L[i]; OD.L[i] = t; paneOrder(); } }; });
-    q('[data-lp]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-lp'); OD.L[i] = OD.L[i] || {}; var v = s.value; if (v && v !== 'DH') OD.L.forEach(function (x, j) { if (j !== i && x && x.p === v) x.p = ''; }); if (v === 'DH') OD.L.forEach(function (x, j) { if (j !== i && x && x.p === 'DH') x.p = ''; }); OD.L[i].p = v; paneOrder(); }; });
-    q('[data-lk]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-lk'); takeFrom(s.value, 'L' + i); OD.L[i] = OD.L[i] || {}; OD.L[i].k = s.value || null; paneOrder(); }; });
-    q('[data-g]', function (s) { s.onchange = function () { var g = s.getAttribute('data-g'), i = +s.getAttribute('data-gi'); takeFrom(s.value, g + i); OD[g][i] = s.value || null; paneOrder(); }; });
+    q('[data-dn]', function (b) { b.onclick = function () { var i = +b.getAttribute('data-dn'); if (i < OD.L.length - 1) { var t = OD.L[i + 1]; OD.L[i + 1] = OD.L[i]; OD.L[i] = t; paneOrder(); } }; });
     q('[data-form]', function (b) { b.onclick = function () { OD.f = b.getAttribute('data-form'); paneOrder(); }; });
-    q('[data-sk]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-sk'); takeFrom(s.value, 'L' + i); OD.L[i] = s.value || null; paneOrder(); }; });
-    q('[data-sb]', function (s) { s.onchange = function () { var i = +s.getAttribute('data-sb'); takeFrom(s.value, 'B' + i); OD.B[i] = s.value || null; paneOrder(); }; });
     $('odAuto').onclick = function () { autoOrder(); paneOrder(); };
     $('odSave').onclick = function () {
       var od = SP === 'bb' ? { L: OD.L.map(function (x) { return x && x.k && x.p ? { k: x.k, p: x.p } : null; }).filter(Boolean), SP: (OD.SP || []).filter(Boolean), RP: (OD.RP || []).filter(Boolean), CL: (OD.CL || []).filter(Boolean), BN: (OD.BN || []).filter(Boolean) }
