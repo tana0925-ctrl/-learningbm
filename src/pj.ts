@@ -176,7 +176,7 @@ export function installPj(app: any, d: Deps) {
       ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
-      pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, total, players: pl
+      pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
     }, extra || {})
   }
 
@@ -294,6 +294,28 @@ export function installPj(app: any, d: Deps) {
     const pl = await players(c.env, slice)
     const inTeam: any = {}; b.st.ro.forEach((r: any) => { inTeam[r.k] = 1 })
     return c.json({ ok: true, count: ks.length, page, more: ks.length > page * 60 + 60, items: slice.map((k) => ({ k, n: b.st.zk[k].n, f: b.st.zk[k].f, h: !!b.st.zk[k].h, team: !!inTeam[k], p: pl[k] || null })) })
+  })
+
+  // 元の 選手名鑑（手作りアプリの 野球・サッカー）を ひらく じゅんび（PJ_MEIKAN_V1）
+  //   ・ページは 暗号化して 置いてあり、ここで 鍵と「その子が 持っている 選手」だけを わたす。
+  app.get('/api/pj/meikan', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const kr = await c.env.DB.prepare("SELECT v FROM pj_meta WHERE k='gkey'").first()
+    let ver: any = {}
+    try { const r = await c.env.ASSETS.fetch(new Request('https://assets/pjd/g.json')); if (r && r.status === 200) ver = await r.json() } catch (_e) {}
+    const ks = Object.keys(b.st.zk)
+    const bb = ks.filter((k) => k[0] === 'b').map((k) => Number(k.slice(1))).filter((n) => n >= 0)
+    const scK = ks.filter((k) => k[0] !== 'b')
+    const pl = await players(c.env, scK)
+    const sc = scK.map((k) => pl[k] && pl[k].mk).filter(Boolean)
+    return c.json({ ok: true, key: kr ? String(kr.v) : '', v: ver, bb, sc })
+  })
+  app.get('/api/pj/game/:f', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const f = c.req.param('f') === 'sc' ? 'sc' : 'bb'
+    const r = await c.env.ASSETS.fetch(new Request('https://assets/pjd/g' + f + '.bin'))
+    if (!r || r.status !== 200) return err(c, 404, 'no_game')
+    return new Response(r.body, { headers: { 'content-type': 'application/octet-stream', 'cache-control': 'private, max-age=2592000' } })
   })
 
   // 先生の ためしモード（ためし用コインと 日付だけ。本物は うごかない）
