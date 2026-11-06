@@ -10859,7 +10859,7 @@ app.get('/', async (c) => {
       // 🔁 DEF_REVIEW_V1_WIRED 防衛戦の ふりかえりカード（つぎの 作戦の ヒント）。中身は public/def_review.js。
       t = t.replace('</body>', '<script src="/def_review.js?v=1"></script></body>')
       // ⚾⚽ __PJ_V1__ 先生PJの 入口（クラスが ON のときだけ ボタンが 出る）。中身は public/pj_entry.js。
-      t = t.replace('</body>', '<script src="/pj_entry.js?v=1"></script></body>')
+      t = t.replace('</body>', '<script src="/pj_entry.js?v=2" async></script></body>')
       // KAHOOT_TICKET_V1 🎫 カフート券のショップUI。見つからなければ足さずに進む（throw しない）。
       if (t.indexOf('</body>') >= 0) { t = t.replace('</body>', '<script src="/kahoot_ticket.js?v=1"></script></body>') } else console.error('KAHOOT_TICKET_V1: </body> が無いので読み込みを足さずに進む')
       // 🧩 DEF2TREE_V1_WIRED 防衛戦の プログラムを くりかえし・ぶんき が つかえる ブロックにする。

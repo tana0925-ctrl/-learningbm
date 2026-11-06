@@ -83,6 +83,7 @@ async function importPart(env: any, part: number) {
 
 // 監督の データ（PJ_MGR_V1）。小さいので、ひつようなら その場で 入れる
 let _mgOk = ''
+let _catOk = '', _catAt = 0, _total = 0, _totalAt = 0
 async function ensureMgr(env: any) {
   try {
     const r = await env.ASSETS.fetch(new Request('https://assets/pjd/mg.json'))
@@ -113,13 +114,15 @@ async function ensureMgr(env: any) {
 async function players(env: any, keys: string[]) {
   const out: any = {}
   const ks = Array.from(new Set(keys.filter(Boolean).map(String)))
-  for (let i = 0; i < ks.length; i += 90) {
-    const g = ks.slice(i, i + 90)
+  const gs: string[][] = []
+  for (let i = 0; i < ks.length; i += 90) gs.push(ks.slice(i, i + 90))
+  // ⚡ 何回かに 分ける ときも 同時に とりにいく
+  await Promise.all(gs.map(async (g) => {
     try {
       const r = await env.DB.prepare('SELECT k, s, j FROM pj_players WHERE k IN (' + g.map(() => '?').join(',') + ')').bind(...g).all()
       for (const x of ((r && r.results) || [])) { try { out[x.k] = Object.assign({ s: x.s }, JSON.parse(String(x.j))) } catch (_e) {} }
     } catch (_e) {}
-  }
+  }))
   return out
 }
 
@@ -130,24 +133,28 @@ async function who(c: any, d: any) {
   if (u.role === 'teacher' || u.role === 'admin') {
     // 🔥 PJ_GACHI_V1 先生の「がちモード」：本物の コイン・本物の 日づけ・1日の 回数制限で あそぶ（ためしとは べつの セーブ）。
     //    先生は 学習計画・家庭学習を 出さないので、その 2つの 条件だけは みたしている あつかい。リーグは 先生 1人＋CPU。
-    let g = false
-    try { const r = await c.env.DB.prepare('SELECT v FROM pj_meta WHERE k=?').bind('gm:' + String(u.id)).first(); g = !!(r && String(r.v) === '1') } catch (_e) { g = false }
+    let g = false, rc = ''
+    // 2つを 同時に しらべる（片方が しっぱいしても もう片方は つかう）
+    const [r1, r2]: any = await Promise.all([
+      c.env.DB.prepare('SELECT v FROM pj_meta WHERE k=?').bind('gm:' + String(u.id)).first().catch(() => null),
+      c.env.DB.prepare('SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1').bind(String(u.id)).first().catch(() => null)
+    ])
+    g = !!(r1 && String(r1.v) === '1'); rc = r2 && r2.id ? String(r2.id) : ''
     if (!g) return { u, test: true, teacher: true, classId: '', sid: String(u.id) }
-    let rc = ''
-    try { const r = await c.env.DB.prepare('SELECT id FROM classes WHERE teacher_id=? ORDER BY created_at DESC LIMIT 1').bind(String(u.id)).first(); rc = r ? String(r.id) : '' } catch (_e) { rc = '' }
     return { u, test: false, gachi: true, teacher: true, classId: '', restCid: rc, plan: true, apw: [], sid: String(u.id) + '#g' }
   }
   if (u.role !== 'student') return { error: 'forbidden' }
-  const m = await c.env.DB.prepare('SELECT class_id AS cid FROM class_members WHERE user_id=? LIMIT 1').bind(String(u.id)).first()
+  // ⚡ PJ_FAST_V1 データベースへの 行き来を 1回に まとめる（クラス・ON/OFF・承認された 週）
+  let m: any = null
+  try {
+    m = await c.env.DB.prepare("SELECT cm.class_id AS cid, (SELECT enabled FROM pj_class WHERE class_id=cm.class_id) AS en, (SELECT group_concat(week_key) FROM student_weekly_plans WHERE user_id=cm.user_id AND plan_approved=1) AS apw FROM class_members cm WHERE cm.user_id=? LIMIT 1").bind(String(u.id)).first()
+  } catch (_e) { m = null }
   if (!m || !m.cid) return { error: 'off' }   // クラスに 入っていない子には 出さない
-  const p = await c.env.DB.prepare('SELECT enabled FROM pj_class WHERE class_id=?').bind(String(m.cid)).first()
-  if (!p || Number(p.enabled) !== 1) return { error: 'off' }
-  // 先週 か 今週、どちらかの 学習計画が 承認された子が つかえる（PJ_PLANGATE_V3：先週 がんばった子は 月曜から、今週 早く 出した子は 承認された その時から）
-  let plan = false
-  try { const q = await c.env.DB.prepare('SELECT 1 AS a FROM student_weekly_plans WHERE user_id=? AND week_key IN (?, ?) AND plan_approved=1 LIMIT 1').bind(String(u.id), d.weekKey(-7), d.weekKey(0)).first(); plan = !!q } catch (_e) { plan = false }
+  if (Number(m.en) !== 1) return { error: 'off' }
   // 承認された 週（契約の 日数を 数えるのに つかう：つかえない 週は 日数を へらさない＝PJ_PAUSE_CONTRACT_V1）
-  let apw: string[] = []
-  try { const r = await c.env.DB.prepare('SELECT week_key AS w FROM student_weekly_plans WHERE user_id=? AND plan_approved=1').bind(String(u.id)).all(); apw = ((r && r.results) || []).map((x: any) => String(x.w)) } catch (_e) { apw = [] }
+  const apw: string[] = String(m.apw || '').split(',').filter(Boolean)
+  // 先週 か 今週、どちらかの 学習計画が 承認された子が つかえる（PJ_PLANGATE_V3）
+  const plan = apw.indexOf(d.weekKey(-7)) >= 0 || apw.indexOf(d.weekKey(0)) >= 0
   return { u, test: false, classId: String(m.cid), plan, apw, sid: String(u.id) }
 }
 
@@ -256,15 +263,15 @@ export function installPj(app: any, d: Deps) {
     const bought = st.by && st.by.d === ctx.today ? Number(st.by.n) || 0 : 0
     const cm = st.cm || {}
     const keys = st.ro.map((r: any) => r.k).concat(st.pd ? [st.pd] : [], st.nw.map((n: any) => n.k), extra && extra.k ? [extra.k] : [], extra && extra.pull && extra.pull.k ? [extra.pull.k] : [], cm.bb ? [cm.bb] : [], cm.sc ? [cm.sc] : [])
-    const pl = await players(c.env, keys)
-    let total = 0
-    try { const t = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM pj_players WHERE s IN (\'bb\',\'sc\')').first(); total = Number(t && t.n) || 0 } catch (_e) {}
+    // ⚡ 選手・コイン・練習試合を 同時に しらべる。全選手の 人数は 10分 おぼえておく
+    const totalP = (_total && Date.now() - _totalAt < 600000) ? Promise.resolve(_total) : c.env.DB.prepare('SELECT COUNT(*) AS n FROM pj_players WHERE s IN (\'bb\',\'sc\')').first().then((t: any) => { _total = Number(t && t.n) || 0; _totalAt = Date.now(); return _total }).catch(() => 0)
+    const [pl, total, coins, prac] = await Promise.all([players(c.env, keys), totalP, coinsOf(c, w, st), practiceInfo(c, w, st, ctx)])
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
-      coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
+      coins, bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
-      order: cleanOrder(st), starterGot: st.sg || {}, practice: await practiceInfo(c, w, st, ctx),
+      order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
       mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
       pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
     }, extra || {})
@@ -276,16 +283,18 @@ export function installPj(app: any, d: Deps) {
     if (w.error) return { res: err(c, w.error === 'login' ? 401 : 403, w.error) }
     if (!w.test && !w.plan) return { res: err(c, 403, 'plan') }
     const m = await manifest(c.env)
-    if (m && (await catVer(c.env)) !== String(m.v)) return { res: c.json({ ok: false, error: 'import', test: !!w.test, parts: m.parts }) }
-    await ensureMgr(c.env)
-    const L = await load(c.env, w.sid)
+    // ⚡ 選手データの 版は、いちど 合っていたら この サーバの あいだ 10分は 見なおさない。のこりは 同時に しらべる
+    const needCat = !!m && !(_catOk === String(m.v) && Date.now() - _catAt < 600000)
+    const [cv, L] = await Promise.all([needCat ? catVer(c.env) : Promise.resolve(m ? String(m.v) : ''), load(c.env, w.sid), ensureMgr(c.env)])
+    if (m && cv !== String(m.v)) return { res: c.json({ ok: false, error: 'import', test: !!w.test, parts: m.parts }) }
+    if (m && needCat) { _catOk = String(m.v); _catAt = Date.now() }
     const ctx = await dayCtx(c, w, L.st)
     return { w, st: L.st, ver: L.ver, ctx }
   }
 
   // 子どもの アプリに 入口を 出すか（OFF なら 何も 出さない）
   app.get('/api/pj/status', async (c: any) => {
-    await ensure(c.env)
+    // ⚡ 子どもの アプリが ひらくたびに よばれる。表を つくる しょりは しない（データベースへ 1回だけ）
     const w = await who(c, d)
     return c.json({ ok: true, on: !w.error, plan: !!(w.test || w.plan) })
   })

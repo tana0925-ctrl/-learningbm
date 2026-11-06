@@ -608,6 +608,7 @@
 
   // 図鑑＝手作りアプリの 選手名鑑（3D）。かんたん一覧は なし。
   function paneZukan() {
+    prefetchGame(SP);
     var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;
     $('pane').innerHTML = '<div class="box scout"><div style="font-size:40px">📖</div>'
       + '<div style="font-weight:900;font-size:17px;margin:4px 0 6px">' + spName() + 'の 選手名鑑</div>'
@@ -710,6 +711,28 @@
   // ---------- 元の 選手名鑑（手作りアプリ）を 中で ひらく ----------
   //  ページは 暗号化して とどく → ここで ほどいて、きみの 選手だけを 出す。1回 ひらくと この画面を とじるまで おぼえておく。
   var MKURL = {};
+  // ⚡ PJ_FAST_V1 ゲームの ファイルは 1回だけ とってきて ひらく（同時に 2回 よばれても 1回分）。ブラウザにも 30日 のこる
+  function blobUrl(f, d) {
+    var v = f + (d.v && d.v[f]);
+    if (!MKURL[v]) MKURL[v] = fetch('/api/pj/game/' + f + '?v=' + encodeURIComponent((d.v && d.v[f]) || ''), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('game'); return r.arrayBuffer(); })
+      .then(function (ab) {
+        var u = new Uint8Array(ab);
+        return crypto.subtle.importKey('raw', hexB(d.key), { name: 'AES-GCM' }, false, ['decrypt'])
+          .then(function (k) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12)); });
+      })
+      .then(function (plain) { return new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).blob(); })
+      .then(function (b) { return URL.createObjectURL(new Blob([b], { type: 'text/html' })); })
+      .catch(function (e) { delete MKURL[v]; throw e; });
+    return MKURL[v];
+  }
+  // 試合・図鑑の タブを ひらいたら、ひまな ときに 先に じゅんびしておく（ボタンを おしてから またない）
+  var PRE = {};
+  function prefetchGame(f) {
+    if (PRE[f]) return; PRE[f] = 1;
+    var go = function () { gameUrl(f).catch(function () { PRE[f] = 0; }); };
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 3000 }); else setTimeout(go, 800);
+  }
   function hexB(h) { var a = new Uint8Array(h.length / 2); for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
   // 元の ページを 中で ひらく（名鑑・試合 どちらも）。onReady(w, info) で ページの 中を うごかす
   function openGame(f, title, onReady, onClose, withPause) {
@@ -727,16 +750,7 @@
     api('/api/pj/meikan').then(function (d) {
       if (!d || !d.ok || !d.key) throw new Error((d && d.error) || 'info');
       info = d;
-      if (MKURL[f + (d.v && d.v[f])]) return MKURL[f + (d.v && d.v[f])];
-      return fetch('/api/pj/game/' + f + '?v=' + encodeURIComponent((d.v && d.v[f]) || ''), { credentials: 'same-origin' })
-        .then(function (r) { if (!r.ok) throw new Error('game'); return r.arrayBuffer(); })
-        .then(function (ab) {
-          var u = new Uint8Array(ab);
-          return crypto.subtle.importKey('raw', hexB(d.key), { name: 'AES-GCM' }, false, ['decrypt'])
-            .then(function (k) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12)); });
-        })
-        .then(function (plain) { return new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).blob(); })
-        .then(function (b) { var url = URL.createObjectURL(new Blob([b], { type: 'text/html' })); MKURL[f + (d.v && d.v[f])] = url; return url; });
+      return blobUrl(f, d);
     }).then(function (url) {
       var fr = $('mkF'); if (!fr) return;
       fr.onload = function () {
@@ -798,6 +812,7 @@
   }
   var PLV = 'mid'; try { PLV = localStorage.getItem('pjLv') || 'mid'; } catch (e) {}
   function paneMatch() {
+    prefetchGame(SP);
     var pr = S.practice || {}, ready = orderReady(), can = pr.can && ready;
     var why = !pr.hw ? '📝 きょうの 家庭学習を 出すと、練習試合が できるよ。'
       : pr.used ? 'きょうの 練習試合は もう やったよ。また あした！'
@@ -861,12 +876,7 @@
   function gameUrl(f) {
     return api('/api/pj/meikan').then(function (d) {
       if (!d || !d.ok || !d.key) throw new Error('info');
-      var v = f + (d.v && d.v[f]); if (MKURL[v]) return MKURL[v];
-      return fetch('/api/pj/game/' + f + '?v=' + encodeURIComponent((d.v && d.v[f]) || ''), { credentials: 'same-origin' }).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
-        var u = new Uint8Array(ab);
-        return crypto.subtle.importKey('raw', hexB(d.key), { name: 'AES-GCM' }, false, ['decrypt']).then(function (k) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, k, u.slice(12)); });
-      }).then(function (plain) { return new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).blob(); })
-        .then(function (b) { var url = URL.createObjectURL(new Blob([b], { type: 'text/html' })); MKURL[v] = url; return url; });
+      return blobUrl(f, d);
     });
   }
   function simCode(sp, fx, watch) {
