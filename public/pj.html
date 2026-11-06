@@ -62,6 +62,12 @@
   @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
   .lvg { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:13px; }
   .lvg i { color:#f59e0b; font-style:normal; letter-spacing:1px; }
+  .field { position:relative; width:100%; max-width:620px; margin:6px auto 0; aspect-ratio: 1 / 0.95; background:radial-gradient(circle at 50% 100%, #c08a52 0 30%, transparent 30.5%), radial-gradient(circle at 50% 95%, #3f9a55 0 75%, #2d7d44 75.5%); border-radius:14px; overflow:hidden; border:3px solid #e5f4ea; }
+  .field .fd { position:absolute; left:50%; top:64%; width:36%; aspect-ratio:1; transform:translate(-50%,-50%) rotate(45deg); border:3px solid rgba(255,255,255,.75); background:#c9935b; }
+  .field .fm { position:absolute; left:50%; top:62%; width:7%; aspect-ratio:1; transform:translate(-50%,-50%); border-radius:50%; background:#d9a46c; border:2px solid rgba(255,255,255,.6); }
+  .row.bo .no { width:42px; font-size:20px; } .row.bo .no small { font-size:11px; }
+  .posb { background:#1d4ed8; color:#fff; font-weight:900; border-radius:8px; padding:4px 8px; font-size:14px; white-space:nowrap; }
+  .row.bo .nm > span { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
   .pitch { position:relative; width:100%; max-width:620px; margin:6px auto 0; aspect-ratio: 68 / 88; background:repeating-linear-gradient(180deg,#2f8f4e 0 10%,#2a8447 10% 20%); border-radius:14px; border:3px solid #e5f4ea; overflow:hidden; }
   .pitch .pl1 { position:absolute; left:0; right:0; top:50%; border-top:2px solid rgba(255,255,255,.55); }
   .pitch .pl2 { position:absolute; left:50%; top:50%; width:22%; aspect-ratio:1; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.55); border-radius:50%; }
@@ -395,13 +401,28 @@
     var h = '<div class="box"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="flex:1;font-size:16px">📋 ' + spName() + 'の オーダー</b>'
       + '<button class="btn sub" id="odAuto">✨ おまかせで 組む</button><button class="btn" id="odSave">💾 ほぞんする</button></div></div>';
     if (SP === 'bb') {
-      h += '<div class="box"><div class="kind">スタメン</div><div class="slotg">' + BBP.map(function (q) { return slotCard('P:' + q[0], BBN[q[0]], bbSlotK(q[0])); }).join('') + '</div></div>';
+      // ⚾ 球場の 図に おく（○の 中は 打順の 番号）＋ 打順の 一覧
+      var BBXY = { C: [50, 90], '1B': [74, 60], '2B': [63, 43], SS: [37, 43], '3B': [26, 60], LF: [17, 22], CF: [50, 10], RF: [83, 22], DH: [88, 90] };
       var bat = OD.L.filter(function (x) { return x && x.k && x.p; });
-      if (bat.length) {
-        h += '<div class="box"><div class="kind">打順（▲▼で ならべかえ）</div>';
-        bat.forEach(function (x, i) { var p = S.players[x.k]; h += '<div class="row od"><b class="no">' + (i + 1) + '</b><span class="mv"><button class="btn sm sub" data-up="' + i + '">▲</button><button class="btn sm sub" data-dn="' + i + '">▼</button></span><span class="tag t">' + BBN[x.p] + '</span><div class="nm"><b>' + esc(p ? p.n : x.k) + '</b></div></div>'; });
-        h += '</div>';
-      }
+      var noOf = function (pos) { for (var i = 0; i < bat.length; i++) if (bat[i].p === pos) return i + 1; return 0; };
+      var spk = (OD.SP || [])[0], spp = spk && S.players[spk];
+      h += '<div class="box"><div class="kind">スタメン（○を おして 選手を おこう。○の 数字は 打順）</div><div class="field"><span class="fd"></span><span class="fm"></span>'
+        + BBP.map(function (q) {
+            var k = bbSlotK(q[0]), p = k && S.players[k], n = noOf(q[0]), xy = BBXY[q[0]];
+            return '<button class="pm" data-slot="P:' + q[0] + '" style="left:' + xy[0] + '%;top:' + xy[1] + '%"><span class="dot" style="background:' + (p ? '#1d4ed8' : 'rgba(255,255,255,.25)') + ';border-color:#fff">' + (p ? n : '＋') + '</span>'
+              + '<span class="pp">' + BBN[q[0]] + '</span><span class="pn">' + esc(p ? p.n : '選ぶ') + '</span></button>';
+          }).join('')
+        + '<button class="pm" data-slot="G:SP:0" style="left:50%;top:62%"><span class="dot" style="background:' + (spp ? '#b91c1c' : 'rgba(255,255,255,.25)') + ';border-color:#fff">投</span><span class="pp">先発</span><span class="pn">' + esc(spp ? spp.n : '選ぶ') + '</span></button>'
+        + '</div></div>';
+      h += '<div class="box"><div class="kind">打順（▲▼で ならべかえ・名前を おすと 選手を かえる）</div>';
+      if (!bat.length) h += '<div class="note">上の 図で 選手を おくと、ここに 打順が ならぶよ。</div>';
+      bat.forEach(function (x, i) {
+        var p = S.players[x.k];
+        h += '<div class="row od bo"><b class="no">' + (i + 1) + '<small>番</small></b><span class="posb">' + BBN[x.p] + '</span>'
+          + '<div class="nm" data-slot="P:' + x.p + '" style="cursor:pointer"><b>' + (p ? stars(p.st) + ' ' + esc(p.n) : esc(x.k)) + '</b><span>' + (p ? '総合 ' + ovr(p) + '　' + abChips(p) : '') + '</span></div>'
+          + '<span class="mv"><button class="btn sm sub" data-up="' + i + '">▲</button><button class="btn sm sub" data-dn="' + i + '">▼</button></span></div>';
+      });
+      h += '</div>';
       BBG.forEach(function (g) {
         h += '<div class="box"><div class="kind">' + g[1] + '</div><div class="slotg">';
         for (var j = 0; j < g[2]; j++) h += slotCard('G:' + g[0] + ':' + j, g[1] + (g[2] > 1 ? ' ' + (j + 1) : ''), (OD[g[0]] || [])[j]);
