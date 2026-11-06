@@ -55,6 +55,10 @@
   .bar i { display:block; height:100%; background:linear-gradient(90deg,#34d399,#059669); }
   .bio { background:#f8fafc; border-radius:10px; padding:8px 10px; font-size:14px; line-height:1.8; margin-top:8px; }
   .kind { font-weight:900; font-size:16px; margin-bottom:8px; color:var(--acc2); }
+  .posg { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .posg .btn { padding:16px 6px; font-size:17px; }
+  .posg small { display:block; font-size:11.5px; font-weight:700; opacity:.9; margin-top:3px; }
+  @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
   .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
   .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -159,6 +163,10 @@
   try { SP = localStorage.getItem('pjSport'); } catch (e) {}
   if (SP !== 'bb' && SP !== 'sc') SP = null;
   function isSp(k) { return SP === 'bb' ? k.charAt(0) === 'b' : k.charAt(0) !== 'b'; }
+  var POSL = {
+    bb: [['P', '⚾ 投手', 'ピッチャー'], ['C', '🧤 捕手', 'キャッチャー'], ['IF', '🏃 内野手', '一塁・二塁・三塁・ショート'], ['OF', '🌳 外野手', 'レフト・センター・ライト']],
+    sc: [['GK', '🧤 GK', 'ゴールキーパー'], ['DF', '🛡 DF', 'ディフェンダー'], ['MF', '🎯 MF', 'ミッドフィールダー'], ['FW', '⚡ FW', 'フォワード']]
+  };
   function myRoster() { return S.roster.filter(function (r) { return isSp(r.k); }); }
   function spName() { return SP === 'bb' ? '⚾ 野球' : '⚽ サッカー'; }
 
@@ -202,14 +210,16 @@
     else if (S.coins < S.price) why = 'コインが たりないよ。家庭学習を 出すと コインが もらえるよ。';
     var h = '<div class="box scout"><div style="font-size:40px">🎟</div>'
       + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">スカウト券で ' + (SP === 'bb' ? '野球' : 'サッカー') + 'の 選手を さがそう！</div>'
-      + '<button class="btn big" id="buy" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>' + (S.price ? spName() + 'の 選手を さがす（' + S.price + 'コイン）' : 'きょうは おしまい') + '</button>'
+      + '<div class="note" style="font-weight:900;margin-bottom:6px">どの ポジションの 選手を さがす？</div>'
+      + '<div class="posg">' + POSL[SP].map(function (x) { return '<button class="btn" data-pos="' + x[0] + '" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>' + x[1] + '<small>' + x[2] + '</small></button>'; }).join('') + '</div>'
+      + '<div style="font-weight:900;margin-top:10px">' + (S.price ? 'スカウト券 1まい ' + S.price + 'コイン' : 'きょうは おしまい') + '</div>'
       + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン。野球と サッカー あわせて）</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
       + '<div class="box note">・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
       + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
     if (S.pending) h = fullBox() + h;
     $('pane').innerHTML = h;
-    var b = $('buy'); if (b) b.onclick = function () { buy(SP); };
+    document.querySelectorAll('[data-pos]').forEach(function (x) { x.onclick = function () { buy(SP, x.getAttribute('data-pos'), x); }; });
     wireFull();
   }
 
@@ -273,9 +283,10 @@
       return null;
     });
   }
-  function buy(sport) {
-    var bb0 = $('buy'); if (bb0) { bb0.disabled = true; bb0.textContent = 'さがしている…'; }
-    act('/api/pj/scout', { sport: sport }).then(function (d) {
+  function buy(sport, pos, btn) {
+    document.querySelectorAll('[data-pos]').forEach(function (x) { x.disabled = true; });
+    if (btn) btn.innerHTML = 'さがしている…';
+    act('/api/pj/scout', { sport: sport, pos: pos || '' }).then(function (d) {
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
       var t = k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';

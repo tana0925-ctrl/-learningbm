@@ -218,7 +218,17 @@ export function installPj(app: any, d: Deps) {
     // どちらを ひくか えらべる（PJ_SPORT_V1）。えらばなければ はんぶんずつ
     const body0 = await c.req.json().catch(() => ({}))
     const sport = body0 && (body0.sport === 'bb' || body0.sport === 'sc') ? body0.sport : (Math.random() < 0.5 ? 'bb' : 'sc')
-    const pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
+    // ポジションを えらんで ひける（PJ_POS_V1）。えらばなければ だれでも
+    const POS: any = {
+      bb: { P: ['投手'], C: ['捕手'], IF: ['一塁手', '二塁手', '三塁手', '遊撃手'], OF: ['外野手'] },
+      sc: { GK: ['ゴールキーパー'], DF: ['センターバック', 'サイドバック'], MF: ['守備的MF', '攻撃的MF'], FW: ['ウイング', 'センターフォワード'] }
+    }
+    const want = POS[sport] && body0 && POS[sport][String(body0.pos || '')]
+    let pr = null
+    if (want) {
+      const cond = want.map(() => "json_extract(j,'$.pos') LIKE ?").join(' OR ')
+      pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? AND (' + cond + ') ORDER BY RANDOM() LIMIT 1').bind(sport, ...want.map((w: string) => '%' + w + '%')).first()
+    } else pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
     if (!pr) return err(c, 503, 'no_players')
     // お金を 先に 引く（足りなければ ここで 止まる）
     if (w.test) {
