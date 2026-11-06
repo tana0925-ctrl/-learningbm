@@ -179,7 +179,10 @@
     else if (S.coins < S.price) why = 'コインが たりないよ。家庭学習を 出すと コインが もらえるよ。';
     var h = '<div class="box scout"><div style="font-size:40px">🎟</div>'
       + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">スカウト券で 選手を さがそう！</div>'
-      + '<button class="btn big" id="buy"' + (can ? '' : ' disabled') + '>' + (S.price ? S.price + 'コインで 1まい 買って ひく' : 'きょうは おしまい') + '</button>'
+      + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'
+      + '<button class="btn big" data-buy="bb" style="background:#1d4ed8"' + (can ? '' : ' disabled') + '>⚾ 野球の 選手を さがす</button>'
+      + '<button class="btn big" data-buy="sc" style="background:#15803d"' + (can ? '' : ' disabled') + '>⚽ サッカーの 選手を さがす</button></div>'
+      + '<div style="font-weight:900;margin-top:8px">' + (S.price ? 'スカウト券 1まい ' + S.price + 'コイン' : 'きょうは おしまい') + '</div>'
       + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン）</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
       + '<div class="box note">⚾ 野球の 選手も ⚽ サッカーの 選手も 出るよ。<br>'
@@ -187,7 +190,7 @@
       + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
     if (S.pending) h = fullBox() + h;
     $('pane').innerHTML = h;
-    var b = $('buy'); if (b) b.onclick = buy;
+    document.querySelectorAll('[data-buy]').forEach(function (x) { x.onclick = function () { buy(x.getAttribute('data-buy')); }; });
     wireFull();
   }
 
@@ -273,9 +276,9 @@
       return null;
     });
   }
-  function buy() {
-    var b = $('buy'); if (b) { b.disabled = true; b.textContent = 'さがしている…'; }
-    act('/api/pj/scout', {}).then(function (d) {
+  function buy(sport) {
+    document.querySelectorAll('[data-buy]').forEach(function (x) { x.disabled = true; if (x.getAttribute('data-buy') === sport) x.textContent = 'さがしている…'; });
+    act('/api/pj/scout', { sport: sport }).then(function (d) {
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
       var t = k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';

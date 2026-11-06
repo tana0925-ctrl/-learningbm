@@ -215,7 +215,9 @@ export function installPj(app: any, d: Deps) {
     const bought = st.by && st.by.d === ctx.today ? Number(st.by.n) || 0 : 0
     if (bought >= PRICES.length) return err(c, 409, 'limit')
     const price = PRICES[bought]
-    const sport = Math.random() < 0.5 ? 'bb' : 'sc'
+    // どちらを ひくか えらべる（PJ_SPORT_V1）。えらばなければ はんぶんずつ
+    const body0 = await c.req.json().catch(() => ({}))
+    const sport = body0 && (body0.sport === 'bb' || body0.sport === 'sc') ? body0.sport : (Math.random() < 0.5 ? 'bb' : 'sc')
     const pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
     if (!pr) return err(c, 503, 'no_players')
     // お金を 先に 引く（足りなければ ここで 止まる）
