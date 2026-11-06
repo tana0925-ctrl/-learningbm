@@ -236,7 +236,8 @@ export function installPj(app: any, d: Deps) {
     let kind = 'new'
     const mine = st.ro.find((r: any) => r.k === k)
     if (mine) { mine.e = (Number(mine.e) || 0) + DUP_EXT; kind = 'dup' }
-    else if (st.ro.length < TEAM_MAX) { st.ro.push({ k, s: ctx.today, e: 0 }); kind = z ? 'back' : 'new' }
+    // チームは 野球・サッカー それぞれ 30人まで（PJ_SPORTMODE_V1）
+    else if (st.ro.filter((r: any) => (r.k[0] === 'b') === (k[0] === 'b')).length < TEAM_MAX) { st.ro.push({ k, s: ctx.today, e: 0 }); kind = z ? 'back' : 'new' }
     else { st.pd = k; kind = 'full' }
     const okSave = await save(c.env, w.u.id, st, b.ver)
     if (!okSave) {
@@ -255,7 +256,7 @@ export function installPj(app: any, d: Deps) {
     const body = await c.req.json().catch(() => ({}))
     if (!st.pd) return err(c, 409, 'none')
     if (body && body.release) {
-      const i = st.ro.findIndex((r: any) => r.k === String(body.release))
+      const i = st.ro.findIndex((r: any) => r.k === String(body.release) && (r.k[0] === 'b') === (String(st.pd)[0] === 'b'))
       if (i < 0) return err(c, 400, 'release')
       st.ro.splice(i, 1)
       st.ro.push({ k: st.pd, s: ctx.today, e: 0 })

@@ -55,6 +55,8 @@
   .bar i { display:block; height:100%; background:linear-gradient(90deg,#34d399,#059669); }
   .bio { background:#f8fafc; border-radius:10px; padding:8px 10px; font-size:14px; line-height:1.8; margin-top:8px; }
   .kind { font-weight:900; font-size:16px; margin-bottom:8px; color:var(--acc2); }
+  .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
+  .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
   .mk2 button { border:0; border-radius:16px; padding:22px 12px; font-size:19px; font-weight:900; color:#fff; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,.18); }
   .mk2 small { display:block; font-size:13px; font-weight:700; opacity:.9; margin-top:4px; }
@@ -152,6 +154,14 @@
   function closeModal() { $('ov').innerHTML = ''; }
 
   // ---------- 画面 ----------
+  //  PJ_SPORTMODE_V1 ひらいたら まず ⚾ 野球 か ⚽ サッカー を えらぶ。スカウト・チーム・図鑑は えらんだ ほうだけ。
+  var SP = null;
+  try { SP = localStorage.getItem('pjSport'); } catch (e) {}
+  if (SP !== 'bb' && SP !== 'sc') SP = null;
+  function isSp(k) { return SP === 'bb' ? k.charAt(0) === 'b' : k.charAt(0) !== 'b'; }
+  function myRoster() { return S.roster.filter(function (r) { return isSp(r.k); }); }
+  function spName() { return SP === 'bb' ? '⚾ 野球' : '⚽ サッカー'; }
+
   function render() {
     if (!S) return;
     $('coins').textContent = '💰 ' + S.coins + (S.test ? '（ためし）' : '');
@@ -162,12 +172,25 @@
         + '<button class="btn sm sub" data-t="coins">ためしコイン＋1000</button><button class="btn sm sub" data-t="reset">さいしょから</button>';
       tb.querySelectorAll('button').forEach(function (b) { b.onclick = function () { testAct(b.getAttribute('data-t')); }; });
     }
-    var h = '<div class="tabs"><button data-tab="scout" class="' + (TAB === 'scout' ? 'on' : '') + '">🎟 スカウト</button>'
-      + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + S.roster.length + '/' + S.teamMax + '）</button>'
-      + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + S.zukan + '）</button></div><div id="pane"></div>';
+    if (!SP) { chooser(); return; }
+    var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;
+    var h = '<div class="spbar" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"><b>' + spName() + '</b><button class="btn sm sub" id="spChg">⚾⚽ きりかえる</button></div>'
+      + '<div class="tabs"><button data-tab="scout" class="' + (TAB === 'scout' ? 'on' : '') + '">🎟 スカウト</button>'
+      + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + myRoster().length + '/' + S.teamMax + '）</button>'
+      + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + zn + '）</button></div><div id="pane"></div>';
     $('main').innerHTML = h;
+    $('spChg').onclick = function () { SP = null; try { localStorage.removeItem('pjSport'); } catch (e) {} render(); };
     $('main').querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { TAB = b.getAttribute('data-tab'); render(); }; });
     if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else paneZukan();
+  }
+
+  function chooser() {
+    var zb = S.zb || 0, bbT = S.roster.filter(function (r) { return r.k.charAt(0) === 'b'; }).length;
+    $('main').innerHTML = '<div style="text-align:center;font-weight:900;font-size:20px;margin:18px 0 14px">どっちで あそぶ？</div>'
+      + '<div class="mk2"><button data-sp="bb" style="background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:34px 12px;font-size:24px">⚾ 野球<small>チーム ' + bbT + '人・図鑑 ' + zb + '人</small></button>'
+      + '<button data-sp="sc" style="background:linear-gradient(135deg,#065f46,#16a34a);padding:34px 12px;font-size:24px">⚽ サッカー<small>チーム ' + (S.roster.length - bbT) + '人・図鑑 ' + (S.zukan - zb) + '人</small></button></div>'
+      + '<div class="note" style="text-align:center">あとで 上の「きりかえる」で いつでも かえられるよ。スカウト券は 2つ あわせて 1日 ' + S.max + 'まいまで。</div>';
+    $('main').querySelectorAll('[data-sp]').forEach(function (b) { b.onclick = function () { SP = b.getAttribute('data-sp'); try { localStorage.setItem('pjSport', SP); } catch (e) {} TAB = 'scout'; render(); }; });
   }
 
   function paneScout() {
@@ -178,28 +201,24 @@
     else if (left <= 0) why = 'きょうは もう ' + S.max + 'まい 買ったよ。また つぎの 学校の日に。';
     else if (S.coins < S.price) why = 'コインが たりないよ。家庭学習を 出すと コインが もらえるよ。';
     var h = '<div class="box scout"><div style="font-size:40px">🎟</div>'
-      + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">スカウト券で 選手を さがそう！</div>'
-      + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'
-      + '<button class="btn big" data-buy="bb" style="background:#1d4ed8"' + (can ? '' : ' disabled') + '>⚾ 野球の 選手を さがす</button>'
-      + '<button class="btn big" data-buy="sc" style="background:#15803d"' + (can ? '' : ' disabled') + '>⚽ サッカーの 選手を さがす</button></div>'
-      + '<div style="font-weight:900;margin-top:8px">' + (S.price ? 'スカウト券 1まい ' + S.price + 'コイン' : 'きょうは おしまい') + '</div>'
-      + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン）</div>'
+      + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">スカウト券で ' + (SP === 'bb' ? '野球' : 'サッカー') + 'の 選手を さがそう！</div>'
+      + '<button class="btn big" id="buy" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>' + (S.price ? spName() + 'の 選手を さがす（' + S.price + 'コイン）' : 'きょうは おしまい') + '</button>'
+      + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン。野球と サッカー あわせて）</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
-      + '<div class="box note">⚾ 野球の 選手も ⚽ サッカーの 選手も 出るよ。<br>'
-      + '・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
+      + '<div class="box note">・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
       + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
     if (S.pending) h = fullBox() + h;
     $('pane').innerHTML = h;
-    document.querySelectorAll('[data-buy]').forEach(function (x) { x.onclick = function () { buy(x.getAttribute('data-buy')); }; });
+    var b = $('buy'); if (b) b.onclick = function () { buy(SP); };
     wireFull();
   }
 
   function fullBox() {
-    var p = S.players[S.pending];
+    var p = S.players[S.pending], pb = String(S.pending).charAt(0) === 'b';
     var h = '<div class="box" style="border:2px solid #fb923c"><div class="kind">チームが いっぱい（' + S.teamMax + '人）！</div>'
       + '<div class="note">' + icon(p) + ' <b>' + esc(p ? p.n : '') + '</b> を 入れるなら、だれかを 自由契約に しよう。自由契約に しても 図鑑には のこるよ。</div>'
-      + '<div style="margin:8px 0"><button class="btn sub sm" id="pass">入れずに 見送る</button></div><div style="max-height:260px;overflow:auto">';
-    S.roster.forEach(function (r) {
+      + '<div style="margin:8px 0"><button class="btn sub sm" id="pass">入れずに 見送る</button></div><div style="max-height:300px;overflow:auto">';
+    S.roster.filter(function (r) { return (r.k.charAt(0) === 'b') === pb; }).forEach(function (r) {
       var q = S.players[r.k];
       h += '<div class="row"><span>' + icon(q) + '</span><div class="nm"><b>' + esc(q ? q.n : r.k) + '</b><span>' + esc(sub(q)) + '</span></div>' + leftTag(r.left)
         + '<button class="btn sm" data-rel="' + esc(r.k) + '">かわりに 入れる</button></div>';
@@ -213,8 +232,9 @@
   function leftTag(n) { return '<span class="left' + (n <= 1 ? ' o' : n <= 5 ? ' y' : '') + '">あと' + n + '日</span>'; }
 
   function paneTeam() {
-    if (!S.roster.length) { $('pane').innerHTML = '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; return; }
-    var soon = S.roster.filter(function (r) { return r.left <= 5; }), rest = S.roster.filter(function (r) { return r.left > 5; });
+    var R = myRoster();
+    if (!R.length) { $('pane').innerHTML = '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; return; }
+    var soon = R.filter(function (r) { return r.left <= 5; }), rest = R.filter(function (r) { return r.left > 5; });
     function list(arr) {
       return arr.map(function (r) {
         var q = S.players[r.k];
@@ -230,38 +250,15 @@
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
 
+  // 図鑑＝手作りアプリの 選手名鑑（3D）。かんたん一覧は なし。
   function paneZukan() {
-    var zb = S.zb || 0, zs = S.zukan - zb;
-    var h = '<div class="mk2"><button id="mkBB" style="background:linear-gradient(135deg,#1e3a8a,#2563eb)">⚾ 野球の 選手名鑑<small>' + zb + '人（3Dで 動くよ）</small></button>'
-      + '<button id="mkSC" style="background:linear-gradient(135deg,#065f46,#16a34a)">⚽ サッカーの 選手名鑑<small>' + zs + '人（3Dで 動くよ）</small></button></div>'
-      + '<details class="box"><summary style="cursor:pointer;font-weight:900">📋 かんたん一覧（殿堂入り・チームの しるし つき）</summary><div style="margin-top:8px">'
-      + '<div class="filters"><button data-f="" class="' + (ZF === '' ? 'on' : '') + '">ぜんぶ</button><button data-f="bb" class="' + (ZF === 'bb' ? 'on' : '') + '">⚾ 野球</button><button data-f="sc" class="' + (ZF === 'sc' ? 'on' : '') + '">⚽ サッカー</button></div>'
-      + '<div class="note" style="margin-bottom:8px">あつめた 選手 ' + S.zukan + '人 ／ ぜんぶで ' + S.total + '人</div><div class="grid" id="zg"></div><div style="text-align:center;margin-top:10px" id="zmore"></div></div></details>';
-    $('pane').innerHTML = h;
-    $('mkBB').onclick = function () { if (zb) openMeikan('bb'); else alert('まだ 野球の 選手が いないよ。スカウトで さがそう！'); };
-    $('mkSC').onclick = function () { if (zs) openMeikan('sc'); else alert('まだ サッカーの 選手が いないよ。スカウトで さがそう！'); };
-    document.querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { ZF = b.getAttribute('data-f'); ZP = 0; ZITEMS = []; paneZukan(); }; });
-    if (ZITEMS.length) drawZ(); else loadZ();
-  }
-  function loadZ() {
-    $('zmore').innerHTML = '<span class="note">よみこみ中…</span>';
-    api('/api/pj/zukan?s=' + ZF + '&p=' + ZP).then(function (d) {
-      if (!d || !d.ok) { $('zmore').innerHTML = ''; return; }
-      ZITEMS = ZITEMS.concat(d.items); ZP = d.page + 1;
-      drawZ(d.more);
-    });
-  }
-  function drawZ(more) {
-    var g = $('zg'); if (!g) return;
-    if (!ZITEMS.length) { g.innerHTML = '<div class="note">まだ いないよ。</div>'; $('zmore').innerHTML = ''; return; }
-    g.innerHTML = ZITEMS.map(function (it, i) {
-      var p = it.p;
-      return '<div class="zi" data-z="' + i + '">' + icon(p) + ' ' + stars(p ? p.st : 1) + '<b>' + esc(p ? p.n : it.k) + '</b><span class="note">' + esc(sub(p)) + '</span><div>'
-        + (it.h ? '<span class="tag h">🏛 殿堂入り</span>' : '') + (it.team ? '<span class="tag t">チーム</span>' : '') + (it.n > 1 ? '<span class="tag">×' + it.n + '</span>' : '') + '</div></div>';
-    }).join('');
-    g.querySelectorAll('[data-z]').forEach(function (e) { e.onclick = function () { var it = ZITEMS[Number(e.getAttribute('data-z'))]; modal(card(it.p, it.h ? '<span class="tag h">🏛 殿堂入り</span> ' : '')); }; });
-    $('zmore').innerHTML = more ? '<button class="btn sub" id="zm">もっと 見る</button>' : '';
-    if ($('zm')) $('zm').onclick = loadZ;
+    var zb = S.zb || 0, zn = SP === 'bb' ? zb : S.zukan - zb;
+    $('pane').innerHTML = '<div class="box scout"><div style="font-size:40px">📖</div>'
+      + '<div style="font-weight:900;font-size:17px;margin:4px 0 6px">' + spName() + 'の 選手名鑑</div>'
+      + '<div class="note" style="margin-bottom:12px">あつめた 選手 <b>' + zn + '人</b>（引退した 選手も のこっているよ）。3Dで 動く 選手を 見よう！</div>'
+      + '<button class="btn big" id="mkOpen" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (zn ? '' : ' disabled') + '>📖 名鑑を ひらく</button>'
+      + (zn ? '' : '<div class="note" style="margin-top:8px">まだ いないよ。🎟 スカウトで さがそう！</div>') + '</div>';
+    var b = $('mkOpen'); if (b) b.onclick = function () { openMeikan(SP); };
   }
 
   // ---------- うごき ----------
@@ -277,7 +274,7 @@
     });
   }
   function buy(sport) {
-    document.querySelectorAll('[data-buy]').forEach(function (x) { x.disabled = true; if (x.getAttribute('data-buy') === sport) x.textContent = 'さがしている…'; });
+    var bb0 = $('buy'); if (bb0) { bb0.disabled = true; bb0.textContent = 'さがしている…'; }
     act('/api/pj/scout', { sport: sport }).then(function (d) {
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
