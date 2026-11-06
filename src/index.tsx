@@ -14127,7 +14127,7 @@ app.get('/teacher', (c) => {
           pjBtn.textContent = '⚾ 先生PJ …';
           pjBtn.dataset.on = '';
           api('/api/teacher/pj/class/'+cls.id).then(function(r){ var on = !!(r && r.enabled); pjBtn.dataset.on = on ? '1' : ''; pjBtn.className = pjCls(on); pjBtn.textContent = on ? '⚾ 先生PJ ON' : '⚾ 先生PJ OFF'; }).catch(function(){ pjBtn.textContent = '⚾ 先生PJ OFF'; });
-          pjBtn.title = 'クリックで このクラスの 子に「先生PJ」を 出す／かくす（先週の学習計画が承認された子が、今週使えます）';
+          pjBtn.title = 'クリックで このクラスの 子に「先生PJ」を 出す／かくす（先週か今週、どちらかの学習計画が承認された子が使えます）';
           pjBtn.onclick = async ()=>{
             const newVal = !pjBtn.dataset.on;
             if (newVal && !confirm('このクラスの子どもに「先生PJ（野球・サッカー）」を出します。よろしいですか？')) return;

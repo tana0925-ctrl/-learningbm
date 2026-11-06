@@ -854,7 +854,7 @@
       var e = d && d.error;
       if (e === 'import') { if (d.test) runImport(d.parts); else $('main').innerHTML = '<div class="msg">いま じゅんびちゅうだよ。また あとで ひらいてね。</div>'; return; }
       var m = e === 'login' ? 'ログインしてから ひらいてね。<br><a href="/">アプリへ</a>'
-        : e === 'plan' ? '📝 先生PJは、先週の 学習計画が 先生に 承認された子の ごほうびだよ。<br>今週の 学習計画を 出して、先生の OK を もらうと、来週 つかえるよ！'
+        : e === 'plan' ? '📝 先生PJは、学習計画を がんばった子の ごほうびだよ。<br>今週の 学習計画を 出して、先生の OK を もらうと、すぐ つかえるよ！'
         : e === 'off' ? 'いまは つかえません。'
         : '読みこめませんでした。もう一度 ひらいてね。';
       $('main').innerHTML = '<div class="msg">' + m + '</div>';

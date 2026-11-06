@@ -132,9 +132,9 @@ async function who(c: any, d: any) {
   if (!m || !m.cid) return { error: 'off' }   // クラスに 入っていない子には 出さない
   const p = await c.env.DB.prepare('SELECT enabled FROM pj_class WHERE class_id=?').bind(String(m.cid)).first()
   if (!p || Number(p.enabled) !== 1) return { error: 'off' }
-  // 先週の 学習計画が 承認された子が 今週 つかえる（PJ_PLANGATE_V2：先週 がんばった ごほうび。月曜の 朝から 1週間 きまっている）
+  // 先週 か 今週、どちらかの 学習計画が 承認された子が つかえる（PJ_PLANGATE_V3：先週 がんばった子は 月曜から、今週 早く 出した子は 承認された その時から）
   let plan = false
-  try { const q = await c.env.DB.prepare('SELECT plan_approved AS a FROM student_weekly_plans WHERE user_id=? AND week_key=? LIMIT 1').bind(String(u.id), d.weekKey(-7)).first(); plan = !!(q && Number(q.a) === 1) } catch (_e) { plan = false }
+  try { const q = await c.env.DB.prepare('SELECT 1 AS a FROM student_weekly_plans WHERE user_id=? AND week_key IN (?, ?) AND plan_approved=1 LIMIT 1').bind(String(u.id), d.weekKey(-7), d.weekKey(0)).first(); plan = !!q } catch (_e) { plan = false }
   return { u, test: false, classId: String(m.cid), plan }
 }
 
