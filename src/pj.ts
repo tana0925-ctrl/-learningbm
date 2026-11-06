@@ -80,6 +80,35 @@ async function importPart(env: any, part: number) {
   return { ok: true, part, parts: m.parts, rows: rows.length }
 }
 
+// 監督の データ（PJ_MGR_V1）。小さいので、ひつようなら その場で 入れる
+let _mgOk = ''
+async function ensureMgr(env: any) {
+  try {
+    const r = await env.ASSETS.fetch(new Request('https://assets/pjd/mg.json'))
+    if (!r || r.status !== 200) return
+    const m = await r.json()
+    if (_mgOk === m.v) return
+    const cur = await env.DB.prepare("SELECT v FROM pj_meta WHERE k='mgver'").first()
+    if (cur && String(cur.v) === String(m.v)) { _mgOk = m.v; return }
+    const kr = await env.DB.prepare("SELECT v FROM pj_meta WHERE k='catkey'").first()
+    if (!kr) return
+    const res = await env.ASSETS.fetch(new Request('https://assets/pjd/mg.bin'))
+    const buf = new Uint8Array(await res.arrayBuffer())
+    const key = await crypto.subtle.importKey('raw', hexBytes(String(kr.v)), { name: 'AES-GCM' }, false, ['decrypt'])
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12))
+    const rows = JSON.parse(await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text())
+    const stmts = []
+    for (let i = 0; i < rows.length; i += 30) {
+      const g = rows.slice(i, i + 30), args = []
+      g.forEach((x) => { args.push(String(x.k), String(x.s), JSON.stringify(x.j)) })
+      stmts.push(env.DB.prepare('INSERT OR REPLACE INTO pj_players (k,s,j) VALUES ' + g.map(() => '(?,?,?)').join(',')).bind(...args))
+    }
+    await env.DB.batch(stmts)
+    await env.DB.prepare("INSERT OR REPLACE INTO pj_meta (k,v) VALUES ('mgver', ?)").bind(String(m.v)).run()
+    _mgOk = m.v
+  } catch (_e) {}
+}
+
 async function players(env: any, keys: string[]) {
   const out: any = {}
   const ks = Array.from(new Set(keys.filter(Boolean).map(String)))
@@ -109,7 +138,7 @@ async function who(c: any, d: any) {
   return { u, test: false, classId: String(m.cid), plan }
 }
 
-function blank() { return { ro: [], zk: {}, by: { d: '', n: 0 }, pd: null, nw: [], tc: TEST_COINS, off: 0 } }
+function blank() { return { ro: [], zk: {}, by: { d: '', n: 0 }, pd: null, nw: [], tc: TEST_COINS, off: 0, mg: {}, cm: {} } }
 
 async function load(env: any, uid: string) {
   const r = await env.DB.prepare('SELECT st, ver FROM pj_user WHERE user_id=?').bind(String(uid)).first()
@@ -168,14 +197,16 @@ export function installPj(app: any, d: Deps) {
 
   async function view(c: any, w: any, st: any, ctx: any, extra?: any) {
     const bought = st.by && st.by.d === ctx.today ? Number(st.by.n) || 0 : 0
-    const keys = st.ro.map((r: any) => r.k).concat(st.pd ? [st.pd] : [], st.nw.map((n: any) => n.k), extra && extra.k ? [extra.k] : [])
+    const cm = st.cm || {}
+    const keys = st.ro.map((r: any) => r.k).concat(st.pd ? [st.pd] : [], st.nw.map((n: any) => n.k), extra && extra.k ? [extra.k] : [], extra && extra.pull && extra.pull.k ? [extra.pull.k] : [], cm.bb ? [cm.bb] : [], cm.sc ? [cm.sc] : [])
     const pl = await players(c.env, keys)
     let total = 0
-    try { const t = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM pj_players').first(); total = Number(t && t.n) || 0 } catch (_e) {}
+    try { const t = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM pj_players WHERE s IN (\'bb\',\'sc\')').first(); total = Number(t && t.n) || 0 } catch (_e) {}
     return Object.assign({
       ok: true, test: !!w.test, today: ctx.today, school: ctx.school(ctx.today),
       coins: await coinsOf(c, w, st), bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
+      mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
       pending: st.pd, news: st.nw, zukan: Object.keys(st.zk).length, zb: Object.keys(st.zk).filter((k) => k[0] === 'b').length, total, players: pl
     }, extra || {})
   }
@@ -187,6 +218,7 @@ export function installPj(app: any, d: Deps) {
     if (!w.test && !w.plan) return { res: err(c, 403, 'plan') }
     const m = await manifest(c.env)
     if (m && (await catVer(c.env)) !== String(m.v)) return { res: c.json({ ok: false, error: 'import', test: !!w.test, parts: m.parts }) }
+    await ensureMgr(c.env)
     const L = await load(c.env, w.u.id)
     const ctx = await dayCtx(c, w, L.st)
     return { w, st: L.st, ver: L.ver, ctx }
@@ -224,6 +256,35 @@ export function installPj(app: any, d: Deps) {
       sc: { GK: ['ゴールキーパー'], DF: ['センターバック', 'サイドバック'], MF: ['守備的MF', '攻撃的MF'], FW: ['ウイング', 'センターフォワード'] }
     }
     const want = POS[sport] && body0 && POS[sport][String(body0.pos || '')]
+    // 🎩 監督（引退しない・どんどん ふえる）。まだ いない 監督から ひく
+    if (body0 && body0.pos === 'MG') {
+      st.mg = st.mg || {}; st.cm = st.cm || {}
+      const pre = sport === 'bb' ? 'mb:' : 'ms:'
+      const have = Object.keys(st.mg).filter((x) => x.indexOf(pre) === 0)
+      let mr = null
+      if (have.length) {
+        const hv = have.slice(0, 600)
+        mr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? AND k NOT IN (' + hv.map(() => '?').join(',') + ') ORDER BY RANDOM() LIMIT 1').bind(sport + 'm', ...hv).first()
+      }
+      if (!mr) mr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport + 'm').first()
+      if (!mr) return err(c, 503, 'no_players')
+      if (w.test) {
+        if ((Number(st.tc) || 0) < price) return err(c, 402, 'coins')
+        st.tc = (Number(st.tc) || 0) - price
+      } else {
+        const r = await d.coinStmt(c.env, w.u.id, -price).run()
+        if (!(r && r.meta && Number(r.meta.changes) === 1)) return err(c, 402, 'coins')
+      }
+      const mk = String(mr.k), dupM = !!st.mg[mk]
+      st.by = { d: ctx.today, n: bought + 1 }
+      st.mg[mk] = { f: dupM ? st.mg[mk].f : ctx.today }
+      if (!st.cm[sport]) st.cm[sport] = mk
+      if (!(await save(c.env, w.u.id, st, b.ver))) {
+        if (!w.test) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }
+        return err(c, 409, 'busy')
+      }
+      return c.json(await view(c, w, st, ctx, { pull: { k: mk, kind: dupM ? 'mgr_dup' : 'mgr', first: !dupM } }))
+    }
     let pr = null
     if (want) {
       const cond = want.map(() => "json_extract(j,'$.pos') LIKE ?").join(' OR ')
@@ -286,6 +347,24 @@ export function installPj(app: any, d: Deps) {
     st.ro.splice(i, 1)
     if (!(await save(c.env, w.u.id, st, b.ver))) return err(c, 409, 'busy')
     return c.json(await view(c, w, st, ctx))
+  })
+
+  // 監督：持っている 監督の 一覧と、つかう 監督を きめる
+  app.get('/api/pj/managers', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const sp = c.req.query('s') === 'sc' ? 'sc' : 'bb', pre = sp === 'bb' ? 'mb:' : 'ms:'
+    const ks = Object.keys(b.st.mg || {}).filter((k) => k.indexOf(pre) === 0)
+    const pl = await players(c.env, ks)
+    return c.json({ ok: true, cur: (b.st.cm || {})[sp] || null, items: ks.map((k) => ({ k, p: pl[k] || null })) })
+  })
+  app.post('/api/pj/manager', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const k = String(body && body.k || ''), sp = k.indexOf('mb:') === 0 ? 'bb' : (k.indexOf('ms:') === 0 ? 'sc' : '')
+    if (!sp || !(b.st.mg || {})[k]) return err(c, 400, 'k')
+    b.st.cm = b.st.cm || {}; b.st.cm[sp] = k
+    if (!(await save(c.env, b.w.u.id, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await view(c, b.w, b.st, b.ctx))
   })
 
   app.post('/api/pj/news-seen', async (c: any) => {

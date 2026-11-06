@@ -55,10 +55,13 @@
   .bar i { display:block; height:100%; background:linear-gradient(90deg,#34d399,#059669); }
   .bio { background:#f8fafc; border-radius:10px; padding:8px 10px; font-size:14px; line-height:1.8; margin-top:8px; }
   .kind { font-weight:900; font-size:16px; margin-bottom:8px; color:var(--acc2); }
-  .posg { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .posg { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .posg [data-pos=MG] { background:#7c2d12 !important; }
   .posg .btn { padding:16px 6px; font-size:17px; }
   .posg small { display:block; font-size:11.5px; font-weight:700; opacity:.9; margin-top:3px; }
   @media (max-width:600px) { .posg { grid-template-columns:1fr 1fr; } }
+  .lvg { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; margin:8px 0; font-size:13px; }
+  .lvg i { color:#f59e0b; font-style:normal; letter-spacing:1px; }
   .spbar { display:flex; align-items:center; gap:10px; color:#fff; border-radius:12px; padding:8px 12px; margin-bottom:10px; }
   .spbar b { flex:1; font-size:18px; }
   .mk2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -133,8 +136,18 @@
     if (p.pkt) return '<div class="meta">📊 ' + esc(p.pkt) + '</div>';
     return '';
   }
+  function mgrCard(p, extra) {
+    var h = '<div class="card pop">' + (extra || '') + '<div class="meta">🎩 ' + (p.s === 'bbm' ? '野球の 監督' : 'サッカーの 監督') + (p.ty ? '・' + esc(p.ty) : '') + '</div><h2>' + esc(p.n) + '</h2>';
+    if (p.cn) h += '<div class="meta">' + esc(p.cn) + '</div>';
+    if (p.tm) h += '<div class="meta">📋 ' + esc(p.tm) + '</div>';
+    if (p.lv && p.lv.length) h += '<div class="lvg">' + p.lv.map(function (x) { return '<span>' + esc(x[0]) + '</span><i>' + '★★★★★'.slice(0, Math.max(0, Math.min(5, Number(x[1]) || 0))) + '<span style="color:#e5e7eb">' + '★★★★★'.slice(0, 5 - Math.max(0, Math.min(5, Number(x[1]) || 0))) + '</span></i>'; }).join('') + '</div>';
+    if (p.tr && p.tr.length) h += '<div class="meta">🏆 ' + esc(p.tr.join('、')) + '</div>';
+    if (p.ds) h += '<div class="bio">' + esc(p.ds) + '</div>';
+    return h + '</div>';
+  }
   function card(p, extra) {
     if (!p) return '<div class="note">選手の データが 見つかりませんでした。</div>';
+    if (p.s === 'bbm' || p.s === 'scm') return mgrCard(p, extra);
     var m = [];
     m.push(icon(p) + ' ' + esc(p.pos || ''));
     if (p.s === 'sc') { if (p.en) m.push(esc(p.en)); if (p.y) m.push(esc(p.y) + '年ごろ かつやく'); if (p.h) m.push(p.h + 'cm'); if (p.ft) m.push(esc(p.ft)); }
@@ -164,8 +177,8 @@
   if (SP !== 'bb' && SP !== 'sc') SP = null;
   function isSp(k) { return SP === 'bb' ? k.charAt(0) === 'b' : k.charAt(0) !== 'b'; }
   var POSL = {
-    bb: [['P', '⚾ 投手', 'ピッチャー'], ['C', '🧤 捕手', 'キャッチャー'], ['IF', '🏃 内野手', '一塁・二塁・三塁・ショート'], ['OF', '🌳 外野手', 'レフト・センター・ライト']],
-    sc: [['GK', '🧤 GK', 'ゴールキーパー'], ['DF', '🛡 DF', 'ディフェンダー'], ['MF', '🎯 MF', 'ミッドフィールダー'], ['FW', '⚡ FW', 'フォワード']]
+    bb: [['P', '⚾ 投手', 'ピッチャー'], ['C', '🧤 捕手', 'キャッチャー'], ['IF', '🏃 内野手', '一塁・二塁・三塁・ショート'], ['OF', '🌳 外野手', 'レフト・センター・ライト'], ['MG', '🎩 監督', '引退しない']],
+    sc: [['GK', '🧤 GK', 'ゴールキーパー'], ['DF', '🛡 DF', 'ディフェンダー'], ['MF', '🎯 MF', 'ミッドフィールダー'], ['FW', '⚡ FW', 'フォワード'], ['MG', '🎩 監督', '引退しない']]
   };
   function myRoster() { return S.roster.filter(function (r) { return isSp(r.k); }); }
   function spName() { return SP === 'bb' ? '⚾ 野球' : '⚽ サッカー'; }
@@ -241,9 +254,29 @@
   }
   function leftTag(n) { return '<span class="left' + (n <= 1 ? ' o' : n <= 5 ? ' y' : '') + '">あと' + n + '日</span>'; }
 
+  function mgrBox() {
+    var k = S.mgr && S.mgr[SP], p = k && S.players[k], n = (S.mgN && S.mgN[SP]) || 0;
+    return '<div class="box" style="border:2px solid #fdba74;background:#fff7ed"><div class="kind" style="color:#9a3412">🎩 監督</div>'
+      + (p ? '<div class="row"><div class="nm" id="mgOpen" style="cursor:pointer"><b>' + esc(p.n) + '</b><span>' + esc(p.ty || p.cn || '') + '</span></div><button class="btn sm sub" id="mgChg">監督を かえる（' + n + '人）</button></div>'
+           : '<div class="note">まだ 監督が いないよ。スカウトの「🎩 監督」で さがそう！ 監督は 引退しないで どんどん ふえるよ。</div>') + '</div>';
+  }
+  function wireMgr() {
+    var o = $('mgOpen'); if (o) o.onclick = function () { modal(card(S.players[S.mgr[SP]])); };
+    var c = $('mgChg'); if (c) c.onclick = function () {
+      api('/api/pj/managers?s=' + SP).then(function (d) {
+        if (!d || !d.ok) return;
+        var h = '<div class="kind">🎩 どの 監督に する？</div><div style="max-height:60vh;overflow:auto">';
+        d.items.forEach(function (it) { var p = it.p || {}; h += '<div class="row"><div class="nm" data-mo="' + esc(it.k) + '" style="cursor:pointer"><b>' + esc(p.n || it.k) + '</b><span>' + esc(p.ty || p.cn || '') + '</span></div>' + (it.k === d.cur ? '<span class="left">いまの 監督</span>' : '<button class="btn sm" data-mset="' + esc(it.k) + '">この 監督に する</button>') + '</div>'; });
+        modal(h + '</div>');
+        var by = {}; d.items.forEach(function (it) { by[it.k] = it.p; });
+        document.querySelectorAll('[data-mo]').forEach(function (e) { e.onclick = function () { modal(card(by[e.getAttribute('data-mo')])); }; });
+        document.querySelectorAll('[data-mset]').forEach(function (b) { b.onclick = function () { closeModal(); act('/api/pj/manager', { k: b.getAttribute('data-mset') }); }; });
+      });
+    };
+  }
   function paneTeam() {
     var R = myRoster();
-    if (!R.length) { $('pane').innerHTML = '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; return; }
+    if (!R.length) { $('pane').innerHTML = mgrBox() + '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; wireMgr(); return; }
     var soon = R.filter(function (r) { return r.left <= 5; }), rest = R.filter(function (r) { return r.left > 5; });
     function list(arr) {
       return arr.map(function (r) {
@@ -252,11 +285,12 @@
           + leftTag(r.left) + '<button class="btn sm sub" data-free="' + esc(r.k) + '">自由契約</button></div>';
       }).join('');
     }
-    var h = '';
+    var h = mgrBox();
     if (soon.length) h += '<div class="box"><div class="kind" style="color:#c2410c">もうすぐ 引退する 選手</div>' + list(soon) + '</div>';
     if (rest.length) h += '<div class="box"><div class="kind">チームの 選手</div>' + list(rest) + '</div>';
     $('pane').innerHTML = h;
     document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { modal(card(S.players[e.getAttribute('data-open')])); }; });
+    wireMgr();
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
 
@@ -289,7 +323,7 @@
     act('/api/pj/scout', { sport: sport, pos: pos || '' }).then(function (d) {
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
-      var t = k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';
+      var t = k === 'mgr' ? 'あたらしい 監督が 来たよ！ 監督は 引退しないよ。' : k === 'mgr_dup' ? 'もう いる 監督だった！（監督を ぜんいん あつめたよ）' : k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';
       modal('<div class="kind">' + (d.pull.first ? '🆕 ' : '') + esc(t) + '</div>' + card(p));
     });
   }
