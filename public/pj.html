@@ -18,8 +18,26 @@
   .test b { color:#c2410c; }
   .wrap { max-width:1040px; margin:0 auto; padding:14px 18px 60px; }
   @media (min-width:700px) { .tabs button { font-size:17px; padding:13px 8px; } .row { padding:10px 6px; } .btn.sm { padding:7px 12px; font-size:14px; } }
-  .tabs { display:flex; gap:6px; margin:4px 0 12px; }
-  .tabs button { flex:1; min-width:0; white-space:nowrap; border:2px solid var(--line); background:#fff; border-radius:12px; padding:10px 6px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
+  .tabs { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 12px; }
+  .tabs button { flex:1 1 auto; min-width:0; white-space:nowrap; border:2px solid var(--line); background:#fff; border-radius:12px; padding:10px 6px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
+  .rsub,.rcats { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+  .rsub button,.rcats button { flex:1 1 auto; border:2px solid var(--line); background:#fff; border-radius:999px; padding:9px 10px; font-weight:900; font-size:15px; cursor:pointer; color:var(--sub); }
+  .rcats button { flex:0 0 auto; font-size:14px; padding:6px 12px; }
+  .rsub button.on,.rcats button.on { border-color:var(--acc); color:var(--acc2); background:#ecfdf5; }
+  .rsec { background:#fff; border:2px solid var(--line); border-radius:12px; margin:8px 0; padding:4px 12px; }
+  .rsec summary { font-weight:900; font-size:17px; padding:10px 0; cursor:pointer; }
+  .rsec ul { margin:0 0 10px; padding-left:20px; line-height:1.9; font-size:16px; }
+  .rsec li { margin:4px 0; }
+  .rpos { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px; }
+  .rpc { background:#fff; border:2px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .rpn { font-weight:900; font-size:16px; margin-bottom:4px; }
+  .rnum { display:inline-block; min-width:26px; text-align:center; color:#fff; border-radius:8px; padding:1px 6px; margin-right:6px; font-size:14px; }
+  .rpd { line-height:1.8; font-size:15px; }
+  .rq { width:100%; box-sizing:border-box; font-size:17px; padding:10px 12px; border:2px solid var(--line); border-radius:12px; }
+  .rw { background:#fff; border:2px solid var(--line); border-radius:12px; padding:9px 12px; margin:6px 0; }
+  .rw small { color:var(--sub); }
+  .rtag { float:right; font-size:12px; background:#f1f5f9; border-radius:999px; padding:2px 8px; color:var(--sub); }
+  .rwd { line-height:1.8; font-size:15px; margin-top:3px; }
   .tabs button.on { border-color:var(--acc); color:var(--acc2); background:#ecfdf5; }
   .btn { border:0; border-radius:12px; padding:10px 16px; font-weight:900; font-size:15px; cursor:pointer; background:var(--acc); color:#fff; }
   .btn:disabled { background:#9ca3af; cursor:default; }
@@ -244,11 +262,12 @@
       + '<button data-tab="team" class="' + (TAB === 'team' ? 'on' : '') + '">🧢 チーム（' + myRoster().length + '/' + S.teamMax + '）</button>'
       + '<button data-tab="order" class="' + (TAB === 'order' ? 'on' : '') + '">📋 オーダー</button>'
       + '<button data-tab="match" class="' + (TAB === 'match' ? 'on' : '') + '">🏟 試合</button>'
-      + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + zn + '）</button></div><div id="pane"></div>';
+      + '<button data-tab="zukan" class="' + (TAB === 'zukan' ? 'on' : '') + '">📖 図鑑（' + zn + '）</button>'
+      + '<button data-tab="rules" class="' + (TAB === 'rules' ? 'on' : '') + '">📚 ルール</button></div><div id="pane"></div>';
     $('main').innerHTML = h;
     $('spChg').onclick = function () { SP = null; try { localStorage.removeItem('pjSport'); } catch (e) {} render(); };
     $('main').querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { TAB = b.getAttribute('data-tab'); render(); }; });
-    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else if (TAB === 'order') paneOrder(); else if (TAB === 'match') paneMatch(); else paneZukan();
+    if (TAB === 'scout') paneScout(); else if (TAB === 'team') paneTeam(); else if (TAB === 'order') paneOrder(); else if (TAB === 'match') paneMatch(); else if (TAB === 'rules') paneRules(); else paneZukan();
   }
 
   function chooser() {
@@ -562,6 +581,51 @@
       + '<button class="btn big" id="mkOpen" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (zn ? '' : ' disabled') + '>📖 名鑑を ひらく</button>'
       + (zn ? '' : '<div class="note" style="margin-top:8px">まだ いないよ。🎟 スカウトで さがそう！</div>') + '</div>';
     var b = $('mkOpen'); if (b) b.onclick = function () { openMeikan(SP); };
+  }
+
+  // 📚 PJ_RULES_TAB_V1 ルール・用語を まなぶ（クイズなし）。中身は /pj_rules.js を タブを ひらいた ときだけ 読みこむ。
+  var RQ = '', RC = '', RSUB = 'sec';
+  function loadRules(cb) {
+    if (window.PJ_RULES) return cb();
+    var s = document.createElement('script'); s.src = '/pj_rules.js?v=1';
+    s.onload = cb; s.onerror = function () { var p = $('pane'); if (p) p.innerHTML = '<div class="box note">読みこめなかったよ。もう一度 タブを おしてね。</div>'; };
+    document.head.appendChild(s);
+  }
+  function paneRules() {
+    if (!window.PJ_RULES) { $('pane').innerHTML = '<div class="box note">よみこみちゅう…</div>'; loadRules(function () { if (TAB === 'rules') paneRules(); }); return; }
+    var R = window.PJ_RULES[SP], col = SP === 'bb' ? '#1d4ed8' : '#15803d';
+    var h = '<div class="box" style="border-left:6px solid ' + col + '"><b style="font-size:17px">' + spName() + 'って どんな スポーツ？</b><div style="margin-top:6px;line-height:1.8">' + esc(R.intro) + '</div></div>'
+      + '<div class="rsub">'
+      + [['sec', '📏 きほんの ルール'], ['pos', '🧍 ポジションの しごと'], ['words', '🔤 用語ずかん']].map(function (t) { return '<button data-rs="' + t[0] + '" class="' + (RSUB === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('')
+      + '</div><div id="rbody"></div>';
+    $('pane').innerHTML = h;
+    $('pane').querySelectorAll('[data-rs]').forEach(function (b) { b.onclick = function () { RSUB = b.getAttribute('data-rs'); paneRules(); }; });
+    var B = $('rbody');
+    if (RSUB === 'sec') {
+      B.innerHTML = R.sec.map(function (s, i) {
+        return '<details class="rsec"' + (i === 0 ? ' open' : '') + '><summary>' + esc(s[0]) + '</summary><ul>'
+          + s[1].map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></details>';
+      }).join('');
+    } else if (RSUB === 'pos') {
+      B.innerHTML = '<div class="rpos">' + R.pos.map(function (p) {
+        return '<div class="rpc"><div class="rpn">' + (p[1] ? '<span class="rnum" style="background:' + col + '">' + esc(p[1]) + '</span>' : '') + esc(p[0]) + '</div><div class="rpd">' + esc(p[2]) + '</div></div>';
+      }).join('') + '</div>';
+    } else {
+      var cats = []; R.words.forEach(function (w) { if (cats.indexOf(w[3]) < 0) cats.push(w[3]); });
+      if (RC && cats.indexOf(RC) < 0) RC = '';
+      B.innerHTML = '<input id="rq" class="rq" placeholder="🔍 ことばを さがす（ひらがなでも OK）" value="' + esc(RQ) + '">'
+        + '<div class="rcats">' + [''].concat(cats).map(function (c) { return '<button data-rc="' + esc(c) + '" class="' + (RC === c ? 'on' : '') + '">' + (c ? esc(c) : 'ぜんぶ') + '</button>'; }).join('') + '</div><div id="rlist"></div>';
+      var list = function () {
+        var q = RQ.trim();
+        var ws = R.words.filter(function (w) { return (!RC || w[3] === RC) && (!q || w[0].indexOf(q) >= 0 || w[1].indexOf(q) >= 0 || w[2].indexOf(q) >= 0); });
+        $('rlist').innerHTML = (ws.length ? ws.map(function (w) {
+          return '<div class="rw"><div><b>' + esc(w[0]) + '</b> <small>' + esc(w[1]) + '</small><span class="rtag">' + esc(w[3]) + '</span></div><div class="rwd">' + esc(w[2]) + '</div></div>';
+        }).join('') : '<div class="note">みつからないよ。ほかの ことばで さがしてね。</div>') + '<div class="note" style="text-align:right">' + ws.length + ' / ' + R.words.length + ' こ</div>';
+      };
+      list();
+      var inp = $('rq'); inp.oninput = function () { RQ = inp.value; list(); };
+      B.querySelectorAll('[data-rc]').forEach(function (b) { b.onclick = function () { RC = b.getAttribute('data-rc'); paneRules(); }; });
+    }
   }
 
   // ---------- うごき ----------
