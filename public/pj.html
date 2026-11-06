@@ -333,7 +333,7 @@
     if (soon.length) h += '<div class="box"><div class="kind" style="color:#c2410c">もうすぐ 引退する 選手</div>' + list(soon) + '</div>';
     if (rest.length) h += '<div class="box"><div class="kind">チームの 選手</div>' + list(rest) + '</div>';
     $('pane').innerHTML = h;
-    document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { modal(card(S.players[e.getAttribute('data-open')])); }; });
+    document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { var k = e.getAttribute('data-open'), p = S.players[k]; show3D(k, p ? p.n : ''); }; });
     wireMgr();
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
@@ -559,7 +559,8 @@
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
       var t = k === 'mgr' ? 'あたらしい 監督が 来たよ！ 監督は 引退しないよ。' : k === 'mgr_dup' ? 'もう いる 監督だった！（監督を ぜんいん あつめたよ）' : k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';
-      modal('<div class="kind">' + (d.pull.first ? '🆕 ' : '') + esc(t) + '</div>' + card(p));
+      if (p && (p.s === 'bb' || p.s === 'sc')) show3D(d.pull.k, (d.pull.first ? '🆕 ' : '') + t);
+      else modal('<div class="kind">' + (d.pull.first ? '🆕 ' : '') + esc(t) + '</div>' + card(p));
     });
   }
   function keep(rel) { act('/api/pj/keep', rel ? { release: rel } : { pass: true }); }
@@ -616,6 +617,19 @@
       };
       fr.src = url;
     }).catch(function () { var l = $('mkL'); if (l) l.innerHTML = 'ひらけませんでした。<br>もう一度 ためしてね。'; });
+  }
+  // 1人の 選手を 3Dの 名鑑で 見せる（ガチャの 結果・チームの 選手）
+  function show3D(k, title) {
+    var p = S.players[k]; if (!p) return;
+    var f = k.charAt(0) === 'b' ? 'bb' : 'sc', id = f === 'bb' ? Number(k.slice(1)) : p.mk;
+    if (f === 'sc' && !id) { modal(card(p)); return; }
+    openGame(f, esc(title || p.n), function (w) {
+      w.__pjStart([id], f);
+      var n = 0, t = setInterval(function () {
+        var c = w.document.querySelector('.mk-card');
+        if (c) { clearInterval(t); c.click(); } else if (++n > 40) clearInterval(t);
+      }, 120);
+    });
   }
   function openMeikan(f) {
     openGame(f, (f === 'bb' ? '⚾ 野球' : '⚽ サッカー') + 'の 選手名鑑（きみの 選手）', function (w, info) { w.__pjStart(f === 'bb' ? info.bb : info.sc, f); });
