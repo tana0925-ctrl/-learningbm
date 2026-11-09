@@ -6501,7 +6501,7 @@ app.put('/api/homework/submit', async (c) => {
   const result = await c.env.DB.prepare(`
     UPDATE homework_submissions
     SET todo=?, why=?, aim=?, minutes=?, end_weather=?, weather_reason=?, next_improve=?,
-        self_study_plan=?, weekly_plan=?, weekly_reflection=?,
+        self_study_plan=COALESCE(?, self_study_plan), weekly_plan=COALESCE(?, weekly_plan), weekly_reflection=COALESCE(?, weekly_reflection),
         updated_at=?
     WHERE user_id=? AND day_key=?
   `).bind(
@@ -6512,15 +6512,42 @@ app.put('/api/homework/submit', async (c) => {
     String(body.endWeather || 'sun'),
     String(body.weatherReason || '').slice(0, 500),
     String(body.nextImprove || '').slice(0, 500),
-    String(body.selfStudyPlan || '').slice(0, 500),
-    String(body.weeklyPlan || '').slice(0, 1000),
-    String(body.weeklyReflection || '').slice(0, 1000),
+    // 直す画面が 送らない 項目（週の計画など）は 消さずに のこす
+    body.selfStudyPlan == null ? null : String(body.selfStudyPlan).slice(0, 500),
+    body.weeklyPlan == null ? null : String(body.weeklyPlan).slice(0, 1000),
+    body.weeklyReflection == null ? null : String(body.weeklyReflection).slice(0, 1000),
     Date.now(),
     u.id, dayKey
   ).run()
 
   if (!result.meta?.changes) return jsonError(c, 404, 'not_found')
   return c.json({ ok: true })
+})
+
+// ⏱ HSEXTRA_V1 提出したあとに「追加ではかる」：同じ日のうちだけ、はかった分を やった時間に足す（コイン・かけらは ふやさない）。
+//   ・きょう（朝8:30区切り）の提出だけ。1回で 180分まで・合計 600分まで。
+//   ・前に提出／足したときから たった時間より 長くは 足せない（はかっていない時間を 足せないように）。
+app.post('/api/homework/add-minutes', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'login_required')
+  if (u.role !== 'student') return jsonError(c, 403, 'student_only')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return jsonError(c, 400, 'invalid_json')
+  const dayKey = String(body.dayKey || '').slice(0, 10)
+  const today = new Date(Date.now() + 9 * 3600000 - (8 * 60 + 30) * 60000).toISOString().slice(0, 10)
+  if (dayKey !== today) return jsonError(c, 400, 'not_today')
+  const row = await c.env.DB.prepare(`SELECT id, minutes, submitted_at, updated_at FROM homework_submissions WHERE user_id=? AND day_key=? LIMIT 1`).bind(u.id, dayKey).first<any>()
+  if (!row) return jsonError(c, 404, 'not_submitted')
+  const now = Date.now()
+  const since = Math.max(Number(row.submitted_at || 0), Number(row.updated_at || 0))
+  const maxBySince = since > 0 ? Math.floor((now - since) / 60000) + 2 : 180
+  const want = Math.floor(Number(body.minutes || 0))
+  if (!(want >= 1)) return jsonError(c, 400, 'too_short')
+  const cur = Math.max(0, Number(row.minutes || 0))
+  const add = Math.max(0, Math.min(want, 180, maxBySince, 600 - cur))
+  if (add < 1) return c.json({ ok: true, added: 0, minutes: cur })
+  await c.env.DB.prepare(`UPDATE homework_submissions SET minutes=?, updated_at=? WHERE id=?`).bind(cur + add, now, row.id).run()
+  return c.json({ ok: true, added: add, minutes: cur + add })
 })
 
 // 生徒：自分の提出履歴を取得
@@ -10784,6 +10811,7 @@ app.get('/ai-flow.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
+app.get('/hsextra.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsextra.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
 app.get('/teishutsu-teacher.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu-teacher.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
 app.get('/hsweekchat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsweekchat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSWEEKCHAT_V1
@@ -11026,7 +11054,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/hschat.js?v=5"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/hsextra.js?v=1"></script><script src="/hschat.js?v=5"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
