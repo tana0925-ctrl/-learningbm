@@ -304,7 +304,9 @@
     if (S.pending) why = '引いた 選手を チームに 入れるか、先に きめてね。';
     else if (!S.school) why = 'きょうは 学校が 休みの日なので、スカウトは できないよ。';
     else if (S.coins < PR.normal) why = 'コインが たりないよ。家庭学習を 出すと コインが もらえるよ。';
-    var dis = function (pr) { return (ready && S.coins >= pr) ? '' : ' disabled'; };
+    var TK = S.tk || {};
+    var dis = function (pr, t) { return (ready && (S.coins >= pr || (t && TK[t] > 0))) ? '' : ' disabled'; };
+    var tkBtn = function (t, lab) { return TK[t] > 0 ? '<button class="btn" data-tier="' + t + '" data-tk="1" style="background:#0f766e;margin-left:6px"' + (ready ? '' : ' disabled') + '>🎫 券で ' + lab + '（のこり ' + TK[t] + '）</button>' : ''; };
     var col = SP === 'bb' ? '#1d4ed8' : '#15803d';
     var h = '<div class="box scout"><div style="font-size:36px">🎟</div>'
       + '<div style="font-weight:900;font-size:17px;margin:4px 0 10px">' + (SP === 'bb' ? '野球' : 'サッカー') + 'の 選手を スカウトしよう！</div>'
@@ -312,25 +314,27 @@
       + '<div class="tier" style="border:2px solid #cbd5e1;border-radius:14px;padding:10px;margin:8px 0;text-align:left">'
       + '<div style="font-weight:900">🎟 ノーマルスカウト <span style="float:right">' + PR.normal + 'コイン</span></div>'
       + '<div class="note">どの ポジションの 選手が 来るかは おたのしみ。いちばん 安い！</div>'
-      + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="normal" style="background:' + col + '"' + dis(PR.normal) + '>🎟 ノーマルで さがす</button></div></div>'
+      + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="normal" style="background:' + col + '"' + dis(PR.normal) + '>🎟 ノーマルで さがす</button>' + tkBtn('normal', 'さがす') + '</div></div>'
       // ポジション別
       + '<div class="tier" style="border:2px solid #93c5fd;border-radius:14px;padding:10px;margin:8px 0;text-align:left">'
       + '<div style="font-weight:900">🎯 ポジション別スカウト <span style="float:right">' + PR.pos + 'コイン</span></div>'
       + '<div class="note">ほしい ポジションを えらべる（監督も ここ）。</div>'
-      + '<div class="posg" style="margin-top:6px">' + POSL[SP].map(function (x) { return '<button class="btn" data-pos="' + x[0] + '" style="background:' + col + '"' + dis(PR.pos) + '>' + x[1] + '<small>' + x[2] + '</small></button>'; }).join('') + '</div></div>'
+      + (TK.pos > 0 ? '<label class="note" style="display:block;font-weight:900;color:#0f766e;margin-top:4px"><input type="checkbox" id="useTkPos" checked> 🎫 ポジション券を つかう（のこり ' + TK.pos + '）</label>' : '')
+      + '<div class="posg" style="margin-top:6px">' + POSL[SP].map(function (x) { return '<button class="btn" data-pos="' + x[0] + '" style="background:' + col + '"' + dis(PR.pos, 'pos') + '>' + x[1] + '<small>' + x[2] + '</small></button>'; }).join('') + '</div></div>'
       // レア
       + '<div class="tier" style="border:2px solid #f59e0b;border-radius:14px;padding:10px;margin:8px 0;text-align:left;background:linear-gradient(135deg,#fffbeb,#fef3c7)">'
       + '<div style="font-weight:900">💎 レアスカウト <span style="float:right">' + PR.rare + 'コイン</span></div>'
       + '<div class="note">高いけど、つよい 選手が 出やすい！（★3が ' + W[3] + '%・★2が ' + W[2] + '%・★1が ' + W[1] + '%。ポジションは おたのしみ）</div>'
-      + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="rare" style="background:linear-gradient(135deg,#d97706,#b45309)"' + dis(PR.rare) + '>💎 レアで さがす</button></div></div>'
+      + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="rare" style="background:linear-gradient(135deg,#d97706,#b45309)"' + dis(PR.rare) + '>💎 レアで さがす</button>' + tkBtn('rare', 'さがす') + '</div></div>'
       + '<div class="note" style="margin-top:6px">きょう ' + S.bought + 'かい スカウトしたよ（野球と サッカー あわせて）。</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
       + '<div class="box note">・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
       + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
+    h += tkBar();
     if (S.pending) h = fullBox() + h;
     $('pane').innerHTML = h;
-    document.querySelectorAll('[data-pos]').forEach(function (x) { x.onclick = function () { buy(SP, x.getAttribute('data-pos'), x); }; });
-    document.querySelectorAll('[data-tier]').forEach(function (x) { x.onclick = function () { buy(SP, '', x, x.getAttribute('data-tier')); }; });
+    document.querySelectorAll('[data-pos]').forEach(function (x) { x.onclick = function () { var u = $('useTkPos'); buy(SP, x.getAttribute('data-pos'), x, 'pos', !!(u && u.checked)); }; });
+    document.querySelectorAll('[data-tier]').forEach(function (x) { x.onclick = function () { buy(SP, '', x, x.getAttribute('data-tier'), x.getAttribute('data-tk') === '1'); }; });
     wireFull();
   }
 
@@ -349,6 +353,32 @@
   function wireFull() {
     var p = $('pass'); if (p) p.onclick = function () { keep(null); };
     document.querySelectorAll('[data-rel]').forEach(function (b) { b.onclick = function () { keep(b.getAttribute('data-rel')); }; });
+  }
+  /* 🎫 PJ_TICKETS_V1 契約延長券（家庭学習を 1週間 毎日 出すと 1まい） */
+  function extBtn(r) {
+    var tk = (S.tk && S.tk.ext) || 0, mx = S.extMax || 2;
+    if (!tk) return '';
+    if ((r.x || 0) >= mx) return '<span class="note" style="font-size:11px;margin:0 4px">🤝' + mx + '回ずみ</span>';
+    return '<button class="btn sm" data-ext="' + esc(r.k) + '" style="background:#0f766e;margin:0 4px">🤝 のばす</button>';
+  }
+  function tkBar() {
+    var t = S.tk || {};
+    var h = '<div class="box" style="border:2px dashed #14b8a6;background:#f0fdfa"><div style="font-weight:900">🎫 もっている 券</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">'
+      + [['ext', '🤝 契約延長券'], ['normal', '🎟 ノーマル券'], ['pos', '🎯 ポジション券'], ['rare', '💎 レア券']].map(function (x) { return '<span class="left' + (t[x[0]] ? ' y' : '') + '" style="font-size:13px">' + x[1] + ' × ' + (t[x[0]] || 0) + '</span>'; }).join('') + '</div>'
+      + '<div class="note">・自分が 1週間（学校の日）毎日 家庭学習を 出す → 🤝 契約延長券（チームの 画面で 選手の 契約を ' + (S.extDays || 10) + '日 のばせる）<br>'
+      + '・クラスの 1日の 家庭学習が 90% → 🎟 ノーマル券、95% → 🎯 ポジション券、ぜんいん → 💎 レア券（クラス みんなに 1まい）</div></div>';
+    return h;
+  }
+  function showGifts() {
+    if (!S || !S.gifts || !S.gifts.length) return;
+    var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券' };
+    var h = '<div class="kind">🎁 券を もらったよ！</div>';
+    S.gifts.forEach(function (g) {
+      h += '<div class="note" style="font-size:15px;margin:6px 0"><b>' + NM[g.t] + '</b>　' + (g.why === 'week' ? md(g.ws) + 'の 週、毎日 家庭学習を 出したね！' : md(g.day) + '、クラスの 家庭学習が ' + (g.n >= g.N ? 'ぜんいん' : Math.floor(g.n / g.N * 100) + '%') + ' そろった！') + '</div>';
+    });
+    modal(h);
+    api('/api/pj/gift-seen', {});
   }
   function leftTag(n) { return '<span class="left' + (n <= 1 ? ' o' : n <= 5 ? ' y' : '') + '">あと' + n + '日</span>'; }
 
@@ -395,7 +425,7 @@
       return arr.map(function (r) {
         var q = S.players[r.k];
         return '<div class="row"><span style="font-size:18px">' + icon(q) + '</span><div class="nm" data-open="' + esc(r.k) + '" style="cursor:pointer"><b>' + (q ? stars(q.st) + ' ' + esc(q.n) : esc(r.k)) + '</b><span>' + esc(q ? q.pos + '・' + sub(q) : '') + '</span></div>'
-          + leftTag(r.left) + '<button class="btn sm sub" data-free="' + esc(r.k) + '">自由契約</button></div>';
+          + leftTag(r.left) + extBtn(r) + '<button class="btn sm sub" data-free="' + esc(r.k) + '">自由契約</button></div>';
       }).join('');
     }
     var h = '<div class="tw"><div class="tside">' + nameBox() + mgrBox() + '</div><div class="tmain">';
@@ -404,6 +434,7 @@
     $('pane').innerHTML = h + '</div></div>';
     document.querySelectorAll('[data-open]').forEach(function (e) { e.onclick = function () { var k = e.getAttribute('data-open'), p = S.players[k]; show3D(k, p ? p.n : ''); }; });
     wireMgr(); wireName();
+    document.querySelectorAll('[data-ext]').forEach(function (b) { b.onclick = function () { var k = b.getAttribute('data-ext'), q = S.players[k]; if (!confirm('🤝 契約延長券を 1まい つかって、' + (q ? q.n : '') + ' の 契約を ' + (S.extDays || 10) + '日 のばす？')) return; act('/api/pj/extend', { k: k }).then(function (d) { if (d && d.extended) modal('<div class="kind">🤝 契約を ' + d.extended.days + '日 のばしたよ！</div>' + card(d.players[d.extended.k])); }); }; });
     document.querySelectorAll('[data-free]').forEach(function (b) { b.onclick = function () { var q = S.players[b.getAttribute('data-free')]; if (confirm((q ? q.n : '') + ' を 自由契約に しますか？（図鑑には のこります）')) act('/api/pj/release', { k: b.getAttribute('data-free') }); }; });
   }
 
@@ -667,7 +698,7 @@
   }
 
   // ---------- うごき ----------
-  var ERR = { coins: 'コインが たりないよ。', limit: 'きょうは もう 買えないよ。', rest_day: 'きょうは 休みの日だよ。', pending: '先に、引いた 選手を どうするか きめてね。', busy: 'ほかの 画面と ぶつかったよ。もう一度 おしてね。', no_players: 'じゅんびちゅうだよ。' };
+  var ERR = { no_ticket: '券が ないよ。', ext_max: 'この 契約では もう のばせないよ。', player: 'その 選手は チームに いないよ。', coins: 'コインが たりないよ。', limit: 'きょうは もう 買えないよ。', rest_day: 'きょうは 休みの日だよ。', pending: '先に、引いた 選手を どうするか きめてね。', busy: 'ほかの 画面と ぶつかったよ。もう一度 おしてね。', no_players: 'じゅんびちゅうだよ。' };
   function act(path, body) {
     if (busy) return Promise.resolve(null); busy = true;
     return api(path, body).then(function (d) {
@@ -678,12 +709,14 @@
       return null;
     });
   }
-  function buy(sport, pos, btn, tier) {
+  function buy(sport, pos, btn, tier, useTk) {
     var pr = (S.prices || {})[tier || (pos ? 'pos' : 'normal')];
-    if (tier === 'rare' && pr && !confirm('💎 レアスカウトを ' + pr + 'コインで します。いい？')) return;
+    if (useTk && !((S.tk || {})[tier] > 0)) useTk = false;
+    if (!useTk && pos && S.coins < pr) { alert(ERR.coins); return; }
+    if (tier === 'rare' && !useTk && pr && !confirm('💎 レアスカウトを ' + pr + 'コインで します。いい？')) return;
     document.querySelectorAll('[data-pos],[data-tier]').forEach(function (x) { x.disabled = true; });
     if (btn) btn.innerHTML = 'さがしている…';
-    act('/api/pj/scout', { sport: sport, pos: pos || '', tier: tier || (pos ? 'pos' : 'normal') }).then(function (d) {
+    act('/api/pj/scout', { sport: sport, pos: pos || '', tier: tier || (pos ? 'pos' : 'normal'), ticket: !!useTk }).then(function (d) {
       if (!d || !d.pull) return;
       var p = d.players[d.pull.k], k = d.pull.kind;
       var t = k === 'mgr' ? 'あたらしい 監督が 来たよ！ 監督は 引退しないよ。' : k === 'mgr_dup' ? 'もう いる 監督だった！（監督を ぜんいん あつめたよ）' : k === 'dup' ? 'もう チームに いる 選手！ 契約が 10日 のびたよ。' : k === 'back' ? 'また 来てくれた！ チームに もどったよ。' : k === 'full' ? 'チームが いっぱい！ 入れるか きめてね。' : 'あたらしい 選手が チームに 入ったよ！';
@@ -969,7 +1002,7 @@
 
   function start() {
     api('/api/pj/state').then(function (d) {
-      if (d && d.ok) { S = d; render(); showNews(); return; }
+      if (d && d.ok) { S = d; render(); showNews(); if (!(S.news && S.news.length)) showGifts(); return; }
       var e = d && d.error;
       if (e === 'import') { if (d.test) runImport(d.parts); else $('main').innerHTML = '<div class="msg">いま じゅんびちゅうだよ。また あとで ひらいてね。</div>'; return; }
       var m = e === 'login' ? 'ログインしてから ひらいてね。<br><a href="/">アプリへ</a>'

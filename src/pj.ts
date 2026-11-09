@@ -25,6 +25,8 @@ const TIERS: any = { normal: { price: 200 }, pos: { price: 250 }, rare: { price:
 const TEAM_MAX = 30
 const CONTRACT = 20
 const DUP_EXT = 10
+const EXT_DAYS = 10   // 🤝 契約延長券 1まいで のびる 日数（PJ_TICKETS_V1）
+const EXT_MAX = 2     // 1回の 契約で 券を つかえるのは 2回まで
 const TEST_COINS = 3000
 
 function jstToday(): string { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10) }
@@ -235,6 +237,55 @@ export function installPj(app: any, d: Deps) {
     const school = (dk: string) => !d.isRest(dk, rest) && allowed(dk)
     return { today, school, rest: (dk: string) => !!d.isRest(dk, rest) }
   }
+  // 🎫 PJ_TICKETS_V1（2026-11-10）家庭学習の ごほうびの 券（コインは つかわない）
+  //   ・自分が その週の 学校の日（月〜金・休みの日を のぞく）に 毎日 家庭学習を 出したら →「🤝 契約延長券」1まい
+  //   ・クラスで 1日の 家庭学習の 提出が 100% →「💎 レア券」、95%以上 →「🎯 ポジション券」、90%以上 →「🎟 ノーマル券」を クラス全員に 1まい
+  //     （その日が おわってから＝つぎの 朝8:30 すぎ。いちばん 上の 1まいだけ）
+  //   ・2026-11-09 の 週から。1日に 1回だけ しらべる（st.rw.ck）。先生の がちモード（クラスなし）は なし
+  const TK_FROM = '2026-11-09'
+  function hwDayNow() { return new Date(Date.now() + 9 * 3600000 - (8 * 60 + 30) * 60000).toISOString().slice(0, 10) }
+  async function grantTickets(c: any, w: any, st: any, ctx: any) {
+    if (w.test || !w.classId || !w.u) return null
+    const now = hwDayNow()
+    st.rw = st.rw || { w: {}, d: {} }
+    if (st.rw.ck === now) return null
+    st.rw.ck = now
+    st.tk = st.tk || {}
+    const from = d.addDay(now, -14) > TK_FROM ? d.addDay(now, -14) : TK_FROM
+    const isSchool = (dk: string) => !ctx.rest(dk)
+    const gifts: any[] = []
+    try {
+      // 自分の 週
+      const mine = await c.env.DB.prepare('SELECT day_key AS k FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=?').bind(String(w.u.id), from, now).all()
+      const have: any = {}; ((mine && mine.results) || []).forEach((r: any) => { have[String(r.k)] = 1 })
+      const monOf = (dk: string) => { const g = new Date(dk + 'T12:00:00Z').getUTCDay(); return d.addDay(dk, -((g + 6) % 7)) }
+      for (let ws = monOf(from); ws <= now; ws = d.addDay(ws, 7)) {
+        if (ws < TK_FROM || st.rw.w[ws]) continue
+        const days = [0, 1, 2, 3, 4].map((i) => d.addDay(ws, i)).filter(isSchool)
+        if (!days.length || days[days.length - 1] > now) continue
+        if (days.every((k) => have[k])) { st.rw.w[ws] = 1; st.tk.ext = (Number(st.tk.ext) || 0) + 1; gifts.push({ t: 'ext', why: 'week', ws }) }
+      }
+      // クラスの 1日
+      const ros: any = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=?").bind(w.classId).first()
+      const N = Number(ros && ros.n) || 0
+      if (N >= 3) {
+        const rr = await c.env.DB.prepare("SELECT h.day_key AS k, COUNT(DISTINCT h.user_id) AS n FROM homework_submissions h JOIN class_members cm ON cm.user_id=h.user_id AND cm.class_id=? JOIN users u ON u.id=h.user_id AND u.role='student' WHERE h.day_key>=? AND h.day_key<? GROUP BY h.day_key").bind(w.classId, from, now).all()
+        ;((rr && rr.results) || []).forEach((r: any) => {
+          const k = String(r.k), n = Number(r.n) || 0
+          if (k < TK_FROM || st.rw.d[k] || !isSchool(k)) return
+          const tier = n >= N ? 'rare' : n >= Math.ceil(N * 0.95) ? 'pos' : n >= Math.ceil(N * 0.9) ? 'normal' : ''
+          if (!tier) return
+          st.rw.d[k] = tier; st.tk[tier] = (Number(st.tk[tier]) || 0) + 1; gifts.push({ t: tier, why: 'class', day: k, n, N })
+        })
+      }
+      // 古い 記録は すてる
+      Object.keys(st.rw.w).forEach((k) => { if (k < d.addDay(now, -35)) delete st.rw.w[k] })
+      Object.keys(st.rw.d).forEach((k) => { if (k < d.addDay(now, -35)) delete st.rw.d[k] })
+    } catch (_e) { return null }
+    if (gifts.length) st.gf = (st.gf || []).concat(gifts).slice(-10)
+    return gifts
+  }
+
   function used(start: string, today: string, school: any) {
     let n = 0, dk = start
     for (let i = 0; i < 400 && dk <= today; i++) { if (school(dk)) n++; dk = d.addDay(dk, 1) }
@@ -274,7 +325,8 @@ export function installPj(app: any, d: Deps) {
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
       coins, bought, max: 0, price: TIERS.normal.price, prices: { normal: TIERS.normal.price, pos: TIERS.pos.price, rare: TIERS.rare.price }, rareW: TIERS.rare.w,   // PJ_NOLIMIT_V1 上限なし／PJ_TIERS_V1
-      teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
+      tk: { ext: Number((st.tk || {}).ext) || 0, normal: Number((st.tk || {}).normal) || 0, pos: Number((st.tk || {}).pos) || 0, rare: Number((st.tk || {}).rare) || 0 }, gifts: st.gf || [], extMax: EXT_MAX, extDays: EXT_DAYS,
+      teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx), x: Number(r.x) || 0 })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
       mgr: { bb: cm.bb || null, sc: cm.sc || null }, mgN: { bb: Object.keys(st.mg || {}).filter((k) => k.indexOf('mb:') === 0).length, sc: Object.keys(st.mg || {}).filter((k) => k.indexOf('ms:') === 0).length },
@@ -316,8 +368,38 @@ export function installPj(app: any, d: Deps) {
 
   app.get('/api/pj/state', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
-    if (retire(b.st, b.ctx)) await save(c.env, b.w.sid, b.st, b.ver)
+    const ck0 = b.st.rw && b.st.rw.ck
+    const ch1 = retire(b.st, b.ctx)
+    await grantTickets(c, b.w, b.st, b.ctx)   // PJ_TICKETS_V1
+    if (ch1 || (b.st.rw && b.st.rw.ck) !== ck0) await save(c.env, b.w.sid, b.st, b.ver)
     return c.json(await view(c, b.w, b.st, b.ctx))
+  })
+
+  // 🎫 もらった 券の お知らせを 見た
+  app.post('/api/pj/gift-seen', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    if (!b.st.gf || !b.st.gf.length) return c.json({ ok: true })
+    b.st.gf = []
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json({ ok: true })
+  })
+
+  // 🤝 契約延長券で 契約を 10日 のばす（1回の 契約で 2回まで）
+  app.post('/api/pj/extend', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const { w, st, ctx } = b
+    retire(st, ctx)
+    const body = await c.req.json().catch(() => ({}))
+    const r = st.ro.find((x: any) => x.k === String((body && body.k) || ''))
+    if (!r) return err(c, 400, 'player')
+    st.tk = st.tk || {}
+    if (!(Number(st.tk.ext) > 0)) return err(c, 402, 'no_ticket')
+    if ((Number(r.x) || 0) >= EXT_MAX) return err(c, 409, 'ext_max')
+    st.tk.ext = Number(st.tk.ext) - 1
+    r.e = (Number(r.e) || 0) + EXT_DAYS
+    r.x = (Number(r.x) || 0) + 1
+    if (!(await save(c.env, w.sid, st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await view(c, w, st, ctx, { extended: { k: r.k, days: EXT_DAYS } }))
   })
 
   // スカウト券を 買って 1回 ひく
@@ -333,7 +415,12 @@ export function installPj(app: any, d: Deps) {
     // PJ_TIERS_V1 しゅるい：pos が あれば ポジション別（むかしの 画面からも）。rare は ポジションなし
     const tier = body0 && body0.tier === 'rare' ? 'rare' : (body0 && body0.pos) ? 'pos' : 'normal'
     if (tier !== 'pos' && body0) body0.pos = ''
-    const price = TIERS[tier].price
+    // 🎫 PJ_TICKETS_V1 券を つかうなら コインは 0（券を 1まい へらす）
+    st.tk = st.tk || {}
+    const useTk = !!(body0 && body0.ticket) && Number(st.tk[tier]) > 0
+    if (body0 && body0.ticket && !useTk) return err(c, 402, 'no_ticket')
+    const price = useTk ? 0 : TIERS[tier].price
+    if (useTk) st.tk[tier] = Number(st.tk[tier]) - 1
     const sport = body0 && (body0.sport === 'bb' || body0.sport === 'sc') ? body0.sport : (Math.random() < 0.5 ? 'bb' : 'sc')
     // ポジションを えらんで ひける（PJ_POS_V1）。えらばなければ だれでも
     const POS: any = {
@@ -353,7 +440,7 @@ export function installPj(app: any, d: Deps) {
       }
       if (!mr) mr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport + 'm').first()
       if (!mr) return err(c, 503, 'no_players')
-      if (w.test) {
+      if (price <= 0) { /* 🎫 券 */ } else if (w.test) {
         if ((Number(st.tc) || 0) < price) return err(c, 402, 'coins')
         st.tc = (Number(st.tc) || 0) - price
       } else {
@@ -365,7 +452,7 @@ export function installPj(app: any, d: Deps) {
       st.mg[mk] = { f: dupM ? st.mg[mk].f : ctx.today }
       if (!st.cm[sport]) st.cm[sport] = mk
       if (!(await save(c.env, w.sid, st, b.ver))) {
-        if (!w.test) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }
+        if (!w.test && price > 0) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }
         return err(c, 409, 'busy')
       }
       return c.json(await view(c, w, st, ctx, { pull: { k: mk, kind: dupM ? 'mgr_dup' : 'mgr', first: !dupM } }))
@@ -382,7 +469,7 @@ export function installPj(app: any, d: Deps) {
     } else pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
     if (!pr) return err(c, 503, 'no_players')
     // お金を 先に 引く（足りなければ ここで 止まる）
-    if (w.test) {
+    if (price <= 0) { /* 🎫 券で ひく：コインは つかわない */ } else if (w.test) {
       if ((Number(st.tc) || 0) < price) return err(c, 402, 'coins')
       st.tc = (Number(st.tc) || 0) - price
     } else {
@@ -402,7 +489,7 @@ export function installPj(app: any, d: Deps) {
     else { st.pd = k; kind = 'full' }
     const okSave = await save(c.env, w.sid, st, b.ver)
     if (!okSave) {
-      if (!w.test) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }   // 保存できなければ 返す
+      if (!w.test && price > 0) { try { await d.coinStmt(c.env, w.u.id, price).run() } catch (_e) {} }   // 保存できなければ 返す
       return err(c, 409, 'busy')
     }
     let spent = null
