@@ -4,7 +4,7 @@
 //   ・選手データは リポジトリに 平文で 置かない。public/pjd/*.bin は 暗号化してあり、鍵は D1（pj_meta.catkey）にだけ ある。
 //     先生が はじめて ひらいたときに 1まいずつ ほどいて pj_players に 入れる（1回の リクエストは 小さく）。
 //   ・子どもに わたすのは じぶんの 選手の データだけ。ぜんぶを まとめて 出す 道は 作らない。
-//   ・きまり：スカウト券は 1日の まい数の 上限なし（200→300→400、4まい目からも400）、学校の日だけ。チーム30人まで。契約は 学校の日で20日。
+//   ・きまり：スカウトは 3しゅるい（ノーマル200・ポジション別250・レア600）、1日の まい数の 上限なし、学校の日だけ。チーム30人まで。契約は 学校の日で20日。
 //     かぶったら 契約が10日のびる。20日たつと 引退して 図鑑に「殿堂入り」で のこる。
 // @ts-nocheck
 /* eslint-disable */
@@ -19,7 +19,9 @@ type Deps = {
   weekOf: (dk: string) => string
 }
 
-const PRICES = [200, 300, 400]
+const PRICES = [200, 300, 400]   // （むかしの 1日の だんだん 高くなる 値段。いまは つかわない）
+// 🎟 PJ_TIERS_V1 スカウトの しゅるい（2026-11-09）：ノーマル＝ポジションも わからないけど 安い／ポジション別＝少し 高いけど えらべる／レア＝高いけど ★2・★3が 出やすい
+const TIERS: any = { normal: { price: 200 }, pos: { price: 250 }, rare: { price: 600, w: { 3: 25, 2: 45, 1: 30 } } }
 const TEAM_MAX = 30
 const CONTRACT = 20
 const DUP_EXT = 10
@@ -271,7 +273,7 @@ export function installPj(app: any, d: Deps) {
     const [pl, total, coins, prac] = await Promise.all([players(c.env, keys), totalP, coinsOf(c, w, st), practiceInfo(c, w, st, ctx)])
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
-      coins, bought, max: 0, price: PRICES[Math.min(bought, PRICES.length - 1)],   // PJ_NOLIMIT_V1 1日の まい数の 上限なし（4まい目から ずっと 400）
+      coins, bought, max: 0, price: TIERS.normal.price, prices: { normal: TIERS.normal.price, pos: TIERS.pos.price, rare: TIERS.rare.price }, rareW: TIERS.rare.w,   // PJ_NOLIMIT_V1 上限なし／PJ_TIERS_V1
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
@@ -326,9 +328,12 @@ export function installPj(app: any, d: Deps) {
     if (!ctx.school(ctx.today)) return err(c, 409, 'rest_day')
     if (st.pd) return err(c, 409, 'pending')
     const bought = st.by && st.by.d === ctx.today ? Number(st.by.n) || 0 : 0
-    const price = PRICES[Math.min(bought, PRICES.length - 1)]   // PJ_NOLIMIT_V1 上限なし。1まい目200・2まい目300・3まい目から400
     // どちらを ひくか えらべる（PJ_SPORT_V1）。えらばなければ はんぶんずつ
     const body0 = await c.req.json().catch(() => ({}))
+    // PJ_TIERS_V1 しゅるい：pos が あれば ポジション別（むかしの 画面からも）。rare は ポジションなし
+    const tier = body0 && body0.tier === 'rare' ? 'rare' : (body0 && body0.pos) ? 'pos' : 'normal'
+    if (tier !== 'pos' && body0) body0.pos = ''
+    const price = TIERS[tier].price
     const sport = body0 && (body0.sport === 'bb' || body0.sport === 'sc') ? body0.sport : (Math.random() < 0.5 ? 'bb' : 'sc')
     // ポジションを えらんで ひける（PJ_POS_V1）。えらばなければ だれでも
     const POS: any = {
@@ -369,6 +374,11 @@ export function installPj(app: any, d: Deps) {
     if (want) {
       const cond = want.map(() => "json_extract(j,'$.pos') LIKE ?").join(' OR ')
       pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? AND (' + cond + ') ORDER BY RANDOM() LIMIT 1').bind(sport, ...want.map((w: string) => '%' + w + '%')).first()
+    } else if (tier === 'rare') {
+      // ★を 先に きめて、その ★の 中から ランダム（★3 25%・★2 45%・★1 30%）
+      const W = TIERS.rare.w, r0 = Math.random() * 100, star = r0 < W[3] ? 3 : r0 < W[3] + W[2] ? 2 : 1
+      pr = await c.env.DB.prepare("SELECT k FROM pj_players WHERE s=? AND CAST(json_extract(j,'$.st') AS INTEGER) = ? ORDER BY RANDOM() LIMIT 1").bind(sport, star).first()
+      if (!pr) pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
     } else pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? ORDER BY RANDOM() LIMIT 1').bind(sport).first()
     if (!pr) return err(c, 503, 'no_players')
     // お金を 先に 引く（足りなければ ここで 止まる）
