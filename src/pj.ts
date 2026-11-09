@@ -4,7 +4,7 @@
 //   ・選手データは リポジトリに 平文で 置かない。public/pjd/*.bin は 暗号化してあり、鍵は D1（pj_meta.catkey）にだけ ある。
 //     先生が はじめて ひらいたときに 1まいずつ ほどいて pj_players に 入れる（1回の リクエストは 小さく）。
 //   ・子どもに わたすのは じぶんの 選手の データだけ。ぜんぶを まとめて 出す 道は 作らない。
-//   ・きまり：スカウト券 1日3まいまで（200→300→400）、学校の日だけ。チーム30人まで。契約は 学校の日で20日。
+//   ・きまり：スカウト券は 1日の まい数の 上限なし（200→300→400、4まい目からも400）、学校の日だけ。チーム30人まで。契約は 学校の日で20日。
 //     かぶったら 契約が10日のびる。20日たつと 引退して 図鑑に「殿堂入り」で のこる。
 // @ts-nocheck
 /* eslint-disable */
@@ -271,7 +271,7 @@ export function installPj(app: any, d: Deps) {
     const [pl, total, coins, prac] = await Promise.all([players(c.env, keys), totalP, coinsOf(c, w, st), practiceInfo(c, w, st, ctx)])
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
-      coins, bought, max: PRICES.length, price: bought < PRICES.length ? PRICES[bought] : null,
+      coins, bought, max: 0, price: PRICES[Math.min(bought, PRICES.length - 1)],   // PJ_NOLIMIT_V1 1日の まい数の 上限なし（4まい目から ずっと 400）
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx) })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
@@ -326,8 +326,7 @@ export function installPj(app: any, d: Deps) {
     if (!ctx.school(ctx.today)) return err(c, 409, 'rest_day')
     if (st.pd) return err(c, 409, 'pending')
     const bought = st.by && st.by.d === ctx.today ? Number(st.by.n) || 0 : 0
-    if (bought >= PRICES.length) return err(c, 409, 'limit')
-    const price = PRICES[bought]
+    const price = PRICES[Math.min(bought, PRICES.length - 1)]   // PJ_NOLIMIT_V1 上限なし。1まい目200・2まい目300・3まい目から400
     // どちらを ひくか えらべる（PJ_SPORT_V1）。えらばなければ はんぶんずつ
     const body0 = await c.req.json().catch(() => ({}))
     const sport = body0 && (body0.sport === 'bb' || body0.sport === 'sc') ? body0.sport : (Math.random() < 0.5 ? 'bb' : 'sc')

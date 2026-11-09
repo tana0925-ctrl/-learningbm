@@ -285,7 +285,7 @@
     $('main').innerHTML = '<div style="text-align:center;font-weight:900;font-size:20px;margin:18px 0 14px">どっちで あそぶ？</div>'
       + '<div class="mk2"><button data-sp="bb" style="background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:34px 12px;font-size:24px">⚾ 野球<small>チーム ' + bbT + '人・図鑑 ' + zb + '人</small></button>'
       + '<button data-sp="sc" style="background:linear-gradient(135deg,#065f46,#16a34a);padding:34px 12px;font-size:24px">⚽ サッカー<small>チーム ' + (S.roster.length - bbT) + '人・図鑑 ' + (S.zukan - zb) + '人</small></button></div>'
-      + '<div class="note" style="text-align:center">あとで 上の「きりかえる」で いつでも かえられるよ。スカウト券は 2つ あわせて 1日 ' + S.max + 'まいまで。</div>';
+      + '<div class="note" style="text-align:center">あとで 上の「きりかえる」で いつでも かえられるよ。スカウト券は 1まい目 200・2まい目 300・3まい目から 400コイン（野球と サッカー あわせて）。</div>';
     $('main').querySelectorAll('[data-sp]').forEach(function (b) { b.onclick = function () { SP = b.getAttribute('data-sp'); try { localStorage.setItem('pjSport', SP); } catch (e) {} TAB = 'scout'; render(); giveStarter(); }; });
   }
   // 🎁 はじめての スポーツなら、スタートの 選手 15人と 監督を もらう
@@ -297,7 +297,7 @@
   }
 
   function paneScout() {
-    var left = S.max - S.bought, can = S.school && left > 0 && !S.pending && S.coins >= (S.price || 0);
+    var left = S.max ? S.max - S.bought : 99, can = S.school && left > 0 && !S.pending && S.coins >= (S.price || 0);   /* PJ_NOLIMIT_V1 max=0 は 上限なし */
     var why = '';
     if (S.pending) why = '引いた 選手を チームに 入れるか、先に きめてね。';
     else if (!S.school) why = 'きょうは 学校が 休みの日なので、スカウト券は 買えないよ。';
@@ -308,7 +308,7 @@
       + '<div class="note" style="font-weight:900;margin-bottom:6px">どの ポジションの 選手を さがす？</div>'
       + '<div class="posg">' + POSL[SP].map(function (x) { return '<button class="btn" data-pos="' + x[0] + '" style="background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>' + x[1] + '<small>' + x[2] + '</small></button>'; }).join('') + '</div>'
       + '<div style="font-weight:900;margin-top:10px">' + (S.price ? 'スカウト券 1まい ' + S.price + 'コイン' : 'きょうは おしまい') + '</div>'
-      + '<div class="note" style="margin-top:8px">きょう あと <b>' + Math.max(0, left) + 'まい</b>（1まい目 200・2まい目 300・3まい目 400コイン。野球と サッカー あわせて）</div>'
+      + '<div class="note" style="margin-top:8px">' + (S.max ? 'きょう あと <b>' + Math.max(0, left) + 'まい</b>（' : 'きょう ' + S.bought + 'まい 買ったよ（') + '1まい目 200・2まい目 300・3まい目から 400コイン。野球と サッカー あわせて）</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
       + '<div class="box note">・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
       + '・チームに いる 選手が また 出たら、契約が 10日 のびるよ。</div>';
@@ -676,7 +676,7 @@
   function keep(rel) { act('/api/pj/keep', rel ? { release: rel } : { pass: true }); }
   function testAct(t) {
     if (t === 'gachi' || t === 'test') {
-      if (t === 'gachi' && !confirm('がちモードに しますか？\n・本物の コインで スカウト券を 買います（' + '1日3まい 200/300/400）。\n・ためしモードの チームとは べつの、まっさらな チームで はじまります。\n・日づけは 本物、練習試合は 1日1回、リーグは 平日 12:40。\n・いつでも ためしモードに もどれます（どちらの チームも のこります）。')) return;
+      if (t === 'gachi' && !confirm('がちモードに しますか？\n・本物の コインで スカウト券を 買います（' + '200/300、3まい目から 400）。\n・ためしモードの チームとは べつの、まっさらな チームで はじまります。\n・日づけは 本物、練習試合は 1日1回、リーグは 平日 12:40。\n・いつでも ためしモードに もどれます（どちらの チームも のこります）。')) return;
       api('/api/pj/mode', { gachi: t === 'gachi' }).then(function (d) { if (d && d.ok) location.reload(); else alert('きりかえられませんでした。'); });
       return;
     }
