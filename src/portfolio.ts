@@ -178,6 +178,92 @@ const IMG_HEADERS = (mime: string) => {
   return h
 }
 
+// ── 📓 SHINBUN_WORKS_V1 この号の 成果物（くわしくは /api/teacher/portfolio/issue-works の 説明）──
+function ymdAdd(ymd: string, n: number) { return new Date(Date.parse(ymd + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10) }
+const WORK_SUBJ: [string, RegExp][] = [
+  ['算数', /[0-9０-９]+\s*[:：]\s*[0-9０-９]+|mL|ｍＬ|わり算|かけ算|分数|小数|計算|式|理解チェック|比の|線分図|数直線|面積|体積|グラフ/g],
+  ['社会', /浮世絵|蘭学|国学|江戸|解体新書|寺子屋|幕府|鎖国|歌舞伎|伊能忠敬|歴史|政治|憲法|貿易|武士|天皇|大名/g],
+  ['国語', /落語|狂言|古典|物語|作文|俳句|短歌|漢字|音読|説明文|登場人物|セリフ|段落/g],
+  ['理科', /実験|観察|電気|水溶液|てこ|燃焼|植物|地層|発電|月と太陽|ふりこ|メダカ/g],
+  ['図工', /図工|絵の具|彫刻刀|工作|デザイン/g],
+  ['家庭', /調理|ミシン|裁縫|献立|栄養/g],
+  ['外国語', /英語|English|アルファベット/g],
+]
+function guessWorkSubj(txt: string): string {
+  let best = '', bn = 0
+  for (const [s, re] of WORK_SUBJ) { const n = (txt.match(re) || []).length; if (n > bn) { bn = n; best = s } }
+  return bn >= 2 ? best : ''
+}
+const WORK_BLANK = /名前(の記載)?(だけ|のみ)|白紙|何も書かれていない|記入(が)?(ない|なし|されていない)ページ/
+export async function issueWorksOf(env: any, classId: string, ws: string) {
+  const DB = env.DB
+  const ros = await DB.prepare(`SELECT cm.user_id AS uid FROM class_members cm JOIN users s ON s.id=cm.user_id AND s.role='student' WHERE cm.class_id=?`).bind(classId).all()
+  const roster = (((ros && ros.results) || []) as any[]).map((x) => String(x.uid))
+  const rset: Record<string, 1> = {}; roster.forEach((x) => { rset[x] = 1 })
+  let from = ymdAdd(ws, -1) + ' 15:00:00'   // 号の 月曜 0時（日本時間）
+  let to = new Date().toISOString().slice(0, 19).replace('T', ' ')
+  try {
+    const pv: any = await DB.prepare(`SELECT MIN(k.confirmed_at) AS a FROM karte_issue k JOIN class_members cm ON cm.user_id=k.user_id AND cm.class_id=? WHERE k.ws=?`).bind(classId, ymdAdd(ws, -7)).first()
+    if (pv && pv.a) from = String(pv.a)
+    const me: any = await DB.prepare(`SELECT MAX(k.confirmed_at) AS b FROM karte_issue k JOIN class_members cm ON cm.user_id=k.user_id AND cm.class_id=? WHERE k.ws=? AND k.src='print'`).bind(classId, ws).first()
+    if (me && me.b) to = String(me.b) > from ? String(me.b) : to
+  } catch (_e) {}
+  const lo = ymdAdd(ws, -14) + ' 00:00:00', hi = ymdAdd(ws, 21) + ' 00:00:00'
+  if (from < lo) from = lo
+  if (to > hi) to = hi
+  const r = await DB.prepare(
+    `SELECT target_id AS uid, kind, body, published_at AS at, COALESCE(ref_key,'') AS rk FROM ai_review_drafts
+     WHERE class_id=? AND kind IN ('WORK','WORKMEMO') AND status='published' AND published_at >= ? AND published_at <= ?
+     ORDER BY published_at, id LIMIT 800`
+  ).bind(classId, from, to).all()
+  const rows = (((r && r.results) || []) as any[]).filter((x) => rset[String(x.uid || '')])
+  // 課題（= 1回の 取り込み）に 分ける
+  const batches: any[] = []
+  let cur: any = null, lastT = 0
+  const seen: Record<string, 1> = {}
+  for (const x of rows) {
+    const t = Date.parse(String(x.at).replace(' ', 'T') + 'Z') || 0
+    const rk = /^wt\|/.test(String(x.rk)) ? String(x.rk) : ''
+    if (!cur || t - lastT > 120000 || (rk && cur.rk && rk !== cur.rk)) { cur = { id: 'b' + (batches.length + 1), at: String(x.at), rk, kids: {} as Record<string, any> }; batches.push(cur) }
+    if (rk && !cur.rk) cur.rk = rk
+    lastT = t
+    const body = String(x.body || '').trim(); if (!body) continue
+    const dk = cur.id + '|' + x.uid + '|' + x.kind + '|' + body
+    if (seen[dk]) continue
+    seen[dk] = 1
+    const k = cur.kids[x.uid] || (cur.kids[x.uid] = { work: [], memo: [] })
+    ;(x.kind === 'WORK' ? k.work : k.memo).push(x.kind === 'WORK' ? body : body.replace(/^\s*[0-9０-９]+年[0-9０-９]+組[0-9０-９]+番の[^。、\s]{1,12}さん[。、]?\s*/, '').replace(/（※[^）]{0,40}）/g, ''))
+  }
+  const out: any = { ok: true, ws, from, to, rosterN: roster.length, batches: [], byUser: {} }
+  const by = (u: string) => out.byUser[u] || (out.byUser[u] = { works: [], missing: [] })
+  for (const b of batches) {
+    const uids = Object.keys(b.kids)
+    if (!uids.length) continue
+    const parts = String(b.rk || '').split('|')
+    const title = (parts[2] || '').slice(0, 30)
+    let subj = (parts[1] || '').slice(0, 10)
+    if (!subj) subj = guessWorkSubj(uids.map((u) => b.kids[u].work.concat(b.kids[u].memo).join(' ')).join(' '))
+    const blank: Record<string, 1> = {}
+    uids.forEach((u) => { const k = b.kids[u]; if (k.memo.length && k.memo.every((m: string) => WORK_BLANK.test(m))) blank[u] = 1 })
+    const done = uids.filter((u) => !blank[u] && b.kids[u].work.length)
+    const label = title || (subj ? subj + 'の 成果物' : '成果物')
+    const classWide = roster.length >= 4 && done.length + Object.keys(blank).length >= Math.ceil(roster.length * 0.6)
+    out.batches.push({ id: b.id, at: b.at, subj, title, label, n: done.length, classWide })
+    done.forEach((u) => {
+      const k = b.kids[u]
+      k.work.forEach((w: string, i: number) => { by(u).works.push({ b: b.id, subj, title, label, at: String(b.at).slice(0, 10), text: w.slice(0, 600), memo: String(k.memo[i] || k.memo[0] || '').slice(0, 400) }) })
+    })
+    if (classWide) roster.forEach((u) => { if (blank[u] || !b.kids[u] || !b.kids[u].work.length) by(u).missing.push({ b: b.id, at: b.at, subj, title, label, blank: !!blank[u] }) })
+  }
+  // あとから 別に 取り込んだ（おくれて 出した）同じ 課題が あれば「まだ」に しない
+  Object.keys(out.byUser).forEach((u) => {
+    const o = out.byUser[u]
+    o.missing = o.missing.filter((m: any) => !o.works.some((w: any) => w.label === m.label && w.b !== m.b && w.at >= String(m.at).slice(0, 10)))
+    o.missing.forEach((m: any) => { delete m.at })
+  })
+  return out
+}
+
 export function registerPortfolio(app: any, d: Deps) {
   // ガード：先生・管理者だけ／見るだけモード中は止める
   function guard(c: any): any {
@@ -293,6 +379,20 @@ export function registerPortfolio(app: any, d: Deps) {
     const byUser: Record<string, any> = {}
     for (const x of ((r && r.results) || []) as any[]) { const k = String(x.uid || ''); if (k && !byUser[k]) byUser[k] = { text: String(x.body || '').slice(0, 600), at: String(x.at || '').slice(0, 10) } }
     return c.json({ ok: true, byUser })
+  })
+
+  // 📓 SHINBUN_WORKS_V1 この号の 成果物（先生が 外部AIで 分析して 公開した 📓ひとこと・分析メモ）を ぜんぶ。
+  //   号に 入る 期間：前の号を 印刷（karte_issue）してから 〜 この号を 印刷するまで（印刷前なら 今まで）。
+  //   公開した 時刻が 2分以上 あいたら 別の 課題（= 1回の 取り込み）。ref_key「wt|教科|題」が あれば それで 分ける。
+  //   クラスの 6わり以上が 出している 課題なのに その子の ぶんが 無い（または 名前だけ）→「まだ とどいていない」。
+  app.get('/api/teacher/portfolio/issue-works', async (c: any) => {
+    const u = teacherOf(c, d)
+    if (!u) return jerr(c, 403, 'forbidden')
+    const classId = clean(c.req.query('classId'), 80)
+    const ws = String(c.req.query('ws') || '')
+    if (!isYmd(ws)) return jerr(c, 400, 'bad_ws')
+    if (!(await ownsClass(c, u, classId))) return jerr(c, 404, 'class_not_found')
+    return c.json(await issueWorksOf(c.env, classId, ws))
   })
 
   // 写真（先生だけ）。?t=1 で小さい版（あれば）
