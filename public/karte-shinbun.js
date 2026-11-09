@@ -52,7 +52,7 @@
   function q(t) {   // 「」で かこむ（もう かこまれていれば そのまま）
     t = String(t == null ? '' : t).trim();
     if (/^「[\s\S]*」$/.test(t) && unbalancedAt(t.slice(1, -1)) < 0 && t.slice(1, -1).indexOf('「') < 0) return t;
-    if (/^「/.test(t) && /」$/.test(t)) return t;
+    if (/^[「『]/.test(t)) return t;   // もとの 文が「で 始まるときは 外がわに つけない（「「 に しない）
     return '「' + t + '」';
   }
   function meaningful(t) {   // 意味の ない 短い 入力（2文字以下の 英数字など）は 出さない
@@ -223,21 +223,24 @@
          B が 作れないときは「2つの道」に する（見出しと 中身を そろえる） */
       var A = r.a, Bb = r.b, alt = false;
       var abk = function (a, b) { return 'roadsAB:' + nk((a ? a.name : '') + '/' + (b ? b.name : '')); };
-      if (old(abk(A, Bb))) {
+      var abv = function (a, b) { return (a ? a.name : '') + '/' + (b ? b.name : ''); };
+      var prevAB = prevV('S:roadsAB');   // 前の号に のせた A・B（単元の 名前だけ）
+      if (old(abk(A, Bb)) || (prevAB && prevAB === abv(A, Bb))) {
         var pu = ((c.d.lastWeek || {}).units || []).map(function (u) { return { u: u, inf: c.unitInfo ? c.unitInfo(u.unit) : null }; }).filter(function (x) { return x.inf && x.inf.name !== A.name && (!Bb || x.inf.name !== Bb.name); });
         if (pu.length) { var x0 = pu[0]; A = { name: x0.inf.name, entry: 'アプリ：修行 ▶ ' + (x0.inf.subjName || '') + ' ▶ ' + (x0.inf.gradeLabel || '') + ' ▶「' + x0.inf.name + '」', why: 'この号で ' + x0.u.total + '問 とりくんだ 単元。まちがえた 問題から もう一度 ためしてみよう。' }; alt = true; }
-        if (Bb && old(abk(r.a, Bb))) { Bb = null; }
-        if (!alt && !Bb) return '';
+        if (Bb && (old(abk(r.a, Bb)) || (prevAB && prevAB.split('/')[1] === Bb.name))) { Bb = null; }
       }
+      if (alt || Bb || !(old(abk(r.a, r.b)) || (prevAB && prevAB === abv(r.a, r.b)))) {
       var rk = 'roads:' + nk(A.name + '/' + (Bb ? Bb.name : '') + '/' + (r.c && r.c.say || ''));
       if (old(rk)) return '';
-      use(rk); use(abk(A, Bb)); use(abk(r.a, r.b));
+      use(rk); use(abk(A, Bb)); use('S:roadsAB', abv(A, Bb));
       var h = '<div class="rd"><span class="k">A</span><div><b>「' + esc(A.name) + '」を もう一度 かためる</b><div class="mute">' + esc(A.entry) + '</div><div class="mute">💡 ' + esc(cutS(A.why, 80)) + '</div></div></div>';
       if (Bb) h += '<div class="rd"><span class="k">B</span><div><b>「' + esc(Bb.name) + '」の はじめに すすむ</b><div class="mute">' + esc(Bb.entry) + '</div><div class="mute">💡 ' + esc(cutS(Bb.why, 80)) + '</div></div></div>';
       var k3 = Bb ? 'C' : 'B';
       h += '<div class="rd"><span class="k">' + k3 + '</span><div><b>自分で 決める</b>' + (r.c && r.c.say ? '<div>' + esc(q(cut(r.c.say, 46))) + '</div><div class="mute">' + esc(cut(r.c.from, 48)) + '（かえても いいよ）</div>' : '<div class="mute">やりたいことを 自分で 決めても いいよ</div>') + '</div></div>';
       h += '<div class="sm">👣 <b>はじめの一歩</b>：いちばん かんたんな 1問だけ（5分で できる 大きさ）</div>' + help;
-      return tag(sec(Bb ? '特集　えらべる 3つの道' : '特集　えらべる 2つの道', h, 0, 'roads', 'どれでも いいよ'), [rk]);
+      return tag(sec(Bb ? '特集　えらべる 3つの道' : '特集　えらべる 2つの道', h, 0, 'roads', 'どれでも いいよ'), [rk, abk(A, Bb)]);
+      }   // 前の号と 同じで ほかの 提案も 作れないときは、下の「まずは ここから」に する
     }
     var st = c.step;
     if (st && st.info) {

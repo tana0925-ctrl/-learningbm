@@ -1058,7 +1058,7 @@
         var ws0 = String((fd.issue && fd.issue.ws) || (fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || (fd.lastWeek && fd.lastWeek.from) || ''), lo0 = '', hi0 = '';
         if (/^\d{4}-\d{2}-\d{2}$/.test(ws0)) { lo0 = ws0; hi0 = addDays(ws0, 4); }
         var pp = uid && _photo[uid]; if (pp && lo0 && (String(pp.takenOn || '') < lo0 || String(pp.takenOn || '') > hi0)) pp = null;
-        if (w && lo0 && w.at && (String(w.at).slice(0, 10) < lo0 || String(w.at).slice(0, 10) > hi0)) w = null;
+        if (w && lo0 && w.at && String(w.at).slice(0, 10) < lo0) w = null;   // 成果物への ひとこと（先生が 公開した日）は この号の 月曜より 前の ものは のせない（号を 作るまでに 公開した ものは のせる：成果物を 多めに 取り上げる・先生の 指示 2026-11-09）
         var ph = photoHtml(pp), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
         if (tx.length > 200) tx = tx.slice(0, 199) + '…';
         if (!ph && !tx) return html.replace('<!--PF_WORK-->', '');
