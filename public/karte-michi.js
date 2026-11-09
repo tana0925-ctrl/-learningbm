@@ -325,7 +325,8 @@
       out.push('「' + esc(inf ? inf.name : (global._unitJa ? global._unitJa(u.unit) : u.unit)) + '」に はじめて ちょうせん（' + u.total + '問）');
     });
     var ov = d.overview || {};
-    if (out.length < 3 && Number(ov.currentStreak) >= 3) out.push('いま ' + ov.currentStreak + '日 つづけて 家庭学習を 出せているよ');
+    var _cs = (d.issue && d.issue.curStreak != null) ? Number(d.issue.curStreak) : Number(ov.currentStreak);   /* SHINBUN_ISSUE_V1 号の さいごの日の 時点（ニュースの「れんぞく」と そろえる） */
+    if (out.length < 3 && _cs >= 3) out.push((d.issue && d.issue.we ? Number(String(d.issue.we).slice(5, 7)) + '/' + Number(String(d.issue.we).slice(8, 10)) + 'の 時点で ' : 'いま ') + _cs + '日 つづけて 家庭学習を 出せているよ');
     var head = (lw.total > 0) ? ('先週は アプリで ' + lw.total + '問（' + lw.days + '日）とりくんだよ') : '';
     if (!head && !out.length) {   /* KANTAN_REF_V1 記録が少なくても空にしない（言えるのは記録の事実だけ） */
       var wt = watchOf(d);

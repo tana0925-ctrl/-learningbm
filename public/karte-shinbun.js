@@ -53,7 +53,7 @@
     t = String(t == null ? '' : t).trim();
     if (/^「[\s\S]*」$/.test(t) && unbalancedAt(t.slice(1, -1)) < 0 && t.slice(1, -1).indexOf('「') < 0) return t;
     if (/^[「『]/.test(t)) return t;   // もとの 文が「で 始まるときは 外がわに つけない（「「 に しない）
-    return '「' + t + '」';
+    return '「' + t.replace(/「/g, '『').replace(/」/g, '』') + '」';   // 中の「」は『』に（「…「町人文化」」のように 二重に ならないように）
   }
   function meaningful(t) {   // 意味の ない 短い 入力（2文字以下の 英数字など）は 出さない
     t = String(t == null ? '' : t).trim();
@@ -543,7 +543,8 @@
     return L;
   }
   function specialSec(c) {
-    var L = fresh(advLines(c.d), function (x) { return 'adv:' + nk(x); });
+    /* SHINBUN_FIX32_V1 冒険ニュースは この号の 事実なので、前の号と 同じ 文でも のせる（MVP の 行だけ 消えて、コラムと 食いちがっていた） */
+    var L = advLines(c.d);
     if (!L.length) return '';
     return tag(sec('冒険ニュース', L.map(function (x) { return li(x); }).join(''), 2, 'news', 'アプリでの 1週間'), L.map(function (x) { return use('adv:' + nk(x)); }));
   }
