@@ -194,6 +194,15 @@ function guessWorkSubj(txt: string): string {
   for (const [s, re] of WORK_SUBJ) { const n = (txt.match(re) || []).length; if (n > bn) { bn = n; best = s } }
   return bn >= 2 ? best : ''
 }
+// 課題の 話題（その 取り込みの 文の 4わり以上に 出てくる ことば 上位2つ）。題が 無いときの 見分け用
+const WORK_STOP = new Set('次 自分 理由 工夫 言葉 場面 素晴 注目 記述 具体 視点 様子 部分 内容 説明 気持 確認 丁寧 記録 記入 時間 考察 着目 着眼点 表現 発見 整理 調子 感心 最高 今後 一言 一歩 一度 一番 予想 意味 毎時間 振り返 面白 大事 本当 全部 最後 最初 自分の 学習 予定 単元末 確認時間 書き足'.split(' '))
+function workTopic(txts: string[]): string {
+  const df: Record<string, number> = {}
+  txts.forEach((t) => { const set: Record<string, 1> = {}; (t.match(/[ァ-ヴー]{3,}|[一-龥々]{2,4}/g) || []).forEach((k) => { set[k] = 1 }); Object.keys(set).forEach((k) => { df[k] = (df[k] || 0) + 1 }) })
+  const need = Math.max(3, Math.ceil(txts.length * 0.4))
+  const c = Object.keys(df).filter((k) => !WORK_STOP.has(k) && df[k] >= need).sort((a, b) => df[b] - df[a] || b.length - a.length)
+  return c.slice(0, 2).join('・')
+}
 const WORK_BLANK = /名前(の記載)?(だけ|のみ)|白紙|何も書かれていない|記入(が)?(ない|なし|されていない)ページ/
 export async function issueWorksOf(env: any, classId: string, ws: string) {
   const DB = env.DB
@@ -203,8 +212,9 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
   let from = ymdAdd(ws, -1) + ' 15:00:00'   // 号の 月曜 0時（日本時間）
   let to = new Date().toISOString().slice(0, 19).replace('T', ' ')
   try {
-    const pv: any = await DB.prepare(`SELECT MIN(k.confirmed_at) AS a FROM karte_issue k JOIN class_members cm ON cm.user_id=k.user_id AND cm.class_id=? WHERE k.ws=?`).bind(classId, ymdAdd(ws, -7)).first()
-    if (pv && pv.a) from = String(pv.a)
+    // 前の号を 印刷したあと（印刷が この号の 月曜より あとなら）。印刷の 記録だけ（あとから 埋めた 記録は 印刷の 時刻ではない）
+    const pv: any = await DB.prepare(`SELECT MAX(k.confirmed_at) AS a FROM karte_issue k JOIN class_members cm ON cm.user_id=k.user_id AND cm.class_id=? WHERE k.ws=? AND k.src='print'`).bind(classId, ymdAdd(ws, -7)).first()
+    if (pv && pv.a && String(pv.a) > from) from = String(pv.a)
     const me: any = await DB.prepare(`SELECT MAX(k.confirmed_at) AS b FROM karte_issue k JOIN class_members cm ON cm.user_id=k.user_id AND cm.class_id=? WHERE k.ws=? AND k.src='print'`).bind(classId, ws).first()
     if (me && me.b) to = String(me.b) > from ? String(me.b) : to
   } catch (_e) {}
@@ -236,6 +246,22 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
   }
   const out: any = { ok: true, ws, from, to, rosterN: roster.length, batches: [], byUser: {} }
   const by = (u: string) => out.byUser[u] || (out.byUser[u] = { works: [], missing: [] })
+  // 同じ 課題を もう一度 取り込みなおした（同じ 教科・同じ 子が 7わり以上 かさなる）→ あとの 取り込みで 上書き
+  const subjOf = (b: any) => { const p = String(b.rk || '').split('|'); return (p[1] || '') + '|' + (p[2] || '') || '' }
+  for (let i = batches.length - 1; i > 0; i--) {
+    const b = batches[i], bu = Object.keys(b.kids)
+    for (let j = i - 1; j >= 0; j--) {
+      const a = batches[j], au = Object.keys(a.kids)
+      if (!au.length || !bu.length) continue
+      const sa = subjOf(a) !== '|' ? subjOf(a) : guessWorkSubj(au.map((u) => a.kids[u].work.concat(a.kids[u].memo).join(' ')).join(' '))
+      const sb = subjOf(b) !== '|' ? subjOf(b) : guessWorkSubj(bu.map((u) => b.kids[u].work.concat(b.kids[u].memo).join(' ')).join(' '))
+      const ov = bu.filter((u) => a.kids[u]).length
+      if (sa && sa === sb && ov >= Math.ceil(Math.min(au.length, bu.length) * 0.7)) {
+        au.forEach((u) => { if (!b.kids[u]) b.kids[u] = a.kids[u] })
+        a.kids = {}
+      }
+    }
+  }
   for (const b of batches) {
     const uids = Object.keys(b.kids)
     if (!uids.length) continue
@@ -246,14 +272,15 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
     const blank: Record<string, 1> = {}
     uids.forEach((u) => { const k = b.kids[u]; if (k.memo.length && k.memo.every((m: string) => WORK_BLANK.test(m))) blank[u] = 1 })
     const done = uids.filter((u) => !blank[u] && b.kids[u].work.length)
-    const label = title || (subj ? subj + 'の 成果物' : '成果物')
+    const topic = title ? '' : workTopic(uids.map((u) => b.kids[u].work.concat(b.kids[u].memo).join(' ')))
+    const label = title || ((subj || '') + (topic ? '（' + topic + '）' : '') + 'の 成果物').replace(/^の /, '')
     const classWide = roster.length >= 4 && done.length + Object.keys(blank).length >= Math.ceil(roster.length * 0.6)
-    out.batches.push({ id: b.id, at: b.at, subj, title, label, n: done.length, classWide })
+    out.batches.push({ id: b.id, at: b.at, subj, title, topic, label, n: done.length, classWide })
     done.forEach((u) => {
       const k = b.kids[u]
-      k.work.forEach((w: string, i: number) => { by(u).works.push({ b: b.id, subj, title, label, at: String(b.at).slice(0, 10), text: w.slice(0, 600), memo: String(k.memo[i] || k.memo[0] || '').slice(0, 400) }) })
+      k.work.forEach((w: string, i: number) => { by(u).works.push({ b: b.id, subj, title, topic, label, at: String(b.at).slice(0, 10), text: w.slice(0, 600), memo: String(k.memo[i] || k.memo[0] || '').slice(0, 400) }) })
     })
-    if (classWide) roster.forEach((u) => { if (blank[u] || !b.kids[u] || !b.kids[u].work.length) by(u).missing.push({ b: b.id, at: b.at, subj, title, label, blank: !!blank[u] }) })
+    if (classWide) roster.forEach((u) => { if (blank[u] || !b.kids[u] || !b.kids[u].work.length) by(u).missing.push({ b: b.id, at: b.at, subj, title, topic, label, blank: !!blank[u] }) })
   }
   // あとから 別に 取り込んだ（おくれて 出した）同じ 課題が あれば「まだ」に しない
   Object.keys(out.byUser).forEach((u) => {
