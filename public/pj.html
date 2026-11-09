@@ -366,10 +366,11 @@
     var h = '<div class="box" style="border:2px dashed #14b8a6;background:#f0fdfa"><div style="font-weight:900">🎫 もっている 券</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">'
       + [['ext', '🤝 契約延長券'], ['normal', '🎟 ノーマル券'], ['pos', '🎯 ポジション券'], ['rare', '💎 レア券']].map(function (x) { return '<span class="left' + (t[x[0]] ? ' y' : '') + '" style="font-size:13px">' + x[1] + ' × ' + (t[x[0]] || 0) + '</span>'; }).join('') + '</div>'
-      + '<div class="note">・自分が 1週間（学校の日）毎日 家庭学習を 出す → 🤝 契約延長券（チームの 画面で 選手の 契約を ' + (S.extDays || 10) + '日 のばせる）<br>'
-      + '・クラスの 1日の 家庭学習が 90% → 🎟 ノーマル券、95% → 🎯 ポジション券、ぜんいん → 💎 レア券（クラス みんなに 1まい）</div></div>';
+      + '<div class="note">・自分が 1週間（学校の日）毎日 家庭学習を 出す → 🤝 契約延長券 か 200コイン（券は チームの 画面で 選手の 契約を ' + (S.extDays || 10) + '日 のばせる）<br>'
+      + '・クラスの 1日の 家庭学習が 90% → 🎟 ノーマル券 か 200コイン、95% → 🎯 ポジション券 か 250コイン、ぜんいん → 💎 レア券 か 600コイン（クラス みんなに。どっちか えらべる）</div></div>';
     return h;
   }
+  window.PJ_AFTER_GIFT = function () { start(); };   /* 🎁 PJ_REWARD_PICK_V1 ごほうびは /pjgift.js が 出す（券 か コインを えらぶ） */
   function showGifts() {
     if (!S || !S.gifts || !S.gifts.length) return;
     var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券' };
@@ -1002,7 +1003,7 @@
 
   function start() {
     api('/api/pj/state').then(function (d) {
-      if (d && d.ok) { S = d; render(); showNews(); if (!(S.news && S.news.length)) showGifts(); return; }
+      if (d && d.ok) { S = d; render(); showNews(); return; }
       var e = d && d.error;
       if (e === 'import') { if (d.test) runImport(d.parts); else $('main').innerHTML = '<div class="msg">いま じゅんびちゅうだよ。また あとで ひらいてね。</div>'; return; }
       var m = e === 'login' ? 'ログインしてから ひらいてね。<br><a href="/">アプリへ</a>'
@@ -1016,5 +1017,6 @@
   start();
 })();
 </script>
+<script src="/pjgift.js?v=1"></script>
 </body>
 </html>

@@ -243,6 +243,7 @@ export function installPj(app: any, d: Deps) {
   //     （その日が おわってから＝つぎの 朝8:30 すぎ。いちばん 上の 1まいだけ）
   //   ・2026-11-09 の 週から。1日に 1回だけ しらべる（st.rw.ck）。先生の がちモード（クラスなし）は なし
   const TK_FROM = '2026-11-09'
+  const COIN_EQ: any = { ext: 200, normal: 200, pos: 250, rare: 600 }   // 券の かわりに えらべる コイン
   function hwDayNow() { return new Date(Date.now() + 9 * 3600000 - (8 * 60 + 30) * 60000).toISOString().slice(0, 10) }
   async function grantTickets(c: any, w: any, st: any, ctx: any) {
     if (w.test || !w.classId || !w.u) return null
@@ -263,7 +264,7 @@ export function installPj(app: any, d: Deps) {
         if (ws < TK_FROM || st.rw.w[ws]) continue
         const days = [0, 1, 2, 3, 4].map((i) => d.addDay(ws, i)).filter(isSchool)
         if (!days.length || days[days.length - 1] > now) continue
-        if (days.every((k) => have[k])) { st.rw.w[ws] = 1; st.tk.ext = (Number(st.tk.ext) || 0) + 1; gifts.push({ t: 'ext', why: 'week', ws }) }
+        if (days.every((k) => have[k])) { st.rw.w[ws] = 1; gifts.push({ id: 'w' + ws, t: 'ext', why: 'week', ws }) }
       }
       // クラスの 1日
       const ros: any = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=?").bind(w.classId).first()
@@ -275,14 +276,15 @@ export function installPj(app: any, d: Deps) {
           if (k < TK_FROM || st.rw.d[k] || !isSchool(k)) return
           const tier = n >= N ? 'rare' : n >= Math.ceil(N * 0.95) ? 'pos' : n >= Math.ceil(N * 0.9) ? 'normal' : ''
           if (!tier) return
-          st.rw.d[k] = tier; st.tk[tier] = (Number(st.tk[tier]) || 0) + 1; gifts.push({ t: tier, why: 'class', day: k, n, N })
+          st.rw.d[k] = tier; gifts.push({ id: 'd' + k, t: tier, why: 'class', day: k, n, N })
         })
       }
       // 古い 記録は すてる
       Object.keys(st.rw.w).forEach((k) => { if (k < d.addDay(now, -35)) delete st.rw.w[k] })
       Object.keys(st.rw.d).forEach((k) => { if (k < d.addDay(now, -35)) delete st.rw.d[k] })
     } catch (_e) { return null }
-    if (gifts.length) st.gf = (st.gf || []).concat(gifts).slice(-10)
+    // PJ_REWARD_PICK_V1 券は すぐ わたさず「券 か コイン」を 本人が えらぶ（先生PJを やらない子も いるので）
+    if (gifts.length) st.pg = (st.pg || []).concat(gifts).slice(-20)
     return gifts
   }
 
@@ -325,7 +327,7 @@ export function installPj(app: any, d: Deps) {
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
       coins, bought, max: 0, price: TIERS.normal.price, prices: { normal: TIERS.normal.price, pos: TIERS.pos.price, rare: TIERS.rare.price }, rareW: TIERS.rare.w,   // PJ_NOLIMIT_V1 上限なし／PJ_TIERS_V1
-      tk: { ext: Number((st.tk || {}).ext) || 0, normal: Number((st.tk || {}).normal) || 0, pos: Number((st.tk || {}).pos) || 0, rare: Number((st.tk || {}).rare) || 0 }, gifts: st.gf || [], extMax: EXT_MAX, extDays: EXT_DAYS,
+      tk: { ext: Number((st.tk || {}).ext) || 0, normal: Number((st.tk || {}).normal) || 0, pos: Number((st.tk || {}).pos) || 0, rare: Number((st.tk || {}).rare) || 0 }, gifts: [], pend: st.pg || [], coinEq: COIN_EQ, extMax: EXT_MAX, extDays: EXT_DAYS,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx), x: Number(r.x) || 0 })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
@@ -373,6 +375,50 @@ export function installPj(app: any, d: Deps) {
     await grantTickets(c, b.w, b.st, b.ctx)   // PJ_TICKETS_V1
     if (ch1 || (b.st.rw && b.st.rw.ck) !== ck0) await save(c.env, b.w.sid, b.st, b.ver)
     return c.json(await view(c, b.w, b.st, b.ctx))
+  })
+
+  // 🎁 PJ_REWARD_PICK_V1 ごほうびの 一覧（アプリの ふつうの 画面からも よぶ。先生PJを ひらいていない子にも 出す）
+  app.get('/api/pj/rewards', async (c: any) => {
+    await ensure(c.env)
+    const w: any = await who(c, d)
+    if (w.error || !w.classId) return c.json({ ok: true, list: [], eq: COIN_EQ })
+    const L = await load(c.env, w.sid)
+    const ctx = await dayCtx(c, w, L.st)
+    const ck0 = L.st.rw && L.st.rw.ck
+    await grantTickets(c, w, L.st, ctx)
+    if ((L.st.rw && L.st.rw.ck) !== ck0) await save(c.env, w.sid, L.st, L.ver)
+    return c.json({ ok: true, list: L.st.pg || [], eq: COIN_EQ })
+  })
+  // 🎁 えらぶ：pick='tk'（券）／'coin'（コイン）
+  app.post('/api/pj/rewards/claim', async (c: any) => {
+    await ensure(c.env)
+    const w: any = await who(c, d)
+    if (w.error || !w.classId) return err(c, 403, 'off')
+    const body = await c.req.json().catch(() => ({}))
+    const id = String((body && body.id) || ''), pick = body && body.pick === 'coin' ? 'coin' : 'tk'
+    const L = await load(c.env, w.sid), st = L.st
+    const i = (st.pg || []).findIndex((g: any) => g.id === id)
+    if (i < 0) return err(c, 404, 'none')
+    const g = st.pg[i]
+    st.pg.splice(i, 1)
+    st.tk = st.tk || {}
+    if (pick === 'tk') st.tk[g.t] = (Number(st.tk[g.t]) || 0) + 1
+    if (!(await save(c.env, w.sid, st, L.ver))) return err(c, 409, 'busy')
+    let coins: any = null, applied: any = null
+    if (pick === 'coin') {
+      const amt = Number(COIN_EQ[g.t]) || 0
+      try {
+        // コインは「サーバ累計 vs 端末の累計」方式（_pjGiftCoins）。端末の 全置換保存でも 消えない
+        await c.env.DB.prepare("UPDATE progress SET state_json = json_set(json_set(state_json, '$.coins', COALESCE(CAST(json_extract(state_json, '$.coins') AS INTEGER), 0) + ?), '$._pjGiftCoins', COALESCE(CAST(json_extract(state_json, '$._pjGiftCoins') AS INTEGER), 0) + ?), updated_at=datetime('now') WHERE user_id=? AND json_valid(state_json)").bind(amt, amt, String(w.u.id)).run()
+        const r: any = await c.env.DB.prepare("SELECT CAST(json_extract(state_json,'$.coins') AS INTEGER) AS c, CAST(json_extract(state_json,'$._pjGiftCoins') AS INTEGER) AS g FROM progress WHERE user_id=?").bind(String(w.u.id)).first()
+        coins = r ? Number(r.c) : null; applied = r ? Number(r.g) : null
+      } catch (_e) {
+        // コインを わたせなかったら 元に もどす
+        try { const L2 = await load(c.env, w.sid); L2.st.pg = (L2.st.pg || []).concat([g]); await save(c.env, w.sid, L2.st, L2.ver) } catch (_e2) {}
+        return err(c, 500, 'coin')
+      }
+    }
+    return c.json({ ok: true, pick, t: g.t, amount: pick === 'coin' ? COIN_EQ[g.t] : 0, coins, pjGiftCoins: applied, list: st.pg, tk: st.tk })
   })
 
   // 🎫 もらった 券の お知らせを 見た
