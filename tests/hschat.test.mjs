@@ -73,7 +73,9 @@ async function device({ store = null, ls = null, viewAs = false, submitFail = fa
     log: () => Array.from(w.document.querySelectorAll('#hsChatLog .hc-b')).map((x) => x.textContent),
     async click(text) {
       const bs = Array.from(w.document.querySelectorAll('#hsChatFoot button, #hsChatFoot label'))
-      const b = bs.find((x) => x.textContent.indexOf(text) >= 0)
+      let b = bs.find((x) => x.textContent.indexOf(text) >= 0)
+      // MINNA_CHAT_V1 「みんなのふりかえりに のせても ええ？」が はさまったら、ほかの テストでは とばす
+      if (!b && text.indexOf('今回は いい') < 0 && bs.some((x) => x.textContent.indexOf('今回は いい') >= 0)) { bs.find((x) => x.textContent.indexOf('今回は いい') >= 0).click(); await sleep(30); return api.click(text) }
       if (!b) throw new Error('ボタンがない: ' + text + ' / ある: ' + bs.map((x) => x.textContent).join(' | '))
       b.click(); await sleep(30)
     },
@@ -361,7 +363,7 @@ await t('14 HSSIGN シートで先に「サポーターから」を書いても�
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('10分'); await d.click('スタート')
   const s = d.sess(); s.parentComment = 'シートに書きました'; d.w.eval('hsSetSession')(s)
   d.pass(10); d.tick(); await d.click('おわる'); await d.click('はれ'); await d.click('わかった'); await d.click('とばす'); await d.click('このままでOK')
-  eq(d.sess()._chat.step, 'photo', 'サインの段はとばす')
+  eq(d.sess()._chat.step, 'minna', 'サインの段はとばす（のせてもいい？を 聞く）')
   await d.click('先生に 提出'); await sleep(80)
   eq(d.w.__calls[0].body.parentComment, 'シートに書きました', 'シートの文のまま')
   ok(!d.w.document.getElementById('hsSignLaterS') || d.w.document.getElementById('hsSignLaterS').style.display === 'none', 'あとからボタンも出さない')
@@ -483,6 +485,24 @@ await t('18 READY 何分かえらんだら すぐ始めず「スタートしよ�
   await e.click('学校の宿題'); await e.click('テストがあるから'); await e.click('15分')
   e.w.document.getElementById('hsChatX').click(); e.w.HSCHAT.open(); await sleep(30)
   ok(e.foot().textContent.indexOf('▶ スタート') >= 0, 'とじて ひらいても スタートを まつ'); ok(!e.sess().started, 'まだ はじまらない')
+})
+
+await t('19 MINNA_CHAT 提出の前に「みんなのふりかえりに のせても ええ？」→ 名前なしを えらぶと 出したあとに 同意を送る／今回は いい なら 送らない', async () => {
+  const d = await device(); hookFetch(d)
+  const base = d.w.fetch; d.w.__minna = []
+  d.w.fetch = async function (url, opt) { if (String(url).indexOf('/api/student/minna/consent') >= 0) { d.w.__minna.push(JSON.parse(opt.body)); return { ok: true, json: async () => ({ ok: true, saved: true }) } } return base(url, opt) }
+  await toSign(d); await d.click('あとで もらう')
+  eq(d.sess()._chat.step, 'minna', 'のせてもいい？の 段')
+  ok(d.log().some((x) => x.indexOf('みんなのふりかえり') >= 0), '聞いている')
+  await d.click('名前なしで'); eq(d.sess()._chat.step, 'photo', '写真へ')
+  eq(d.w.__minna.length, 0, '出す前は 送らない')
+  await d.click('先生に 提出'); await sleep(120)
+  eq(d.w.__minna.length, 1, '出したあとに 1回'); eq(d.w.__minna[0].mode, 'anon', '名前なし'); eq(d.w.__minna[0].kind, 'day', '毎日の ふりかえり')
+  const e = await device(); hookFetch(e)
+  const base2 = e.w.fetch; e.w.__minna = []
+  e.w.fetch = async function (url, opt) { if (String(url).indexOf('/api/student/minna/consent') >= 0) { e.w.__minna.push(1); return { ok: true, json: async () => ({ ok: true, saved: true }) } } return base2(url, opt) }
+  await toSign(e); await e.click('あとで もらう'); await e.click('今回は いい'); await e.click('先生に 提出'); await sleep(120)
+  eq(e.w.__minna.length, 0, '今回は いい なら 送らない')
 })
 
 const pass = results.filter((r) => r.ok).length

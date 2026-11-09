@@ -85,6 +85,10 @@
     resumePhoto: '写真は もう一度 えらんでな',
     introTitle: '家庭学習を阪神マンと対話しながらできるようになったで！',
     sign: 'おつかれさん！ おうちの人に見せて、サインもらってきてな！',
+    minnaAsk: 'さいごに ひとつ！ 今日の ふりかえり、クラスの「みんなのふりかえり」に のせても ええ？ 先生が えらんで、いくつか しょうかいするで。',   // MINNA_CHAT_V1
+    minnaNamed: 'ありがとう！ 名前ありで のせても ええ、やな。先生が えらんだら のるで！ ほな 提出しよか',
+    minnaAnon: 'ありがとう！ 名前なしで のせても ええ、やな。先生が えらんだら のるで！ ほな 提出しよか',
+    minnaSkip: 'オッケー！ 今回は のせへんで。のせたい日が あったら えらんでな。ほな 提出しよか',
     signDone: 'サインもろたで！ ほな提出しよか！ 写真が あったら つけてな',
     signLater: 'オッケー！ サインは 提出したあとでも もらえるで。ほな提出しよか！ 写真が あったら つけてな',
     signAfter: 'サインもろたで！ 先生にも とどけたで。おうちの人に ありがとうって 言うといてな',
@@ -561,7 +565,7 @@
     act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; nextReact(c); toBye(s, c); });
   }
   function toBye(s, c) {
-    if (String((s && s.parentComment) || '').trim()) { c.step = 'photo'; say(c, 'b', SAY.bye); return; }   // シートで もう書いてもらっていたら そのまま
+    if (String((s && s.parentComment) || '').trim()) { say(c, 'b', SAY.bye); minnaAsk(c); return; }   // シートで もう書いてもらっていたら そのまま（MINNA_CHAT_V1 のせてもいい？を 聞いてから 写真へ）
     c.step = 'sign'; say(c, 'b', SAY.sign);
   }
 
@@ -610,11 +614,26 @@
         say(c2, 'm', '👍 おうちの人が 見たよ');
         s2.parentComment = text; c2.signed = 1;
         putSheetSign(text);
-        say(c2, 'b', SAY.signDone); c2.step = 'photo';
+        say(c2, 'b', SAY.signDone); minnaAsk(c2);
       });
     });
   }
-  function signSkip() { act(function (s, c) { say(c, 'm', '⏭ あとで もらう'); say(c, 'b', SAY.signLater); c.step = 'photo'; }); }
+  function signSkip() { act(function (s, c) { say(c, 'm', '⏭ あとで もらう'); say(c, 'b', SAY.signLater); minnaAsk(c); }); }
+  // 📖 MINNA_CHAT_V1（2026-11-09）対話で 出す子にも「みんなのふりかえり」に のせてもいいか 聞く（シートの 下の 欄と 同じ 同意）。
+  //   えらんだら 出したあとに /api/student/minna/consent へ（出す前は サーバが うけつけない）。えらばなくても 出せる・のらない。
+  function minnaAsk(c) { c.step = 'minna'; say(c, 'b', SAY.minnaAsk); }
+  function pickMinna(mode, label) {
+    act(function (s, c) { say(c, 'm', label); c.minna = mode; say(c, 'b', mode === 'named' ? SAY.minnaNamed : mode === 'anon' ? SAY.minnaAnon : SAY.minnaSkip); c.step = 'photo'; });
+  }
+  function sendMinna(mode) {
+    if (!mode || viewOnly() || teacherAcct()) return;
+    try {
+      fetch('/api/student/minna/consent', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'day', ref: dayKey(), mode: mode }) })
+        .then(function (r) { return r.json(); }).catch(function () { return null; })
+        .then(function (j) { if (!(j && j.ok && j.saved)) setTimeout(function () { sendMinna2(mode); }, 1500); });
+    } catch (e) {}
+  }
+  function sendMinna2(mode) { try { fetch('/api/student/minna/consent', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'day', ref: dayKey(), mode: mode }) }); } catch (e) {} }
   function todayLog() {
     try { var logs = call('hsLogs') || [], dk = dayKey(); for (var i = 0; i < logs.length; i++) { var l = logs[i]; if (l && l.dayKey === dk && !l.restDay) return l; } } catch (e) {}
     return null;
@@ -671,6 +690,7 @@
     if (submittedToday()) {
       var msg = ''; try { msg = String((document.getElementById('hsRewardMsg') || {}).textContent || '').replace(/^✅\s*/, '').trim(); } catch (e) {}
       resumeDrop();   // HSAUTH_V1 控えは もういらない
+      try { if (keep && keep.minna) sendMinna(keep.minna); } catch (e) {}   // MINNA_CHAT_V1
       _done = keep || newChat();
       _done.step = 'done'; _done.waiting = '';
       _done.log = (_done.log || []).filter(function (x) { return x.t !== SAY.sending; });
@@ -773,6 +793,9 @@
       var ns = NEXTS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ns);
       bind(foot, ns.map(function (r, i) { return function () { if (i === ns.length - 1) pickNext('', true); else pickNext(r.label); }; }));
+    } else if (step === 'minna') {   // MINNA_CHAT_V1
+      foot.innerHTML = btns([{ label: '📛 名前ありで のせて ええよ' }, { label: '🙈 名前なしで のせて ええよ' }, { label: '⏭ 今回は いい', cls: 'sub' }], 'three');
+      bind(foot, [function () { pickMinna('named', '📛 名前ありで のせて ええよ'); }, function () { pickMinna('anon', '🙈 名前なしで のせて ええよ'); }, function () { pickMinna('', '⏭ 今回は いい'); }]);
     } else if (step === 'sign') {
       foot.innerHTML = btns([{ label: '🏠 おうちの人に 見せる', cls: 'main' }, { label: '⏭ あとで もらう', cls: 'sub' }]);
       bind(foot, [signNow, signSkip]);
