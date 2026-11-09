@@ -386,15 +386,6 @@ async function loginClearFails(env: any, loginId: string): Promise<void> {
 
 // -------------------- auth middleware --------------------
 app.use('/api/*', async (c, next) => {
-  /* __SNAPKEY_TMP__ 一時的な 読みとり専用の 鍵（道しるべ新聞の 確認用）。GET だけ・D1 にある 期限つきの 鍵と 一致したときだけ。確認が おわったら この ブロックごと 消す */
-  try {
-    const _sk = c.req.header('x-lbm-snap')
-    if (_sk && _sk.length >= 48 && c.req.method === 'GET') {
-      const _r: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='snap_key_tmp' LIMIT 1").first()
-      const _v = _r ? JSON.parse(String(_r.value || '{}')) : null
-      if (_v && _v.k === _sk && Number(_v.exp) > Date.now() && _v.uid) { c.set('user', { id: String(_v.uid), role: 'admin', loginId: 'snap', isActive: true }); return next() }
-    }
-  } catch (_e) {}
   const token = getCookie(c, 'session')
   if (!token) return next()
   const secret = c.env.SESSION_SECRET
@@ -17962,10 +17953,10 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=24"></script>
+    <script src="/teacher-ai.js?v=25"></script>
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
-    <script src="/portfolio.js?v=13"></script><!-- PORTFOLIO_V1 📸 成果物 -->
+    <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=10"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=11"></script>
     <script src="/shinbun_nudge.js?v=3"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->

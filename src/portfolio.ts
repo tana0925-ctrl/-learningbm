@@ -288,8 +288,14 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
   Object.keys(out.byUser).forEach((u) => {
     const o = out.byUser[u]
     o.missing = o.missing.filter((m: any) => !o.works.some((w: any) => w.label === m.label && w.b !== m.b && w.at >= String(m.at).slice(0, 10)))
-    o.missing.forEach((m: any) => { delete m.at })
+    o.missing.forEach((m: any) => { m.bat = m.at; delete m.at })
   })
+  // 先生が「これは 出ている（声かけ しない）」と 外したもの
+  try {
+    const sk: any = await DB.prepare('SELECT value FROM admin_settings WHERE key=? LIMIT 1').bind('work_wait_skip|' + classId + '|' + ws).first()
+    const list: string[] = sk ? JSON.parse(String(sk.value || '[]')) : []
+    if (list.length) Object.keys(out.byUser).forEach((u) => { const o = out.byUser[u]; o.skipped = o.missing.filter((m: any) => list.indexOf(u + '|' + m.bat) >= 0); o.missing = o.missing.filter((m: any) => list.indexOf(u + '|' + m.bat) < 0) })
+  } catch (_e) {}
   return out
 }
 
@@ -422,6 +428,23 @@ export function registerPortfolio(app: any, d: Deps) {
     if (!isYmd(ws)) return jerr(c, 400, 'bad_ws')
     if (!(await ownsClass(c, u, classId))) return jerr(c, 404, 'class_not_found')
     return c.json(await issueWorksOf(c.env, classId, ws))
+  })
+
+  app.post('/api/teacher/portfolio/issue-works/skip', async (c: any) => {
+    const u = teacherOf(c, d)
+    if (!u) return jerr(c, 403, 'forbidden')
+    const b: any = await c.req.json().catch(() => ({}))
+    const classId = clean(b.classId, 80), ws = String(b.ws || ''), key = clean(b.key, 140)
+    if (!isYmd(ws) || !/^[0-9a-f-]{8,40}\|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(key)) return jerr(c, 400, 'bad_input')
+    if (!(await ownsClass(c, u, classId))) return jerr(c, 404, 'class_not_found')
+    const k = 'work_wait_skip|' + classId + '|' + ws
+    const r: any = await c.env.DB.prepare('SELECT value FROM admin_settings WHERE key=? LIMIT 1').bind(k).first()
+    let list: string[] = []
+    try { list = r ? JSON.parse(String(r.value || '[]')) : [] } catch (_e) {}
+    list = list.filter((x) => x !== key)
+    if (b.skip) list.push(key)
+    await c.env.DB.prepare('INSERT INTO admin_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k, JSON.stringify(list.slice(-200))).run()
+    return c.json({ ok: true, n: list.length })
   })
 
   // 写真（先生だけ）。?t=1 で小さい版（あれば）

@@ -713,6 +713,8 @@ out.push('【目印の種類】');
       out.push('      - 「4月からの長い話」は、この号の事実が少ないときに1文だけ。家庭学習の回数が少ない子は、回数そのものを話題や見出しにしない（アプリや学校でのことを主役にする）。');
       out.push('      - 【先生の観察メモ】が何人かに同じ文で書かれていても（「この観察メモは◯人に同じ文」とあるとき）、子どもごとに別の書き方にする。その子の記録とつながる所だけをつなぐ。むりに他の教科と結びつけない。');
       out.push('      - ★成果物を大事に：この号の【成果物・ノート・作品】（取り込み・写真の分析・成果物へのひとこと）や【先生の観察メモ】があれば、コラムかトップ記事の中心にしてよい。');   /* SHINBUN_WORK_V1 先生の指示 2026-11-09 */
+      out.push('      - ★【この号に 先生が わたした 成果物】がある子は、その成果物に 必ず ふれる（コラムか トップ記事。2こ以上なら 2こ以上）。📓ひとこと の文を そのまま 写さず、本人が 書いた 中身・気づき を 具体的に。');   /* SHINBUN_WORKS_V1 先生の指示 2026-11-09 */
+      out.push('      - ★【まだ とどいていない 成果物】がある子には、1回だけ やさしく「◯◯の ワークシート、できたら 先生に 出してな。楽しみに まってるで！」と つたえる（「まだ〜ない」「未提出」は 使わない・責めない・理由を 聞かない・ほかの子と くらべない）。');
       out.push('        何を書いたか・どこを工夫したか（図・式・ことば・まとめ方）を、材料に書いてある事実で具体的にほめる。前の週のものは「前に書いた◯◯」と分かる形で短く。');
       out.push('      - 書いたあと、数字を【この号の事実】ともう一度見くらべる。ちがっていたら直す。漢字・ことばのまちがい（例：「比例和反比例」→「比例と反比例」）も見直す。');
       out.push('      - 名前も「A07」のような符号も、文の中には絶対に書かない。');
@@ -1124,6 +1126,9 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       else { say('材料の台帳が読めませんでした。プリントの話は今回は渡しません。'); }
     }
 
+    /* SHINBUN_WORKS_V1 この号に 先生が 公開した 成果物（📓ひとこと・分析メモ）と「まだ とどいていない」課題。カルテで 必ず ふれる */
+    var _iwBy = {};
+    if (want.karte) { try { var _iw = await getJson('/api/teacher/portfolio/issue-works?classId=' + encodeURIComponent(cid) + '&ws=' + encodeURIComponent(weekDays[0])); if (_iw && _iw.ok) _iwBy = _iw.byUser || {}; } catch (e) {} }
     if (want.flowCtx) { say('前の流れを読んでいます...'); try { await window.AI_FLOW.prefetch(cid); } catch (e) {} }   /* AIFLOW_V1 */
     /* SHINBUN_ISSUE_V1 観察メモが 何人に 同じ文か（同じ文を 子どもごとに 書き分けるため）／材料が この号の ものか */
     var _noteCount = {};
@@ -1343,10 +1348,27 @@ try {
       //   「一度ほめた内容をもう一度ほめない」ための本体。
       //   渡せる材料が無い子には、無いと はっきり書く。掘り返させない。
       var _pk = pickBy[st.userId] || null;
+      /* SHINBUN_WORKS_V1 この号の 成果物（先生が わたしたもの）→ 必ず ふれる／まだ とどいていない 課題 → やさしく 1回 */
+      if (want.karte) {
+        try {
+          var _iwu = _iwBy[st.userId] || { works: [], missing: [] }, _mk = function (t) { t = String(t || ''); return window._qnMask ? window._qnMask(t) : t; };
+          if ((_iwu.works || []).length) {
+            out.push('');
+            out.push('【この号に 先生が わたした 成果物（' + _iwu.works.length + 'こ）】★ぜんぶ 本人に もう 届いている ことば。カルテ（コラムか トップ記事）で 必ず ふれる。2こ以上 あれば 2こ以上 ふれる。同じ ほめ方を くり返さず、中身（何を 書いた・何に 気づいた）を 具体的に 1つずつ');
+            _iwu.works.forEach(function (w, wi) { out.push('・' + (wi + 1) + '. ［' + (w.title || ((w.subj || '成果物') + (w.topic ? '：' + w.topic : ''))) + '］📓ひとこと「' + _mk(w.text) + '」' + (w.memo ? '／先生の分析メモ「' + _mk(w.memo) + '」' : '')); });
+          }
+          if ((_iwu.missing || []).length) {
+            out.push('');
+            out.push('【まだ とどいていない 成果物（クラスの 多くの子が 出している 課題）】');
+            _iwu.missing.forEach(function (m) { out.push('・［' + (m.title || ((m.subj || '成果物') + (m.topic ? '：' + m.topic : ''))) + '］' + (m.blank ? '名前だけで、中身は まだ これから' : 'まだ 先生に とどいていない')); });
+            out.push('→ カルテの どこかで 1回だけ、やさしく つたえる（例：「' + ((_iwu.missing[0].title || _iwu.missing[0].subj || '') ? (_iwu.missing[0].title || _iwu.missing[0].subj) + 'の ' : '') + 'ワークシート、できたら 先生に 出してな。楽しみに まってるで！」）。「まだ〜ない」「未提出」「出していない」は 使わない。責めない・理由を 聞かない・ほかの子と くらべない・「みんな出している」と 書かない・休んだ と 書かない。');
+          }
+        } catch (e) {}
+      }
       if (want.karte) {
         out.push('');
         if (_pk && _pk.materials && _pk.materials.length) {
-          var _mNote = _pk.materials.filter(function (x) { return x.kind === '先生の観察メモ'; }); var _mRec = _pk.materials.filter(function (x) { return x.kind !== '先生の観察メモ'; }); if (_mNote.length) { out.push('【先生の観察メモ（先生が授業中に気づいたこと。いちばん大事な材料です。ここに書かれていることを必ず一度は使ってください）】'); _mNote.forEach(function (mt) { var _same = _noteCount[String(mt.body || '').trim()] || 0; out.push('・' + (mt.on || '日付不明') + _issueTag(mt.on) + (mt.unit ? '［' + mt.unit + '］' : '') + ' ' + (window._qnMask ? window._qnMask(mt.body || '') : (mt.body || '')) + (_same >= 2 ? '（この観察メモは ' + _same + '人に 同じ文。この子なりの書き方にする）' : '')); }); out.push(''); } if (!_mRec.length) out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）'); if (_mRec.length) out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
+          var _mNote = _pk.materials.filter(function (x) { return x.kind === '先生の観察メモ'; }); var _mRec = _pk.materials.filter(function (x) { return x.kind !== '先生の観察メモ'; }); if (_mNote.length) { out.push('【先生の観察メモ（先生が授業中に気づいたこと。いちばん大事な材料です。ここに書かれていることを必ず一度は使ってください）】'); _mNote.forEach(function (mt) { var _same = _noteCount[String(mt.body || '').trim()] || 0; out.push('・' + (mt.on || '日付不明') + _issueTag(mt.on) + (mt.unit ? '［' + mt.unit + '］' : '') + ' ' + (window._qnMask ? window._qnMask(mt.body || '') : (mt.body || '')) + (_same >= 2 ? '（この観察メモは ' + _same + '人に 同じ文。この子なりの書き方にする）' : '')); }); out.push(''); } if (!_mRec.length) out.push('（この子の取り込み物は、前のカルテでもうほめています。取り込みの プリントの話は書かないでください。※上の【この号に 先生が わたした 成果物】は 別で、必ず ふれる）'); if (_mRec.length) out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
           _mRec.forEach(function (mt) {
             // KARTE_TEST_V1 ◎○△ は渡さない（子どもの紙に評価記号が出る事故を構造で防ぐ）。
             //   先生が言葉で書かれた「評価コメント」は数値ではないので残す。
@@ -1359,7 +1381,7 @@ try {
           if (_pk.heldBack) out.push('（ほかに ' + _pk.heldBack + ' 件ありますが、前のカルテでもうほめているので渡していません）');
         } else {
           out.push('【今回の新しい取り込み】…なし');
-          out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）');
+          out.push('（この子の取り込み物は、前のカルテでもうほめています。取り込みの プリントの話は書かないでください。※上の【この号に 先生が わたした 成果物】は 別で、必ず ふれる）');
         }
         // ④ テストは「いつ・何があったか」だけ。点数・満点・得点率・順位・◎○△は渡さない。
         //    読み取りに間違いがあっても、数値が束に入らなければ子どもの紙に害が出ない。
@@ -1570,6 +1592,40 @@ try {
     if (_minnaOn) { try { _txt = (await window.MINNA_PICK.appendTo(_txt, cid)).text; } catch (e) {} }   /* MINNA_FURI_V1 */
     copyText(_txt);
     if (oneId) sayOne('✓ この子のぶんをコピーしました。AIに貼って、返事を下の欄へ');
+    if (want.karte && !oneId) { try { waitBox(cid, weekDays[0], _iwBy, roster); } catch (e) {} }   /* SHINBUN_WORKS_V1 */
+  }
+
+  /* SHINBUN_WORKS_V1「📮 先生が まってるもの」の 声かけ一覧。先生が 外せる（タブレットで 出した・休みで 別に もらった など）。
+     外すと 紙の 📮 から 消える。阪神マンの 文に 入れたくないときは 外してから もう一度 コピー */
+  function waitBox(cid, ws, by, roster) {
+    var old = $('taiWaitBox'); if (old && old.parentNode) old.parentNode.removeChild(old);
+    var anchor = $('taiStatus'); if (!anchor || !anchor.parentNode) return;
+    var nm = {}, m0 = {}; try { if (typeof window.getStudentNameMap === 'function') m0 = window.getStudentNameMap() || {}; } catch (e) {}
+    (roster || []).forEach(function (r) { nm[String(r.userId)] = m0[r.loginId] || r.name || r.studentName || r.loginId || ''; });
+    var rows = [];
+    Object.keys(by || {}).forEach(function (u) {
+      var o = by[u] || {};
+      (o.missing || []).forEach(function (m) { rows.push({ u: u, m: m, on: true }); });
+      (o.skipped || []).forEach(function (m) { rows.push({ u: u, m: m, on: false }); });
+    });
+    if (!rows.length) return;
+    rows.sort(function (a, b) { return a.m.bat < b.m.bat ? -1 : a.m.bat > b.m.bat ? 1 : (nm[a.u] || '') < (nm[b.u] || '') ? -1 : 1; });
+    var box = document.createElement('div');
+    box.id = 'taiWaitBox';
+    box.style.cssText = 'margin-top:6px;padding:6px 8px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;font-size:12px;color:#334155';
+    var h = '<b>📮 まだ とどいていない 成果物の 声かけ</b>（クラスの 6わり以上が 出している 課題で、その子の ぶんが 無い・名前だけ）<div style="color:#64748b">紙の カルテに「先生が まってるもの」と出ます。出ている子（タブレット・あとで もらった など）は チェックを 外してね。外したら、阪神マンの 文のため もう一度 コピーしてください。</div>';
+    rows.forEach(function (x, i) {
+      var lab = x.m.title || ((x.m.subj || '成果物') + (x.m.topic ? '（' + x.m.topic + '）' : ''));
+      h += '<label style="display:inline-block;margin:2px 10px 0 0"><input type="checkbox" data-i="' + i + '"' + (x.on ? ' checked' : '') + '> ' + esc(nm[x.u] || '（名簿外）') + '：' + esc(lab) + (x.m.blank ? '（名前だけ）' : '') + '</label>';
+    });
+    box.innerHTML = h + '<span class="tai-wst" style="margin-left:6px;color:#0f766e;font-weight:bold"></span>';
+    anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    box.addEventListener('change', async function (ev) {
+      var cb = ev.target; if (!cb || cb.type !== 'checkbox') return;
+      var x = rows[Number(cb.getAttribute('data-i'))]; if (!x) return;
+      var st = box.querySelector('.tai-wst');
+      try { var r = await postJson('/api/teacher/portfolio/issue-works/skip', { classId: cid, ws: ws, key: x.u + '|' + x.m.bat, skip: !cb.checked }); if (st) st.textContent = (r && r.ok) ? '✓ 保存' : '保存できませんでした'; } catch (e) { if (st) st.textContent = '保存できませんでした'; }
+    });
   }
 
   // 2026-09-29 CLEANUP_S11
@@ -1956,6 +2012,7 @@ async function taiImport(opts) {
       _rk = reflWeekOf(b, uid);
       if (!_rk) { hold('振り返りの週が読み取れませんでした（目印の「｜2026-W42」のような部分が消えています）', label, ''); return; }
     }
+    if ((b.kind === 'WORK' || b.kind === 'WORKMEMO') && opts.workTag) _rk = String(opts.workTag).slice(0, 80);   /* SHINBUN_WORKS_V1 どの 課題の 成果物か（wt|教科|題） */
     items.push({ kind: b.kind, targetId: uid, targetName: expect, refKey: _rk, body: b.body });
   });
 

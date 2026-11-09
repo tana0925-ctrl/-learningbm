@@ -976,7 +976,12 @@
     if (_scMiss) recMsg = (recMsg ? recMsg : '') + _scMiss;
     var last = '';
     if (/\[\s*WORK(MEMO)?\s*[:：]/i.test(sp.rest)) {
-      await window.taiImport({ append: true, raw: sp.rest, classId: S.classId, say: function (m) { last = String(m || ''); st.textContent = last + (recMsg ? '／' + recMsg : ''); } });
+      var _wt = '';   /* SHINBUN_WORKS_V1 どの 課題か（新聞の「まだ とどいていない」を 課題ごとに 見るため） */
+      try {
+        if (_scm.used && S.scan) _wt = 'wt|' + String(S.scan.subj || '').replace(/\|/g, '') + '|' + String(S.scan.title || '').replace(/\|/g, '').slice(0, 30);
+        else { var _sj = String((($('pfAiSubj') || {}).value) || ''); if (!_sj && S.ai && S.ai.entries) { var _ss = {}; S.ai.entries.forEach(function (e) { if (e.it && e.it.subj) _ss[e.it.subj] = 1; }); var _k = Object.keys(_ss); if (_k.length === 1) _sj = _k[0]; } if (_sj && _sj !== '家庭学習') _wt = 'wt|' + _sj + '|'; }
+      } catch (e) {}
+      await window.taiImport({ append: true, raw: sp.rest, classId: S.classId, workTag: _wt, say: function (m) { last = String(m || ''); st.textContent = last + (recMsg ? '／' + recMsg : ''); } });
     } else { last = '✓'; st.textContent = recMsg || '取り込むものがありませんでした'; }
     if (/^✓/.test(last)) { if (ta) ta.value = ''; S.aiRaw = ''; var go = $('pfAiGo'); if (go && /WORK(MEMO)?\s*[:：]/i.test(sp.rest)) go.style.display = 'inline'; }
   }
@@ -1004,6 +1009,38 @@
     _workAt = Date.now();
     var d = await getJ('/api/teacher/portfolio/work-notes');
     if (d && d.ok) _work = d.byUser || {};
+  }
+  // ── 📓 SHINBUN_WORKS_V1 この号の 成果物（先生が 公開した 📓ひとこと ぜんぶ）と「先生が まってるもの」──
+  var _iws = {}, _iwsAt = {};
+  async function loadIssueWorks(classId, ws, force) {
+    if (!classId) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ws || ''))) ws = issueWsDefault();
+    var k = classId + '|' + ws;
+    if (!force && _iwsAt[k] && Date.now() - _iwsAt[k] < 60000) return;
+    _iwsAt[k] = Date.now();
+    var d = await getJ('/api/teacher/portfolio/issue-works?classId=' + encodeURIComponent(classId) + '&ws=' + encodeURIComponent(ws));
+    if (d && d.ok) _iws[ws] = d.byUser || {};
+  }
+  function cutW(t, n) { t = String(t || '').replace(/\s+/g, ' ').trim(); if (t.length <= n) return t; var c = t.slice(0, n); var k = Math.max(c.lastIndexOf('！'), c.lastIndexOf('。'), c.lastIndexOf('？')); return (k >= n * 0.55 ? c.slice(0, k + 1) : c.slice(0, n - 1) + '…'); }
+  function waitLabel(m) { return m.title ? m.title : ((m.subj || '') + (m.topic ? '（' + m.topic + '）' : '') + (m.subj || m.topic ? 'の ' : '') + 'ワークシート'); }
+  function worksHtml(iw) {
+    var all = (iw && iw.works) || [], ms = (iw && iw.missing) || [], h = '';
+    /* 1つの 課題から 1つ。のせきれないときは 教科が かたよらないように えらぶ（新しい 課題から） */
+    var seenB = {}, uniq = []; all.forEach(function (w) { if (!seenB[w.b]) { seenB[w.b] = 1; uniq.push(w); } });
+    var bySj = {}, sjs = []; uniq.slice().reverse().forEach(function (w) { var k = w.subj || '?'; if (!bySj[k]) { bySj[k] = []; sjs.push(k); } bySj[k].push(w); });
+    var ws2 = [], more = 0; for (var r = 0; ws2.length < uniq.length; r++) { var got = false; sjs.forEach(function (k) { if (bySj[k][r]) { ws2.push(bySj[k][r]); got = true; } }); if (!got) break; }
+    if (ws2.length > 3) { more = ws2.length - 3; ws2 = ws2.slice(0, 3); }
+    ws2.sort(function (x, y) { return uniq.indexOf(x) - uniq.indexOf(y); });
+    if (ws2.length) {
+      var per = ws2.length === 1 ? 200 : ws2.length === 2 ? 120 : 82;
+      ws2.forEach(function (w) { h += '<div class="pf-wk" style="margin:2px 0"><b>［' + esc(w.title || w.subj || '成果物') + '］</b>' + esc(cutW(w.text, per)) + '</div>'; });
+      if (more) h += '<div class="pf-wk" style="font-size:.9em">ほかにも ' + more + 'つ、先生に とどいているよ。</div>';
+    }
+    if (ms.length) {
+      var labs = []; ms.forEach(function (m) { var l = waitLabel(m) + (m.blank ? 'の つづき' : ''); if (labs.indexOf(l) < 0) labs.push(l); });
+      h += '<div class="pf-wait" style="margin-top:3px;padding:2px 4px;border:1px dashed #94a3b8;border-radius:4px">📮 先生が まってるもの：' + esc(labs.slice(0, 3).join('・')) + '。できたら 出してな、楽しみに まってるで！</div>';
+    }
+    return h;
   }
   // ── 📸 SHINBUN_PHOTO_V1 新聞の「写真で見る」：その子の いちばん新しい成果物の写真（3週間以内・1まい）──
   //    印刷の窓で 読みこみが まにあわないことがないよう、小さい版（長辺360px）を 前もって data: にしておく。
@@ -1040,6 +1077,7 @@
       if (!uid || !cid || _photoTried[uid]) return;
       _photoTried[uid] = Date.now();
       loadPhotos(cid, [uid], (fd.issue && fd.issue.ws) || (fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || '');
+      loadIssueWorks(cid, (fd.issue && fd.issue.ws) || (fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || '');   /* SHINBUN_WORKS_V1 */
     } catch (e) {}
   }
   function photoHtml(p) {
@@ -1061,6 +1099,12 @@
         if (w && lo0 && w.at && String(w.at).slice(0, 10) < lo0) w = null;   // 成果物への ひとこと（先生が 公開した日）は この号の 月曜より 前の ものは のせない（号を 作るまでに 公開した ものは のせる：成果物を 多めに 取り上げる・先生の 指示 2026-11-09）
         var ph = photoHtml(pp), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
         if (tx.length > 200) tx = tx.slice(0, 199) + '…';
+        var iw = (lo0 && _iws[lo0]) ? (_iws[lo0][uid] || { works: [], missing: [] }) : null;   /* SHINBUN_WORKS_V1 読めていれば この号の 成果物 ぜんぶ */
+        if (iw) {
+          var wh = worksHtml(iw);
+          if (!ph && !wh) return html.replace('<!--PF_WORK-->', '');
+          return html.replace('<!--PF_WORK-->', '<div class="sec"><h2>' + ((iw.works || []).length ? '📓 この号の 成果物' : (ph ? '📸 写真で見る 成果物' : '📓 成果物')) + '</h2>' + ph + wh + '</div>');
+        }
         if (!ph && !tx) return html.replace('<!--PF_WORK-->', '');
         return html.replace('<!--PF_WORK-->', '<div class="sec"><h2>' + (tx ? '📓 ノート・作品から' : '📸 写真で見る 成果物') + '</h2>' + ph + (tx ? '<div>' + esc(tx) + '</div>' : '') + '</div>');
       }
@@ -1085,6 +1129,7 @@
       var wa = async function () {
         try { await loadWork(true); } catch (e) {}
         try { var cf = $('analyticsClassFilter'); var cid = (cf && cf.value) || String((window._faData || {}).classId || ''); var fd0 = window._faData || {}; await loadPhotos(cid, null, (fd0.issue && fd0.issue.ws) || (fd0.aiCommentMeta && fd0.aiCommentMeta.weekStart) || ''); } catch (e) {}   /* SHINBUN_PHOTO_V1 */
+        try { var cf2 = $('analyticsClassFilter'); var cid2 = (cf2 && cf2.value) || String((window._faData || {}).classId || ''); var fd2 = window._faData || {}; await loadIssueWorks(cid2, (fd2.issue && fd2.issue.ws) || (fd2.aiCommentMeta && fd2.aiCommentMeta.weekStart) || '', true); } catch (e) {}   /* SHINBUN_WORKS_V1 */
         return oa.apply(this, arguments);
       };
       wa.__pfwork = true; wa.__michi = true; window.downloadAllKartes = wa;
@@ -1097,7 +1142,7 @@
     setTimeout(function () { loadWork(true); }, 1500);
     setInterval(watchPhoto, 2000);   /* SHINBUN_PHOTO_V1 */
   })();
-  try { window.__PF_KARTE = { karteWithWork: karteWithWork, setWork: function (m) { _work = m || {}; }, setPhoto: function (m) { _photo = m || {}; }, loadPhotos: loadPhotos, install: installKarte }; } catch (e) {}
+  try { window.__PF_KARTE = { karteWithWork: karteWithWork, setWork: function (m) { _work = m || {}; }, setPhoto: function (m) { _photo = m || {}; }, setIssueWorks: function (ws, m) { _iws[ws] = m || {}; }, loadIssueWorks: loadIssueWorks, loadPhotos: loadPhotos, install: installKarte }; } catch (e) {}
 
   // ═════════ 📄 SCANPDF_V1 コピー機で スキャンした PDF（クラス分）を 1ページずつ 写真にして 子どもに 割りあてる ═════════
   //  ・PDF を 読むのは この端末（pdf.js）。サーバーには 1ページずつ JPEG で 送る（ふつうの 写真と 同じ 入り口）。
