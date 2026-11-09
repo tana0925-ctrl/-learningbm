@@ -772,9 +772,9 @@
     var ids = field.concat(bn, sps, rp, [num((o.CL || [])[0])]);
     var order = o.L.map(function (x) { return POS.indexOf(x.p); });
     var cm = S.mgr && S.mgr.bb, coach = cm && S.players[cm] ? S.players[cm].n : '';
-    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : 'きょうの 家庭学習を 出すと、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
+    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
     api('/api/pj/cpu-team?s=bb&lv=' + PLV).then(function (cpu) {
-      if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? 'きょうの 家庭学習を 出すと、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
+      if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
       var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids, cc: cpu.coach || '', name: (S.teamName && S.teamName.bb) || 'きみのチーム' };
       openGame('bb', '🏟 練習試合', function (w) {
         w.__pjEval('(function(o){var MK=Object.keys(MGR_S);var mi=Math.max(0,MK.indexOf(o.coach));'
@@ -801,7 +801,7 @@
   function paneMatch() {
     prefetchGame(SP);
     var pr = S.practice || {}, ready = orderReady(), can = pr.can && ready;
-    var why = !pr.hw ? '📝 きょうの 家庭学習を 出すと、練習試合が できるよ。'
+    var why = !pr.hw ? '📝 家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'
       : pr.used ? 'きょうの 練習試合は もう やったよ。また あした！'
       : !ready ? (SP === 'sc' ? '📋 先に オーダーで スタメン 11人を きめてね。' : '📋 先に オーダーで スタメン 9人・先発投手・抑えを きめてね。') : '';
     var h = '<div class="mw"><div class="box scout"><div style="font-size:40px">🏟</div>'
@@ -829,7 +829,7 @@
     var h = '<div class="box"><div class="kind">🏆 今週の リーグ戦（' + spName() + '）</div>';
     var L = d.league;
     if (L && L.joined) {
-      h += '<div class="note">グループ ' + (L.g + 1) + (L.groups > 1 ? '（ぜんぶで ' + L.groups + 'グループ）' : '') + '　試合は 学校の日の ' + d.time + '。その日に 家庭学習を 出すと、その日の 試合を 見られるよ（同じ 試合は 2回まで）。</div>';
+      h += '<div class="note">グループ ' + (L.g + 1) + (L.groups > 1 ? '（ぜんぶで ' + L.groups + 'グループ）' : '') + '　試合は 学校の日の ' + d.time + '。前の日の 夜か その日に 家庭学習を 出していると、その日の 試合を 見られるよ（同じ 試合は 2回まで）。</div>';
       h += '<table class="lgt"><tr><th>順位</th><th>チーム</th><th>勝</th><th>分</th><th>負</th><th>' + (SP === 'bb' ? '得失点' : '得失点') + '</th><th>勝点</th></tr>';
       L.table.forEach(function (t, i) { h += '<tr class="' + (t.i === L.me ? 'me' : '') + '"><td>' + (i + 1) + '</td><td>' + esc(t.name) + (t.i === L.me ? ' ⭐' : '') + '</td><td>' + t.w + '</td><td>' + t.dr + '</td><td>' + t.l + '</td><td>' + (t.gf - t.ga > 0 ? '+' : '') + (t.gf - t.ga) + '</td><td><b>' + t.pt + '</b></td></tr>'; });
       h += '</table>';
@@ -904,7 +904,7 @@
       fr.src = url;
     }).catch(function () { LGBUSY = false; });
   }
-  var LGERR = { practice_hw: '📝 きょうの 家庭学習を 出すと、きょうの 試合を 見られるよ。', watch_limit: 'この 試合は もう 2回 見たよ。', not_today: '見られるのは きょうの 試合だけだよ。結果は いつでも 見られるよ。', not_ready: 'まだ 試合が はじまっていないよ。' };
+  var LGERR = { practice_hw: '📝 家庭学習を 出すと（きのうの 夜か きょう）、きょうの 試合を 見られるよ。', watch_limit: 'この 試合は もう 2回 見たよ。', not_today: '見られるのは きょうの 試合だけだよ。結果は いつでも 見られるよ。', not_ready: 'まだ 試合が はじまっていないよ。' };
   function watchMatch(mid) {
     var sp = SP;
     api('/api/pj/league/fixture?s=' + sp, { sport: sp, mid: mid, watch: true }).then(function (fx) {
@@ -919,9 +919,9 @@
     var o = S.order.sc, mk = function (k) { var p = S.players[k]; return p && p.mk ? String(p.mk).slice(1) : null; };
     var cm = S.mgr && S.mgr.sc, coach = cm && S.players[cm] ? S.players[cm].n : '';
     var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: (S.teamName && S.teamName.sc) || 'きみのチーム' };
-    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : 'きょうの 家庭学習を 出すと、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
+    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
     api('/api/pj/cpu-team?s=sc&lv=' + PLV).then(function (cpu) {
-    if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? 'きょうの 家庭学習を 出すと、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
+    if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
     arg.cpu = { f: cpu.f, L: cpu.L, B: cpu.B, coach: cpu.coach };
     openGame('sc', '🏟 練習試合', function (w) {
       w.__pjEval('(function(o){var d=newDrafter(o.name,o.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});'

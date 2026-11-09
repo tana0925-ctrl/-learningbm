@@ -207,7 +207,15 @@ export function installPj(app: any, d: Deps) {
     const day = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 10)
     if (w.test) return { can: true, hw: true, used: false, day, test: true }
     let hw = !!w.gachi
-    if (!hw) try { const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key=? AND COALESCE(rest_day,0)=0 LIMIT 1').bind(String(w.u.id), day).first(); hw = !!r } catch (_e) { hw = false }
+    // PJ_HW_PREV_V1 家庭学習は 家で 夜に 出すので、「前の 学校の日の 夜から きょうまで」に 出していれば OK。
+    //   → きのうの 夜に 出した子は、きょうの お昼（学校）に 練習試合・リーグ観戦が できる。月曜は 金曜〜日曜に 出した分で OK。
+    if (!hw) try {
+      const t = (ctx && ctx.today) || day
+      let p = d.addDay(t, -1)
+      for (let i = 0; i < 14 && ctx && ctx.rest && ctx.rest(p); i++) p = d.addDay(p, -1)
+      const hi = day > t ? day : t
+      const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=? LIMIT 1').bind(String(w.u.id), p, hi).first(); hw = !!r
+    } catch (_e) { hw = false }
     const used = !!(st.pr && st.pr.d === day && Number(st.pr.n) >= 1)
     return { can: hw && !used, hw, used, day }
   }
@@ -223,7 +231,7 @@ export function installPj(app: any, d: Deps) {
     const okWeek: any = {}
     const allowed = (dk: string) => { if (w.test || w.gachi) return true; const wk = d.weekOf(dk); if (!(wk in okWeek)) okWeek[wk] = !!(ap[wk] || ap[d.weekOf(d.addDay(dk, -7))]); return okWeek[wk] }
     const school = (dk: string) => !d.isRest(dk, rest) && allowed(dk)
-    return { today, school }
+    return { today, school, rest: (dk: string) => !!d.isRest(dk, rest) }
   }
   function used(start: string, today: string, school: any) {
     let n = 0, dk = start
