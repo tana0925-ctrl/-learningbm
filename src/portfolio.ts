@@ -256,6 +256,8 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
       const sa = subjOf(a) !== '|' ? subjOf(a) : guessWorkSubj(au.map((u) => a.kids[u].work.concat(a.kids[u].memo).join(' ')).join(' '))
       const sb = subjOf(b) !== '|' ? subjOf(b) : guessWorkSubj(bu.map((u) => b.kids[u].work.concat(b.kids[u].memo).join(' ')).join(' '))
       const ov = bu.filter((u) => a.kids[u]).length
+      const jd = (t: string) => new Date((Date.parse(String(t).replace(' ', 'T') + 'Z') || 0) + 9 * 3600000).toISOString().slice(0, 10)
+      if (jd(a.at) !== jd(b.at)) continue   // 取り込みなおしは 同じ日。日が ちがえば 別の 課題
       if (sa && sa === sb && ov >= Math.ceil(Math.min(au.length, bu.length) * 0.7)) {
         au.forEach((u) => { if (!b.kids[u]) b.kids[u] = a.kids[u] })
         a.kids = {}
