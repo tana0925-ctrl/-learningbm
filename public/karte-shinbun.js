@@ -19,7 +19,55 @@
   global.__SHINBUN_V1__ = true;
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-  function cut(s, n) { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  /* SHINBUN_FIX32_V1 (2026-11-09) 32号の 点検で 見つかった ことを 直した（先生の 指摘 ■1〜■6）
+     ・かっこ／かぎかっこの とちゅうで 切らない（「（簡単なやつだ…」）。切るときは 文の きれめを さがす
+     ・もとの文が「」で かこまれていたら、外がわに もう一度「」を つけない（「「 になっていた）
+     ・「done」「not」や「mo」のような 内部の 値・意味の ない 短い 入力は 紙に 出さない
+     ・数字は ぜんぶ「この号（月〜金）」の 同じ データから 出す。合わないときは 先生の 画面に 警告 */
+  var OPEN = '「『（(【', CLOSE = '」』）)】';
+  function unbalancedAt(t) {   // 閉じていない かっこの いちばん 外がわの 位置（なければ -1）
+    var st = [];
+    for (var i = 0; i < t.length; i++) { var o = OPEN.indexOf(t[i]); if (o >= 0) { st.push(i); continue; } if (CLOSE.indexOf(t[i]) >= 0 && st.length) st.pop(); }
+    return st.length ? st[0] : -1;
+  }
+  function cut(s, n) {
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    if (s.length <= n) return s;
+    var t = s.slice(0, n - 1);
+    var u = unbalancedAt(t);
+    if (u >= 0) {   // かっこの とちゅうで 切れる → かっこの 前で 切る（短くなりすぎるなら かっこごと とじる）
+      if (u >= Math.floor(n * 0.4)) t = t.slice(0, u).replace(/[、,\s]+$/, '');
+      else { var cl = ''; var st2 = []; for (var i = 0; i < t.length; i++) { var o = OPEN.indexOf(t[i]); if (o >= 0) st2.push(CLOSE[o]); else if (CLOSE.indexOf(t[i]) >= 0 && st2.length) st2.pop(); } while (st2.length) cl += st2.pop(); return t + '…' + cl; }
+    }
+    return t + '…';
+  }
+  function cutS(s, n) {   // 文の きれめ（。）で 切る。なければ cut
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    if (s.length <= n) return s;
+    var k = s.lastIndexOf('。', n - 1);
+    if (k >= Math.floor(n * 0.45)) return s.slice(0, k + 1);
+    return cut(s, n);
+  }
+  function qq(t) { return q(t); }
+  function q(t) {   // 「」で かこむ（もう かこまれていれば そのまま）
+    t = String(t == null ? '' : t).trim();
+    if (/^「[\s\S]*」$/.test(t) && unbalancedAt(t.slice(1, -1)) < 0 && t.slice(1, -1).indexOf('「') < 0) return t;
+    if (/^「/.test(t) && /」$/.test(t)) return t;
+    return '「' + t + '」';
+  }
+  function meaningful(t) {   // 意味の ない 短い 入力（2文字以下の 英数字など）は 出さない
+    t = String(t == null ? '' : t).trim();
+    if (!t) return '';
+    if (/^[\x00-\x7F]{1,2}$/.test(t)) return '';
+    if (/^[A-Za-z]{1,3}$/.test(t)) return '';
+    return t;
+  }
+  var R2J = { done: 'できた', some: 'すこし できた', not: 'まだ これから' }, RS2J = { time: '時間がなかった', forgot: 'わすれた', way: 'やり方が合わなかった', other: 'その他' };
+  // AIの 文に 出やすい 書きまちがい（データ・文の どちらから 来ても 紙では 直す）
+  var TYPO = [['比例和反比例', '比例と反比例'], ['比例わ反比例', '比例と反比例']];
+  function fixTypo(t) { t = String(t == null ? '' : t); TYPO.forEach(function (x) { t = t.split(x[0]).join(x[1]); }); return t; }
+  var WARN = [];
+  function warn(m) { WARN.push(m); }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function ymd(t) { var x = new Date(t); return x.getUTCFullYear() + '-' + pad(x.getUTCMonth() + 1) + '-' + pad(x.getUTCDate()); }
   function dms(dk) { return Date.parse(String(dk) + 'T00:00:00Z'); }
@@ -47,6 +95,7 @@
 
   // ───────── 材料 ─────────
   function weekStart(d) {
+    if (d.issue && /^\d{4}-\d{2}-\d{2}$/.test(String(d.issue.ws || ''))) return String(d.issue.ws);   /* SHINBUN_ISSUE_V1 サーバが きめた 号 */
     var m = d.aiCommentMeta && d.aiCommentMeta.weekStart;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(m || ''))) return String(m);
     if (d.lastWeek && /^\d{4}-\d{2}-\d{2}$/.test(String(d.lastWeek.from || ''))) return String(d.lastWeek.from);
@@ -64,13 +113,23 @@
     var a = dms(y + '-04-01'), wd = (new Date(a).getUTCDay() + 6) % 7, m0 = a - wd * 86400000;
     return Math.max(1, Math.floor((dms(ws) - m0) / (7 * 86400000)) + 1);
   }
-  function quoteOf(s) { var t = String((s && s.weather_reason) || '').trim(); return t; }
+  // ── SHINBUN_ISSUE_V1 この号の 数（ぜんぶ 同じ データ・同じ 期間から）──
+  function isu(d) { return d.issue || {}; }
+  function asofTotal(d, s) { var af = (isu(d).after || {})[String(s.unit)] || 0; return Math.max(0, (Number(s.total) || 0) - af); }   // 号の さいごの日の 時点の「4月から」
+  function periodBy(d) { var m = {}; ((d.lastWeek || {}).units || []).forEach(function (u) { m[String(u.unit)] = Number(u.total) || 0; }); return m; }
+  function totSubs(d) { var v = isu(d).totalSubmissions; return v != null ? Number(v) : Number((d.overview || {}).totalSubmissions) || 0; }
+  function maxStk(d) { var v = isu(d).maxStreak; return v != null ? Number(v) : Number((d.overview || {}).maxStreak) || 0; }
+  function curStk(d) { var v = isu(d).curStreak; return v != null ? Number(v) : Number((d.overview || {}).currentStreak) || 0; }
+  function quoteOf(s) { var t = meaningful(String((s && s.weather_reason) || '').trim()); return t; }
   function bestQuote(rows) {
     var best = null;
     rows.forEach(function (r) { if (!r.s) return; var q = quoteOf(r.s); if (!q) return; var sc = (r.s.end_weather === 'sun' ? 100 : r.s.end_weather === 'cloud' ? 50 : 0) + Math.min(40, q.length); if (!best || sc > best.sc) best = { sc: sc, r: r, q: q }; });
     return best;
   }
-  function headlinesOf(hist, cur) {   // バックナンバー：前に公開した 阪神マンの文の ▼見出し
+  function backIssues(d, ws) {   /* SHINBUN_BACKNO_V1 配布ずみ（確定）の 号だけ。今の号は 入れない。号数で */
+    return (d.issues || []).filter(function (x) { return x && x.ws && x.ws < ws && String(x.head || '').trim(); }).slice(0, 3).map(function (x) { return { no: issueNo(x.ws), ws: x.ws, head: String(x.head).trim() }; });
+  }
+  function headlinesOf(hist, cur) {   // （古い）バックナンバー：前に公開した 阪神マンの文の ▼見出し。いまは つかわない
     var out = [], split = global.michiSplitAi;
     if (typeof split !== 'function') return out;
     (hist || []).forEach(function (h) {
@@ -92,15 +151,15 @@
     var ai = noAi ? null : c.ai, d = c.d, q = bestQuote(rows);
     if (ai && ai.head && ai.top) {
       var paras = String(ai.top).split(/\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
-      return { head: cut(ai.head, 24), sub: cut(ai.sub, 40), body: paras.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '文・阪神マン記者（本人の 記録と ふりかえりから）', ai: true };
+      return { head: cut(ai.head, 24), sub: cut(ai.sub, 40), body: paras.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '文・阪神マン記者（本人の 記録と ふりかえりから）', ai: true, len: String(ai.top).length };
     }
     // AIの記事が無い週：記録の事実だけで作る
     var P = [], head = '', sub = '';
     if (facts.days > 0) {
-      head = q ? '「' + cut(q.q, 18) + '」' : ('今週は ' + facts.days + '日 とりくんだ');
+      head = q ? qq(cut(q.q, 18)) : ('今週は ' + facts.days + '日 とりくんだ');
       sub = (q ? q.r.wd + '曜日の ふりかえりより ／ ' : '') + '5日のうち ' + facts.days + '日・合わせて ' + facts.minutes + '分';
       P.push('先週は 5日のうち ' + facts.days + '日、合わせて ' + facts.minutes + '分 家庭学習に とりくんだ。' + (facts.longest ? 'いちばん 長かったのは ' + facts.longest.wd + '曜日の ' + facts.longest.m + '分。' : ''));
-      var vs = rows.filter(function (r) { return r.s && quoteOf(r.s); }).map(function (r) { return r.wd + '曜日は「' + cut(quoteOf(r.s), 34) + '」'; });
+      var vs = rows.filter(function (r) { return r.s && quoteOf(r.s); }).map(function (r) { return r.wd + '曜日は' + qq(cut(quoteOf(r.s), 34)); });
       if (vs.length) P.push('ふりかえりには、' + vs.slice(0, 3).join('、') + 'と 書いている。');
     }
     var lw = d.lastWeek || {};
@@ -110,17 +169,20 @@
       P.push('アプリの 修行では ' + lw.days + '日で ' + lw.total + '問に とりくんだ。' + (fe.length ? fe.slice(0, 2).join('・') + 'の 単元に はじめて 出会った。' : ''));
     }
     var ov = d.overview || {};
+    /* SHINBUN_FIX32_V1 見出しの きまり：家庭学習の 回数が 少ない子は 回数を 大見出しに しない（「4月から1回」など）。
+       4月から 記録の ある子に「学びの道を歩きはじめた」は 使わない。アプリ・冒険・授業・成果物の 事実を 見出しに する */
     if (!head) {
-      if (Number(ov.totalSubmissions) > 0) { head = '4月から ' + ov.totalSubmissions + '回の 家庭学習'; sub = 'これまでの 記録から'; }
+      var df0 = d.shinbun && d.shinbun.adv && d.shinbun.adv.def, ls0 = (d.shinbun && d.shinbun.lesson) || [];
+      var anyRec = totSubs(d) > 0 || (d.subjects || []).some(function (x) { return Number(x.total) > 0; });
+      if (df0 && Number(df0.count) > 0) { head = 'クラス基地防衛戦に ' + df0.count + '回 出場'; sub = 'アプリでの 1週間'; }
+      else if (ls0.length) { head = '授業で ' + ls0[0].subj + qq(cut(ls0[0].unit, 12)); sub = '学校で 学んだこと'; }
+      else if (totSubs(d) >= 20) { head = '4月から ' + totSubs(d) + '回の 家庭学習'; sub = 'これまでの 記録から'; }
+      else if (anyRec) { head = '第' + issueNo(c.ws) + '号　' + (String(c.name || '').replace(/\s*さん.*$/, '').trim() || '主役') + 'さんの 1週間'; sub = 'アプリ・学校での 記録から'; }
       else { head = '学びの 道を 歩きはじめた'; sub = 'これからの 記録が 楽しみ'; }
     }
-    if (Number(ov.totalSubmissions) > 0) {   /* SHINBUN_NETA_V1 前の号と 同じ数なら のせない。ふえたら くらべて のせる */
-      var pt = prevV('S:tot');
-      if (pt == null || String(pt) !== String(ov.totalSubmissions)) P.push('4月からの 家庭学習は ' + ov.totalSubmissions + '回' + (pt != null ? '（前の号の ときは ' + pt + '回）' : '') + (Number(ov.maxStreak) >= 2 ? '、いちばん 長く つづいたのは ' + ov.maxStreak + '日。' : '。'));
-      use('S:tot', ov.totalSubmissions);
-    }
+    if (totSubs(d) >= 3) P.push('4月からの 家庭学習は ' + totSubs(d) + '回' + (maxStk(d) >= 2 ? '、いちばん 長く つづいたのは ' + maxStk(d) + '日（土日・祝日・学校の 休みの日は とばして 数える）。' : '。'));
     if (c.tsFact) P.push(c.tsFact.replace(/／/g, '、') + '。');
-    return { head: head, sub: sub, body: P.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '記録から まとめました', ai: false };
+    return { head: head, sub: sub, body: P.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '記録から まとめました', ai: false, len: P.join('').length };
   }
   function weatherSec(rows) {
     if (!rows.some(function (r) { return r.s; })) return '';
@@ -145,7 +207,7 @@
     var ck = 'col:' + nk(ai.main).slice(0, 50); if (old(ck)) return '';   /* SHINBUN_NETA_V1 前の号と 同じ コラムは のせない */
     var paras = String(ai.main).split(/\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
     var h = paras.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('');
-    if (ai.ask) h += '<div class="q">💭 ' + esc(cut(ai.ask, 70)) + '</div>';
+    if (ai.ask && !c.askDup) h += '<div class="q">💭 ' + esc(cut(ai.ask, 70)) + '</div>';   /* SHINBUN_FIX32_V1 本人が もう 答えた しつもんと 同じなら くり返さない */
     if (ai.hint) h += '<div class="sm">📮 <b>出し方のヒント</b> … ' + esc(cut(ai.hint, 50)) + '</div>';
     if (ai.test) h += '<div class="sm">📝 <b>テストに向けて</b> … ' + esc(cut(ai.test, 50)) + '</div>';
     if (!ai.hint && !ai.test && c.tsFact) h += '<div class="sm">📮 ' + esc(c.tsFact) + '</div>';
@@ -157,14 +219,25 @@
     var r = c.reco, mp = c.mp;
     var help = '<div class="sm">🛟 <b>こまったら</b>：' + (mp && mp.help ? esc(mp.help) + '。ほかにも ' : '') + (mp && mp.dom === 'inter' ? 'ヒントを見る・家の人に聞く' : 'ヒントを見る・友だちに聞く・先生に聞く・家の人に聞く') + '</div>';
     if (r) {
-      var rk = 'roads:' + nk(r.a.name + '/' + (r.b ? r.b.name : '') + '/' + (r.c && r.c.say || ''));
-      if (old(rk)) return '';   /* SHINBUN_NETA_V1 3つの道が 前の号と 同じなら のせない（かわったら また のせる） */
-      use(rk);
-      var h = '<div class="rd"><span class="k">A</span><div><b>「' + esc(r.a.name) + '」を もう一度 かためる</b><div class="mute">' + esc(r.a.entry) + '</div><div class="mute">💡 ' + esc(cut(r.a.why, 60)) + '</div></div></div>';
-      if (r.b) h += '<div class="rd"><span class="k">B</span><div><b>「' + esc(r.b.name) + '」の はじめに すすむ</b><div class="mute">' + esc(r.b.entry) + '</div><div class="mute">💡 ' + esc(cut(r.b.why, 60)) + '</div></div></div>';
-      h += '<div class="rd"><span class="k">C</span><div><b>自分で 決める</b>' + (r.c && r.c.say ? '<div>「' + esc(cut(r.c.say, 46)) + '」</div><div class="mute">' + esc(cut(r.c.from, 48)) + '（かえても いいよ）</div>' : '<div class="mute">やりたいことを 自分で 決めても いいよ</div>') + '</div></div>';
+      /* SHINBUN_FIX32_V1 前の号と 同じ 単元の 提案（A・B）なら、この号に とりくんだ 単元から 別の 提案に かえる。
+         B が 作れないときは「2つの道」に する（見出しと 中身を そろえる） */
+      var A = r.a, Bb = r.b, alt = false;
+      var abk = function (a, b) { return 'roadsAB:' + nk((a ? a.name : '') + '/' + (b ? b.name : '')); };
+      if (old(abk(A, Bb))) {
+        var pu = ((c.d.lastWeek || {}).units || []).map(function (u) { return { u: u, inf: c.unitInfo ? c.unitInfo(u.unit) : null }; }).filter(function (x) { return x.inf && x.inf.name !== A.name && (!Bb || x.inf.name !== Bb.name); });
+        if (pu.length) { var x0 = pu[0]; A = { name: x0.inf.name, entry: 'アプリ：修行 ▶ ' + (x0.inf.subjName || '') + ' ▶ ' + (x0.inf.gradeLabel || '') + ' ▶「' + x0.inf.name + '」', why: 'この号で ' + x0.u.total + '問 とりくんだ 単元。まちがえた 問題から もう一度 ためしてみよう。' }; alt = true; }
+        if (Bb && old(abk(r.a, Bb))) { Bb = null; }
+        if (!alt && !Bb) return '';
+      }
+      var rk = 'roads:' + nk(A.name + '/' + (Bb ? Bb.name : '') + '/' + (r.c && r.c.say || ''));
+      if (old(rk)) return '';
+      use(rk); use(abk(A, Bb)); use(abk(r.a, r.b));
+      var h = '<div class="rd"><span class="k">A</span><div><b>「' + esc(A.name) + '」を もう一度 かためる</b><div class="mute">' + esc(A.entry) + '</div><div class="mute">💡 ' + esc(cutS(A.why, 80)) + '</div></div></div>';
+      if (Bb) h += '<div class="rd"><span class="k">B</span><div><b>「' + esc(Bb.name) + '」の はじめに すすむ</b><div class="mute">' + esc(Bb.entry) + '</div><div class="mute">💡 ' + esc(cutS(Bb.why, 80)) + '</div></div></div>';
+      var k3 = Bb ? 'C' : 'B';
+      h += '<div class="rd"><span class="k">' + k3 + '</span><div><b>自分で 決める</b>' + (r.c && r.c.say ? '<div>' + esc(q(cut(r.c.say, 46))) + '</div><div class="mute">' + esc(cut(r.c.from, 48)) + '（かえても いいよ）</div>' : '<div class="mute">やりたいことを 自分で 決めても いいよ</div>') + '</div></div>';
       h += '<div class="sm">👣 <b>はじめの一歩</b>：いちばん かんたんな 1問だけ（5分で できる 大きさ）</div>' + help;
-      return tag(sec('特集　えらべる 3つの道', h, 0, 'roads', 'どれでも いいよ'), [rk]);
+      return tag(sec(Bb ? '特集　えらべる 3つの道' : '特集　えらべる 2つの道', h, 0, 'roads', 'どれでも いいよ'), [rk]);
     }
     var st = c.step;
     if (st && st.info) {
@@ -201,8 +274,8 @@
   function newsSec(c, facts) {
     var d = c.d, L = [], lw = d.lastWeek || {}, ov = d.overview || {};
     (lw.units || []).slice(0, 2).forEach(function (u) { L.push('<b>修行</b>　「' + esc(c.unitName(u.unit)) + '」を ' + u.total + '問' + (u.firstEver ? '（はじめての 単元）' : '')); });
-    if (Number(ov.currentStreak) >= 3) L.push('<b>れんぞく</b>　いま ' + ov.currentStreak + '日 つづけて 家庭学習を 出している');
-    if (Number(ov.maxStreak) >= 3) L.push('<b>記録</b>　今年度 いちばん 長い れんぞくは ' + ov.maxStreak + '日');
+    if (curStk(d) >= 3) L.push('<b>れんぞく</b>　' + jaS(c.we) + 'の 時点で ' + curStk(d) + '日 つづけて 家庭学習を 出している');   /* SHINBUN_ISSUE_V1 号の さいごの日の 時点 */
+    if (maxStk(d) >= 3) L.push('<b>記録</b>　今年度 いちばん 長い れんぞくは ' + maxStk(d) + '日（土日・祝日・学校の 休みは とばして 数える）');
     var kw = d.teishutsu && d.teishutsu.karteWeek;
     if (kw && Number(kw.onTime) > 0) L.push('<b>提出</b>　しめきり前に 出せた 提出物が ' + Number(kw.onTime) + 'つ');
     if (facts.days > 0 && facts.longest) L.push('<b>最長</b>　' + facts.longest.wd + '曜日に ' + facts.longest.m + '分 とりくんだ');
@@ -223,7 +296,7 @@
     var ha = (c.d.hanshinAnswers || []).filter(function (x) { return x && x.answer; })[0];
     if (!ha) return '';
     var hk = 'hq:' + nk(ha.question + ha.answer); if (old(hk)) return '';
-    return tag(sec('阪神マンからの しつもん', li('<b>しつもん</b>「' + esc(cut(ha.question, 50)) + '」') + li('<b>きみの 答え</b>「' + esc(cut(ha.answer, 70)) + '」'), 2), [use(hk)]);
+    return tag(sec('阪神マンからの しつもん', li('<b>しつもん</b>' + esc(q(cut(ha.question, 50)))) + li('<b>きみの 答え</b>' + esc(q(cut(ha.answer, 70)))), 2), [use(hk)]);
   }
   function lessonSec(c) {
     var ls = fresh((c.d.shinbun && c.d.shinbun.lesson) || [], function (x) { return 'les:' + nk(x.subj + x.unit + x.dayKey); });
@@ -235,7 +308,7 @@
     var h = '<table class="tb memo"><tr><th class="w1">曜日</th><th>やったこと</th><th class="w2">時間</th><th class="w1">天気</th><th class="w3">ふりかえり</th><th class="w4">次の 作戦</th></tr>';
     rows.forEach(function (r) {
       if (!r.s) { h += '<tr><td class="c">' + r.wd + '</td><td colspan="5" class="mute">' + (r.rest ? '休み' : '―') + '</td></tr>'; return; }
-      h += '<tr><td class="c">' + r.wd + '</td><td>' + esc(cut(stripIcon(r.s.todo), 34)) + '</td><td class="n">' + (Number(r.s.minutes) || 0) + '分</td><td class="c">' + (WX[r.s.end_weather] || '') + '</td><td>' + esc(cut(quoteOf(r.s), 30)) + '</td><td>' + esc(cut(stripIcon(r.s.next_improve), 14)) + '</td></tr>';
+      h += '<tr><td class="c">' + r.wd + '</td><td>' + esc(cut(meaningful(stripIcon(r.s.todo)) || '—', 34)) + '</td><td class="n">' + (Number(r.s.minutes) || 0) + '分</td><td class="c">' + (WX[r.s.end_weather] || '') + '</td><td>' + esc(cut(quoteOf(r.s) || '—', 30)) + '</td><td>' + esc(cut(meaningful(stripIcon(r.s.next_improve)) || '—', 14)) + '</td></tr>';
     });
     h += '</table>';
     var pc = rows.filter(function (r) { return r.s && String(r.s.parent_comment || '').trim(); }).map(function (r) { return '「' + esc(cut(String(r.s.parent_comment).replace(/^👍\s*見たよ\s*/, '👍 見たよ　').trim(), 40)) + '」（' + r.wd + '）'; });
@@ -248,7 +321,9 @@
     var d = c.d, QA = [], r2 = d.shinbun && d.shinbun.ref2;
     var wk = isoWeek(ws), refs = (d.reflections || []).filter(function (r) { return r && (r.weekKey === wk || r.weekKey === ws); });
     var rf = refs[0] || null;
-    if (r2 && r2.promise) QA.push(['先週 決めた ことは できた？', '「' + cut(r2.promise, 30) + '」' + (r2.result ? ' … ' + cut(r2.result, 16) : '') + (r2.reason ? '。' + cut(r2.reason, 40) : '')]);
+    if (r2 && r2.weekKey && wk && r2.weekKey !== wk) r2 = null;   /* SHINBUN_ISSUE_V1 この号の 週の ふりかえりだけ */
+    var rz = function (v, map) { v = String(v || '').trim(); return map[v] || (/^[a-z_]+$/.test(v) ? '' : v); };   // 内部の 値（done など）は 日本語に。わからない 英字は 出さない
+    if (r2 && r2.promise) { var _res = rz(r2.result, R2J), _rea = rz(r2.reason, RS2J); QA.push(['先週 決めた ことは できた？', q(cut(r2.promise, 30)) + (_res ? ' … ' + _res : '') + (_rea ? '（わけ：' + cut(_rea, 30) + '）' : '')]); }
     if (rf) {
       if (rf.goodPoint) QA.push(['今週は どうだった？', cut(rf.goodPoint, 70)]);
       if (rf.improvePoint) QA.push(['もう少しだったことは？', cut(rf.improvePoint, 60)]);
@@ -259,7 +334,8 @@
     if (r2 && r2.q) QA.push(['考えてみたい 問いは？', cut(r2.q, 60)]);
     QA = fresh(QA, function (x) { return 'qa:' + nk(x[1]); });
     if (!QA.length) return '';
-    return tag(sec('インタビュー　阪神マン記者が きいた', '<dl class="qa">' + QA.map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('') + '</dl><div class="src">本人が アプリで 書いた ことば そのままです</div>', 0, '', '週の ふりかえりより'), QA.map(function (x) { return use('qa:' + nk(x[1])); }));
+    var _at = String((r2 && r2.at) || '').slice(0, 10);   /* SHINBUN_FIX32_V1 いつ 書いた ふりかえりか（記事の 日数と ずれて 見えないように） */
+    return tag(sec('インタビュー　阪神マン記者が きいた', '<dl class="qa">' + QA.map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('') + '</dl><div class="src">本人が アプリで 書いた ことば そのままです' + (_at ? '（' + esc(jaS(_at)) + 'に 書いた ふりかえり）' : '') + '</div>', 0, '', '週の ふりかえりより'), QA.map(function (x) { return use('qa:' + nk(x[1])); }));
   }
   function isoWeek(dk) {
     var t = dms(dk); if (isNaN(t)) return '';
@@ -272,7 +348,7 @@
     if (!a || !(facts.days > 0) || facts.days < Number(a.days || 0)) return '';   // よくなったか 同じときだけ くらべる
     var nowV = bestQuote(rows), nowNext = '';
     rows.forEach(function (r) { if (r.s && String(r.s.next_improve || '').trim()) nowNext = stripIcon(r.s.next_improve); });
-    var box = function (cls, ttl, days, min, v, nx) { return '<div class="' + cls + '"><b>' + ttl + '</b>家庭学習 ' + days + '日・' + min + '分' + (v ? '<br>「' + esc(cut(v, 30)) + '」' : '') + (nx ? '<br>次：' + esc(cut(stripIcon(nx), 16)) : '') + '</div>'; };
+    var box = function (cls, ttl, days, min, v, nx) { return '<div class="' + cls + '"><b>' + ttl + '</b>家庭学習 ' + days + '日・' + min + '分' + (v ? '<br>' + esc(q(cut(v, 30))) : '') + (nx ? '<br>次：' + esc(cut(stripIcon(nx), 16)) : '') + '</div>'; };
     var h = '<div class="cmp">' + box('', ja(a.from) + '〜', a.days || 0, a.minutes || 0, (a.voices || [])[0] || '', a.next) + box('now', ja(c.ws) + '〜', facts.days, facts.minutes, nowV ? nowV.q : '', nowNext) + '</div>';
     return sec('くらべてみよう　3週間前の わたし', h, 3);
   }
@@ -282,17 +358,17 @@
     if (!al.length) return '';
     return sec('ことばの アルバム', al.map(function (x) { return '<div class="li alb">「' + esc(cut(x.text, 50)) + '」<small>（' + ja(x.dayKey) + '）</small></div>'; }).join(''), 2, '', '4月からの ふりかえりから');
   }
-  function backSec(c) {
-    var hs = fresh(headlinesOf(c.d.karteHist, c.d.aiComment), function (x) { return 'back:' + nk(x.head); });
+  function backSec(c) {   /* SHINBUN_BACKNO_V1 配布ずみ（確定）の 号の 見出しだけ・号数で（作りなおし・下書き・今の号は 入れない） */
+    var hs = backIssues(c.d, c.ws);
     if (!hs.length) return '';
-    return tag(sec('バックナンバー', hs.map(function (x) { return li('<span class="mute">' + esc(jaS(x.at)) + '</span>「' + esc(cut(x.head, 26)) + '」'); }).join(''), 1, '', 'これまでの トップ記事'), hs.map(function (x) { return use('back:' + nk(x.head)); }));
+    return tag(sec('バックナンバー', hs.map(function (x) { return li('<span class="mute">第' + x.no + '号</span>' + esc(q(cut(x.head, 26)))); }).join(''), 1, '', 'これまでの トップ記事'), hs.map(function (x) { return use('back:' + x.ws); }));
   }
   function yokokuSec(c) {
     var nt = typeof global.michiNextTryOf === 'function' ? global.michiNextTryOf(c.d) : null;
     if (!nt || !nt.say) return '';
     var yk = 'yokoku:' + nk(nt.say); if (old(yk)) return '';
     use(yk);
-    return '<section data-nk="' + esc(yk) + '" class="sec yokoku"><h2>来週の 予告</h2><div class="t">「' + esc(nt.say) + '」</div><div class="mute sm">本人が 書いた「来週 やってみたいこと」</div></section>';
+    return '<section data-nk="' + esc(yk) + '" class="sec yokoku"><h2>来週の 予告</h2><div class="t">' + esc(q(nt.say)) + '</div><div class="mute sm">本人が 書いた「来週 やってみたいこと」</div></section>';
   }
   function trainSec(c) {
     var us = ((c.d.lastWeek || {}).units || []).slice(0, 5);
@@ -310,7 +386,7 @@
     var pm = prevV('S:month'); use(mk); use('S:month', sum);
     var mx = Math.max.apply(null, mt.map(function (m) { return Number(m.count) || 0; }).concat([1]));
     var h = '<table class="bg"><tr>' + mt.map(function (m, i) { var v = Number(m.count) || 0; return '<td' + (i === mt.length - 1 ? ' class="now"' : '') + '>' + v + '<i style="height:' + (v ? Math.max(0.15, v / mx * 6.2).toFixed(2) : 0) + 'em"></i></td>'; }).join('') + '</tr><tr class="lb">' + mt.map(function (m) { return '<td>' + Number(String(m.month || '').slice(5)) + '月</td>'; }).join('') + '</tr></table>';
-    if (pm != null && Number(pm) < sum) h += '<div class="mute sm">前の号から ＋' + (sum - Number(pm)) + '回</div>';
+    if (c.facts && c.facts.days > 0) h += '<div class="mute sm">この号で ＋' + c.facts.days + '回</div>';   /* SHINBUN_ISSUE_V1 前の号の 刷った ときの 数との 差ではなく、この号の 数 */
     return tag(sec('月ごとの 家庭学習', h, 0, '', '4月から（回）'), [mk]);
   }
   function moodSec(c) {
@@ -319,30 +395,33 @@
     var mdk = 'mood:' + a + '-' + b + '-' + r;   /* SHINBUN_KEEP_V1 */
     var pmd = prevV('S:mood'); use(mdk); use('S:mood', a + '-' + b + '-' + r);
     var cmp = '';
-    if (pmd) { var pp = String(pmd).split('-').map(Number); var dd = [['☀', a - pp[0]], ['☁', b - pp[1]], ['☂', r - pp[2]]].filter(function (x) { return x[1] > 0; }); if (dd.length) cmp = '<div class="mute sm">前の号から ' + dd.map(function (x) { return x[0] + '＋' + x[1]; }).join(' ') + '</div>'; }
+    if (c.wcount) { var dd = [['☀', c.wcount.sun], ['☁', c.wcount.cloud], ['☂', c.wcount.rain]].filter(function (x) { return x[1] > 0; }); if (dd.length) cmp = '<div class="mute sm">この号 ' + dd.map(function (x) { return x[0] + '＋' + x[1]; }).join(' ') + '</div>'; }
     var w = function (n) { return Math.max(n ? 6 : 0, Math.round(n / t * 100)); };
     return tag(sec('きもちの 天気の わりあい', '<div class="ratio"><i style="width:' + w(a) + '%;background:#f2c94c">☀ ' + a + '</i><i style="width:' + w(b) + '%;background:#c9d2de">☁ ' + b + '</i><i style="width:' + w(r) + '%;background:#7d8ca3;color:#fff">☂ ' + r + '</i></div><div class="mute sm">家庭学習を 出した日の 天気の 回数</div>' + cmp, 3, '', '4月から'), [mdk]);
   }
   function subjSec(c) {
     var fn = global._subjectArea; if (typeof fn !== 'function') return '';
     var A = [['math', '🔢 算数'], ['jp', '📝 国語'], ['soc', '🌏 社会'], ['sci', '🔬 理科'], ['eng', '🔤 英語']], tot = {};
-    (c.d.subjects || []).forEach(function (s) { var k = fn(s.unit); if (k) tot[k] = (tot[k] || 0) + (Number(s.total) || 0); });
+    /* SHINBUN_ISSUE_V1「4月から」は 号の さいごの日の 時点。（＋）は この号に その教科で といた 数（修行レポートと 同じ データ） */
+    var psj = {}, pb = periodBy(c.d);
+    (c.d.subjects || []).forEach(function (s) { var k = fn(s.unit); if (k) tot[k] = (tot[k] || 0) + asofTotal(c.d, s); });
+    Object.keys(pb).forEach(function (u) { var k = fn(u); if (k) psj[k] = (psj[k] || 0) + pb[u]; });
     var rows = A.filter(function (a) { return tot[a[0]] > 0; });
     if (!rows.length) return '';
     var sjk = 'subj:' + rows.map(function (a) { return a[0] + tot[a[0]]; }).join(',');   /* SHINBUN_KEEP_V1 */
-    var psj = {}; String(prevV('S:subj') || '').split(',').forEach(function (x) { var q = x.split('='); if (q[0]) psj[q[0]] = Number(q[1]) || 0; });
-    use(sjk); use('S:subj', rows.map(function (a) { return a[0] + '=' + tot[a[0]]; }).join(','));
+    use(sjk);
     var mx = Math.max.apply(null, rows.map(function (a) { return tot[a[0]]; }));
-    return tag(sec('教科ごとの 修行', '<table class="tb">' + rows.map(function (a, i) { return '<tr><td style="width:24%;white-space:nowrap">' + a[1] + '</td><td><span class="meter' + (i ? '' : ' r') + '" style="width:' + Math.max(3, Math.round(tot[a[0]] / mx * 100)) + '%"></span></td><td class="n" style="width:16%">' + tot[a[0]] + (psj[a[0]] != null && tot[a[0]] > psj[a[0]] ? '<small>（＋' + (tot[a[0]] - psj[a[0]]) + '）</small>' : '') + '</td></tr>'; }).join('') + '</table>', 2, '', '4月から（問）'), [sjk]);
+    return tag(sec('教科ごとの 修行', '<table class="tb">' + rows.map(function (a, i) { return '<tr><td style="width:24%;white-space:nowrap">' + a[1] + '</td><td><span class="meter' + (i ? '' : ' r') + '" style="width:' + Math.max(3, Math.round(tot[a[0]] / mx * 100)) + '%"></span></td><td class="n" style="width:16%">' + tot[a[0]] + (psj[a[0]] > 0 ? '<small>（＋' + psj[a[0]] + '）</small>' : '') + '</td></tr>'; }).join('') + '</table>', 2, '', '4月から（問）・（＋この号）'), [sjk]);
   }
   function unitsSec(c) {   // 4月から いちばん とりくんだ 単元（問題の数だけ）
-    var us = (c.d.subjects || []).filter(function (s) { return Number(s.total) >= 10; }).sort(function (a, b) { return (Number(b.total) || 0) - (Number(a.total) || 0); }).slice(0, 6);
+    /* SHINBUN_ISSUE_V1 数は 号の さいごの日の 時点・（＋）は この号の 数。数が 数字で ない 行は 出さない */
+    var pb = periodBy(c.d);
+    var us = (c.d.subjects || []).map(function (s) { return { unit: s.unit, total: asofTotal(c.d, s), add: pb[String(s.unit)] || 0 }; }).filter(function (s) { return isFinite(s.total) && s.total >= 10 && String(c.unitName(s.unit) || '').trim(); }).sort(function (a, b) { return b.total - a.total; }).slice(0, 6);
     if (us.length < 2) return '';
-    var uk = 'units:' + us.map(function (u) { return u.unit + '=' + Number(u.total); }).join(',');   /* SHINBUN_KEEP_V1 */
-    var pu = {}; String(prevV('S:units') || '').split(',').forEach(function (x) { var q = x.split('='); if (q[0]) pu[q[0]] = Number(q[1]) || 0; });
-    use(uk); use('S:units', us.map(function (u) { return u.unit + '=' + Number(u.total); }).join(','));
-    var mx = Number(us[0].total) || 1;
-    return tag(sec('単元の あゆみ', '<table class="tb">' + us.map(function (s, i) { return '<tr><td style="width:44%">' + esc(cut(c.unitName(s.unit), 16)) + '</td><td><span class="meter' + (i ? '' : ' r') + '" style="width:' + Math.max(3, Math.round(Number(s.total) / mx * 100)) + '%"></span></td><td class="n" style="width:16%">' + Number(s.total) + '問' + (pu[s.unit] != null && Number(s.total) > pu[s.unit] ? '<small>（＋' + (Number(s.total) - pu[s.unit]) + '）</small>' : (pu[s.unit] == null && Object.keys(pu).length ? '<small>🆕</small>' : '')) + '</td></tr>'; }).join('') + '</table>', 1, '', '4月から アプリで とりくんだ 単元'), [uk]);
+    var uk = 'units:' + us.map(function (u) { return u.unit + '=' + u.total; }).join(',');   /* SHINBUN_KEEP_V1 */
+    use(uk);
+    var mx = us[0].total || 1;
+    return tag(sec('単元の あゆみ', '<table class="tb">' + us.map(function (s, i) { return '<tr><td style="width:44%">' + esc(cut(c.unitName(s.unit), 16)) + '</td><td><span class="meter' + (i ? '' : ' r') + '" style="width:' + Math.max(3, Math.round(s.total / mx * 100)) + '%"></span></td><td class="n" style="width:16%">' + s.total + '問' + (s.add > 0 ? '<small>（＋' + s.add + '）</small>' : '') + '</td></tr>'; }).join('') + '</table>', 1, '', '4月から アプリで とりくんだ 単元・（＋この号）'), [uk]);
   }
   // 学び方 ミニ講座：記録ではなく、だれにでも 使える 学び方のヒント。週ごとに 入れかわる。
   //  すき間を うめるための欄なので、いちばん先に 省かれる（data-opt=1）。その子についての ことは 書かない。
@@ -481,15 +560,15 @@
     return tag(sec('できるように なったこと', L.join(''), 0), K);
   }
   function ayumiSec(c) {
-    var ov = c.d.overview || {}, a = [];
-    if (Number(ov.totalSubmissions) > 0) a.push([ov.totalSubmissions, '家庭学習の 回数']);
-    if (Number(ov.totalMinutes) >= 60) a.push([Math.round(ov.totalMinutes / 60), 'やった 時間（時間）']);
-    if (Number(ov.maxStreak) >= 2) a.push([ov.maxStreak, 'いちばん 長い れんぞく（日）']);
+    /* SHINBUN_ISSUE_V1 号の さいごの日の 時点の 数。（＋）は この号の 家庭学習（前に 刷った ときの 数との 差は ずれるので 使わない） */
+    var ov = c.d.overview || {}, a = [], f = c.facts || { days: 0, minutes: 0 };
+    if (totSubs(c.d) > 0) a.push([totSubs(c.d), '家庭学習の 回数', f.days > 0 ? 'この号で ＋' + f.days + '回' : '']);
+    if (Number(ov.totalMinutes) >= 60) a.push([Math.round(ov.totalMinutes / 60), 'やった 時間（時間）', f.minutes > 0 ? 'この号で ＋' + f.minutes + '分' : '']);
+    if (maxStk(c.d) >= 2) a.push([maxStk(c.d), 'いちばん 長い れんぞく（日）', '土日・祝日・学校の 休みは とばして 数える']);
     if (!a.length) return '';
     var ak = 'ayumi:' + a.map(function (x) { return x[0]; }).join('-');   /* SHINBUN_KEEP_V1 */
-    var pa = String(prevV('S:ayumi') || '').split('-');
-    use(ak); use('S:ayumi', a.map(function (x) { return x[0]; }).join('-'));
-    return tag(sec('4月からの あゆみ', '<div class="nums">' + a.map(function (x, i) { var p = Number(pa[i]); return '<div><b>' + x[0] + '</b><small>' + x[1] + (pa.length === a.length && p >= 0 && Number(x[0]) > p ? '<br>前の号から ＋' + (Number(x[0]) - p) : '') + '</small></div>'; }).join('') + '</div>', 3), [ak]);
+    use(ak);
+    return tag(sec('4月からの あゆみ', '<div class="nums">' + a.map(function (x) { return '<div><b>' + x[0] + '</b><small>' + x[1] + (x[2] ? '<br>' + x[2] : '') + '</small></div>'; }).join('') + '</div>', 3), [ak]);
   }
   function classSec(c) {
     var t = c.ai && c.ai.cls; if (!t) return '';
@@ -544,12 +623,12 @@
   function quizSec(c, facts, rows, seed) {
     var d = c.d, ov = d.overview || {}, lw = d.lastWeek || {}, Q = [];
     var nums = function (n, u) { n = Number(n); var a = [n, n + 3, Math.max(1, n - 3)]; if (a[2] === n) a[2] = n + 6; return a.map(function (x) { return x + u; }); };
-    var us = (d.subjects || []).filter(function (x) { return Number(x.total) > 0; }).sort(function (a, b) { return (Number(b.total) || 0) - (Number(a.total) || 0); });
+    var us = (d.subjects || []).map(function (x) { return { unit: x.unit, total: asofTotal(d, x) }; }).filter(function (x) { return x.total > 0; }).sort(function (a, b) { return b.total - a.total; });
     if (us.length >= 3 && Number(us[0].total) > Number(us[1].total)) Q.push(['u1', '4月から いちばん たくさん 修行した 単元は？', c.unitName(us[0].unit), [us[0], us[1], us[2]].map(function (x) { return c.unitName(x.unit); })]);
     if (facts.days >= 2 && facts.longest) { var lg = rows.filter(function (r) { return r.s && (Number(r.s.minutes) || 0) === facts.longest.m; }); if (lg.length === 1) { var ot = WD.filter(function (w) { return w !== facts.longest.wd; }); Q.push(['lg', '先週、いちばん 長く 家庭学習を した 曜日は？', facts.longest.wd + '曜日', [facts.longest.wd].concat(shuf(ot, seed).slice(0, 2)).map(function (w) { return w + '曜日'; })]); } }
     if (Number(lw.total) > 0) Q.push(['lw', '先週 アプリで といた 問題は ぜんぶで 何問？', lw.total + '問', nums(lw.total, '問')]);
-    if (Number(ov.totalSubmissions) >= 3) Q.push(['tot', '4月から 家庭学習を 出した 回数は？', ov.totalSubmissions + '回', nums(ov.totalSubmissions, '回')]);
-    if (Number(ov.maxStreak) >= 2) Q.push(['stk', '今年度、家庭学習が いちばん 長く つづいたのは 何日？', ov.maxStreak + '日', nums(ov.maxStreak, '日')]);
+    if (totSubs(d) >= 3) Q.push(['tot', '4月から 家庭学習を 出した 回数は？', totSubs(d) + '回', nums(totSubs(d), '回')]);
+    if (maxStk(d) >= 2) Q.push(['stk', '今年度、家庭学習が いちばん 長く つづいたのは 何日？', maxStk(d) + '日', nums(maxStk(d), '日')]);
     var mt = (d.monthlyTrends || []).filter(function (m) { return Number(m.count) > 0; });
     if (mt.length >= 3) { var sm = mt.slice().sort(function (a, b) { return Number(b.count) - Number(a.count); }); if (Number(sm[0].count) > Number(sm[1].count)) { var mj = function (m) { return Number(String(m.month || '').slice(5)) + '月'; }; Q.push(['mon', '4月から、家庭学習を いちばん 多く 出した 月は？', mj(sm[0]), [sm[0], sm[1], sm[2]].map(mj)]); } }
     var wc = { sun: 0, cloud: 0, rain: 0 }; rows.forEach(function (r) { if (r.s && wc[r.s.end_weather] != null) wc[r.s.end_weather]++; });
@@ -649,7 +728,7 @@
     'function collect(){var out=[];var vs=document.querySelectorAll("script.neta-v");for(var i=0;i<vs.length;i++){var v=vs[i],uid=v.getAttribute("data-uid"),ws=v.getAttribute("data-ws"),map={};try{map=JSON.parse(v.textContent)||{};}catch(e){}' +
     'var keep={},els=document.querySelectorAll(".pg[data-uid=\\""+uid+"\\"] [data-nk]");for(var j=0;j<els.length;j++){String(els[j].getAttribute("data-nk")||"").split("|").forEach(function(k){if(k)keep[k]=1;});}' +
     'Object.keys(map).forEach(function(k){if(k.indexOf("S:")!==0)return;var b=k.slice(2);if(b==="tot"||Object.keys(keep).some(function(x){return x.indexOf(b+":")===0;}))keep[k]=1;});' +
-    'var items=Object.keys(keep).map(function(k){return {k:k,v:map[k]==null?"":map[k]};});if(uid&&items.length)out.push({userId:uid,ws:ws,items:items});}return out;}' +
+    'var items=Object.keys(keep).map(function(k){return {k:k,v:map[k]==null?"":map[k]};});if(uid&&items.length)out.push({userId:uid,ws:ws,items:items,head:v.getAttribute("data-head")||""});}return out;}' +
     'function send(){if(sent)return;sent=true;var rows=collect();if(!rows.length)return;var o=window.opener||window;try{o.fetch("/api/teacher/karte-neta/save",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({rows:rows})});}catch(e){}}' +
     'window.__netaCollect=collect;window.addEventListener("afterprint",send);})();<\/script>';
 
@@ -659,7 +738,9 @@
   //  名前のもと：名簿（getStudentNameMap）・ふりがな（_serverFuriganaMap）・児童一覧（_lastStudentSummaries）。
   //  漢字の名前は 先頭2〜3文字（名字だけで 書かれたとき）も。ひらがなは 名前ぜんぶ（3文字以上）だけ（「ゆうがた」などを こわさないため）。
   function nameList() {
-    var c = [], push = function (v, min) { v = String(v == null ? '' : v).replace(/[\s　]+/g, '').trim(); if (v.length >= min && c.indexOf(v) < 0) c.push(v); };
+    /* SHINBUN_FIX32_V1 数字だけの 名前（ログイン名「444」「３２１」など）・3文字以下の 英字は 名前として あつかわない。
+       単元の あゆみの 問題数（例：444問）が「友だち問」に 置きかわっていた */
+    var c = [], push = function (v, min) { v = String(v == null ? '' : v).replace(/[\s　]+/g, '').trim(); if (/^[0-9０-９]+$/.test(v)) return; if (/^[\x00-\x7F]+$/.test(v) && v.length < 4) return; if (v.length >= min && c.indexOf(v) < 0) c.push(v); };
     var kanji = function (v) { v = String(v || '').replace(/[\s　]+/g, ''); push(v, 2); if (/^[\u4e00-\u9fff々]{2,}/.test(v)) { var m = v.match(/^[\u4e00-\u9fff々]+/)[0]; if (m.length >= 2) { push(m.slice(0, 2), 2); push(m.slice(0, 3), 3); } } };
     try { var m = typeof global.getStudentNameMap === 'function' ? (global.getStudentNameMap() || {}) : {}; Object.keys(m).forEach(function (k) { kanji(m[k]); }); } catch (e) {}
     try { var f = global._serverFuriganaMap || {}; Object.keys(f).forEach(function (k) { push(f[k], 3); }); } catch (e) {}
@@ -671,16 +752,77 @@
     if (!names || !names.length) return html;
     return String(html).replace(/>([^<]+)</g, function (all, tx) {
       var t = tx;
+      if (/^[\s0-9０-９,.+＋（）()問回日分人%％]+$/.test(t)) return all;   // 数字の 欄には さわらない
       for (var i = 0; i < names.length; i++) if (t.indexOf(names[i]) >= 0) t = t.split(names[i]).join('友だち');
       return '>' + t + '<';
     });
   }
 
+  // ───────── 🔎 SHINBUN_ISSUE_V1 数の 点検（合わない 数が あれば 先生の 画面に 警告）─────────
+  function checkNums(c, d, facts, ta, nm) {
+    try {
+      var lw = d.lastWeek || {}, us = lw.units || [], fn = global._subjectArea;
+      var su = us.reduce(function (a, u) { return a + (Number(u.total) || 0); }, 0);
+      if (Number(lw.total) > 0 && su !== Number(lw.total)) warn('修行レポートの 単元の 合計（' + su + '問）と この号の 問題数（' + lw.total + '問）が 合いません');
+      if (typeof fn === 'function') { var mapped = 0; us.forEach(function (u) { if (fn(u.unit)) mapped += Number(u.total) || 0; }); if (mapped > Number(lw.total)) warn('教科ごとの（＋）の 合計が この号の 問題数より 多くなっています'); }
+      if (Number(lw.days) > 5) warn('修行の 日数（' + lw.days + '日）が 号の 期間（5日）より 多くなっています');
+      // AIの 文の 数字と この号の 数の 食いちがい
+      var ai = c.ai; if (!ai) return;
+      var txt = [ai.main, ai.top, ai.head, ai.sub, ai.cls, ai.after].join(' ');
+      var df = d.shinbun && d.shinbun.adv && d.shinbun.adv.def, dc = df ? Number(df.count) || 0 : 0, mv = df && (df.mvp || []).length;
+      var m1 = txt.match(/防衛戦[^。]{0,12}?([0-9０-９]+)回/); if (m1) { var n1 = Number(String(m1[1]).replace(/[０-９]/g, function (z) { return String.fromCharCode(z.charCodeAt(0) - 65248); })); if (n1 !== dc) warn('阪神マンの文の「防衛戦 ' + n1 + '回」が 冒険ニュース（' + dc + '回）と ちがいます'); }
+      if (/MVP/.test(txt) && !mv) warn('阪神マンの文に「MVP」と ありますが、この号の MVP の 記録は ありません');
+      var known = {}; known[Number(lw.total) || 0] = 1; us.forEach(function (u) { known[Number(u.total) || 0] = 1; known[Number(u.correct) || 0] = 1; }); (d.subjects || []).forEach(function (s) { known[asofTotal(d, s)] = 1; });
+      var rp = d.rankPt; if (rp) { known[Number(rp.now) || 0] = 1; if (rp.prev != null) known[Number(rp.prev)] = 1; }
+      var bad = []; (txt.match(/([0-9]{2,5})問/g) || []).forEach(function (x) { var n = Number(x.replace('問', '')); if (!known[n] && bad.indexOf(n) < 0) bad.push(n); });
+      if (bad.length) warn('阪神マンの文の 問題数（' + bad.join('・') + '問）が この号の データに ありません（前の号の 数かも）');
+      var dd = txt.match(/([0-9０-９])日間/); if (dd) { var n2 = Number(String(dd[1]).replace(/[０-９]/g, function (z) { return String.fromCharCode(z.charCodeAt(0) - 65248); })); if (n2 !== facts.days && n2 !== Number(lw.days)) warn('阪神マンの文の「' + n2 + '日間」が この号の 記録（家庭学習 ' + facts.days + '日・アプリ ' + (lw.days || 0) + '日）と ちがいます'); }
+      if (facts.days === 0 && /(月|火|水|木|金)曜[^。]{0,20}(ドリル|家庭学習)/.test(String(ai.main || ''))) warn('この号は 家庭学習の 記録が ないのに、コラムに 曜日つきの 家庭学習の 話が あります');
+      if (Number(lw.total) > 0 && /お休み中|休憩中|止まって/.test(String(ai.main || ''))) warn('アプリで ' + lw.total + '問 といているのに、コラムに「お休み中」のような ことばが あります');
+    } catch (e) {}
+  }
+  // 外部AIの 束に 入れる【この号の事実】（新聞の 欄と 同じ データ・同じ 期間）
+  function factsOf(d, ws, unitJa) {
+    var L = [], days = weekDays(ws), rows = weekRows(d, days), lw = d.lastWeek || {}, un = function (u) { try { return (unitJa && unitJa(u)) || (global._unitJa ? global._unitJa(u) : u); } catch (e) { return u; } };
+    var hw = rows.filter(function (r) { return r.s; });
+    if (hw.length) L.push('家庭学習：5日のうち ' + hw.length + '日・合わせて ' + hw.reduce(function (a, r) { return a + (Number(r.s.minutes) || 0); }, 0) + '分（' + hw.map(function (r) { return r.wd + ' ' + (Number(r.s.minutes) || 0) + '分'; }).join('・') + '）');
+    else L.push('家庭学習：この号の 提出は なし（前の週の 家庭学習の 話は 書かない）');
+    if (Number(lw.total) > 0) L.push('アプリの修行：' + (lw.days || 0) + '日で ' + lw.total + '問（' + (lw.units || []).slice(0, 6).map(function (u) { return un(u.unit) + ' ' + u.total + '問' + (u.firstEver ? '・はじめて' : ''); }).join('／') + '）');
+    else L.push('アプリの修行：この号は なし');
+    var df = d.shinbun && d.shinbun.adv && d.shinbun.adv.def;
+    if (df && Number(df.count) > 0) L.push('クラス基地防衛戦：' + df.count + '回 出場' + ((df.mvp || []).length ? '・MVP の 部門：' + df.mvp.map(function (k) { return MVPJ[k] || k; }).join('・') : '・MVP は なし'));
+    else L.push('クラス基地防衛戦：この号は 出場なし（防衛戦・MVP の 話は 書かない）');
+    var rp = d.rankPt; if (rp && Number(rp.now) > 0) L.push('週間ランキングの 正解ポイント：' + rp.now + (rp.prev != null ? '（その前の週 ' + rp.prev + '）' : ''));
+    var sp = d.lastWeekSpecial || {}; if (Number(sp.pokedex) > 0) L.push('図鑑：新しく ' + sp.pokedex + 'ひき');
+    var ls = (d.shinbun && d.shinbun.lesson) || []; if (ls.length) L.push('この号の 授業：' + ls.map(function (x) { return x.subj + '「' + x.unit + '」'; }).join('・'));
+    var r2 = d.shinbun && d.shinbun.ref2; if (r2 && r2.weekKey === isoWeek(ws)) L.push('週の ふりかえり：' + String(r2.at || '').slice(5, 10).replace('-', '/') + 'に 書いた（この号の 週）');
+    L.push('4月からの 家庭学習：' + totSubs(d) + '回（' + jaS(ymd(dms(ws) + 4 * 86400000)) + 'の 時点）');
+    return L;
+  }
+  global.__SHINBUN_FACTS = factsOf;
+  // 先生の 画面に 出す 警告（印刷する 前に 見て 直せるように）
+  global.__SHINBUN_WARNS_OF = function (docs) {
+    var out = [];
+    (docs || []).forEach(function (h) { var m = String(h || '').match(/<script type="application\/json" class="shinbun-warn">([\s\S]*?)<\/script>/); if (!m) return; try { var o = JSON.parse(m[1]); (o.warn || []).forEach(function (w) { out.push((o.name || '') + '：' + w); }); } catch (e) {} });
+    return out.length ? '⚠ 数の 食いちがい ' + out.length + '件（印刷の 前に 確かめてください）／ ' + out.join(' ／ ') : '';
+  };
+
   // ───────── 組み立て ─────────
   function build(c) {
     var d = c.d || {};
     c.unitName = function (id) { var inf = c.unitInfo ? c.unitInfo(id) : null; return (inf && inf.name) || (global._unitJa ? global._unitJa(id) : id); };
-    var ws = weekStart(d); c.ws = ws;
+    var ws = weekStart(d); c.ws = ws; c.we = ymd(dms(ws) + 4 * 86400000);
+    WARN = [];
+    if (c.ai) { ['main', 'ask', 'head', 'sub', 'top', 'cls', 'after', 'hint', 'test'].forEach(function (k) { if (c.ai[k]) c.ai[k] = fixTypo(c.ai[k]); }); c.ai.tries = (c.ai.tries || []).map(fixTypo); }
+    c.tries = (c.tries || []).map(fixTypo);
+    /* SHINBUN_FIX32_V1 コラムの 問い（💭）が「阪神マンからの しつもん」と 同じ／本人が もう 答えた 問いなら、コラムでは くり返さない */
+    c.askDup = false;
+    try {
+      var _nq = function (t) { return String(t || '').replace(/[\s\u3000、。・，．,.!?！？「」『』（）()…:：]/g, ''); };
+      var _bg = function (t) { var o = {}; for (var i = 0; i + 1 < t.length; i++) o[t.slice(i, i + 2)] = 1; return o; };
+      var _sim = function (a, b) { a = _nq(a); b = _nq(b); if (!a || !b) return 0; if (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return 1; var A = _bg(a), B = _bg(b), n = 0, m = 0; Object.keys(A).forEach(function (k) { m++; if (B[k]) n++; }); return m ? n / Math.max(m, Object.keys(B).length) : 0; };
+      if (c.ai && c.ai.ask) (d.hanshinAnswers || []).forEach(function (h) { if (h && h.question && _sim(h.question, c.ai.ask) >= 0.6) c.askDup = true; });
+    } catch (e) {}
     NT = { m: d.neta || {}, ws: ws, used: {} };   /* SHINBUN_NETA_V1 */
     var uid = String((d.student && d.student.id) || '');
     var no = issueNo(ws), seed = hashN(uid + ':' + ws);
@@ -690,6 +832,7 @@
     var facts = { days: 0, minutes: 0, longest: null };
     rows.forEach(function (r) { if (!r.s) return; facts.days++; var m = Number(r.s.minutes) || 0; facts.minutes += m; if (!facts.longest || m > facts.longest.m) facts.longest = { wd: r.wd, m: m }; });
     var wcount = { sun: 0, cloud: 0, rain: 0 }; rows.forEach(function (r) { if (r.s && wcount[r.s.end_weather] != null) wcount[r.s.end_weather]++; });
+    c.facts = facts; c.wcount = wcount;   /* SHINBUN_ISSUE_V1 この号の 家庭学習（あゆみ・グラフの（＋）に つかう） */
     var wtxt = ['sun', 'cloud', 'rain'].filter(function (k) { return wcount[k]; }).map(function (k) { return WXJ[k] + (wcount[k] > 1 ? wcount[k] : ''); }).join('・');
     var nm = String(c.name || '').replace(/\s*さん.*$/, '').trim() || '主役';
     var ta = topArticle(c, rows, facts);
@@ -709,7 +852,9 @@
       '<div class="who">今週の 主役　<b>' + esc(nm) + '</b> さん</div>' +
       (facts.days ? '<div class="ear">きょうの<b>天気</b>：' + esc(wtxt || '―') + '<br>家庭学習 ' + facts.days + '日・' + facts.minutes + '分</div>' : '') +
       '<div class="no">' + esc(ja(days[0])) + '〜' + esc(ja(days[4])) + '号<br><b>第' + issueNo(ws) + '号</b></div></div>';
-    var top = '<div class="top" data-nk="' + esc(tk) + '"><span class="kick">今週の トップ</span><div class="hl">' + esc(ta.head) + '</div>' + (ta.sub ? '<div class="sub">' + esc(ta.sub) + '</div>' : '') + '<div class="art">' + ta.body + '<div class="by">' + esc(ta.by) + '</div></div></div>';
+    /* SHINBUN_FIX32_V1 本文が 短いときは 段の 数を へらす（短い 記事が 4段に 分かれて、ことばの とちゅうで 次の 段に 行っていた） */
+    var _cols = ta.len <= 120 ? 1 : ta.len <= 260 ? 2 : ta.len <= 420 ? 3 : 4;
+    var top = '<div class="top" data-nk="' + esc(tk) + '"><span class="kick">今週の トップ</span><div class="hl">' + esc(ta.head) + '</div>' + (ta.sub ? '<div class="sub">' + esc(ta.sub) + '</div>' : '') + '<div class="art" style="column-count:' + _cols + '">' + ta.body + '<div class="by">' + esc(ta.by) + '</div></div></div>';
 
     /* SHINBUN_NETA_V1 欄の ならびも 号ごとに かえる（コラムは 1面の 頭のほう・天気は 1面に のこす） */
     var F0 = [weatherSec(rows), columnSec(c)], F1 = [voicesSec(rows), numsSec(c, facts), progressSec(c), newsSec(c, facts), roadsSec(c), triesSec(c), hqSec(c), lessonSec(c), quizSec(c, facts, rows, seed), reviewSec(c)];
@@ -719,6 +864,7 @@
     var after = afk && !old(afk) ? '<div class="after" data-nk="' + esc(use(afk)) + '"><b>編集後記</b>　' + esc(cut(c.ai.after, 90)) + '（阪神マン）</div>' : '';
     var foot = function (n) { return '<div class="foot"><span>LearningBM ／ 道しるべ新聞（学びの道しるべ）</span><span>' + n + '面</span></div>'; };
 
+    checkNums(c, d, facts, ta, nm);   /* SHINBUN_ISSUE_V1 数の 食いちがいを 先生に 知らせる */
     var NM = nameList(), mk = function (x) { return maskNames(x, NM); };   /* SHINBUN_NAME_V1 */
     top = mk(top); F = mk(F); B = mk(B); after = mk(after);
     var memo = mk(memoTable(rows));
@@ -726,7 +872,8 @@
       '<div class="pg np" data-uid="' + esc(uid) + '" style="--acc:' + acc + '">' + mast + top + '<div class="flow">' + F + '</div>' + memo + foot(1) + '</div>' +
       '<div class="pg np last" data-uid="' + esc(uid) + '" style="--acc:' + acc + '"><div class="mast"><div class="mc" style="font-size:19px;font-weight:800;flex:1">道しるべ新聞　2面</div><div class="no">今週の 主役　' + esc(nm) + ' さん<br>' + esc(ja(days[0])) + '〜' + esc(ja(days[4])) + '号</div></div>' +
       '<div class="flow">' + B + '</div>' + after + foot(2) + '</div>' + FIT +
-      (uid ? '<script type="application/json" class="neta-v" data-uid="' + esc(uid) + '" data-ws="' + esc(ws) + '">' + JSON.stringify(NT.used).replace(/</g, '\\u003c') + '<\/script>' + SAVE : '') + '</body></html>';
+      (WARN.length ? '<script type="application/json" class="shinbun-warn">' + JSON.stringify({ name: nm, warn: WARN }).replace(/</g, '\\u003c') + '<\/script>' : '') +
+      (uid ? '<script type="application/json" class="neta-v" data-head="' + esc(ta.head) + '" data-uid="' + esc(uid) + '" data-ws="' + esc(ws) + '">' + JSON.stringify(NT.used).replace(/</g, '\\u003c') + '<\/script>' + SAVE : '') + '</body></html>';
   }
 
   global.KARTE_SHINBUN = build;

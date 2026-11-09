@@ -61,6 +61,7 @@ function rich() {
     teishutsu: { karteWeek: { hwDays: 3, onTime: 3 } },
     hanshinAnswers: [{ question: 'いちばん 集中できる 時間は いつ？', answer: '夕ごはんの前' }],
     karteHist: [{ weekKey: '2026-W43', body: AI, publishedAt: '2026-10-27' }, { weekKey: '2026-W42', body: 'x\n▼見出し\n火曜と木曜、2日つづけて晴れ', publishedAt: '2026-10-20' }],
+    issues: [{ ws: '2026-10-12', head: '火曜と木曜、2日つづけて晴れ', at: '2026-10-20' }],   // SHINBUN_BACKNO_V1 配布ずみの 号だけ
     nextTry: { weekKey: '2026-W43', text: '比を アプリで 5問 やってみる' },
     shinbun: { ago3: { from: '2026-09-28', to: '2026-10-02', days: 1, minutes: 10, voices: ['時間が なかった'], next: 'はやく はじめる' },
       album: [{ dayKey: '2026-09-30', text: 'まちがいの 理由が わかった' }],
@@ -111,7 +112,7 @@ await t('4 AIの記事がない・家庭学習を出していない週：記録�
   ok(h.indexOf('くらべてみよう') < 0, '0日の週は くらべない'); ok(h.indexOf('取材メモ') < 0 && h.indexOf('先週の 天気') < 0, '記録のない欄は出さない')
   // アプリも0のとき
   const e = rich(); e.aiComment = ''; e.recentSubmissions = []; e.lastWeek = { from: '2026-10-19', total: 0, days: 0, units: [] }
-  const h2 = (await make(e)).html(); ok(h2.indexOf('<div class="hl">4月から 96回の 家庭学習</div>') >= 0, '4月からの記録から')
+  const h2 = (await make(e)).html(); ok(/<div class="hl">(4月から 96回の 家庭学習|授業で [^<]+|クラス基地防衛戦に [^<]+)<\/div>/.test(h2) && h2.indexOf('学びの 道を 歩きはじめた') < 0, '記録から 見出し（学びの道を歩きはじめた にしない）')
 })
 
 await t('5 AIがなくて 記録がある週：本人のことばを見出しに（事実だけの記事）', async () => {
@@ -223,7 +224,7 @@ await t('12 一度 のせた ネタは 次の号に のせない（くらべる�
   const h2 = x2.html()
   const secs = (h) => (h.match(/<section[^>]*>[\s\S]*?<\/section>/g) || []).map((x) => x.replace(/<section[^>]*>/, '').replace(/<[^>]+>/g, ''))
   const s1 = secs(h1), s2 = secs(h2)
-  const same = s2.filter((x) => s1.indexOf(x) >= 0 && !/取材メモ|先週の 天気|3週間前の わたし|すすみぐあい|教科ごとの 修行|きもちの 天気の わりあい|月ごとの 家庭学習|4月からの あゆみ|単元の あゆみ/.test(x))   // 週の記録の 表と、つづけて 見る グラフ（SHINBUN_KEEP_V1）は 毎号 のせる
+  const same = s2.filter((x) => s1.indexOf(x) >= 0 && !/取材メモ|先週の 天気|3週間前の わたし|すすみぐあい|教科ごとの 修行|きもちの 天気の わりあい|月ごとの 家庭学習|4月からの あゆみ|単元の あゆみ|バックナンバー/.test(x))   // 週の記録の 表と、つづけて 見る グラフ（SHINBUN_KEEP_V1）は 毎号 のせる
   eq(same.length, 0, '同じ 欄は 出ない: ' + same.join('/'))
   const hl = (h) => (h.match(/<div class="hl">([^<]*)</) || [])[1]
   ok(hl(h1) !== hl(h2), '見出しが かわる')

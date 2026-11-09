@@ -1010,13 +1010,18 @@
   //    先生の画面で その子を ひらいたとき／全員ぶんを 印刷する前に 読む。写真は 子どもの画面には 出さない（先生の印刷だけ）。
   var _photo = {}, _photoTried = {};
   function blobToData(b) { return new Promise(function (res) { var r = new FileReader(); r.onload = function () { res(String(r.result || '')); }; r.onerror = function () { res(''); }; r.readAsDataURL(b); }); }
-  async function loadPhotos(classId, uids) {
+  /* SHINBUN_FIX32_V1 写真は「その号の 期間（月〜金）」の ものだけ。前の週の 写真（10/26・10/27 など）が のっていた。
+     ws（号の 月曜）が わからないときは「先週の 月曜」。期間の 中で いちばん 新しい 1まいを 使う */
+  function issueWsDefault() { var t = Date.now() + 9 * 3600000, wd = (new Date(t).getUTCDay() + 6) % 7; return new Date(t - (wd + 7) * 86400000).toISOString().slice(0, 10); }
+  function addDays(ymd, n) { return new Date(Date.parse(ymd + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10); }
+  async function loadPhotos(classId, uids, ws) {
     if (!classId) return;
-    var from = ymdAdd(-21), to = jstToday();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ws || ''))) ws = issueWsDefault();
+    var from = ws, to = addDays(ws, 4);
     var d = await getJ('/api/teacher/portfolio/range?classId=' + encodeURIComponent(classId) + '&from=' + from + '&to=' + to + (uids && uids.length ? '&userIds=' + encodeURIComponent(uids.join(',')) : ''));
     if (!d || !d.ok) return;
     var latest = {};
-    (d.items || []).forEach(function (it) { if (!Number(it.hasThumb)) return; latest[String(it.userId)] = it; });   // 古い順に来るので 最後が いちばん新しい
+    (d.items || []).forEach(function (it) { if (!Number(it.hasThumb)) return; var tk = String(it.takenOn || ''); if (tk && (tk < from || tk > to)) return; latest[String(it.userId)] = it; });   // 古い順に来るので 最後が いちばん新しい
     var us = Object.keys(latest);
     for (var i = 0; i < us.length; i++) {
       var it = latest[us[i]];
@@ -1034,7 +1039,7 @@
       var fd = window._faData || {}, uid = String((fd.student && fd.student.id) || ''), cid = String(fd.classId || '');
       if (!uid || !cid || _photoTried[uid]) return;
       _photoTried[uid] = Date.now();
-      loadPhotos(cid, [uid]);
+      loadPhotos(cid, [uid], (fd.issue && fd.issue.ws) || (fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || '');
     } catch (e) {}
   }
   function photoHtml(p) {
@@ -1049,10 +1054,11 @@
       var w = uid && _work[uid];
       if (html.indexOf('<!--PF_WORK-->') >= 0) {   /* SHINBUN_V1／SHINBUN_PHOTO_V1 新聞：2面の決まった場所に 写真と ことば */
         /* SHINBUN_FRESH_V1 新聞の週の その前の週より 古い 写真・ひとことは のせない */
-        var ws0 = String((fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || (fd.lastWeek && fd.lastWeek.from) || ''), lo0 = '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(ws0)) lo0 = new Date(Date.parse(ws0 + 'T00:00:00Z') - 7 * 86400000).toISOString().slice(0, 10);
-        var pp = uid && _photo[uid]; if (pp && lo0 && String(pp.takenOn || '') < lo0) pp = null;
-        if (w && lo0 && w.at && String(w.at) < lo0) w = null;
+        /* SHINBUN_FIX32_V1 写真・ひとことは この号の 期間（月〜金）の ものだけ */
+        var ws0 = String((fd.issue && fd.issue.ws) || (fd.aiCommentMeta && fd.aiCommentMeta.weekStart) || (fd.lastWeek && fd.lastWeek.from) || ''), lo0 = '', hi0 = '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(ws0)) { lo0 = ws0; hi0 = addDays(ws0, 4); }
+        var pp = uid && _photo[uid]; if (pp && lo0 && (String(pp.takenOn || '') < lo0 || String(pp.takenOn || '') > hi0)) pp = null;
+        if (w && lo0 && w.at && (String(w.at).slice(0, 10) < lo0 || String(w.at).slice(0, 10) > hi0)) w = null;
         var ph = photoHtml(pp), tx = (w && w.text) ? String(w.text).replace(/\s+/g, ' ') : '';
         if (tx.length > 200) tx = tx.slice(0, 199) + '…';
         if (!ph && !tx) return html.replace('<!--PF_WORK-->', '');
@@ -1078,7 +1084,7 @@
     if (typeof oa === 'function' && !oa.__pfwork) {
       var wa = async function () {
         try { await loadWork(true); } catch (e) {}
-        try { var cf = $('analyticsClassFilter'); var cid = (cf && cf.value) || String((window._faData || {}).classId || ''); await loadPhotos(cid); } catch (e) {}   /* SHINBUN_PHOTO_V1 */
+        try { var cf = $('analyticsClassFilter'); var cid = (cf && cf.value) || String((window._faData || {}).classId || ''); var fd0 = window._faData || {}; await loadPhotos(cid, null, (fd0.issue && fd0.issue.ws) || (fd0.aiCommentMeta && fd0.aiCommentMeta.weekStart) || ''); } catch (e) {}   /* SHINBUN_PHOTO_V1 */
         return oa.apply(this, arguments);
       };
       wa.__pfwork = true; wa.__michi = true; window.downloadAllKartes = wa;

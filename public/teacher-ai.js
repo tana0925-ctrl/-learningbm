@@ -699,46 +699,22 @@ out.push('【目印の種類】');
       out.push('        ・先週は大きな動きがなく、長い目で見ると変化が見える子 → 4月からの話。');
       out.push('        ・どちらも書けるときは、前の週に書かなかったほうを選ぶ。');
       out.push('        毎回おなじほうを選ばないこと。これがいちばん大事です。');
-      out.push('      - 【前に渡したカルテ】を先に読んでください。');
-      out.push('        そこに「4月から」「ずっと続いとる」「夏休みで落ちた」「◯月は◯回」のような');
-      out.push('        長い期間の言い方があれば、その子には もう長期の話をしています。');
-      out.push('        その場合、今週は長期の話を書かない。最近の話だけで書く。');
-      out.push('        直近6週ぶんの全文と、それより前の【たな卸し】が入っています。');  /* KARTE_VARY_V2 */
-      out.push('        6週とも長期の話だったら、必ず最近の話にする。');
-      out.push('        【たな卸し】の「長い期間の話をした週」が多い子ほど、長期の話はもう足りています。')
-      out.push('      - 【今回の新しい取り込み】は、まだ一度もカルテでほめていないプリント・作品です。');
-      out.push('        ここにあるものは、中身を読んで具体的にほめてよいです（例：どこの説明がよかったか）。');
-      out.push('        日付が添えてあります。古い日付のものを「先週やったこと」のように書かないでください。');
-      out.push('        書くなら「前に書いた◯◯やけどな」のように、いつのものか分かる形にする。');
-      out.push('      - 【今回の新しい取り込み】が「なし」のときは、プリントや作品の話を書かない。');
-      out.push('        先週の家庭学習と、本人が書いたことばで書く。');  /* KARTE_VARY_V1 */
-      out.push('        それでも書けないときだけ【4月からの移りかわり】を使う。');
-      out.push('        むりに掘り返さない。書くことが少ない週は、短くてよいです。');
-      out.push('      - ★前に言ったことを踏まえる（ここも判断してほしい）');  /* KARTE_VARY_V1 */
-      out.push('        【前に渡したカルテ】には、この子へ渡した文が 週ごとに1本・直近6週ぶん・');  /* KARTE_VARY_V2 */
-      out.push('        いつの文か分かる形で・全文 入っています。新しい順です。');
-      out.push('        それより前（4月から全部）は【これまでの手の たな卸し】にまとめてあります。');
-      out.push('        たな卸しに本文はありません。長い期間の話をした週と、これまでの終わり方だけです。');
-      out.push('        たな卸しから問いかけの中身を探さないでください。見つかりません。');
-      out.push('        たな卸しは「同じ手をもう一度使わない」ためだけに読んでください。');
-      out.push('        阪神マンは、毎週バラバラのことを言う相手ではありません。');
-      out.push('        先週この子に何と言ったかを覚えている相手として書いてください。');
-      out.push('        (a) 前のカルテは、最後が問いかけで終わっています。その問いかけが');
-      out.push('            どうなったかを、今週の記録から確かめて、ひとこと触れる。');
-      out.push('            ・やっていたら、それを見つけて認める');
-      out.push('              （例：先週「どっちからいく？」て聞いたやつ、ちゃんと漢字から始めとったな）');
-      out.push('            ・やっていなくても責めない。まだこれから、として置いておく');
-      out.push('              （例：先週聞いたやつ、まだ答えは出てへんみたいやな。今週はどうする？）');
-      out.push('            ・記録からは分からないときは、分かったふりをしない。触れない。');
-      out.push('        (b) 前に言ったことから変わったことがあれば、その変化を言う。');
-      out.push('            （例：先週は時間が短かったけど、今週は40分まで伸びとるな）');
-      out.push('        (c) ただし毎回むりに触れない。触れることが不自然な週もあります。');
-      out.push('            今週の中身と前の問いかけがつながらないときは、触れずに今週の話を書く。');
-      out.push('            触れるかどうかは、あなたがこの子の今週を見て判断してください。');
-      out.push('        (d) 同じ話題・同じほめ方・同じ語尾・同じ問いかけはくり返さない。');
-      out.push('            6週ぶんの全文と【たな卸し】を見わたして、くり返しになっている言い方を');  /* KARTE_VARY_V2 */
-      out.push('            見つけ、それを避ける。終わり方は たな卸しに出ているものを使い回さない。');
-      out.push('            (a)で前の問いかけに触れるのは「くり返し」ではありません。つながりです。');
+      /* SHINBUN_ISSUE_V1 (2026-11-09) 前の号の本文は渡さない。今号の事実だけで書く（前の号の数字・出来事が コラムに 入っていた） */
+      out.push('      - ★いちばん大事：書く材料は【この号の事実（' + weekLabel + '）】と、その下の この号の 家庭学習・ふりかえり・成果物・観察メモだけ。');
+      out.push('        コラム・▼考えてほしいこと・▼これやってみる？・▼見出し・▼トップ記事に出す数字（日数・分・問題数・防衛戦の回数・MVP・ポイント）は、');
+      out.push('        かならず【この号の事実】に書いてある数字をそのまま使う。そこに無い数字は書かない（前の号の数字を思い出して書かない）。');
+      out.push('        この号に家庭学習の記録が無い子に「◯曜の漢字ドリル」のような前の週の話を書かない。アプリ・学校・成果物など、この号にある事実で書く。');
+      out.push('        アプリで問題をといている子（【この号の事実】に問題数がある子）を「お休み中」「止まっている」と書かない。');
+      out.push('      - 【前に渡したカルテ】には、前の号の ▼見出し・▼考えてほしいこと・▼これやってみる？ だけが入っています（本文は渡していません）。');
+      out.push('        ・同じ見出し・同じ問い・同じ やってみる案を くり返さないために読む。そこに出てくる出来事を今号の話題にしない。');
+      out.push('        ・「前回とつなぐ」のは、いちばん新しい号の ▼考えてほしいこと に1回・1文だけ短くふれるとき。今週の記録から分かるときだけ（分からなければふれない）。');
+      out.push('        ・【阪神マンのしつもんへの本人の返事】で本人がもう答えた問いは、もう一度きかない。▼考えてほしいこと は前の問いと別の問いにする。');
+      out.push('      - ▼考えてほしいこと は、本人のふりかえりの教科・中身に合わせる（例：道徳のふりかえりに「どの時代のこと？」と聞かない）。');
+      out.push('      - 「4月からの長い話」は、この号の事実が少ないときに1文だけ。家庭学習の回数が少ない子は、回数そのものを話題や見出しにしない（アプリや学校でのことを主役にする）。');
+      out.push('      - 【先生の観察メモ】が何人かに同じ文で書かれていても（「この観察メモは◯人に同じ文」とあるとき）、子どもごとに別の書き方にする。その子の記録とつながる所だけをつなぐ。むりに他の教科と結びつけない。');
+      out.push('      - ★成果物を大事に：この号の【成果物・ノート・作品】（取り込み・写真の分析・成果物へのひとこと）や【先生の観察メモ】があれば、コラムかトップ記事の中心にしてよい。');   /* SHINBUN_WORK_V1 先生の指示 2026-11-09 */
+      out.push('        何を書いたか・どこを工夫したか（図・式・ことば・まとめ方）を、材料に書いてある事実で具体的にほめる。前の週のものは「前に書いた◯◯」と分かる形で短く。');
+      out.push('      - 書いたあと、数字を【この号の事実】ともう一度見くらべる。ちがっていたら直す。漢字・ことばのまちがい（例：「比例和反比例」→「比例と反比例」）も見直す。');
       out.push('      - 名前も「A07」のような符号も、文の中には絶対に書かない。');
       out.push('        符号はこちらが誰のことか区別するための目印で、子どもには意味がない。');
       out.push('        文は本人に向けて書くので、「あなた」「きみ」も要らない。');
@@ -894,7 +870,8 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     out.push('・【最近のテスト】…あったという事実だけ。点数・評価は渡していません。');
     out.push('・【提出・成果物のようす】…学校の提出物（しめきりに対して出した日）・家庭学習の出し方（曜日・時間帯・写真・成果物・学習時間・天気）・先週決めたことの結果。事実だけ。▼出し方のヒント の材料。');   /* TEISHUTSU_V1 */
     out.push('・【テストから見える傾向】…観点・単元ごとの「得意そう／もう少し」と、アプリの取り組みとのくいちがい・テスト前の準備。点数は渡していません。▼テストに向けて の材料。');
-    out.push('・【前に渡したカルテ】…この子へ渡した文。週ごとに1本・直近6週・全文・いつの文か分かる形。くり返しを避けるためと、前に言ったことを踏まえるための材料。');
+    out.push('・【この号の事実】…この号（' + weekLabel + '）の数字（家庭学習・アプリの問題数・防衛戦・ランキング・授業）。新聞の欄と同じデータ。カルテの数字はここからだけ使う。');   /* SHINBUN_ISSUE_V1 */
+    out.push('・【前に渡したカルテ】…前の号の ▼見出し・▼考えてほしいこと・▼これやってみる？ だけ（本文は渡していません）。くり返しを避けるための材料。');
     out.push('・【これまでの手の たな卸し】…6週より前（4月から全部）。本文はなく、長い期間の話をした週と、これまでの終わり方だけ。');  /* KARTE_VARY_V2 */
     out.push('・【ふだんの様子（4月からの積み上げ）】…背景。正答率は かならず「1問あたりの回数」とセットで読む。');
     if (wantWide) out.push('・【テスト・成績】…クラス所見と週報のための材料。個人カルテには使わないこと。');
@@ -1142,12 +1119,16 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
     var pickBy = {}, pickNone = 0, pickFreshFrom = '', pickFreshDays = 0;
     if (want.karte) {
       say('カルテの材料をえらんでいます...');
-      var picked = await postJson('/api/teacher/karte-materials/pick', { classId: cid });
+      var picked = await postJson('/api/teacher/karte-materials/pick', { classId: cid, ws: weekDays[0] });   /* SHINBUN_ISSUE_V1 */
       if (picked && picked.ok) { pickBy = picked.byStudent || {}; pickNone = picked.exhaustedCount || 0; pickFreshFrom = picked.freshFrom || ''; pickFreshDays = picked.freshDays || 0; }
       else { say('材料の台帳が読めませんでした。プリントの話は今回は渡しません。'); }
     }
 
     if (want.flowCtx) { say('前の流れを読んでいます...'); try { await window.AI_FLOW.prefetch(cid); } catch (e) {} }   /* AIFLOW_V1 */
+    /* SHINBUN_ISSUE_V1 観察メモが 何人に 同じ文か（同じ文を 子どもごとに 書き分けるため）／材料が この号の ものか */
+    var _noteCount = {};
+    Object.keys(pickBy || {}).forEach(function (u0) { ((pickBy[u0] && pickBy[u0].materials) || []).forEach(function (mt) { if (mt.kind === '先生の観察メモ') { var b0 = String(mt.body || '').trim(); if (b0) _noteCount[b0] = (_noteCount[b0] || 0) + 1; } }); });
+    var _issueTag = function (on) { on = String(on || ''); if (!on) return ''; if (on >= weekDays[0] && on <= weekDays[4]) return '・この号'; var p7 = fmtDay(new Date(Date.parse(weekDays[0] + 'T00:00:00Z') - 7 * 86400000)); if (on >= p7 && on < weekDays[0]) return '・前の週'; if (on > weekDays[4]) return '・この号より あと（書かない）'; return '・古い（話題にしない）'; };
     for (var i = 0; i < roster.length; i++) {
       var st = roster[i];
       var nm = anonUid(st.userId);          // 束には符号だけ（実名は入れない）
@@ -1155,7 +1136,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       say('児童のデータを集めています... (' + (i + 1) + '/' + roster.length + ')');
 
       var data = null;
-      try { data = await getJson('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(st.userId)); } catch (e) {}
+      try { data = await getJson('/api/teacher/student-full-analysis?studentId=' + encodeURIComponent(st.userId) + '&ws=' + encodeURIComponent(weekDays[0])); } catch (e) {}   /* SHINBUN_ISSUE_V1 作っている号の 週で 数える */
 
       out.push('--------------------------------------------------');
       out.push('▼ 児童データ: ' + nm + '（ID: ' + sid + '）');  // nm は符号
@@ -1190,6 +1171,9 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
           }
         } catch (e) {}
       }
+
+      /* SHINBUN_ISSUE_V1 【この号の事実】新聞の欄（冒険ニュース・修行レポート・数字で見る）と 同じ データ。カルテの数字は ここからだけ */
+      try { if (want.karte && data && data.ok && window.__SHINBUN_FACTS) { var _fx = window.__SHINBUN_FACTS(data, weekDays[0], unitJa); out.push('【この号の事実（' + weekLabel + '）】※カルテの数字は ここからだけ使う'); _fx.forEach(function (x) { out.push('・' + x); }); } } catch (e) {}
 
       // 今週の計画・振り返り（自由記述）
       if (p) {
@@ -1362,11 +1346,11 @@ try {
       if (want.karte) {
         out.push('');
         if (_pk && _pk.materials && _pk.materials.length) {
-          var _mNote = _pk.materials.filter(function (x) { return x.kind === '先生の観察メモ'; }); var _mRec = _pk.materials.filter(function (x) { return x.kind !== '先生の観察メモ'; }); if (_mNote.length) { out.push('【先生の観察メモ（先生が授業中に気づいたこと。いちばん大事な材料です。ここに書かれていることを必ず一度は使ってください）】'); _mNote.forEach(function (mt) { out.push('・' + (mt.on || '日付不明') + (mt.unit ? '［' + mt.unit + '］' : '') + ' ' + (window._qnMask ? window._qnMask(mt.body || '') : (mt.body || ''))); }); out.push(''); } if (!_mRec.length) out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）'); if (_mRec.length) out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
+          var _mNote = _pk.materials.filter(function (x) { return x.kind === '先生の観察メモ'; }); var _mRec = _pk.materials.filter(function (x) { return x.kind !== '先生の観察メモ'; }); if (_mNote.length) { out.push('【先生の観察メモ（先生が授業中に気づいたこと。いちばん大事な材料です。ここに書かれていることを必ず一度は使ってください）】'); _mNote.forEach(function (mt) { var _same = _noteCount[String(mt.body || '').trim()] || 0; out.push('・' + (mt.on || '日付不明') + _issueTag(mt.on) + (mt.unit ? '［' + mt.unit + '］' : '') + ' ' + (window._qnMask ? window._qnMask(mt.body || '') : (mt.body || '')) + (_same >= 2 ? '（この観察メモは ' + _same + '人に 同じ文。この子なりの書き方にする）' : '')); }); out.push(''); } if (!_mRec.length) out.push('（この子の取り込み物は、前のカルテでもうほめています。プリントや作品の話は書かないでください）'); if (_mRec.length) out.push('【最近の取り込み（' + (pickFreshDays ? 'この' + Math.round(pickFreshDays / 7) + '週以内・' : '') + 'まだ一度もカルテで使っていないもの）】');
           _mRec.forEach(function (mt) {
             // KARTE_TEST_V1 ◎○△ は渡さない（子どもの紙に評価記号が出る事故を構造で防ぐ）。
             //   先生が言葉で書かれた「評価コメント」は数値ではないので残す。
-            var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + (mt.unit ? '／' + mt.unit : '') + '）';
+            var ln = '・[' + mt.kind + '] ' + (mt.title || '(無題)') + '（取り込み ' + (mt.on || '日付不明') + _issueTag(mt.on) + (mt.unit ? '／' + mt.unit : '') + '）';
             if (mt.evalComment) ln += ' 評価コメント:' + mt.evalComment;
             if (mt.body) ln += ' 本文:' + mt.body;
             if (mt.reflection) ln += ' ／本人の振り返り:' + mt.reflection;
@@ -1395,12 +1379,12 @@ try {
             out = out.concat(_tl);
           }
         } catch (e) {}
-        if (_pk && _pk.pastKartes && _pk.pastKartes.length) {   /* KARTE_VARY_V1 */
+        if (_pk && _pk.pastKartes && _pk.pastKartes.length) {   /* KARTE_VARY_V1 → SHINBUN_ISSUE_V1 本文は渡さない */
           out.push('');
-          out.push('【前に渡したカルテ（新しい順・週ごとに1本・' + _pk.pastKartes.length + '週ぶん・全文）】');
-          out.push('※いちばん上が、前回この子に渡した文です。最後の問いかけまで全部あります。');
+          out.push('【前に渡したカルテ（新しい順・号ごとに1本・' + _pk.pastKartes.length + '号ぶん）】※本文は渡していません。ここの出来事・数字は前の号のもの。今号には書かない');
           _pk.pastKartes.forEach(function (pkx, _pki) {
-            out.push('・' + _karteAgoLabel(pkx.week, wk, _pki) + '（' + (pkx.on || '日付不明') + ' に渡した／対象の週キー ' + (pkx.week || '不明') + '）：' + pkx.text);
+            var _lab = pkx.issueWs ? (jaDay(pkx.issueWs) + 'からの号') : _karteAgoLabel(pkx.week, wk, _pki);
+            out.push('・' + _lab + '：見出し「' + (pkx.head || '―') + '」／考えてほしいこと「' + (pkx.ask || '―') + '」' + ((pkx.tries || []).length ? '／やってみる案「' + pkx.tries.join('」「') + '」' : '') + (_pki === 0 ? '　←いちばん新しい号（この問いにだけ1回短くふれてよい）' : ''));
           });
         }
         /* HANSHIN_Q_V1 前のしつもんに、本人がアプリで書いた返事。次の阪神マンが拾えるように渡す。 */
@@ -2215,7 +2199,7 @@ function taiCheckAll(on) {
       var d = null;
       for (var j = 0; j < _drafts.length; j++) if (_drafts[j].id === id) d = _drafts[j];
       if (!d) continue;
-      out.push({ id: id, kind: d.kind, targetId: d.targetId, targetName: d.targetName || '', refKey: d.refKey, body: ta ? ta.value : d.body });
+      out.push({ id: id, kind: d.kind, targetId: d.targetId, targetName: d.targetName || '', refKey: d.refKey, weekKey: d.weekKey || d.week_key || '', body: ta ? ta.value : d.body });
     }
     return out;
   }
@@ -2264,9 +2248,13 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
       // 紙のカルテの見出しもこの週を使う（印刷日から逆算するのをやめたので、
       // 金曜に作って月曜に配ってもズレない）。
       var _pw = lastWeekDaysJst();
+      /* SHINBUN_ISSUE_V1 下書きを 作った週の 前の週が その文の 号。金曜に作って 月曜に公開しても、号が ずれないように 下書きごとに 送る */
+      var _iws = function (x) { var mo = wkMonday(String(x.weekKey || '')); if (!mo) return null; var a = wkYmd(new Date(mo.getTime() - 7 * 86400000)); return [a, wkYmd(new Date(mo.getTime() - 3 * 86400000))]; };
+      var _odd = byKind.KARTE.filter(function (x) { var w2 = _iws(x); return w2 && w2[0] !== _pw[0]; });
+      if (_odd.length && !confirm('⚠ ' + _odd.length + '件は「' + jaDay(_iws(_odd[0])[0]) + 'からの号」の 下書きです（前の週に 作ったもの）。\n今週 配る号（' + jaDay(_pw[0]) + 'から）の 材料ではありません。\nこのまま その号として 公開しますか？\n（キャンセルして、今週の 束を 作りなおすのが おすすめです）')) { sayPub('公開をやめました'); return; }
       var r2 = await postJson('/api/teacher/student-ai-comments', {
         weekStart: _pw[0], weekEnd: _pw[4],
-        comments: byKind.KARTE.map(function (x) { return { studentId: x.targetId, comment: x.body }; })
+        comments: byKind.KARTE.map(function (x) { var w2 = _iws(x); return { studentId: x.targetId, comment: x.body, weekStart: w2 ? w2[0] : _pw[0], weekEnd: w2 ? w2[1] : _pw[4] }; })
       });
       if (r2 && r2.ok) {
         byKind.KARTE.forEach(function (x) { okIds.push(x.id); });
