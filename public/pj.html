@@ -419,6 +419,7 @@
     $('tnSave').onclick = function () { act('/api/pj/teamname', { sport: SP, a: +$('tnA').value, b: +$('tnB').value }); };
   }
   function paneTeam() {
+    paneOrderApt();
     var R = myRoster();
     if (!R.length) { $('pane').innerHTML = nameBox() + mgrBox() + '<div class="box msg">まだ 選手が いないよ。<br>🎟 スカウトで 選手を さがそう！</div>'; wireMgr(); wireName(); return; }
     var soon = R.filter(function (r) { return r.left <= 5; }), rest = R.filter(function (r) { return r.left > 5; });
@@ -476,8 +477,44 @@
   function grade(v) { v = Number(v) || 0; return v >= 90 ? 'S' : v >= 80 ? 'A' : v >= 70 ? 'B' : v >= 60 ? 'C' : v >= 50 ? 'D' : v >= 40 ? 'E' : v >= 30 ? 'F' : 'G'; }
   var GCOL = { S: '#be185d', A: '#ea580c', B: '#ca8a04', C: '#16a34a', D: '#2563eb', E: '#7c3aed', F: '#64748b', G: '#94a3b8' };
   function chip(l, v) { var g = grade(v); return '<span class="gch">' + l + '<b style="background:' + GCOL[g] + '">' + g + '</b></span>'; }
+  /* ⚽ PJ_SCOVR_V1（2026-11-10）サッカーの「総合」を 試合（名鑑）と 同じ 計算に そろえる。
+     ・総合＝本来の ポジションでの 力（名鑑の 数字と 同じ）
+     ・スタメンの 枠では「その 枠での 力」＝ 枠の 役わりでの 力 × 適性（A 100%・B 95%・C 90%・D 84%・E 78%・F 72%・G 58%）
+     ・適性は /pjd/apt.json（試合の データから 取りだした もの）。読めないあいだは いままでの 計算 */
+  var SCAPT = null, SCAPT_ING = false, SCK = ['GK', 'CB', 'SB', 'DMF', 'OMF', 'WG', 'CF'], SCGR = { A: 1, B: .95, C: .9, D: .84, E: .78, F: .72, G: .58 };
+  var SCROLE = { '4-4-2': ['GK', 'SB', 'CB', 'CB', 'SB', 'WG', 'CMF', 'CMF', 'WG', 'CF', 'CF'], '4-3-3': ['GK', 'SB', 'CB', 'CB', 'SB', 'DMF', 'CMF', 'CMF', 'WG', 'CF', 'WG'], '4-2-3-1': ['GK', 'SB', 'CB', 'CB', 'SB', 'DMF', 'DMF', 'WG', 'OMF', 'WG', 'CF'], '3-5-2': ['GK', 'CB', 'CB', 'CB', 'SB', 'CMF', 'DMF', 'CMF', 'SB', 'CF', 'CF'], '3-4-2-1': ['GK', 'CB', 'CB', 'CB', 'SB', 'DMF', 'DMF', 'SB', 'OMF', 'OMF', 'CF'] };
+  function loadScApt(cb) {
+    if (SCAPT) { cb && cb(); return; }
+    if (SCAPT_ING) return; SCAPT_ING = true;
+    fetch('/api/pj/apt?v=1', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { SCAPT = j || {}; SCAPT_ING = false; cb && cb(); }).catch(function () { SCAPT_ING = false; });
+  }
+  function scInfo(p) {
+    if (!SCAPT || !p || !p.mk) return null;
+    var v = SCAPT[String(p.mk).slice(1)]; if (!v) return null;
+    var m = String(v).split(':'), apt = {}; SCK.forEach(function (k, i) { apt[k] = (m[1] || '')[i] || 'G'; });
+    return { main: m[0], apt: apt };
+  }
+  function scRoleVal(a, role) {
+    var n = function (k) { return Number(a[k]) || 0; };
+    switch (role) {
+      case 'GK': return n('gk'); case 'CB': return n('def') * .5 + n('phy') * .28 + n('spd') * .12 + n('pas') * .1;
+      case 'SB': return n('def') * .34 + n('spd') * .3 + n('pas') * .2 + n('phy') * .16; case 'DMF': return n('def') * .38 + n('pas') * .36 + n('phy') * .26;
+      case 'CMF': return n('pas') * .4 + n('def') * .2 + n('dri') * .22 + n('phy') * .18; case 'OMF': return n('pas') * .4 + n('dri') * .36 + n('sho') * .24;
+      case 'WG': return n('dri') * .36 + n('spd') * .34 + n('sho') * .18 + n('pas') * .12; case 'CF': return n('sho') * .5 + n('phy') * .2 + n('spd') * .15 + n('dri') * .15;
+    }
+    return 50;
+  }
+  function scAptFor(inf, role) { if (role === 'CMF') return [inf.apt.DMF || 'G', inf.apt.OMF || 'G'].sort()[0]; return inf.apt[role] || 'G'; }
+  // その 枠での 力 と 適性（スタメン用）
+  function ovrAt(p, f, i) {
+    var inf = p && p.s === 'sc' ? scInfo(p) : null, role = (SCROLE[f] || [])[i];
+    if (!inf || !role) return { v: ovr(p), apt: '' };
+    var ap = scAptFor(inf, role);
+    return { v: Math.round(scRoleVal(p.ab || {}, role) * SCGR[ap]), apt: ap, role: role };
+  }
   function ovr(p) {
     var a = (p && p.ab) || {};
+    if (p && p.s === 'sc') { var inf0 = scInfo(p); if (inf0) return Math.round(scRoleVal(a, inf0.main)); }
     if (p.s === 'bb') { if (isPitcher(p)) return Math.round(((Number(a.velo) || 140) - 125) * 1.6 * .4 + (Number(a.ctrl) || 50) * .3 + (Number(a.stam) || 50) * .3); return Math.round((Number(a.meet) || 50) * .3 + (Number(a.power) || 50) * .3 + (Number(a.run) || 50) * .15 + (Number(a.arm) || 50) * .1 + (Number(a.field) || 50) * .15); }
     var ks = Object.keys(a); if (!ks.length) return 50; var s = ks.map(function (k) { return Number(a[k]) || 0; }).sort(function (x, y) { return y - x; }); return Math.round((s[0] + s[1] + (s[2] || s[1])) / 3);
   }
@@ -497,7 +534,9 @@
   }
   var BBN = { C: '捕手', '1B': '一塁', '2B': '二塁', '3B': '三塁', SS: '遊撃', LF: '左翼', CF: '中堅', RF: '右翼', DH: 'DH' };
   function bbSlotK(pos) { var x = OD.L.filter(function (y) { return y && y.p === pos; })[0]; return x ? x.k : null; }
+  function paneOrderApt() { if (SP === 'sc' && !SCAPT) loadScApt(function () { if (TAB === 'order' || TAB === 'team') render(); }); }
   function paneOrder() {
+    paneOrderApt();
     if (!OD || OD._sp !== SP) { odInit(); OD._sp = SP; }
     var h = '<div class="box"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="flex:1;font-size:16px">📋 ' + spName() + 'の オーダー</b>'
       + '<button class="btn sub" id="odAuto">✨ おまかせで 組む</button><button class="btn" id="odSave">💾 ほぞんする</button></div></div>';
@@ -536,8 +575,9 @@
         + '<div class="kind" style="margin-top:6px">スタメン（○を おして 選手を おこう）</div><div class="pitch"><span class="pl1"></span><span class="pl2"></span><span class="pl3"></span>'
         + F.map(function (sl, i) {
             var k = OD.L[i], p = k && S.players[k], c = sl[1] === 'GK' ? '#f59e0b' : sl[1] === 'DF' ? '#2563eb' : sl[1] === 'MF' ? '#16a34a' : '#dc2626';
-            return '<button class="pm" data-slot="S:' + i + '" style="left:' + sl[2] + '%;top:' + sl[3] + '%"><span class="dot" style="background:' + (p ? c : 'rgba(255,255,255,.25)') + ';border-color:' + (p ? '#fff' : 'rgba(255,255,255,.8)') + '">' + (p ? ovr(p) : '＋') + '</span>'
-              + '<span class="pn">' + esc(p ? p.n : sl[0]) + '</span>' + (p ? '<span class="pp">' + esc(sl[0]) + '</span>' : '') + '</button>';
+            var at = p ? ovrAt(p, OD.f, i) : null, bad = at && at.apt && at.apt !== 'A';
+            return '<button class="pm" data-slot="S:' + i + '" style="left:' + sl[2] + '%;top:' + sl[3] + '%"><span class="dot" style="background:' + (p ? c : 'rgba(255,255,255,.25)') + ';border-color:' + (bad ? '#facc15' : p ? '#fff' : 'rgba(255,255,255,.8)') + '">' + (p ? at.v : '＋') + '</span>'
+              + '<span class="pn">' + esc(p ? p.n : sl[0]) + '</span>' + (p ? '<span class="pp">' + esc(sl[0]) + (bad ? ' ⚠適性' + at.apt : '') + '</span>' : '') + '</button>';
           }).join('') + '</div></div></div><div class="odr">' + scList()
         + '<div class="box"><div class="kind">ベンチ</div><div class="slotg">';
       for (var b = 0; b < 5; b++) h += slotCard('B:' + b, 'ベンチ ' + (b + 1), OD.B[b]);
@@ -551,7 +591,7 @@
     var a = id.split(':');
     if (a[0] === 'P') { var q = BBP.filter(function (x) { return x[0] === a[1]; })[0]; return { label: BBN[a[1]], cur: bbSlotK(a[1]), filt: function (p) { return eligBB(p, q[2], false); }, put: function (k) { takeFrom(k, null); var x = OD.L.filter(function (y) { return y && y.p === a[1]; })[0]; if (x) x.k = k; else OD.L.push({ k: k, p: a[1] }); OD.L = OD.L.filter(function (y) { return y && y.k; }); } }; }
     if (a[0] === 'G') { var g = BBG.filter(function (x) { return x[0] === a[1]; })[0], i = +a[2]; return { label: g[1], cur: (OD[g[0]] || [])[i], filt: function (p) { return g[0] === 'BN' ? eligBB(p, null, false) : eligBB(p, g[3], true); }, put: function (k) { takeFrom(k, null); OD[g[0]][i] = k; } }; }
-    if (a[0] === 'S') { var F = FORMS[OD.f] || FORMS['4-3-3'], sl = F[+a[1]]; return { label: sl[0], cur: OD.L[+a[1]], filt: function (p) { return sl[1] === 'GK' ? SCG.GK.test(p.pos || '') : !SCG.GK.test(p.pos || ''); }, put: function (k) { takeFrom(k, null); OD.L[+a[1]] = k; } }; }
+    if (a[0] === 'S') { var F = FORMS[OD.f] || FORMS['4-3-3'], sl = F[+a[1]]; return { label: sl[0], si: +a[1], cur: OD.L[+a[1]], filt: function (p) { return sl[1] === 'GK' ? SCG.GK.test(p.pos || '') : !SCG.GK.test(p.pos || ''); }, put: function (k) { takeFrom(k, null); OD.L[+a[1]] = k; } }; }
     var bi = +a[1]; return { label: 'ベンチ', cur: OD.B[bi], filt: function () { return true; }, put: function (k) { takeFrom(k, null); OD.B[bi] = k; } };
   }
   function whereIs(k) {
@@ -562,7 +602,7 @@
     var inf = slotInfo(id), q = '';
     function draw() {
       var R = myRoster().map(function (r) { return r.k; }).filter(function (k) { var p = S.players[k]; return p && inf.filt(p) && (!q || p.n.indexOf(q) >= 0 || String(p.y || '').indexOf(q) >= 0); });
-      R.sort(function (a, b) { return ovr(S.players[b]) - ovr(S.players[a]); });
+      R.sort(function (a, b) { return inf.si != null ? ovrAt(S.players[b], OD.f, inf.si).v - ovrAt(S.players[a], OD.f, inf.si).v : ovr(S.players[b]) - ovr(S.players[a]); });
       var h = '<div style="display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:18px">' + esc(inf.label) + 'の 候補</b>' + (inf.cur ? '<button class="btn sm sub" id="pkClr">はずす</button>' : '') + '</div>'
         + '<input id="pkQ" class="pkq" placeholder="名前や 年で さがす" value="' + esc(q) + '">'
         + '<div class="note" style="margin:6px 0">' + R.length + '人</div><div style="max-height:62vh;overflow:auto">';
@@ -570,7 +610,7 @@
         var p = S.players[k], w = whereIs(k);
         h += '<div class="pkc' + (k === inf.cur ? ' cur' : '') + '" data-pk="' + esc(k) + '"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:16px">' + stars(p.st) + ' ' + esc(p.n) + '</b>'
           + (k === inf.cur ? '<span class="tag t">いま ここ</span>' : w ? '<span class="tag">↔ ' + esc(w) + '</span>' : '') + '<span class="pick">選ぶ ›</span></div>'
-          + '<div class="note">' + esc(sub(p)) + (p.bt ? '　' + esc(p.bt) : '') + '　<span class="ovb">総合 ' + ovr(p) + '</span></div>'
+          + '<div class="note">' + esc(sub(p)) + (p.bt ? '　' + esc(p.bt) : '') + '　<span class="ovb">' + (inf.si != null ? atTxt(p, inf.si) : '総合 ' + ovr(p)) + '</span></div>'
           + '<div class="gchs">' + abChips(p) + '</div><div class="note">' + esc(p.pos) + '</div></div>';
       });
       if (!R.length) h += '<div class="note">この ポジションに 入れられる 選手が いないよ。スカウトで さがそう！</div>';
@@ -586,6 +626,11 @@
     if (SP === 'bb') { OD.L.forEach(function (x, i) { if (x && x.k === k && slotId !== 'L' + i) x.k = null; }); OD.L = OD.L.filter(function (x) { return x && x.k; }); BBG.forEach(function (g) { (OD[g[0]] || []).forEach(function (v, i) { if (v === k && slotId !== g[0] + i) OD[g[0]][i] = null; }); }); }
     else { OD.L.forEach(function (v, i) { if (v === k && slotId !== 'L' + i) OD.L[i] = null; }); OD.B.forEach(function (v, i) { if (v === k && slotId !== 'B' + i) OD.B[i] = null; }); }
   }
+  function atTxt(p, i) {
+    var at = ovrAt(p, OD.f, i), o = ovr(p);
+    if (!at.apt || at.apt === 'A' && at.v === o) return '総合 ' + o;
+    return 'この 枠で <b>' + at.v + '</b>（総合 ' + o + (at.apt !== 'A' ? '・適性' + at.apt : '') + '）';
+  }
   // ⚽ スタメン 11人の 一覧（よこ画面では ピッチの 右に ならぶ）。名前を おすと 選手を かえる。
   function scList() {
     var F = FORMS[OD.f] || FORMS['4-3-3'], C = { GK: '#f59e0b', DF: '#2563eb', MF: '#16a34a', FW: '#dc2626' };
@@ -593,7 +638,7 @@
     return '<div class="box"><div class="kind">スタメン 11人（名前を おすと 選手を かえる）</div>' + idx.map(function (i) {
       var sl = F[i], k = OD.L[i], p = k && S.players[k];
       return '<div class="row od bo"><span class="posb" style="background:' + C[sl[1]] + '">' + esc(sl[0]) + '</span>'
-        + '<div class="nm" data-slot="S:' + i + '" style="cursor:pointer"><b>' + (p ? stars(p.st) + ' ' + esc(p.n) : '<span style="color:#9ca3af">選手を 選ぶ</span>') + '</b><span>' + (p ? '総合 ' + ovr(p) + '　' + abChips(p) : '') + '</span></div></div>';
+        + '<div class="nm" data-slot="S:' + i + '" style="cursor:pointer"><b>' + (p ? stars(p.st) + ' ' + esc(p.n) : '<span style="color:#9ca3af">選手を 選ぶ</span>') + '</b><span>' + (p ? atTxt(p, i) + '　' + abChips(p) : '') + '</span></div></div>';
     }).join('') + '</div>';
   }
   function wireOrder() {
@@ -928,7 +973,10 @@
       + '})(' + o + ')';
     return '(function(fx){function mk(t,nm){var d=newDrafter(nm,t.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});fs.forEach(function(s,i){var k=t.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});d.slots=fs;(t.B||[]).forEach(function(k){if(PL[k])d.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});d.coach=coachOf(t.coach||"かんとく");d.tours=[];return d}'
       + 'var A=mk(fx.A,fx.names[0]),B=mk(fx.B,fx.names[1]);'
-      + (watch ? 'var st=document.createElement("style");st.textContent="#tacbx{display:none!important}";document.head.appendChild(st);S.ds=[A,B];play(simMatch(A,B,false,{seed:fx.seed,ai:[true,true]}));return 1'
+      + (watch ? 'var st=document.createElement("style");st.textContent="#tacbx{display:none!important}";document.head.appendChild(st);S.ds=[A,B];'
+               // PJ_LGWATCH_V2 リーグの 試合を 見おわったあと「もう一度試合」「新しく編成」で 何回も 遊べないように（おすと とじる）
+               + 'var cl=function(){try{parent.__pjCloseGame&&parent.__pjCloseGame()}catch(e){}};matchSetup=cl;home=cl;var _pl=play;play=function(){if(window.__pjPlayed){cl();return}window.__pjPlayed=1;return _pl.apply(this,arguments)};'
+               + 'play(simMatch(A,B,false,{seed:fx.seed,ai:[true,true]}));return 1'
                : 'var M=simMatch(A,B,false,{seed:fx.seed,ai:[true,true]});return M.sc')
       + '})(' + o + ')';
   }

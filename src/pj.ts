@@ -706,6 +706,14 @@ export function installPj(app: any, d: Deps) {
     const sc = scK.map((k) => pl[k] && pl[k].mk).filter(Boolean)
     return c.json({ ok: true, key: kr ? String(kr.v) : '', v: ver, bb, sc })
   })
+  // ⚽ PJ_SCOVR_V1 サッカー選手の 本来の ポジションと 適性（試合の データから 取りだした もの）
+  app.get('/api/pj/apt', async (c: any) => {
+    const w: any = await who(c, d)
+    if (w.error) return err(c, 403, w.error)
+    const r = await c.env.ASSETS.fetch(new Request('https://assets/pjd/apt.json'))
+    if (!r || r.status !== 200) return err(c, 404, 'no_apt')
+    return new Response(r.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, max-age=86400' } })
+  })
   app.get('/api/pj/game/:f', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
     const f = c.req.param('f') === 'sc' ? 'sc' : 'bb'
