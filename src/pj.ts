@@ -830,9 +830,31 @@ export function installPj(app: any, d: Deps) {
     for (let i = 0; i < 5; i++) { const dk = d.addDay(wk, i); if (!d.isRest(dk, rest)) out.push(dk) }
     return out
   }
+  // 🏆 PJ_LG_AUTO_V1 自動で リーグに 出る 子：その スポーツの 選手が そろっている（サッカー 11人・野球 野手9人＋投手1人）、「休む」に していない
+  function hasTeam(st: any, sp: string, P: any) {
+    const ks = (st.ro || []).map((r: any) => r.k).filter((k: string) => (k[0] === 'b') === (sp === 'bb'))
+    if (sp === 'sc') return ks.length >= 11
+    let pit = 0, bat = 0; ks.forEach((k: string) => { if (/^投手/.test((P && P[k] && P[k].pos) || '')) pit++; else bat++ })
+    return P ? (pit >= 1 && bat >= 9) : ks.length >= 12
+  }
+  async function autoMembers(c: any, cid: string, sp: string) {
+    if (!cid || /^[GT]:/.test(cid)) return []
+    const r = await c.env.DB.prepare("SELECT p.user_id AS u, p.st AS st FROM pj_user p JOIN class_members cm ON cm.user_id=p.user_id AND cm.class_id=? JOIN users u ON u.id=p.user_id AND u.role='student'").bind(cid).all()
+    const out: string[] = []
+    for (const x of ((r && r.results) || []) as any[]) {
+      let st: any = {}; try { st = JSON.parse(String(x.st || '{}')) } catch (_e) { continue }
+      if (st.lgOff && st.lgOff[sp]) continue
+      let P: any = null
+      if (sp === 'bb') { const ks = (st.ro || []).map((q: any) => q.k).filter((k: string) => k[0] === 'b'); if (ks.length < 10) continue; P = await players(c.env, ks) }
+      if (hasTeam(st, sp, P)) out.push(String(x.u))
+    }
+    return out
+  }
   async function buildLeague(c: any, w: any, cid: string, wk: string, sp: string) {
     const er = await c.env.DB.prepare('SELECT uid FROM pj_lentry WHERE cid=? AND wk=? AND sp=? ORDER BY created_at, uid').bind(cid, wk, sp).all()
     let uids = ((er && er.results) || []).map((x: any) => String(x.uid))
+    // 🏆 PJ_LG_AUTO_V1 チームが ある 子は 自動で 参加（「休む」に している 子は のぞく）。クラスの リーグだけ
+    try { (await autoMembers(c, cid, sp)).forEach((u: string) => { if (uids.indexOf(u) < 0) uids.push(u) }) } catch (_e) {}
     if (!uids.length) return null
     const seed = seedOf(cid, wk, sp)
     uids = uids.map((u: string, i: number) => ({ u, r: seedOf(seed, u, i) })).sort((a: any, b: any) => a.r - b.r).map((x: any) => x.u)
@@ -924,6 +946,8 @@ export function installPj(app: any, d: Deps) {
     const ent = await c.env.DB.prepare('SELECT wk FROM pj_lentry WHERE cid=? AND sp=? AND uid=? AND wk IN (?,?)').bind(cid, sp, String(w.sid), wk, nwk).all()
     const myE: any = {}; ((ent && ent.results) || []).forEach((x: any) => { myE[x.wk] = 1 })
     const out: any = { ok: true, sp, wk, today: ctx.today, now: nowHM(), time: LG_TIME, entryThis: !!myE[wk], entryNext: !!myE[nwk], canEnterThis: !row && !buildOk, test: !!w.test, league: null }
+    // PJ_LG_AUTO_V1 自動参加の ようす（クラスの 子だけ）
+    if (!w.test && cid && !/^[GT]:/.test(cid)) { out.autoOn = true; out.autoOff = !!(b.st.lgOff && b.st.lgOff[sp]); out.hasTeam = hasTeam(b.st, sp, null) }
     if (!row) return out
     const L = row.L
     if (await freeze(c, w, L, ctx)) { if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++ }
@@ -941,6 +965,18 @@ export function installPj(app: any, d: Deps) {
   app.get('/api/pj/league', async (c: any) => {
     const b = await lgCtx(c); if (b.res) return b.res
     return c.json(await lgView(c, b, b.sp))
+  })
+  // PJ_LG_AUTO_V1 自動参加を 休む／また 出る
+  app.post('/api/pj/league/auto', async (c: any) => {
+    await ensureLg(c.env)
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const sp = body && body.sport === 'sc' ? 'sc' : 'bb', cid = lgCid(b.w), wk0 = mondayOf(b.ctx.today)
+    b.st.lgOff = b.st.lgOff || {}
+    if (body && body.on === false) { b.st.lgOff[sp] = 1; await c.env.DB.prepare('DELETE FROM pj_lentry WHERE cid=? AND wk>? AND sp=? AND uid=?').bind(cid, wk0, sp, String(b.w.sid)).run() }
+    else delete b.st.lgOff[sp]
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json(await lgView(c, Object.assign(b, { cid, wk: wk0 }), sp))
   })
   app.post('/api/pj/league/enter', async (c: any) => {
     await ensureLg(c.env)
