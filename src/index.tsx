@@ -3521,6 +3521,45 @@ app.get('/api/teacher/class/:classId/karte-guide', async (c) => {
   } catch (e) {}
   return c.json({ ok: true, unitProgress, nowUnits, nowManual, memoTopics, classGrade })
 })
+// 🔍 HSCHECK_V1 阪神マンと理解度チェック：子どもの画面で「いまの算数の単元」を決める材料（読むだけ・2026-11-10）。
+//   先生が選んだ単元 → 授業メモの「算数：○○」 → クラスの記録 → 標準の進み方（決め方は public/hscheck.js。カルテの「いまの単元」と同じ順）。
+app.get('/api/student/check-now', async (c) => {
+  const u = c.get('user')
+  if (!u) return jsonError(c, 401, 'unauthorized')
+  let classId = ''
+  try {
+    const r: any = await c.env.DB.prepare('SELECT class_id AS cid FROM class_members WHERE user_id = ? LIMIT 1').bind(u.id).first<any>()
+    classId = String((r && r.cid) || '')
+  } catch (_e) {}
+  let manual = '', unitProgress: any = null
+  const memo: any[] = [], classUnits: any[] = [], mine: any[] = []
+  if (classId) {
+    try { const r: any = await c.env.DB.prepare("SELECT unit FROM class_now_units WHERE class_id = ? AND subj = 'math'").bind(classId).first<any>(); manual = String((r && r.unit) || '') } catch (_e) {}
+    try { const r: any = await c.env.DB.prepare('SELECT unit_progress AS up FROM classes WHERE id = ?').bind(classId).first<any>(); unitProgress = r && r.up ? JSON.parse(r.up) : null } catch (_e) {}
+    try {
+      const since28 = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10)
+      const r = await c.env.DB.prepare("SELECT day_key, body, created_at FROM teacher_class_notes WHERE class_id = ? AND (COALESCE(day_key, '') >= ? OR COALESCE(created_at, '') >= ?) ORDER BY id DESC LIMIT 30").bind(classId, since28, since28).all<any>()
+      const rows = (((r && r.results) || []) as any[]).sort((a: any, b: any) => String(b.day_key || b.created_at || '').localeCompare(String(a.day_key || a.created_at || '')))
+      for (const x of rows) {
+        const ts = wr2NoteTopics([String(x.body || '')], [])
+        for (let i = ts.length - 1; i >= 0; i--) if (ts[i].subj === '算数') memo.push({ theme: ts[i].theme })
+        if (memo.length >= 3) break
+      }
+    } catch (_e) {}
+    try {
+      const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
+      const since7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+      const r = await c.env.DB.prepare('SELECT lr.unit AS unit, COUNT(*) AS n, COUNT(DISTINCT lr.user_id) AS users, SUM(CASE WHEN lr.answered_at >= ? THEN 1 ELSE 0 END) AS n7, COUNT(DISTINCT CASE WHEN lr.answered_at >= ? THEN lr.user_id END) AS users7 FROM class_members cm JOIN learning_results lr ON lr.user_id = cm.user_id AND lr.answered_at >= ? WHERE cm.class_id = ? GROUP BY lr.unit ORDER BY users DESC, n DESC LIMIT 40').bind(since7, since7, since, classId).all<any>()
+      for (const x of (((r && r.results) || []) as any[])) classUnits.push({ unit: String(x.unit || ''), n: Number(x.n || 0), users: Number(x.users || 0), n7: Number(x.n7 || 0), users7: Number(x.users7 || 0) })
+    } catch (_e) {}
+  }
+  try {
+    const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
+    const r = await c.env.DB.prepare('SELECT unit, COUNT(*) AS n, SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) AS ok, MAX(answered_at) AS lastAt FROM learning_results WHERE user_id = ? AND answered_at >= ? GROUP BY unit ORDER BY lastAt DESC LIMIT 20').bind(u.id, since).all<any>()
+    for (const x of (((r && r.results) || []) as any[])) mine.push({ unit: String(x.unit || ''), n: Number(x.n || 0), ok: Number(x.ok || 0), lastAt: String(x.lastAt || '') })
+  } catch (_e) {}
+  return c.json({ ok: true, manual, memo, classUnits, mine, unitProgress })
+})
 // NOWUNIT_V1 先生が「いまの単元」を教科ごとに1つ選ぶ（選ばなくてもよい。空にすると自動にもどる）。表は migrations/0048。
 const NOWUNIT_SUBJS = ['math', 'japanese', 'social', 'science']
 app.post('/api/teacher/class/:classId/now-unit', async (c) => {
@@ -10822,6 +10861,7 @@ app.get('/ai-flow.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(
 app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/minnafuri.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MINNA_FURI_V1
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
+app.get('/hscheck.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hscheck.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHECK_V1
 app.get('/hsextra.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsextra.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/pjgift.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pjgift.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
@@ -11066,7 +11106,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hschat.js?v=7"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/hschat.js?v=7"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
