@@ -85,6 +85,16 @@
     resumePhoto: '写真は もう一度 えらんでな',
     introTitle: '家庭学習を阪神マンと対話しながらできるようになったで！',
     sign: 'おつかれさん！ おうちの人に見せて、サインもらってきてな！',
+    wplan: '月曜日やから、まず 今週の 計画を 立てよか！ 今週の 自主学習、何を どこまで やる？',   // WEEKCHAT_V1
+    wplan2: 'ええやん！ ほかにも 今週 やりたいこと ある？',
+    wplanOther: '今週 やることを 書いてな（例：漢字スキル p.20まで、読書 30分×3日）',
+    wplanDone: '📋 今週の 計画は「{plan}」で いこか！ 金曜に いっしょに ふりかえろな。ほな 今日の 分や！',
+    wplanSkip: 'オッケー、週の 計画は シートで 書いてな。ほな 今日の 分や！',
+    wref: '金曜日やから、今週 1週間を ふりかえろう！ 今週 いちばん がんばったことは？',
+    wref2: 'ええな！ ほな、来週 がんばりたいことは？',
+    wrefOther: '思ったことを そのまま 書いてな',
+    wrefDone: '🌟 今週の ふりかえり、ばっちりや！ 来週も いっしょに がんばろな。',
+    wrefSkip: 'オッケー、週の ふりかえりは シートで 書いてな。',
     minnaAsk: 'さいごに ひとつ！ 今日の ふりかえり、クラスの「みんなのふりかえり」に のせても ええ？ 先生が えらんで、いくつか しょうかいするで。',   // MINNA_CHAT_V1
     minnaNamed: 'ありがとう！ 名前ありで のせても ええ、やな。先生が えらんだら のるで！ ほな 提出しよか',
     minnaAnon: 'ありがとう！ 名前なしで のせても ええ、やな。先生が えらんだら のるで！ ほな 提出しよか',
@@ -215,6 +225,7 @@
         case 'hsSubmitAndExport': return typeof hsSubmitAndExport === 'function' ? hsSubmitAndExport : null;
         case 'hsPhotosSelected': return typeof hsPhotosSelected === 'function' ? hsPhotosSelected : null;
         case 'hsFetchWeeklyMenu': return typeof hsFetchWeeklyMenu === 'function' ? hsFetchWeeklyMenu : null;
+        case 'hsGetDayOfWeek': return typeof hsGetDayOfWeek === 'function' ? hsGetDayOfWeek : null;   // WEEKCHAT_V1
         case 'hsGetWeekKey': return typeof hsGetWeekKey === 'function' ? hsGetWeekKey : null;
         case 'hsGetWeekDayKey830': return typeof hsGetWeekDayKey830 === 'function' ? hsGetWeekDayKey830 : null;
         case 'hwGetPlanForWeek': return typeof hwGetPlanForWeek === 'function' ? hwGetPlanForWeek : null;
@@ -388,6 +399,7 @@
       say(c, 'b', SAY.hello);
       try { var _ts = (typeof window.TEISHUTSU_CHAT_LINE === 'function') ? window.TEISHUTSU_CHAT_LINE() : ''; if (_ts) say(c, 'b', _ts); } catch (_e) {}   /* TEISHUTSU_V1 今週の家庭学習の提出状況（1日1回まで） */
       if (s.started) { c.step = 'run'; c.goalMin = 0; say(c, 'b', SAY.sheetStarted); }
+      else if (needPlan(s)) { c.step = 'wplan'; say(c, 'b', SAY.wplan); loadMenu(); }   /* 📋 WEEKCHAT_V1 月曜は 先に 週の計画 */
       else { var _pl = startLine(); if (_pl) say(c, 'b', _pl); say(c, 'b', SAY.todo); }   /* HSTALK_V1 前の「次どうする」 */
       s._chat = c; saveSess(s);
     } else if (s.started && (c.step === 'todo' || c.step === 'why' || c.step === 'min' || c.step === 'ready')) {
@@ -500,7 +512,11 @@
       else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
       else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
       else if (w === 'deep') { deepDone(s, c, v); }
-      else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); toBye(s, c); }
+      else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); afterNext(s, c); }
+      else if (w === 'wplan') { s.weeklyPlan = cut(v, 300); c.step = 'wplan2'; say(c, 'b', SAY.wplan2); }
+      else if (w === 'wplan2') { s.weeklyPlan = cut(String(s.weeklyPlan || '') + (s.weeklyPlan ? '、' : '') + cut(v, 100), 300); say(c, 'b', fill(SAY.wplanDone, { plan: cut(s.weeklyPlan || '', 80) })); c.step = 'todo'; say(c, 'b', SAY.todo); }
+      else if (w === 'wref') { c.wrGood = cut(v, 140); c.step = 'wref2'; say(c, 'b', SAY.wref2); }
+      else if (w === 'wref2') { c.wrNext = cut(v, 140); s.weeklyReflection = cut('今週がんばったこと：' + (c.wrGood || '') + '／来週がんばりたいこと：' + c.wrNext, 300); say(c, 'b', SAY.wrefDone); toBye(s, c); }
       else if (w === 'more') { s.todo = cut(String(s.todo || '') + '＋' + cut(v, 100), 480); c.todoText = s.todo; say(c, 'b', SAY.searchPick); c.step = 'run'; }
     });
   }
@@ -562,8 +578,64 @@
   }
   function pickNext(label, other) {
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.nextOther); c.waiting = 'next'; }); return; }
-    act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; nextReact(c); toBye(s, c); });
+    act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; nextReact(c); afterNext(s, c); });
   }
+  // ───────── 📋🌟 WEEKCHAT_V1（2026-11-10）月曜の「週の計画」・金曜の「週の振り返り」も 対話で ─────────
+  //   シートの 同じ 欄（weeklyPlan・weeklyReflection）に 入る。シートで もう 書いてあれば 聞かない。
+  function isDow(n) { try { return call('hsGetDayOfWeek', dayKey()) === n; } catch (e) { return false; } }
+  function needPlan(s) { return isDow(1) && !String((s && s.weeklyPlan) || '').trim(); }
+  function needRef(s) { return isDow(5) && !String((s && s.weeklyReflection) || '').trim(); }
+  var _menu = null;
+  function loadMenu() {
+    if (_menu) return;
+    try {
+      var p = call('hsFetchWeeklyMenu', dayKey());
+      if (p && p.then) p.then(function (m) { _menu = m || {}; draw(); }).catch(function () { _menu = {}; draw(); }); else _menu = {};
+    } catch (e) { _menu = {}; }
+  }
+  function menuItems() {
+    var m = _menu || {}, out = [];
+    if (m.kanjiPage) out.push('漢字スキル ' + m.kanjiPage);
+    if (m.keisanPage) out.push('計算スキル ' + m.keisanPage);
+    if (m.otherTasks) out.push(String(m.otherTasks));
+    if (m.tests) out.push('テスト勉強（' + m.tests + '）');
+    return out.map(function (t) { return cut(t, 60); });
+  }
+  function planOpts() {
+    var mi = menuItems(), o = [];
+    if (mi.length) o.push({ label: '📚 先生メニューを ぜんぶ やる', text: mi.join('、') });
+    mi.forEach(function (t) { o.push({ label: '📘 ' + t, text: t }); });
+    return o;
+  }
+  var PLAN_PLUS = ['📖 読書', '🎮 アプリの 修行', '📝 テスト勉強', '🔁 にがてな ところの 復習'];
+  function pickPlan(o) {
+    act(function (s, c) { say(c, 'm', o.label); s.weeklyPlan = cut(o.text || stripIcon(o.label), 300); c.step = 'wplan2'; say(c, 'b', SAY.wplan2); });
+  }
+  function pickPlan2(label, done) {
+    act(function (s, c) {
+      say(c, 'm', label);
+      if (!done) s.weeklyPlan = cut(String(s.weeklyPlan || '') + (s.weeklyPlan ? '、' : '') + stripIcon(label), 300);
+      say(c, 'b', fill(SAY.wplanDone, { plan: cut(s.weeklyPlan || '', 80) }));
+      var _pl = startLine(); if (_pl) say(c, 'b', _pl);
+      c.step = 'todo'; say(c, 'b', SAY.todo);
+    });
+  }
+  function skipPlan() {
+    act(function (s, c) { say(c, 'm', '⏭ シートで 書く'); say(c, 'b', SAY.wplanSkip); c.step = 'todo'; say(c, 'b', SAY.todo); });
+  }
+  var REF_GOOD = ['📚 毎日 つづけられた', '📝 テストに むけて がんばった', '🔁 わからない ところを なおした', '⏱ 時間を きめて 集中できた'];
+  var REF_NEXT = ['📅 毎日 出す', '📝 テスト勉強を はやめに', '🔁 にがてを 復習する', '⏱ 時間を きめて やる'];
+  function afterNext(s, c) { if (needRef(s)) { c.step = 'wref'; say(c, 'b', SAY.wref); return; } toBye(s, c); }
+  function pickRef(label) { act(function (s, c) { say(c, 'm', label); c.wrGood = stripIcon(label); c.step = 'wref2'; say(c, 'b', SAY.wref2); }); }
+  function pickRef2(label) {
+    act(function (s, c) {
+      say(c, 'm', label); c.wrNext = stripIcon(label);
+      s.weeklyReflection = cut('今週がんばったこと：' + (c.wrGood || '') + '／来週がんばりたいこと：' + c.wrNext, 300);
+      say(c, 'b', SAY.wrefDone); toBye(s, c);
+    });
+  }
+  function skipRef() { act(function (s, c) { say(c, 'm', '⏭ シートで 書く'); say(c, 'b', SAY.wrefSkip); toBye(s, c); }); }
+
   function toBye(s, c) {
     if (String((s && s.parentComment) || '').trim()) { say(c, 'b', SAY.bye); minnaAsk(c); return; }   // シートで もう書いてもらっていたら そのまま（MINNA_CHAT_V1 のせてもいい？を 聞いてから 写真へ）
     c.step = 'sign'; say(c, 'b', SAY.sign);
@@ -793,6 +865,19 @@
       var ns = NEXTS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ns);
       bind(foot, ns.map(function (r, i) { return function () { if (i === ns.length - 1) pickNext('', true); else pickNext(r.label); }; }));
+    } else if (step === 'wplan') {   // 📋 WEEKCHAT_V1
+      if (!_menu) loadMenu();
+      var po = planOpts(), all = po.map(function (x) { return { label: x.label, cls: /ぜんぶ/.test(x.label) ? 'main' : '' }; }).concat([{ label: '✍️ 自分で 書く' }, { label: '⏭ シートで 書く', cls: 'sub' }]);
+      foot.innerHTML = btns(all) + (_menu ? (po.length ? '' : '<div class="hc-note">今週の 先生メニューは まだ ないみたい。自分で 書いてみよう！</div>') : '<div class="hc-note">先生メニューを よみこみ中…</div>');
+      bind(foot, po.map(function (x) { return function () { pickPlan(x); }; }).concat([function () { act(function (s2, c2) { say(c2, 'm', '✍️ 自分で 書く'); say(c2, 'b', SAY.wplanOther); c2.waiting = 'wplan'; }); }, skipPlan]));
+    } else if (step === 'wplan2') {
+      var p2 = PLAN_PLUS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ 自分で 書く' }, { label: '👍 これで OK', cls: 'main' }]);
+      foot.innerHTML = btns(p2);
+      bind(foot, PLAN_PLUS.map(function (t) { return function () { pickPlan2(t); }; }).concat([function () { act(function (s2, c2) { say(c2, 'm', '✍️ 自分で 書く'); say(c2, 'b', SAY.wplanOther); c2.waiting = 'wplan2'; }); }, function () { pickPlan2('👍 これで OK', true); }]));
+    } else if (step === 'wref' || step === 'wref2') {   // 🌟 WEEKCHAT_V1
+      var L2 = step === 'wref' ? REF_GOOD : REF_NEXT, rr = L2.map(function (t) { return { label: t }; }).concat([{ label: '✍️ 自分で 書く' }].concat(step === 'wref' ? [{ label: '⏭ シートで 書く', cls: 'sub' }] : []));
+      foot.innerHTML = btns(rr);
+      bind(foot, L2.map(function (t) { return function () { if (step === 'wref') pickRef(t); else pickRef2(t); }; }).concat([function () { act(function (s2, c2) { say(c2, 'm', '✍️ 自分で 書く'); say(c2, 'b', SAY.wrefOther); c2.waiting = step; }); }].concat(step === 'wref' ? [skipRef] : [])));
     } else if (step === 'minna') {   // MINNA_CHAT_V1
       foot.innerHTML = btns([{ label: '📛 名前ありで のせて ええよ' }, { label: '🙈 名前なしで のせて ええよ' }, { label: '⏭ 今回は いい', cls: 'sub' }], 'three');
       bind(foot, [function () { pickMinna('named', '📛 名前ありで のせて ええよ'); }, function () { pickMinna('anon', '🙈 名前なしで のせて ええよ'); }, function () { pickMinna('', '⏭ 今回は いい'); }]);

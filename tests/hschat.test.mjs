@@ -505,6 +505,26 @@ await t('19 MINNA_CHAT 提出の前に「みんなのふりかえりに のせ�
   eq(e.w.__minna.length, 0, '今回は いい なら 送らない')
 })
 
+await t('20 WEEKCHAT 月曜は さいしょに 週の計画（先生メニューから えらぶ＋ついか）→ シートの weeklyPlan に 入る／金曜は さいごに 週のふりかえり', async () => {
+  const d = await device()
+  d.w.eval("function hsGetDayOfWeek(){ return 1 } async function hsFetchWeeklyMenu(){ return { kanjiPage: 'p.20まで', keisanPage: 'p.15まで', otherTasks: '', tests: '漢字50問' } }")
+  d.w.HSCHAT.open(); await sleep(80)
+  eq(d.sess()._chat.step, 'wplan', '月曜は 週の計画から')
+  await d.click('先生メニューを ぜんぶ やる')
+  eq(d.sess()._chat.step, 'wplan2', 'ついか')
+  await d.click('読書')
+  eq(d.sess()._chat.step, 'todo', '今日の 分へ')
+  ok(/漢字スキル p\.20まで/.test(d.sess().weeklyPlan) && /読書/.test(d.sess().weeklyPlan), '計画: ' + d.sess().weeklyPlan)
+  const e = await device()
+  e.w.eval("function hsGetDayOfWeek(){ return 5 }")
+  await toSign(e)
+  // 金曜：「次どうする」の あとに ふりかえり 2つ → サインへ
+  ok(['wref', 'sign'].indexOf(e.sess()._chat.step) >= 0, 'step ' + e.sess()._chat.step)
+  eq(e.sess()._chat.step, 'wref', '金曜は ふりかえり')
+  await e.click('毎日 つづけられた'); await e.click('テスト勉強を はやめに')
+  eq(e.sess()._chat.step, 'sign', 'サインへ')
+  ok(/今週がんばったこと：毎日 つづけられた/.test(e.sess().weeklyReflection) && /来週がんばりたいこと：テスト勉強を はやめに/.test(e.sess().weeklyReflection), e.sess().weeklyReflection)
+})
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== hschat ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))
