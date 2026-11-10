@@ -25,6 +25,8 @@ const TIERS: any = { normal: { price: 200 }, pos: { price: 250 }, rare: { price:
 const TEAM_MAX = 30
 const CONTRACT = 20
 const DUP_EXT = 10
+const PRACTICE_MAX = 3   // 練習試合は 1日 3回まで（PJ_PRACTICE3_V1）
+const PRACTICE_WIN: any = { weak: 50, mid: 100, strong: 200 }   // 練習試合で 勝ったら もらえる コイン（よわい・ふつう・つよい）
 const EXT_DAYS = 10   // 🤝 契約延長券 1まいで のびる 日数（PJ_TICKETS_V1）
 const EXT_MAX = 2     // 1回の 契約で 券を つかえるのは 2回まで
 const TEST_COINS = 3000
@@ -220,8 +222,10 @@ export function installPj(app: any, d: Deps) {
       const hi = day > t ? day : t
       const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=? LIMIT 1').bind(String(w.u.id), p, hi).first(); hw = !!r
     } catch (_e) { hw = false }
-    const used = !!(st.pr && st.pr.d === day && Number(st.pr.n) >= 1)
-    return { can: hw && !used, hw, used, day }
+    // PJ_PRACTICE3_V1 1日 3回まで（2026-11-10）
+    const n = st.pr && st.pr.d === day ? Number(st.pr.n) || 0 : 0
+    const used = n >= PRACTICE_MAX
+    return { can: hw && !used, hw, used, day, n, max: PRACTICE_MAX, left: Math.max(0, PRACTICE_MAX - n), win: PRACTICE_WIN }
   }
 
   // その子の「きょう」と 休みの日
@@ -376,6 +380,13 @@ export function installPj(app: any, d: Deps) {
     if (ch1 || (b.st.rw && b.st.rw.ck) !== ck0) await save(c.env, b.w.sid, b.st, b.ver)
     return c.json(await view(c, b.w, b.st, b.ctx))
   })
+
+  // 💰 コインを わたす（「サーバ累計 vs 端末の累計」＝ _pjGiftCoins 方式。端末の 全置換保存でも 消えない）
+  async function giftCoins(env: any, uid: string, amt: number) {
+    await env.DB.prepare("UPDATE progress SET state_json = json_set(json_set(state_json, '$.coins', COALESCE(CAST(json_extract(state_json, '$.coins') AS INTEGER), 0) + ?), '$._pjGiftCoins', COALESCE(CAST(json_extract(state_json, '$._pjGiftCoins') AS INTEGER), 0) + ?), updated_at=datetime('now') WHERE user_id=? AND json_valid(state_json)").bind(amt, amt, uid).run()
+    const r: any = await env.DB.prepare("SELECT CAST(json_extract(state_json,'$.coins') AS INTEGER) AS c, CAST(json_extract(state_json,'$._pjGiftCoins') AS INTEGER) AS g FROM progress WHERE user_id=?").bind(uid).first()
+    return r ? { c: Number(r.c), g: Number(r.g) } : null
+  }
 
   // 🎁 PJ_REWARD_PICK_V1 ごほうびの 一覧（アプリの ふつうの 画面からも よぶ。先生PJを ひらいていない子にも 出す）
   app.get('/api/pj/rewards', async (c: any) => {
@@ -649,6 +660,9 @@ export function installPj(app: any, d: Deps) {
     const p = await practiceInfo(c, b.w, b.st, b.ctx)
     if (!p.can) return err(c, 403, p.hw ? 'practice_used' : 'practice_hw')
     const r = await cpuRoster(c.env, sp, lv)
+    // つぎの 練習試合の あいての つよさを おぼえておく（勝ったときの コインは これで きめる。端末の 言いぶんは つかわない）
+    b.st.pq = { sp, lv, at: Date.now() }
+    await save(c.env, b.w.sid, b.st, b.ver)
     return c.json(Object.assign({ ok: true, coach: await cpuCoach(c.env, sp) }, r))
   })
 
@@ -657,8 +671,31 @@ export function installPj(app: any, d: Deps) {
     const b = await begin(c); if (b.res) return b.res
     const p = await practiceInfo(c, b.w, b.st, b.ctx)
     if (!p.can) return err(c, 403, p.hw ? 'practice_used' : 'practice_hw')
-    if (!b.w.test) { b.st.pr = { d: p.day, n: 1 }; if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy') }
-    return c.json({ ok: true })
+    const q = b.st.pq || {}
+    const pid = Math.random().toString(36).slice(2, 10)
+    b.st.pr = { d: p.day, n: (b.st.pr && b.st.pr.d === p.day ? Number(b.st.pr.n) || 0 : 0) + (b.w.test ? 0 : 1), tk: { id: pid, sp: q.sp || 'bb', lv: q.lv || 'mid', at: Date.now(), done: 0 } }
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
+    return c.json({ ok: true, pid, left: Math.max(0, PRACTICE_MAX - b.st.pr.n) })
+  })
+
+  // 🏆 PJ_PRACTICE3_V1 練習試合の 結果：勝ったら コイン（よわい 50・ふつう 100・つよい 200）。1試合 1回だけ
+  app.post('/api/pj/practice/result', async (c: any) => {
+    const b = await begin(c); if (b.res) return b.res
+    const body = await c.req.json().catch(() => ({}))
+    const tk = b.st.pr && b.st.pr.tk
+    if (!tk || tk.id !== String((body && body.pid) || '') || tk.done) return err(c, 409, 'done')
+    if (Date.now() - Number(tk.at || 0) > 3 * 3600000) return err(c, 409, 'old')
+    const my = Math.floor(Number(body.my)), op = Math.floor(Number(body.op))
+    if (!(my >= 0 && op >= 0 && my < 60 && op < 60)) return err(c, 400, 'score')
+    tk.done = 1; tk.my = my; tk.op = op
+    const win = my > op, amt = win ? (Number(PRACTICE_WIN[tk.lv]) || 0) : 0
+    if (!(await save(c.env, b.w.sid, b.st, b.ver))) return err(c, 409, 'busy')
+    let coins: any = null
+    if (amt > 0) {
+      if (b.w.test) { b.st.tc = (Number(b.st.tc) || 0) + amt; await save(c.env, b.w.sid, b.st, b.ver + 1) }
+      else coins = await giftCoins(c.env, String(b.w.u.id), amt)
+    }
+    return c.json({ ok: true, win, coins: amt, total: coins && coins.c, pjGiftCoins: coins && coins.g, lv: tk.lv })
   })
 
   app.post('/api/pj/teamname', async (c: any) => {

@@ -869,9 +869,9 @@
     var ids = field.concat(bn, sps, rp, [num((o.CL || [])[0])]);
     var order = o.L.map(function (x) { return POS.indexOf(x.p); });
     var cm = S.mgr && S.mgr.bb, coach = cm && S.players[cm] ? S.players[cm].n : '';
-    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
+    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { window.__pjPid = d.pid; S.practice = Object.assign({}, S.practice, { left: d.left, used: !S.test && !(d.left > 0), can: !!S.test || d.left > 0 }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう 3回 やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
     api('/api/pj/cpu-team?s=bb&lv=' + PLV).then(function (cpu) {
-      if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
+      if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう 3回 やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
       var arg = { A: ids, order: order, nsp: sps.length, coach: coach, B: cpu.ids, cc: cpu.coach || '', name: (S.teamName && S.teamName.bb) || 'きみのチーム' };
       openGame('bb', '🏟 練習試合', function (w) {
         w.__pjEval('(function(o){var MK=Object.keys(MGR_S);var mi=Math.max(0,MK.indexOf(o.coach));'
@@ -881,8 +881,40 @@
           + 'S=bbLeagueFixture(data,mt);delete S.leagueSeed;'
           + 'var _sg=startGame;startGame=function(){if(window.__pjPlayed){return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _sg.apply(this,arguments)};'
           + 'startGame();return 1})(' + JSON.stringify(arg) + ')');
-      }, function () { render(); }, true);
+        watchPractice(w, 'bb', arg.name);
+      }, function () { start(); }, true);
     });
+  }
+  /* 🏆 PJ_PRACTICE3_V1 練習試合の 結果を 見はって、おわったら サーバへ（勝ったら コイン） */
+  function watchPractice(w, sp, myName) {
+    var sent = false, n = 0;
+    var t = setInterval(function () {
+      if (sent || ++n > 3600) { clearInterval(t); return; }
+      var my = null, op = null;
+      try {
+        if (!w || w.closed || !w.document) { clearInterval(t); return; }
+        if (sp === 'bb') {
+          // 野球の ゲームは S が let なので、ゲームの 中で 読む
+          var rr = w.__pjEval && w.__pjEval('(function(){var G=S&&S.game;if(!G||!G.over)return null;var f=function(a){return (a||[]).reduce(function(x,y){return x+(Number(y)||0)},0)};return [f(G.score[0]),f(G.score[1])]})()');
+          if (!rr || rr.length !== 2) return;
+          my = rr[0]; op = rr[1];
+        } else {
+          var eb = Array.prototype.slice.call(w.document.querySelectorAll('.card .eyebrow')).filter(function (e) { return /^試合終了/.test(e.textContent || ''); })[0];
+          if (!eb) return;
+          var card = eb.parentNode, sc = card.querySelector('div[style*="font-size:1.6rem"]'), m = /(\d+)\s*-\s*(\d+)/.exec(sc ? sc.textContent : '');
+          if (!m) return;
+          my = Number(m[1]); op = Number(m[2]);
+          var h2 = card.querySelector('h2'); if (my === op && h2 && h2.textContent === myName + ' の勝ち！') my = op + 1;   // PK勝ち
+        }
+      } catch (e) { return; }
+      if (my == null || !window.__pjPid) return;
+      sent = true; clearInterval(t);
+      api('/api/pj/practice/result', { pid: window.__pjPid, my: my, op: op }).then(function (d) {
+        var msg = d && d.ok ? (d.win ? '🎉 勝った！ ' + d.coins + 'コイン ゲット！' : (my === op ? '引き分け！ また ちょうせんしよう' : 'おしかった！ また ちょうせんしよう')) : '';
+        try { if (msg && w.toast) w.toast(msg); } catch (e) {}
+        if (d && d.ok && d.win) S.coins = (Number(S.coins) || 0) + d.coins;
+      });
+    }, 1000);
   }
   function openMeikan(f) {
     openGame(f, (f === 'bb' ? '⚾ 野球' : '⚽ サッカー') + 'の 選手名鑑（きみの 選手）', function (w, info) { w.__pjStart(f === 'bb' ? info.bb : info.sc, f); });
@@ -899,11 +931,11 @@
     prefetchGame(SP);
     var pr = S.practice || {}, ready = orderReady(), can = pr.can && ready;
     var why = !pr.hw ? '📝 家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'
-      : pr.used ? 'きょうの 練習試合は もう やったよ。また あした！'
+      : pr.used ? 'きょうの 練習試合は もう 3回 やったよ。また あした！'
       : !ready ? (SP === 'sc' ? '📋 先に オーダーで スタメン 11人を きめてね。' : '📋 先に オーダーで スタメン 9人・先発投手・抑えを きめてね。') : '';
     var h = '<div class="mw"><div class="box scout"><div style="font-size:40px">🏟</div>'
       + '<div style="font-weight:900;font-size:18px;margin:4px 0 6px">練習試合（CPUと たいせん）</div>'
-      + '<div class="note" style="margin-bottom:12px">きみの オーダーと 監督で たたかうよ。試合の とちゅうで 作戦や 交代も できる。<br>家庭学習を 出した日に 1日 1回。</div>'
+      + '<div class="note" style="margin-bottom:12px">きみの オーダーと 監督で たたかうよ。試合の とちゅうで 作戦や 交代も できる。<br>家庭学習を 出した日に 1日 ' + (pr.max || 3) + '回（きょう あと <b>' + (pr.left != null ? pr.left : (pr.used ? 0 : 3)) + '回</b>）。<br>🏆 勝ったら コイン！ よわい ' + ((pr.win || {}).weak || 50) + '・ふつう ' + ((pr.win || {}).mid || 100) + '・つよい ' + ((pr.win || {}).strong || 200) + '</div>'
       + '<div class="note" style="font-weight:900;margin-bottom:6px">あいての つよさ</div><div class="lvg2">' + [['weak', 'よわい'], ['mid', 'ふつう'], ['strong', 'つよい']].map(function (x) { return '<button class="btn' + (PLV === x[0] ? '' : ' sub') + '" data-plv="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
       + '<button class="btn big" id="prGo" style="margin-top:10px;background:' + (SP === 'bb' ? '#1d4ed8' : '#15803d') + '"' + (can ? '' : ' disabled') + '>🏟 練習試合を はじめる</button>'
       + (why ? '<div class="note" style="margin-top:8px;color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '')
@@ -1019,9 +1051,9 @@
     var o = S.order.sc, mk = function (k) { var p = S.players[k]; return p && p.mk ? String(p.mk).slice(1) : null; };
     var cm = S.mgr && S.mgr.sc, coach = cm && S.players[cm] ? S.players[cm].n : '';
     var arg = { f: o.f, L: o.L.map(mk), B: (o.B || []).map(mk).filter(Boolean), coach: coach, name: (S.teamName && S.teamName.sc) || 'きみのチーム' };
-    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { S.practice = Object.assign({}, S.practice, { used: !S.test, can: !!S.test }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
+    window.__pjOnPlay = function () { api('/api/pj/practice/use', {}).then(function (d) { if (d && d.ok) { window.__pjPid = d.pid; S.practice = Object.assign({}, S.practice, { left: d.left, used: !S.test && !(d.left > 0), can: !!S.test || d.left > 0 }); } else if (d && (d.error === 'practice_used' || d.error === 'practice_hw')) { /* PJ_PRACTICE_LOCK_V1 サーバが だめと いったら 試合を とじる（べつの タブで 2回目 など） */ var x = $('mkX'); if (x) x.click(); alert(d.error === 'practice_used' ? 'きょうの 練習試合は もう 3回 やったよ。また あした！' : '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。'); S.practice = Object.assign({}, S.practice, { can: false, used: d.error === 'practice_used' }); if (TAB === 'match') paneMatch(); } }); };
     api('/api/pj/cpu-team?s=sc&lv=' + PLV).then(function (cpu) {
-    if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
+    if (!cpu || !cpu.ok) { alert(cpu && cpu.error === 'practice_used' ? 'きょうの 練習試合は もう 3回 やったよ。また あした！' : cpu && cpu.error === 'practice_hw' ? '家庭学習を 出すと（きのうの 夜か きょう）、練習試合が できるよ。' : 'あいての チームを つくれなかったよ。もう一度 ためしてね。'); return; }
     arg.cpu = { f: cpu.f, L: cpu.L, B: cpu.B, coach: cpu.coach };
     openGame('sc', '🏟 練習試合', function (w) {
       w.__pjEval('(function(o){var d=newDrafter(o.name,o.f);var fs=d.slots.filter(function(s){return s.role!=="SUB"});'
@@ -1030,9 +1062,10 @@
         + 'd.coach=coachOf(o.coach||"かんとく");d.tours=[];'
         + 'var c=o.cpu;var B=newDrafter("CPU",c.f||"4-3-3");var bs=B.slots.filter(function(s){return s.role!=="SUB"});bs.forEach(function(s,i){var k=c.L[i];if(k&&PL[k])s.p=Object.assign({},PL[k])});B.slots=bs;(c.B||[]).forEach(function(k){if(PL[k])B.slots.push({k:"SUB",role:"SUB",p:Object.assign({},PL[k])})});B.cpu=true;B.coach=coachOf(c.coach||"かんとく");B.tours=[];'
         + 'if(B.slots.some(function(s){return s.role!=="SUB"&&!s.p})){B=cpuTeam();var CK=Object.keys(COACH);B.coach=coachOf(CK[Math.floor(Math.random()*CK.length)])}S.ds=[d,B];'
-        + 'var _p=play;play=function(){if(window.__pjPlayed){try{toast("練習試合は 1日 1回だよ")}catch(e){}return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _p.apply(this,arguments)};'
+        + 'var _p=play;play=function(){if(window.__pjPlayed){try{toast("もう一度 やるときは 試合タブから はじめてね")}catch(e){}return}window.__pjPlayed=1;try{parent.__pjOnPlay&&parent.__pjOnPlay()}catch(e){}return _p.apply(this,arguments)};'
         + 'matchSetup();return 1})(' + JSON.stringify(arg) + ')');
-    }, function () { render(); }, true);
+      watchPractice(w, 'sc', arg.name);
+    }, function () { start(); }, true);
     });
   }
 
