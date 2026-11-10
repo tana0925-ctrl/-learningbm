@@ -1013,6 +1013,18 @@ app.put('/api/student/progress', async (c) => {
       // オチャ（連続提出ごほうび）：サーバが付与済みなら、クライアントの全置換保存でも必ずモンスター＋フラグを保持
       const _srvOchaGranted = (Number(_srv._ochaGranted) || 0) === 1 || !!(_srv.secret && _srv.secret.ochaGot)
       if (_srvOchaGranted) {
+        // OCHA_FLIP_FIX_V1（2026-11-10）：前の 版の「番号の入れかえ」で、もらった オチャ（1042）が オチャ大魔王（1043）に なっていた。
+        //   オチャ（1042）が なくて、大魔王（1043）が Lv60 未満なら、それは オチャ。1042 に もどす（レベル・けいけんちは そのまま）。
+        try {
+          const _m43 = _inc.monsters && _inc.monsters['1043']
+          if (_m43 && !_inc.monsters['1042'] && (Number(_m43.level) || 0) < 60) {
+            _inc.monsters['1042'] = _m43; delete _inc.monsters['1043']
+            const _rep = (a: any) => { if (Array.isArray(a)) for (let i = 0; i < a.length; i++) if (Number(a[i]) === 1043) a[i] = 1042 }
+            _rep(_inc.party); _rep(_inc.pokedex)
+            if (Array.isArray(_inc.pokedex)) _inc.pokedex = _inc.pokedex.filter((x: any, i: number, arr: any[]) => arr.indexOf(x) === i)
+            saveJson = JSON.stringify(_inc)
+          }
+        } catch (_e) {}
         const _incHasMon = !!(_inc.monsters && (_inc.monsters['1042'] || _inc.monsters['1043']))
         if (!_incHasMon) {
           if (!_inc.monsters || typeof _inc.monsters !== 'object') _inc.monsters = {}

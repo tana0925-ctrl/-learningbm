@@ -11775,8 +11775,9 @@ function recordLimitedUseForParty(context){
                             }
                         };
                         // 片方だけ所持している場合に限り自動補正（両方ある場合は触らない）
-                        moveOne(1043, 1042); // 旧オチャ → 新オチャ
-                        moveOne(1042, 1043); // 旧大魔王 → 新大魔王
+                        // OCHA_FLIP_FIX_V1（2026-11-10）：下の2行は 続けて よぶと 元にもどる（1042→1043 に そろってしまう）ので やめた。
+                        //   その せいで もらった オチャ（Lv8）が オチャ大魔王に なっていた。直しは サーバの 保存でも している（src/index.tsx OCHA_FLIP_FIX_V1）。
+                        void moveOne;
                     } catch (e) {}
 
                     if (data.playTime !== undefined) {
