@@ -978,6 +978,7 @@
     var d = LG[SP];
     if (!d) return '<div class="box note">🏆 リーグを よみこみ中…</div>';
     var h = '<div class="box"><div class="kind">🏆 今週の リーグ戦（' + spName() + '）</div>';
+    h += '<div class="note" style="margin-bottom:4px">🏅 週の 順位で コイン：優勝 <b>2000</b>・2位 <b>1000</b>・3位 <b>500</b>・参加 <b>200</b>（つぎの 週に とどくよ）</div>';
     var L = d.league;
     if (L && L.joined) {
       h += '<div class="note">グループ ' + (L.g + 1) + (L.groups > 1 ? '（ぜんぶで ' + L.groups + 'グループ）' : '') + '　試合は 学校の日の ' + d.time + '。前の日の 夜か その日に 家庭学習を 出していると、その日の 試合を 見られるよ（同じ 試合は 2回まで）。</div>';
@@ -1041,22 +1042,28 @@
                : 'var M=simMatch(A,B,false,{seed:fx.seed,ai:[true,true]});return M.sc')
       + '})(' + o + ')';
   }
-  function computeMissing() {
-    var d = LG[SP]; if (LGBUSY || !d || !d.league || !d.league.joined) return;
-    var need = d.league.matches.filter(function (m) { return m.done && !m.res; }); if (!need.length) return;
-    LGBUSY = true; var sp = SP;
+  /* 🏆 PJ_LG_PRIZE_V1 先週の リーグの 結果の のこりも 出す（そろうと サーバが 順位の コインを わたす） */
+  var PREVDONE = {};
+  function computeMissingPrev() {
+    var sp = SP; if (PREVDONE[sp] || LGBUSY) return; PREVDONE[sp] = 1;
+    api('/api/pj/league?s=' + sp + '&prev=1').then(function (d) { if (d && d.ok && d.league && d.league.joined) computeMissing(d, '&prev=1', sp); });
+  }
+  function computeMissing(d0, q, sp0) {
+    var d = d0 || LG[SP]; q = q || ''; if (LGBUSY || !d || !d.league || !d.league.joined) { if (!d0) computeMissingPrev(); return; }
+    var need = d.league.matches.filter(function (m) { return m.done && !m.res; }); if (!need.length) { if (!d0) computeMissingPrev(); return; }
+    LGBUSY = true; var sp = sp0 || SP;
     gameUrl(sp).then(function (url) {
       var fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;height:600px;border:0;'; document.body.appendChild(fr);
       fr.onload = function () {
         var w = fr.contentWindow, i = 0;
         var next = function () {
-          if (i >= need.length) { fr.remove(); LGBUSY = false; loadLeague(function () { if (TAB === 'match') paneMatch(); }); return; }
+          if (i >= need.length) { fr.remove(); LGBUSY = false; if (q) { try { window.PJGIFT && PJGIFT.check(true); } catch (e) {} return; } loadLeague(function () { if (TAB === 'match') paneMatch(); }); return; }
           var m = need[i++];
-          api('/api/pj/league/fixture?s=' + sp, { sport: sp, mid: m.id }).then(function (fx) {
+          api('/api/pj/league/fixture?s=' + sp + q, { sport: sp, mid: m.id }).then(function (fx) {
             if (!fx || !fx.ok || fx.res) return next();
             var sc = null; try { sc = w.__pjEval(simCode(sp, fx, false)); } catch (e) { try { console.error('pj sim', e); } catch (_e) {} }
             if (!sc) return next();
-            api('/api/pj/league/result?s=' + sp, { sport: sp, mid: m.id, sc: sc }).then(next);
+            api('/api/pj/league/result?s=' + sp + q, { sport: sp, mid: m.id, sc: sc }).then(next);
           });
         };
         var go = function (n) { if (w.__pjEval) next(); else if (n < 40) setTimeout(function () { go(n + 1); }, 150); else { fr.remove(); LGBUSY = false; } };
@@ -1127,6 +1134,6 @@
   start();
 })();
 </script>
-<script src="/pjgift.js?v=1"></script>
+<script src="/pjgift.js?v=2"></script>
 </body>
 </html>

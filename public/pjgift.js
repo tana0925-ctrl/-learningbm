@@ -13,6 +13,7 @@
   function md(dk) { var p = String(dk || '').split('-'); return p.length < 3 ? '' : Number(p[1]) + '/' + Number(p[2]); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function why(g) {
+    if (g.t === 'lg') return md(g.wk) + 'の 週の リーグ戦（' + (g.sp === 'sc' ? '⚽ サッカー' : '⚾ 野球') + '）、' + (g.rank === 1 ? '🥇 優勝！ おめでとう！' : g.rank === 2 ? '🥈 2位！' : g.rank === 3 ? '🥉 3位！' : g.rank + '位。参加 ありがとう！');
     if (g.why === 'week') return md(g.ws) + 'の 週、学校の日に 毎日 家庭学習を 出したね！';
     return md(g.day) + '、クラスの 家庭学習が ' + (g.n >= g.N ? 'ぜんいん そろった' : Math.floor(g.n / g.N * 100) + '% そろった') + '！ みんなの がんばりや！';
   }
@@ -34,12 +35,12 @@
     var bg = document.createElement('div');
     bg.id = 'pjGiftModal';
     bg.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px';
-    var amt = Number(eq[g.t]) || 0;
+    var amt = g.t === 'lg' ? (Number(g.coins) || 0) : (Number(eq[g.t]) || 0);
     bg.innerHTML = '<div style="background:#fff;border-radius:18px;max-width:420px;width:100%;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:inherit">'
       + '<div style="font-size:20px;font-weight:900;color:#0f766e">🎁 ごほうびが とどいたよ！</div>'
-      + '<div style="margin:8px 0 12px;color:#334155;font-size:14px">' + esc(why(g)) + '<br>どっちに する？</div>'
-      + '<button data-pk="tk" style="display:block;width:100%;margin:6px 0;padding:12px;border-radius:14px;border:2px solid #14b8a6;background:#f0fdfa;font-weight:900;font-size:16px;cursor:pointer">' + NM[g.t] + '<br><small style="font-weight:700;color:#475569">' + USE[g.t] + '</small></button>'
-      + '<button data-pk="coin" style="display:block;width:100%;margin:6px 0;padding:12px;border-radius:14px;border:2px solid #f59e0b;background:#fffbeb;font-weight:900;font-size:16px;cursor:pointer">💰 ' + amt + 'コイン<br><small style="font-weight:700;color:#475569">アプリの なんにでも つかえる</small></button>'
+      + '<div style="margin:8px 0 12px;color:#334155;font-size:14px">' + esc(why(g)) + (g.t === 'lg' ? '' : '<br>どっちに する？') + '</div>'
+      + (g.t === 'lg' ? '' : '<button data-pk="tk" style="display:block;width:100%;margin:6px 0;padding:12px;border-radius:14px;border:2px solid #14b8a6;background:#f0fdfa;font-weight:900;font-size:16px;cursor:pointer">' + NM[g.t] + '<br><small style="font-weight:700;color:#475569">' + USE[g.t] + '</small></button>')
+      + '<button data-pk="coin" style="display:block;width:100%;margin:6px 0;padding:12px;border-radius:14px;border:2px solid #f59e0b;background:#fffbeb;font-weight:900;font-size:16px;cursor:pointer">💰 ' + amt + 'コイン' + (g.t === 'lg' ? ' うけとる' : '') + '<br><small style="font-weight:700;color:#475569">アプリの なんにでも つかえる</small></button>'
       + '<div style="text-align:center;margin-top:6px"><button data-pk="later" style="border:none;background:none;color:#64748b;font-size:13px;cursor:pointer;text-decoration:underline">あとで えらぶ</button></div>'
       + '<div class="pjg-msg" style="text-align:center;font-weight:900;color:#0f766e;min-height:1.2em"></div></div>';
     document.body.appendChild(bg);

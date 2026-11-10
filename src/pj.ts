@@ -27,6 +27,8 @@ const CONTRACT = 20
 const DUP_EXT = 10
 const PRACTICE_MAX = 3   // 練習試合は 1日 3回まで（PJ_PRACTICE3_V1）
 const PRACTICE_WIN: any = { weak: 50, mid: 100, strong: 200 }   // 練習試合で 勝ったら もらえる コイン（よわい・ふつう・つよい）
+const LG_PRIZE = [2000, 1000, 500]   // リーグの 1〜3位の コイン（PJ_LG_PRIZE_V1）
+const LG_PRIZE_JOIN = 200            // 4位より下（参加賞）
 const EXT_DAYS = 10   // 🤝 契約延長券 1まいで のびる 日数（PJ_TICKETS_V1）
 const EXT_MAX = 2     // 1回の 契約で 券を つかえるのは 2回まで
 const TEST_COINS = 3000
@@ -406,18 +408,19 @@ export function installPj(app: any, d: Deps) {
     const w: any = await who(c, d)
     if (w.error || !w.classId) return err(c, 403, 'off')
     const body = await c.req.json().catch(() => ({}))
-    const id = String((body && body.id) || ''), pick = body && body.pick === 'coin' ? 'coin' : 'tk'
+    const id = String((body && body.id) || ''), pick0 = body && body.pick === 'coin' ? 'coin' : 'tk'
     const L = await load(c.env, w.sid), st = L.st
     const i = (st.pg || []).findIndex((g: any) => g.id === id)
     if (i < 0) return err(c, 404, 'none')
     const g = st.pg[i]
+    const pick = g.t === 'lg' ? 'coin' : pick0   // リーグの 賞は コインだけ
     st.pg.splice(i, 1)
     st.tk = st.tk || {}
     if (pick === 'tk') st.tk[g.t] = (Number(st.tk[g.t]) || 0) + 1
     if (!(await save(c.env, w.sid, st, L.ver))) return err(c, 409, 'busy')
     let coins: any = null, applied: any = null
     if (pick === 'coin') {
-      const amt = Number(COIN_EQ[g.t]) || 0
+      const amt = g.t === 'lg' ? Math.max(0, Math.min(5000, Number(g.coins) || 0)) : (Number(COIN_EQ[g.t]) || 0)
       try {
         // コインは「サーバ累計 vs 端末の累計」方式（_pjGiftCoins）。端末の 全置換保存でも 消えない
         await c.env.DB.prepare("UPDATE progress SET state_json = json_set(json_set(state_json, '$.coins', COALESCE(CAST(json_extract(state_json, '$.coins') AS INTEGER), 0) + ?), '$._pjGiftCoins', COALESCE(CAST(json_extract(state_json, '$._pjGiftCoins') AS INTEGER), 0) + ?), updated_at=datetime('now') WHERE user_id=? AND json_valid(state_json)").bind(amt, amt, String(w.u.id)).run()
@@ -429,7 +432,7 @@ export function installPj(app: any, d: Deps) {
         return err(c, 500, 'coin')
       }
     }
-    return c.json({ ok: true, pick, t: g.t, amount: pick === 'coin' ? COIN_EQ[g.t] : 0, coins, pjGiftCoins: applied, list: st.pg, tk: st.tk })
+    return c.json({ ok: true, pick, t: g.t, amount: pick === 'coin' ? (g.t === 'lg' ? Number(g.coins) || 0 : COIN_EQ[g.t]) : 0, coins, pjGiftCoins: applied, list: st.pg, tk: st.tk })
   })
 
   // 🎫 もらった 券の お知らせを 見た
@@ -932,13 +935,37 @@ export function installPj(app: any, d: Deps) {
     await ensureLg(c.env)
     const b = await begin(c); if (b.res) return b
     const sp = (c.req.query('s') || '') === 'sc' ? 'sc' : 'bb'
-    return Object.assign(b, { sp, cid: lgCid(b.w), wk: mondayOf(b.ctx.today) })
+    const prev = c.req.query('prev') === '1'   // PJ_LG_PRIZE_V1 先週の リーグ（結果の のこりを 出して、賞を わたす）
+    return Object.assign(b, { sp, cid: lgCid(b.w), wk: prev ? d.addDay(mondayOf(b.ctx.today), -7) : mondayOf(b.ctx.today), prev })
+  }
+  // 🏆 PJ_LG_PRIZE_V1（2026-11-10）リーグの 順位で コイン：優勝 2000・2位 1000・3位 500・参加 200（CPUは なし）
+  //   週が おわって、ぜんぶの 試合の 結果が そろったら、子どもの「ごほうび」に 入れる（アプリでも 先生PJでも うけとれる）。1回だけ（L.pz）
+  async function lgPrize(c: any, w: any, cid: string, wk: string, sp: string, row: any) {
+    if (w.test || !row || /^[GT]:/.test(cid)) return false
+    const L = row.L
+    if (L.pz) return false
+    if (wk >= mondayOf(jstToday())) return false
+    if (L.matches.some((m: any) => !L.res[m.id])) return false
+    const pz: any = {}
+    L.groups.forEach((g: any, gi: number) => {
+      standings(L, gi).forEach((t: any, rk: number) => { const tm = g.teams[t.i]; if (tm && !tm.cpu && tm.uid) pz[tm.uid] = { rank: rk + 1, coins: LG_PRIZE[rk] || LG_PRIZE_JOIN, g: gi } })
+    })
+    L.pz = pz
+    if (!(await lgSave(c.env, cid, wk, sp, L, row.ver))) return false
+    for (const u of Object.keys(pz)) {
+      for (let i = 0; i < 3; i++) {
+        const U = await load(c.env, u)
+        U.st.pg = (U.st.pg || []).filter((x: any) => x.id !== 'lg' + sp + wk).concat([{ id: 'lg' + sp + wk, t: 'lg', sp, wk, rank: pz[u].rank, coins: pz[u].coins }]).slice(-20)
+        if (await save(c.env, u, U.st, U.ver)) break
+      }
+    }
+    return true
   }
   async function lgView(c: any, b: any, sp: string) {
     const { w, ctx, cid, wk } = b
     let row = await lgLoad(c.env, cid, wk, sp)
     const buildOk = w.test || ctx.today > wk || nowHM() >= LG_BUILD
-    if (!row && buildOk) {
+    if (!row && buildOk && !b.prev) {
       const L = await buildLeague(c, w, cid, wk, sp)
       if (L) { await lgSave(c.env, cid, wk, sp, L, 0); row = await lgLoad(c.env, cid, wk, sp) }
     }
@@ -951,6 +978,7 @@ export function installPj(app: any, d: Deps) {
     if (!row) return out
     const L = row.L
     if (await freeze(c, w, L, ctx)) { if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++ }
+    if (b.prev) { try { if (await lgPrize(c, w, cid, wk, sp, row)) row = await lgLoad(c.env, cid, wk, sp) } catch (_e) {} }   // PJ_LG_PRIZE_V1
     const gi = L.groups.findIndex((g: any) => g.teams.some((t: any) => t.uid === String(w.sid)))
     if (gi < 0) { out.league = { joined: false, groups: L.groups.length }; return out }
     const me = L.groups[gi].teams.findIndex((t: any) => t.uid === String(w.sid))
@@ -1035,7 +1063,10 @@ export function installPj(app: any, d: Deps) {
       if (!m || !played(L, m, b.ctx, b.w) || !L.snap[m.r + ':' + m.g]) return err(c, 409, 'not_ready')
       if (L.res[m.id]) return c.json({ ok: true, res: L.res[m.id] })
       L.res[m.id] = sc
-      if (await lgSave(c.env, b.cid, b.wk, sp, L, row.ver)) return c.json({ ok: true, res: sc })
+      if (await lgSave(c.env, b.cid, b.wk, sp, L, row.ver)) {
+        if (b.prev) { try { const r2 = await lgLoad(c.env, b.cid, b.wk, sp); await lgPrize(c, b.w, b.cid, b.wk, sp, r2) } catch (_e) {} }
+        return c.json({ ok: true, res: sc })
+      }
     }
     return err(c, 409, 'busy')
   })
