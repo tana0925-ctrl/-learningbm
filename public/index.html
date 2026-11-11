@@ -44719,7 +44719,9 @@ function hsRender(light){
     if (btnExport){
       const minEl = document.getElementById("hsMinutes");
       const minOk = !!(minEl && String(minEl.value||"").trim() !== "");
-      const canExport = !!(sess && sess.started && unlocked && !submitted && minOk);
+      // HSFAIL_V1（2026-11-10）：タイマーを 回していなくても 押せるように（押したら 理由を 出す／時間を たしかめて 出せる）。灰色で だまって 止まらない。
+      void minOk;
+      const canExport = !!(sess && unlocked && !submitted);
       btnExport.disabled = !canExport;
       btnExport.classList.toggle("opacity-50", !canExport);
       btnExport.classList.toggle("cursor-not-allowed", !canExport);
@@ -45569,16 +45571,26 @@ async function hsSubmitAndExport(){
       return;
     }
     const sess = hsGetSession();
-    if (!sess || sess.dayKey !== dayKey) { if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } return; }
-    if (!sess.started || !sess.unlocked) { hsRender(); if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } return; }
+    const _hsStop = (why, msg) => { hsFailLog(why, dayKey); if (msg) alert(msg); try { hsRender(); } catch (_e) {} if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } };
+    if (!sess || sess.dayKey !== dayKey) { _hsStop('no_session:' + (sess ? sess.dayKey : 'none'), '⚠️ 書いていた シートが 見つからなかったよ。\n画面を ひらきなおして（再読みこみして）、もう一度 おしてね。\n書いたものが 消えていたら、先生に 知らせてね。'); return; }
+    if (!sess.unlocked) { sess.unlocked = true; hsSetSession(sess); }
 
     const todo = String(sess.todo || '').trim();
     const why = String(sess.why || '').trim();
     const aim = String(sess.aim || '').trim();
-    if (!todo || !why || !aim){ hsRender(); if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; } return; }
+    if (!todo || !why || !aim){ _hsStop('empty:' + (!todo ? 'todo' : '') + (!why ? 'why' : '') + (!aim ? 'aim' : ''), '✏️ まだ 書いていない ところが あるよ：' + [!todo ? '「やること」' : '', !why ? '「なぜそれにしたの？」' : '', !aim ? '「めあて」' : ''].filter(Boolean).join('・') + '\n書いてから もう一度 おしてね。'); return; }
 
     const minEl = document.getElementById("hsMinutes");
-    const minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||"0"), 10) || 0));
+    let minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||"0"), 10) || 0));
+    // HSFAIL_V1 タイマーを 回していない（または 止まって しまった）ときも、やった時間を たしかめて 出せる
+    if (!sess.started || (!minutes && !hsIsRestDay(dayKey) && !sess.zeroMinAsked)) {
+      const ans = prompt(!sess.started ? '⏱ タイマーが 回っていなかったみたい。\nやった時間（分）を 入れて「OK」で 提出できるよ。' : '⏱ やった時間（分）を 入れてね。「OK」で 提出するよ。', String(minutes || ''));
+      if (ans === null) { _hsStop('not_started_cancel', ''); return; }
+      minutes = Math.max(0, Math.min(600, parseInt(String(ans).replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)), 10) || 0));
+      if (!minutes) { _hsStop('not_started_zero', 'やった時間（分）を 数字で 入れてね。'); return; }
+      try { if (minEl) minEl.value = String(minutes); } catch (_e) {}
+      if (!sess.started) hsFailLog('not_started_manual:' + minutes, dayKey);
+    }
     const endWeather = String(sess.endWeather || "sun");
     const weatherReason = String(sess.weatherReason || '').trim();
     const nextImprove = String(sess.nextImprove || '').trim();
@@ -45707,6 +45719,7 @@ async function hsSubmitAndExport(){
         return;
       }
       if (e && (e.status === 401 || e.status === 403)) {
+        hsFailLog('auth:' + e.status + ':' + _hsErr, dayKey);
         try {
           const _hc = document.getElementById('hsChat');
           localStorage.setItem('hsResumeV1', JSON.stringify({ v: 1, uid: String((player && player.userId) || ''), dayKey: dayKey, ts: Date.now(), chat: !!(_hc && _hc.style.display !== 'none'), sess: JSON.parse(JSON.stringify(sess)) }));
@@ -45716,7 +45729,8 @@ async function hsSubmitAndExport(){
         if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
         return;
       }
-      alert('⚠️ ネットワークエラーで提出できませんでした。\n時間をおいて再提出してください。');
+      hsFailLog('submit_err:' + String((e && e.status) || 0) + ':' + _hsErr + ':' + String((e && e.message) || '').slice(0, 80), dayKey);
+      alert('⚠️ 提出できませんでした（' + String((e && e.status) || '通信') + '）。\n書いたものは この画面に のこっているよ。少しまって、もう一度 おしてね。');
       if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
       return;
     }
@@ -45752,8 +45766,18 @@ async function hsSubmitAndExport(){
     }
 
   }catch(e){
+    try { hsFailLog('exception:' + String((e && e.message) || e).slice(0, 160), ''); } catch (_e) {}
+    try { alert('⚠️ 提出の とちゅうで エラーが 出たよ。書いたものは のこっているので、もう一度 おしてね。\nまた 出たら 先生に 知らせてね。'); } catch (_e) {}
     if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
   }
+}
+// HSFAIL_V1（2026-11-10）：提出できなかった わけを サーバに 書きのこす（原因を あとで たしかめるため）。ログインが 切れていても 送る。
+function hsFailLog(reason, dayKey){
+  try {
+    var body = JSON.stringify({ reason: String(reason || '').slice(0, 200), dayKey: String(dayKey || ''), uid: String((player && player.userId) || ''), name: String((player && player.name) || ''), at: Date.now(), ua: String(navigator.userAgent || '').slice(0, 160), online: navigator.onLine !== false });
+    if (navigator.sendBeacon) { try { if (navigator.sendBeacon('/api/homework/fail-log', new Blob([body], { type: 'application/json' }))) return; } catch (_e) {} }
+    fetch('/api/homework/fail-log', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: body, keepalive: true }).catch(function(){});
+  } catch (_e) {}
 }
 
 // DBへシートを送信する（非同期・エラーは握りつぶさない）

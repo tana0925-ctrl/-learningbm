@@ -6589,6 +6589,20 @@ app.put('/api/homework/submit', async (c) => {
 // ⏱ HSEXTRA_V1 提出したあとに「追加ではかる」：同じ日のうちだけ、はかった分を やった時間に足す（コイン・かけらは ふやさない）。
 //   ・きょう（朝8:30区切り）の提出だけ。1回で 180分まで・合計 600分まで。
 //   ・前に提出／足したときから たった時間より 長くは 足せない（はかっていない時間を 足せないように）。
+// 🧯 HSFAIL_V1（2026-11-10）提出できなかった わけの 記録（ログインが 切れていても うけつける。中身は 子どもの 端末の 言いぶん）
+app.post('/api/homework/fail-log', async (c) => {
+  const u = c.get('user')
+  const body = await c.req.json<any>().catch(() => null)
+  if (!body) return c.json({ ok: false })
+  if (!rateLimit('hwfail:' + (u ? u.id : String(body.uid || 'anon')), 20, 600)) return c.json({ ok: false })
+  try {
+    await c.env.DB.prepare("CREATE TABLE IF NOT EXISTS hw_fail_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, claimed_uid TEXT, name TEXT, day_key TEXT, reason TEXT, ua TEXT, online INTEGER, created_at TEXT DEFAULT (datetime('now')))").run()
+    await c.env.DB.prepare('INSERT INTO hw_fail_log (user_id, claimed_uid, name, day_key, reason, ua, online) VALUES (?,?,?,?,?,?,?)')
+      .bind(u ? u.id : null, String(body.uid || '').slice(0, 64), String(body.name || '').slice(0, 40), String(body.dayKey || '').slice(0, 10), String(body.reason || '').slice(0, 200), String(body.ua || '').slice(0, 160), body.online === false ? 0 : 1).run()
+  } catch (_e) {}
+  return c.json({ ok: true })
+})
+
 app.post('/api/homework/add-minutes', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 401, 'login_required')
