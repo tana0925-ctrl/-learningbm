@@ -35,6 +35,7 @@ import { installViewAs } from './viewas'   // VIEWAS_V1
 import { registerWeekRef2, wr2ForClass, wr2NoteTopics, WR2_RESULTS, WR2_REASONS, wr2IsoKey } from './weekref2'
 // HSSIGN_V1 サポーター（おうちの人）のサインを あとから足す。中身は src/hssign.ts。
 import { registerHsSign } from './hssign'
+import { registerChitosele } from './chitosele'   // CHITOSELE_V1 チトセレ（ブロックアワー）
 // PORTFOLIO_V1 📸 成果物ポートフォリオ（先生だけ）。中身は src/portfolio.ts。
 import { registerPortfolio, pfFromHomework, pfWorkNoteFor } from './portfolio'
 // AIFLOW_V1 🧵 今日のひと往復に「先週までの流れ」。中身は src/aiflow.ts。
@@ -10903,6 +10904,8 @@ app.get('/hs_next_recall.js', async (c) => { try { const a = await c.env.ASSETS?
 
 // DEF_JOIN_NUDGE_V1_WIRED 防衛戦のお知らせカードを配る道。student-karte.js とまったく同じ形。
 app.get('/def_join_nudge.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/def_join_nudge.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
+app.get('/chitosele', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/chitosele.html'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }); } catch (e) {} return c.text('not found', 404) })   // CHITOSELE_V1
+app.get('/chitosele.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/chitosele.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/pj', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pj.html'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/pj_entry.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pj_entry.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
 app.get('/pj_rules.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pj_rules.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })
@@ -11132,7 +11135,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/hschat.js?v=7"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=7"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -14334,6 +14337,12 @@ app.get('/teacher', (c) => {
           pjTry.className = 'text-xs px-2 py-1 rounded font-bold bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50';
           pjTry.textContent = '⚾ 先生PJを ひらく';
           btnGroup.appendChild(pjTry);
+          // 🗓 CHITOSELE_V1 チトセレ（ブロックアワー）の 時間割と みんなの計画
+          const csA = document.createElement('a');
+          csA.href = '/chitosele?cid=' + encodeURIComponent(cls.id); csA.target = '_blank'; csA.rel = 'noopener';
+          csA.className = 'text-xs px-2 py-1 rounded font-bold bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100';
+          csA.textContent = '🗓 チトセレ';
+          btnGroup.appendChild(csA);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════
           //   ここに出すのは「人数」まで。名前は押したときだけ別の道で取りに行く。
@@ -18895,6 +18904,7 @@ registerQrHunt(app)   // QRHUNT_V1
 registerMinna(app)    // MINNA_FURI_V1
 registerWeekRef2(app, { weekRefAllowedKeys })    // WEEKREF2_V1
 registerHsSign(app, { jstStudyDayKey })    // HSSIGN_V1
+registerChitosele(app, { requireTeacher })    // CHITOSELE_V1
 registerPortfolio(app, { getCookie })    // PORTFOLIO_V1
 registerAiFlow(app)    // AIFLOW_V1
 registerTeishutsu(app, { weekRefAllowedKeys })    // TEISHUTSU_V1
