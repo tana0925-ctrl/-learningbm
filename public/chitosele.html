@@ -158,7 +158,7 @@ function renderKid() {
   });
   h += '</div></div>';
   var D = days(cfg), wi = K.week || 0;
-  if (D.length > 1) h += '<div class="tabs">' + D.map(function (wk, i) { return '<button data-wk="' + i + '" class="' + (i === wi ? 'on' : '') + '">' + (i === 0 ? '今週' : i === 1 ? '来週' : (i + 1) + '週目') + '（' + md(wk[0]) + '〜' + md(wk[4]) + '）</button>'; }).join('') + '</div>';
+  if (D.length > 1) h += '<div class="tabs">' + D.map(function (wk, i) { return '<button data-wk="' + i + '" class="' + (i === wi ? 'on' : '') + '">' + (i === 0 ? '今週' : i === 1 ? '来週' : i === 2 ? '再来週' : (i + 1) + '週目') + '（' + md(wk[0]) + '〜' + md(wk[4]) + '）</button>'; }).join('') + '</div>';
   h += '<div class="week">';
   (D[wi] || []).forEach(function (dk) {
     h += '<div class="day' + (dk === K.today ? ' today' : '') + '"><div class="dh"><span>' + md(dk) + '（' + dow(dk) + '）</span>' + (dk === K.today ? '<span>きょう</span>' : '') + '</div>';
@@ -282,7 +282,7 @@ function gridT() {
   var unset = allTasks.filter(function (k) { return !fixedAtT(k); });
   if (unset.length) h += '<div class="warn">👥 まだ コマが 決まっていない みんなでの 時間：' + unset.map(function (k) { var x = taskOf(cfg, k); return esc(x.u.subj + ' ' + x.t.t); }).join('・') + '</div>';
   D.forEach(function (wk, wi) {
-    h += '<div class="scroll"><table class="tgrid" style="margin:8px 0"><tr><th>' + (wi === 0 ? '今週' : wi === 1 ? '来週' : (wi + 1) + '週目') + '</th>' + wk.map(function (dk) { return '<th>' + md(dk) + '（' + dow(dk) + '）</th>'; }).join('') + '</tr>';
+    h += '<div class="scroll"><table class="tgrid" style="margin:8px 0"><tr><th>' + (wi === 0 ? '今週' : wi === 1 ? '来週' : wi === 2 ? '再来週' : (wi + 1) + '週目') + '</th>' + wk.map(function (dk) { return '<th>' + md(dk) + '（' + dow(dk) + '）</th>'; }).join('') + '</tr>';
     for (var p = 1; p <= 6; p++) {
       h += '<tr><th>' + p + '</th>';
       wk.forEach(function (dk) {
