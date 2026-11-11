@@ -211,6 +211,28 @@ export function registerChitosele(app: any, d: Deps) {
     await c.env.DB.prepare("INSERT INTO chitosele_cfg (class_id, cfg, updated_at) VALUES (?,?,datetime('now')) ON CONFLICT(class_id) DO UPDATE SET cfg=excluded.cfg, updated_at=datetime('now')").bind(cid, JSON.stringify(cfg)).run()
     return c.json({ ok: true, cfg })
   })
+  // クラスごとの ON/OFF（先生の画面の ボタン）。まだ 時間割を 保存していない クラスは、はじめの 形で つくって ON にする。
+  app.get('/api/teacher/chitosele/:cid/on', async (c: any) => {
+    const u = d.requireTeacher(c)
+    if (!u) return c.json({ ok: false, error: 'unauthorized' }, 401)
+    const cid = String(c.req.param('cid'))
+    if (!(await teacherOwns(c.env, u, cid))) return c.json({ ok: false, error: 'class_not_found' }, 404)
+    await ensure(c.env)
+    const cfg = await loadCfg(c.env, cid)
+    return c.json({ ok: true, on: !!(cfg && cfg.on), saved: !!cfg })
+  })
+  app.put('/api/teacher/chitosele/:cid/on', async (c: any) => {
+    const u = d.requireTeacher(c)
+    if (!u) return c.json({ ok: false, error: 'unauthorized' }, 401)
+    const cid = String(c.req.param('cid'))
+    if (!(await teacherOwns(c.env, u, cid))) return c.json({ ok: false, error: 'class_not_found' }, 404)
+    await ensure(c.env)
+    const body = await c.req.json().catch(() => null)
+    const cfg = cleanCfg((await loadCfg(c.env, cid)) || defaultCfg())
+    cfg.on = !!(body && body.on)
+    await c.env.DB.prepare("INSERT INTO chitosele_cfg (class_id, cfg, updated_at) VALUES (?,?,datetime('now')) ON CONFLICT(class_id) DO UPDATE SET cfg=excluded.cfg, updated_at=datetime('now')").bind(cid, JSON.stringify(cfg)).run()
+    return c.json({ ok: true, on: cfg.on })
+  })
   // はじめの 形に もどす（時間割と 課題を つくりなおす。子どもの 計画は のこす）
   app.get('/api/teacher/chitosele-default', async (c: any) => {
     const u = d.requireTeacher(c)

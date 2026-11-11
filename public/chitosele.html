@@ -225,7 +225,7 @@ var T = null;   // { cfg, kids, today, base, pick, tab }
 function renderT() {
   var cfg = T.cfg, h = '';
   h += '<div class="card"><div class="ed">'
-    + '<b>公開：</b><button class="btn ' + (cfg.on ? 'go' : '') + '" id="tOn">' + (cfg.on ? '✅ 子どもに出している' : '⏸ まだ出していない') + '</button>'
+    + '<b>このクラス：</b><button class="btn ' + (cfg.on ? 'go' : '') + '" id="tOn">' + (cfg.on ? '✅ ON（子どもに出している）' : '⏸ OFF（子どもには出ない）') + '</button>'
     + '<b style="margin-left:8px">はじめの月曜：</b><input type="date" id="tStart" value="' + esc(cfg.start) + '" style="width:auto">'
     + '<b>週の数：</b><select id="tWeeks" style="width:auto">' + [1, 2, 3].map(function (n) { return '<option' + (n === cfg.weeks ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select>'
     + '<button class="btn main" id="tSave">💾 保存する</button><span id="tMsg" style="font-weight:900;color:#059669"></span></div>'

@@ -14337,11 +14337,27 @@ app.get('/teacher', (c) => {
           pjTry.className = 'text-xs px-2 py-1 rounded font-bold bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50';
           pjTry.textContent = '⚾ 先生PJを ひらく';
           btnGroup.appendChild(pjTry);
-          // 🗓 CHITOSELE_V1 チトセレ（ブロックアワー）の 時間割と みんなの計画
+          // 🗓 CHITOSELE_V1 チトセレ（ブロックアワー）：クラスごとの ON/OFF と、時間割・みんなの計画を ひらく
+          const csBtn = document.createElement('button');
+          const csCls = function(on){ return on
+            ? 'text-xs px-2 py-1 rounded font-bold bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
+            : 'text-xs px-2 py-1 rounded font-bold bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200'; };
+          csBtn.className = csCls(false); csBtn.textContent = '🗓 チトセレ …'; csBtn.dataset.on = '';
+          api('/api/teacher/chitosele/'+cls.id+'/on').then(function(r){ var on = !!(r && r.on); csBtn.dataset.on = on ? '1' : ''; csBtn.className = csCls(on); csBtn.textContent = on ? '🗓 チトセレ ON' : '🗓 チトセレ OFF'; }).catch(function(){ csBtn.textContent = '🗓 チトセレ OFF'; });
+          csBtn.title = 'クリックで このクラスの 子に「チトセレ計画」を 出す／かくす';
+          csBtn.onclick = async ()=>{
+            const newVal = !csBtn.dataset.on;
+            if (newVal && !confirm('このクラスの子どもに「チトセレ計画」を出します。時間割は「🗓 チトセレをひらく」で先に確認してください。よろしいですか？')) return;
+            try{
+              await api('/api/teacher/chitosele/'+cls.id+'/on',{ method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({on: newVal}) });
+              csBtn.dataset.on = newVal ? '1' : ''; csBtn.className = csCls(newVal); csBtn.textContent = newVal ? '🗓 チトセレ ON' : '🗓 チトセレ OFF';
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(csBtn);
           const csA = document.createElement('a');
           csA.href = '/chitosele?cid=' + encodeURIComponent(cls.id); csA.target = '_blank'; csA.rel = 'noopener';
           csA.className = 'text-xs px-2 py-1 rounded font-bold bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100';
-          csA.textContent = '🗓 チトセレ';
+          csA.textContent = '🗓 チトセレをひらく';
           btnGroup.appendChild(csA);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════
