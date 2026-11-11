@@ -53,6 +53,8 @@ textarea{min-height:60px;border-color:var(--line)}
 .chip{border:2px solid var(--line);border-radius:10px;padding:5px 6px;margin:5px 0;background:#fff}
 .chip .ct{font-size:13px;display:flex;gap:4px;align-items:flex-start}
 .chip .ct b{white-space:nowrap}
+.chip .ct select.chg{margin:0;font-weight:900;font-size:13px;padding:4px 6px;border-width:2px}
+.chip .ct input.oth{margin:0}
 .chip .cx{margin-left:auto;border:none;background:#f1f5f9;border-radius:6px;font-weight:900;cursor:pointer;min-width:28px;min-height:28px}
 .slot select{margin-top:4px}
 .oth{margin-top:5px;border-color:#cbd5e1 !important;font-size:14px !important}
@@ -170,13 +172,15 @@ function renderKid() {
         h += '<div class="slot s' + (past ? ' past' : '') + '"><span class="p">' + p + '</span><span class="lab">🌟 チトセレ</span>';
         v.items.forEach(function (it, ii) {
           var x = taskOf(cfg, it.task); if (!x) return;
-          h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><b style="color:' + x.u.color + '">' + esc(x.u.subj + ' ' + x.t.k) + '</b> ' + esc(x.t.t) + '<button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
+          // 計画を なおせるように：課題の 名前の ところが そのまま えらびなおしの ドロップダウン
+          var others = v.items.map(function (o) { return o.task; }).filter(function (k) { return k !== it.task; });
+          h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><select class="chg" data-chg="' + ck + '#' + ii + '" style="border-color:' + x.u.color + ';color:' + x.u.color + '">' + taskOptions(others, '', false, it.task) + '</select><button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
             + '<div class="sbtn"><button data-ist="done" data-i="' + ck + '#' + ii + '" class="done' + (it.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-ist="cont" data-i="' + ck + '#' + ii + '" class="cont' + (it.st === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>';
         });
         var showOth = !!v.other.trim() || !!(K.oth && K.oth[ck]);   // その他は ドロップダウンで えらんだら 書く欄が 出る
         if (v.items.length < 4) h += '<select data-add="' + ck + '">' + taskOptions(v.items.map(function (it) { return it.task; }), (v.items.length || showOth) ? '＋ もう1つ たす' : '（課題を えらぶ）', !showOth) + '</select>';
-        if (showOth) h += '<input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ やることを 自由に書こう" value="' + esc(v.other) + '">'
-          + (v.other.trim() ? '<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div>' : '');
+        if (showOth) h += '<div class="chip" style="border-color:#94a3b8"><div class="ct"><input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ やることを 自由に書こう" value="' + esc(v.other) + '"><button class="cx" data-orm="' + ck + '" title="けす">✕</button></div>'
+          + ('<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>');
         h += '</div>';
       } else if (c.k === 'f') {
         var x = c.u && c.tk ? taskOf(cfg, c.u + ':' + c.tk) : null;
@@ -194,16 +198,16 @@ function fixedAt(key) {
   Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(slotName(ck)); });
   return out.join('・');
 }
-function taskOptions(have, first, withOther) {
+function taskOptions(have, first, withOther, selected) {
   have = have || [];
-  var h = '<option value="">' + esc(first || '（えらぶ）') + '</option>';
+  var h = first === '' ? '' : '<option value="">' + esc(first || '（えらぶ）') + '</option>';
   K.cfg.units.forEach(function (u) {
     h += '<optgroup label="' + esc(u.subj + '　' + u.name) + '">';
     u.tasks.forEach(function (t) {
       if (t.all) return;
       var key = u.id + ':' + t.k, st = kidStatus(key);
       if (have.indexOf(key) >= 0) return;
-      h += '<option value="' + esc(key) + '">' + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.done ? '（おわり）' : st.done ? '　✅' : '') + '</option>';
+      h += '<option value="' + esc(key) + '"' + (key === selected ? ' selected' : '') + '>' + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.done ? '（おわり）' : st.done ? '　✅' : '') + '</option>';
     });
     h += '</optgroup>';
   });
@@ -227,7 +231,14 @@ function bindKid() {
     b.onclick = function () { var p = b.getAttribute('data-i').split('#'), st = b.getAttribute('data-ist'); var it = cur(p[0]).items[Number(p[1])]; if (it) it.st = it.st === st ? '' : st; saveKid(); renderKid(); };
   });
   app.querySelectorAll('[data-oth]').forEach(function (i) {
-    i.oninput = function () { var v = cur(i.getAttribute('data-oth')); var had = !!v.other.trim(); v.other = i.value; if (!v.other.trim()) v.otherSt = ''; saveKid(); if (had !== !!v.other.trim()) { clearTimeout(i._t); i._t = setTimeout(function () { var pos = i.selectionStart; renderKid(); var n = app.querySelector('[data-oth="' + i.getAttribute('data-oth') + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} } }, 700); } };
+    // 書いている とちゅうで 画面を 書きなおさない（日本語入力が 切れて 2文字しか 入らなかった）
+    i.oninput = function () { var v = cur(i.getAttribute('data-oth')); v.other = i.value; saveKid(); };
+  });
+  app.querySelectorAll('[data-orm]').forEach(function (b) {
+    b.onclick = function () { var ck = b.getAttribute('data-orm'); var v = cur(ck); v.other = ''; v.otherSt = ''; if (K.oth) delete K.oth[ck]; saveKid(); renderKid(); };
+  });
+  app.querySelectorAll('select[data-chg]').forEach(function (s) {
+    s.onchange = function () { var p = s.getAttribute('data-chg').split('#'); var it = cur(p[0]).items[Number(p[1])]; if (it && s.value) { it.task = s.value; it.st = ''; } saveKid(); renderKid(); };
   });
   app.querySelectorAll('[data-ost]').forEach(function (b) {
     b.onclick = function () { var v = cur(b.getAttribute('data-ck')), st = b.getAttribute('data-ost'); v.otherSt = v.otherSt === st ? '' : st; saveKid(); renderKid(); };
