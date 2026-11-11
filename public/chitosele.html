@@ -173,10 +173,11 @@ function renderKid() {
           h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><b style="color:' + x.u.color + '">' + esc(x.u.subj + ' ' + x.t.k) + '</b> ' + esc(x.t.t) + '<button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
             + '<div class="sbtn"><button data-ist="done" data-i="' + ck + '#' + ii + '" class="done' + (it.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-ist="cont" data-i="' + ck + '#' + ii + '" class="cont' + (it.st === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>';
         });
-        if (v.items.length < 4) h += '<select data-add="' + ck + '">' + taskOptions(v.items.map(function (it) { return it.task; }), v.items.length ? '＋ もう1つ 課題をたす' : '（課題を えらぶ）') + '</select>';
-        h += '<input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ その他（自由に書く）" value="' + esc(v.other) + '">'
-          + (v.other.trim() ? '<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div>' : '')
-          + '</div>';
+        var showOth = !!v.other.trim() || !!(K.oth && K.oth[ck]);   // その他は ドロップダウンで えらんだら 書く欄が 出る
+        if (v.items.length < 4) h += '<select data-add="' + ck + '">' + taskOptions(v.items.map(function (it) { return it.task; }), (v.items.length || showOth) ? '＋ もう1つ たす' : '（課題を えらぶ）', !showOth) + '</select>';
+        if (showOth) h += '<input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ やることを 自由に書こう" value="' + esc(v.other) + '">'
+          + (v.other.trim() ? '<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div>' : '');
+        h += '</div>';
       } else if (c.k === 'f') {
         var x = c.u && c.tk ? taskOf(cfg, c.u + ':' + c.tk) : null;
         h += '<div class="slot f"><span class="p">' + p + '</span><span class="lab">👥 ' + esc(x ? x.u.subj + ' ' + x.t.t : (c.t || 'みんなで')) + '</span></div>';
@@ -193,7 +194,7 @@ function fixedAt(key) {
   Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(slotName(ck)); });
   return out.join('・');
 }
-function taskOptions(have, first) {
+function taskOptions(have, first, withOther) {
   have = have || [];
   var h = '<option value="">' + esc(first || '（えらぶ）') + '</option>';
   K.cfg.units.forEach(function (u) {
@@ -206,13 +207,18 @@ function taskOptions(have, first) {
     });
     h += '</optgroup>';
   });
+  if (withOther) h += '<optgroup label="ほか"><option value="__other">✏️ その他（自由に書く）</option></optgroup>';
   return h;
 }
 function bindKid() {
   app.querySelectorAll('[data-wk]').forEach(function (b) { b.onclick = function () { K.week = Number(b.getAttribute('data-wk')); renderKid(); }; });
   var cur = function (ck) { var v = itemsOf(K.plan.s[ck]); K.plan.s[ck] = v; return v; };
   app.querySelectorAll('select[data-add]').forEach(function (s) {
-    s.onchange = function () { if (!s.value) return; var v = cur(s.getAttribute('data-add')); if (v.items.length < 4) v.items.push({ task: s.value, st: '' }); saveKid(); renderKid(); };
+    s.onchange = function () {
+      if (!s.value) return;
+      var ck0 = s.getAttribute('data-add');
+      if (s.value === '__other') { K.oth = K.oth || {}; K.oth[ck0] = 1; renderKid(); var n = app.querySelector('[data-oth="' + ck0 + '"]'); if (n) n.focus(); return; }
+      var v = cur(ck0); if (v.items.length < 4) v.items.push({ task: s.value, st: '' }); saveKid(); renderKid(); };
   });
   app.querySelectorAll('[data-rm]').forEach(function (b) {
     b.onclick = function () { var p = b.getAttribute('data-rm').split('#'); var v = cur(p[0]); v.items.splice(Number(p[1]), 1); saveKid(); renderKid(); };
