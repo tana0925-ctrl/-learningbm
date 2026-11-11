@@ -50,6 +50,12 @@ textarea{min-height:60px;border-color:var(--line)}
 .sbtn button{flex:1;min-height:40px;border-radius:10px;border:2px solid var(--line);background:#fff;font-weight:900;font-size:13px;cursor:pointer}
 .sbtn button.on.done{background:var(--ok);border-color:var(--ok);color:#fff}
 .sbtn button.on.cont{background:#0284c7;border-color:#0284c7;color:#fff}
+.chip{border:2px solid var(--line);border-radius:10px;padding:5px 6px;margin:5px 0;background:#fff}
+.chip .ct{font-size:13px;display:flex;gap:4px;align-items:flex-start}
+.chip .ct b{white-space:nowrap}
+.chip .cx{margin-left:auto;border:none;background:#f1f5f9;border-radius:6px;font-weight:900;cursor:pointer;min-width:28px;min-height:28px}
+.slot select{margin-top:4px}
+.oth{margin-top:5px;border-color:#cbd5e1 !important;font-size:14px !important}
 .save{position:fixed;right:12px;bottom:12px;background:#0f172a;color:#fff;border-radius:999px;padding:8px 14px;font-weight:900;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
 .save.show{opacity:.9}
 .warn{background:#fef2f2;border:2px solid #fca5a5;border-radius:12px;padding:8px 12px;font-weight:700;color:#991b1b;margin:8px 0}
@@ -108,13 +114,19 @@ function unitOf(cfg, id) { for (var i = 0; i < cfg.units.length; i++) if (cfg.un
 function taskOf(cfg, key) { var p = String(key || '').split(':'); var u = unitOf(cfg, p[0]); if (!u) return null; for (var i = 0; i < u.tasks.length; i++) if (u.tasks[i].k === p[1]) return { u: u, t: u.tasks[i] }; return null; }
 function selCells(cfg) { var out = []; days(cfg).forEach(function (wk) { wk.forEach(function (dk) { for (var p = 1; p <= 6; p++) { var c = cfg.cells[dk + '|' + p]; if (c && c.k === 's') out.push(dk + '|' + p); } }); }); return out; }
 function mustTasks(cfg) { var out = []; cfg.units.forEach(function (u) { u.tasks.forEach(function (t) { if (!t.all && !t.opt && !t.done) out.push(u.id + ':' + t.k); }); }); return out; }
+function itemsOf(v) {   // 1コマの 中身（むかしの 形 { task, st } も よめる）
+  v = v || {};
+  var items = Array.isArray(v.items) ? v.items : (v.task ? [{ task: v.task, st: v.st || '' }] : []);
+  return { items: items, other: v.other != null ? String(v.other) : (v.task ? '' : String(v.memo || '')), otherSt: v.otherSt || '' };
+}
+function slotUsed(v) { var x = itemsOf(v); return x.items.length > 0 || !!x.other.trim(); }
 function short(cfg, key) { var x = taskOf(cfg, key); return x ? x.u.subj.slice(0, 1) + x.t.k : ''; }
 
 // ════════ 子ども ════════
 var K = null;   // { cfg, plan, today }
 function kidStatus(key) {
   var s = K.plan.s || {}, n = 0, done = false, at = [];
-  Object.keys(s).forEach(function (ck) { if (s[ck].task === key) { n++; at.push(ck); if (s[ck].st === 'done') done = true; } });
+  Object.keys(s).forEach(function (ck) { itemsOf(s[ck]).items.forEach(function (it) { if (it.task === key) { n++; at.push(ck); if (it.st === 'done') done = true; } }); });
   return { n: n, done: done, at: at.sort() };
 }
 function slotName(ck) { var p = ck.split('|'); return md(p[0]) + '(' + dow(p[0]) + ')' + p[1] + '時間目'; }
@@ -122,7 +134,7 @@ function renderKid() {
   var cfg = K.cfg, h = '';
   if (cfg.msg) h += '<div class="msg">📣 ' + esc(cfg.msg) + '</div>';
   var sc = selCells(cfg), must = mustTasks(cfg);
-  var planned = sc.filter(function (ck) { return K.plan.s[ck] && K.plan.s[ck].task; }).length;
+  var planned = sc.filter(function (ck) { return slotUsed(K.plan.s[ck]); }).length;
   var notYet = must.filter(function (k) { return !kidStatus(k).n; });
   var doneN = must.filter(function (k) { return kidStatus(k).done; }).length;
   h += '<div class="card"><h2>🎯 わたしの めあて</h2><input type="text" id="goal" maxlength="200" placeholder="例：社会は 問いを 1つずつ 解決する。算数は まちがえた 問題を やり直す。" value="' + esc(K.plan.goal || '') + '"></div>';
@@ -154,10 +166,16 @@ function renderKid() {
       var ck = dk + '|' + p, c = cfg.cells[ck];
       if (!c || (!c.t && c.k === 'n')) continue;
       if (c.k === 's') {
-        var v = K.plan.s[ck] || {}, past = dk < K.today;
-        h += '<div class="slot s' + (past ? ' past' : '') + '"><span class="p">' + p + '</span><span class="lab">🌟 チトセレ</span>'
-          + '<select data-ck="' + ck + '">' + taskOptions(v.task) + '</select>'
-          + (v.task ? '<div class="sbtn"><button data-st="done" data-ck="' + ck + '" class="done' + (v.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-st="cont" data-ck="' + ck + '" class="cont' + (v.st === 'cont' ? ' on' : '') + '">➡ つづきがある</button></div>' : '')
+        var v = itemsOf(K.plan.s[ck]), past = dk < K.today;
+        h += '<div class="slot s' + (past ? ' past' : '') + '"><span class="p">' + p + '</span><span class="lab">🌟 チトセレ</span>';
+        v.items.forEach(function (it, ii) {
+          var x = taskOf(cfg, it.task); if (!x) return;
+          h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><b style="color:' + x.u.color + '">' + esc(x.u.subj + ' ' + x.t.k) + '</b> ' + esc(x.t.t) + '<button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
+            + '<div class="sbtn"><button data-ist="done" data-i="' + ck + '#' + ii + '" class="done' + (it.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-ist="cont" data-i="' + ck + '#' + ii + '" class="cont' + (it.st === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>';
+        });
+        if (v.items.length < 4) h += '<select data-add="' + ck + '">' + taskOptions(v.items.map(function (it) { return it.task; }), v.items.length ? '＋ もう1つ 課題をたす' : '（課題を えらぶ）') + '</select>';
+        h += '<input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ その他（自由に書く）" value="' + esc(v.other) + '">'
+          + (v.other.trim() ? '<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div>' : '')
           + '</div>';
       } else if (c.k === 'f') {
         var x = c.u && c.tk ? taskOf(cfg, c.u + ':' + c.tk) : null;
@@ -175,14 +193,16 @@ function fixedAt(key) {
   Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(slotName(ck)); });
   return out.join('・');
 }
-function taskOptions(cur) {
-  var h = '<option value="">（えらぶ）</option>';
+function taskOptions(have, first) {
+  have = have || [];
+  var h = '<option value="">' + esc(first || '（えらぶ）') + '</option>';
   K.cfg.units.forEach(function (u) {
     h += '<optgroup label="' + esc(u.subj + '　' + u.name) + '">';
     u.tasks.forEach(function (t) {
       if (t.all) return;
       var key = u.id + ':' + t.k, st = kidStatus(key);
-      h += '<option value="' + esc(key) + '"' + (key === cur ? ' selected' : '') + '>' + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.done ? '（おわり）' : st.done ? '　✅' : '') + '</option>';
+      if (have.indexOf(key) >= 0) return;
+      h += '<option value="' + esc(key) + '">' + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.done ? '（おわり）' : st.done ? '　✅' : '') + '</option>';
     });
     h += '</optgroup>';
   });
@@ -190,11 +210,21 @@ function taskOptions(cur) {
 }
 function bindKid() {
   app.querySelectorAll('[data-wk]').forEach(function (b) { b.onclick = function () { K.week = Number(b.getAttribute('data-wk')); renderKid(); }; });
-  app.querySelectorAll('select[data-ck]').forEach(function (s) {
-    s.onchange = function () { var ck = s.getAttribute('data-ck'); var v = K.plan.s[ck] || {}; v.task = s.value; if (!v.task) v.st = ''; K.plan.s[ck] = v; saveKid(); renderKid(); };
+  var cur = function (ck) { var v = itemsOf(K.plan.s[ck]); K.plan.s[ck] = v; return v; };
+  app.querySelectorAll('select[data-add]').forEach(function (s) {
+    s.onchange = function () { if (!s.value) return; var v = cur(s.getAttribute('data-add')); if (v.items.length < 4) v.items.push({ task: s.value, st: '' }); saveKid(); renderKid(); };
   });
-  app.querySelectorAll('button[data-st]').forEach(function (b) {
-    b.onclick = function () { var ck = b.getAttribute('data-ck'), st = b.getAttribute('data-st'); var v = K.plan.s[ck] || {}; v.st = v.st === st ? '' : st; K.plan.s[ck] = v; saveKid(); renderKid(); };
+  app.querySelectorAll('[data-rm]').forEach(function (b) {
+    b.onclick = function () { var p = b.getAttribute('data-rm').split('#'); var v = cur(p[0]); v.items.splice(Number(p[1]), 1); saveKid(); renderKid(); };
+  });
+  app.querySelectorAll('[data-ist]').forEach(function (b) {
+    b.onclick = function () { var p = b.getAttribute('data-i').split('#'), st = b.getAttribute('data-ist'); var it = cur(p[0]).items[Number(p[1])]; if (it) it.st = it.st === st ? '' : st; saveKid(); renderKid(); };
+  });
+  app.querySelectorAll('[data-oth]').forEach(function (i) {
+    i.oninput = function () { var v = cur(i.getAttribute('data-oth')); var had = !!v.other.trim(); v.other = i.value; if (!v.other.trim()) v.otherSt = ''; saveKid(); if (had !== !!v.other.trim()) { clearTimeout(i._t); i._t = setTimeout(function () { var pos = i.selectionStart; renderKid(); var n = app.querySelector('[data-oth="' + i.getAttribute('data-oth') + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} } }, 700); } };
+  });
+  app.querySelectorAll('[data-ost]').forEach(function (b) {
+    b.onclick = function () { var v = cur(b.getAttribute('data-ck')), st = b.getAttribute('data-ost'); v.otherSt = v.otherSt === st ? '' : st; saveKid(); renderKid(); };
   });
   var g = $('goal'); if (g) g.oninput = function () { K.plan.goal = g.value; saveKid(); };
 }
@@ -278,12 +308,18 @@ function kidsT() {
   var h = '<div class="card"><h2>👀 みんなの計画</h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
   T.kids.forEach(function (k) {
     var s = (k.plan && k.plan.s) || {};
-    var st = function (key) { var n = 0, dn = false; Object.keys(s).forEach(function (ck) { if (s[ck].task === key) { n++; if (s[ck].st === 'done') dn = true; } }); return { n: n, done: dn }; };
-    var planned = sc.filter(function (ck) { return s[ck] && s[ck].task; }).length;
+    var st = function (key) { var n = 0, dn = false; Object.keys(s).forEach(function (ck) { itemsOf(s[ck]).items.forEach(function (it) { if (it.task === key) { n++; if (it.st === 'done') dn = true; } }); }); return { n: n, done: dn }; };
+    var planned = sc.filter(function (ck) { return slotUsed(s[ck]); }).length;
     var doneN = must.filter(function (key) { return st(key).done; }).length;
     var notYet = must.filter(function (key) { return !st(key).n; }).map(function (key) { return short(cfg, key); });
     h += '<tr><td class="k">' + esc(k.name) + '</td><td class="x" style="max-width:220px;white-space:normal;text-align:left">' + esc((k.plan && k.plan.goal) || '') + '</td><td>' + planned + '/' + sc.length + '</td><td>' + doneN + '/' + must.length + '</td><td class="x" style="color:#b91c1c">' + esc(notYet.join(' ')) + '</td>'
-      + sc.map(function (ck) { var v = s[ck]; if (!v || !v.task) return '<td class="x"></td>'; return '<td class="x" style="background:' + (v.st === 'done' ? '#ecfdf5' : v.st === 'cont' ? '#e0f2fe' : '#fffbeb') + '">' + esc(short(cfg, v.task)) + (v.st === 'done' ? '✅' : v.st === 'cont' ? '➡' : '') + '</td>'; }).join('') + '</tr>';
+      + sc.map(function (ck) {
+        var v = itemsOf(s[ck]); if (!slotUsed(s[ck])) return '<td class="x"></td>';
+        var mk = function (st) { return st === 'done' ? '✅' : st === 'cont' ? '➡' : ''; };
+        var parts = v.items.map(function (it) { return esc(short(cfg, it.task)) + mk(it.st); });
+        if (v.other.trim()) parts.push('<span title="' + esc(v.other) + '">✏️' + esc(v.other.slice(0, 8)) + mk(v.otherSt) + '</span>');
+        return '<td class="x" style="background:#fffbeb;white-space:normal;min-width:70px">' + parts.join('<br>') + '</td>';
+      }).join('') + '</tr>';
   });
   return h + '</table></div></div>';
 }

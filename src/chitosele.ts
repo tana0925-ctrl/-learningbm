@@ -114,20 +114,24 @@ function cleanCfg(x: any): any {
 }
 
 function cleanPlan(x: any, cfg: any): any {
-  const out: any = { v: 1, s: {}, goal: cleanStr(x && x.goal, 200) }
+  const out: any = { v: 2, s: {}, goal: cleanStr(x && x.goal, 200) }
   const s = (x && x.s) || {}
   const ok: any = {}
   ;(cfg.units || []).forEach((u: any) => (u.tasks || []).forEach((t: any) => { if (!t.all) ok[u.id + ':' + t.k] = 1 }))
+  // 1コマに 課題を いくつでも（4つまで）＋ その他（自由に 書く）。課題ごとに ✅できた／➡つづき。
+  const stOf = (x: any) => x === 'done' || x === 'cont' ? x : ''
   Object.keys(s).slice(0, 80).forEach((key) => {
     const c = cfg.cells && cfg.cells[key]
     if (!c || c.k !== 's') return
     const v = s[key] || {}
-    const task = cleanStr(v.task, 20)
-    if (task && !ok[task]) return
-    const st = v.st === 'done' || v.st === 'cont' ? v.st : ''
-    const memo = cleanStr(v.memo, 120)
-    if (!task && !st && !memo) return
-    out.s[key] = { task, st, memo }
+    let items: any[] = Array.isArray(v.items) ? v.items : (v.task ? [{ task: v.task, st: v.st }] : [])
+    const seen: any = {}
+    items = items.map((it: any) => ({ task: cleanStr(it && it.task, 20), st: stOf(it && it.st) }))
+      .filter((it: any) => it.task && ok[it.task] && !seen[it.task] && (seen[it.task] = 1)).slice(0, 4)
+    const other = cleanStr(v.other != null ? v.other : (v.task ? '' : v.memo), 120)
+    const otherSt = other ? stOf(v.otherSt) : ''
+    if (!items.length && !other) return
+    out.s[key] = { items, other, otherSt }
   })
   return out
 }
