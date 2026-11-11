@@ -93,8 +93,8 @@ function cleanCfg(x: any): any {
   Object.keys(cs).slice(0, 200).forEach((key) => {
     if (!/^\d{4}-\d{2}-\d{2}\|[1-7]$/.test(key)) return
     const v = cs[key] || {}
-    const k = v.k === 's' || v.k === 'f' ? v.k : 'n'
-    const cell: any = { k, t: k === 's' ? '' : cleanStr(v.t, 40) }
+    const k = v.k === 's' || v.k === 'f' || v.k === 'x' ? v.k : 'n'   // x＝授業なし（5時間授業の日など）
+    const cell: any = { k, t: k === 's' || k === 'x' ? '' : cleanStr(v.t, 40) }
     if (k === 'f') { cell.u = cleanStr(v.u, 10); cell.tk = cleanStr(v.tk, 4) }
     out.cells[key] = cell
   })
