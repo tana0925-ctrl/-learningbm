@@ -54,7 +54,7 @@ textarea{min-height:60px;border-color:var(--line)}
 .chip .ct{font-size:13px;display:flex;gap:4px;align-items:flex-start}
 .chip .ct b{white-space:nowrap}
 .chip .ct select.chg{margin:0;font-weight:900;font-size:13px;padding:4px 6px;border-width:2px}
-.chip .ct input.oth{margin:0}
+.chip .ct textarea.oth{margin:0;min-height:52px;resize:vertical}
 .chip .cx{margin-left:auto;border:none;background:#f1f5f9;border-radius:6px;font-weight:900;cursor:pointer;min-width:28px;min-height:28px}
 .slot select{margin-top:4px}
 .oth{margin-top:5px;border-color:#cbd5e1 !important;font-size:14px !important}
@@ -179,7 +179,7 @@ function renderKid() {
         });
         var showOth = !!v.other.trim() || !!(K.oth && K.oth[ck]);   // その他は ドロップダウンで えらんだら 書く欄が 出る
         if (v.items.length < 4) h += '<select data-add="' + ck + '">' + taskOptions(v.items.map(function (it) { return it.task; }), (v.items.length || showOth) ? '＋ もう1つ たす' : '（課題を えらぶ）', !showOth) + '</select>';
-        if (showOth) h += '<div class="chip" style="border-color:#94a3b8"><div class="ct"><input type="text" class="oth" data-oth="' + ck + '" maxlength="120" placeholder="✏️ やることを 自由に書こう" value="' + esc(v.other) + '"><button class="cx" data-orm="' + ck + '" title="けす">✕</button></div>'
+        if (showOth) h += '<div class="chip" style="border-color:#94a3b8"><div class="ct"><textarea class="oth" rows="2" data-oth="' + ck + '" maxlength="120" placeholder="✏️ やることを 自由に書こう">' + esc(v.other) + '</textarea><button class="cx" data-orm="' + ck + '" title="けす">✕</button></div>'
           + ('<div class="sbtn"><button data-ost="done" data-ck="' + ck + '" class="done' + (v.otherSt === 'done' ? ' on' : '') + '">✅ できた</button><button data-ost="cont" data-ck="' + ck + '" class="cont' + (v.otherSt === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>');
         h += '</div>';
       } else if (c.k === 'f') {
