@@ -93,12 +93,14 @@ async function toSubmit(d) {
   d.pass(16); d.w.HSCHAT._t.tick(); await d.click('おわる')
   await d.click('はれ'); await d.click('集中できた'); await d.click('とばす'); await d.click('このままでOK')
   await d.click('あとで もらう')
+  await d.click('今回は いい')   // MINNA_CHAT_V1
 }
 // シートで 提出できる下書きを作る
 function sheetReady(d) {
   const s = d.w.eval('hsEnsureSessionForToday()')
   s.todo = 'ドリル'; s.why = 'わけ'; s.aim = '10分 がんばる'; d.w.eval('hsStartStudy()')
   const s2 = d.sess(); s2.unlocked = true; s2.endWeather = 'sun'
+  try { d.w.document.getElementById('hsMinutes').value = '10' } catch (e) {}   // HSFAIL_V1 時間が 空なら たずねる
 }
 
 await t('1 提出成功（対話）：いつもの /api/homework/submit に1回・コインは1回・控えは のこらない', async () => {

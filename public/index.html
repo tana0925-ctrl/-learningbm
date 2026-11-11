@@ -45581,7 +45581,7 @@ async function hsSubmitAndExport(){
     if (!todo || !why || !aim){ _hsStop('empty:' + (!todo ? 'todo' : '') + (!why ? 'why' : '') + (!aim ? 'aim' : ''), '✏️ まだ 書いていない ところが あるよ：' + [!todo ? '「やること」' : '', !why ? '「なぜそれにしたの？」' : '', !aim ? '「めあて」' : ''].filter(Boolean).join('・') + '\n書いてから もう一度 おしてね。'); return; }
 
     const minEl = document.getElementById("hsMinutes");
-    let minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||"0"), 10) || 0));
+    let minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||sess.minutes||"0"), 10) || 0));
     // HSFAIL_V1 タイマーを 回していない（または 止まって しまった）ときも、やった時間を たしかめて 出せる
     if (!sess.started || (!minutes && !hsIsRestDay(dayKey) && !sess.zeroMinAsked)) {
       const ans = prompt(!sess.started ? '⏱ タイマーが 回っていなかったみたい。\nやった時間（分）を 入れて「OK」で 提出できるよ。' : '⏱ やった時間（分）を 入れてね。「OK」で 提出するよ。', String(minutes || ''));
@@ -45720,6 +45720,7 @@ async function hsSubmitAndExport(){
       }
       if (e && (e.status === 401 || e.status === 403)) {
         hsFailLog('auth:' + e.status + ':' + _hsErr, dayKey);
+        try { if (minutes && !String(sess.minutesManual || '').trim()) { sess.minutesManual = String(minutes); hsSetSession(sess); } } catch (_e) {}
         try {
           const _hc = document.getElementById('hsChat');
           localStorage.setItem('hsResumeV1', JSON.stringify({ v: 1, uid: String((player && player.userId) || ''), dayKey: dayKey, ts: Date.now(), chat: !!(_hc && _hc.style.display !== 'none'), sess: JSON.parse(JSON.stringify(sess)) }));
