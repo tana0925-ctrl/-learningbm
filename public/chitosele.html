@@ -251,7 +251,7 @@ function gridT() {
       h += '<tr><th>' + p + '</th>';
       wk.forEach(function (dk) {
         var ck = dk + '|' + p, c = cfg.cells[ck] || { k: 'n', t: '' }, lab = c.t || '';
-        if (c.k === 's') lab = '🌟 チトセレ<br><small>' + esc(c.t || '') + '</small>';
+        if (c.k === 's') lab = '🌟 チトセレ';
         else if (c.k === 'f') { var x = c.u && c.tk ? taskOf(cfg, c.u + ':' + c.tk) : null; lab = '👥 ' + esc(x ? x.u.subj + ' ' + x.t.t : (c.t || 'みんなで')); }
         else lab = esc(lab);
         h += '<td class="cell ' + c.k + (T.pick === ck ? ' pick' : '') + (dk < T.today ? ' past' : '') + '" data-ck="' + ck + '">' + lab + '</td>';
@@ -266,7 +266,7 @@ function gridT() {
     cfg.units.forEach(function (u) { u.tasks.forEach(function (t) { if (t.all && !t.done) { var key = u.id + ':' + t.k; opts += '<option value="' + esc(key) + '"' + ((c.u + ':' + c.tk) === key ? ' selected' : '') + '>' + esc(u.subj + '　' + t.t) + '</option>'; } }); });
     h += '<div class="card" style="border:3px solid #f97316"><h2>' + esc(slotName(T.pick)) + ' を かえる</h2><div class="ed">'
       + '<button data-k="n" class="' + (c.k === 'n' ? 'on' : '') + '">ふつうの授業</button><button data-k="s" class="' + (c.k === 's' ? 'on' : '') + '">🌟 チトセレ</button><button data-k="f" class="' + (c.k === 'f' ? 'on' : '') + '">👥 みんなで</button>'
-      + '<input type="text" id="cT" value="' + esc(c.t || '') + '" placeholder="教科・授業の名前" style="width:180px">'
+      + (c.k === 's' ? '<span style="font-weight:700;color:#b45309">教科は 子どもが 決めます</span>' : '<input type="text" id="cT" value="' + esc(c.t || '') + '" placeholder="教科・授業の名前" style="width:180px">')
       + (c.k === 'f' ? '<select id="cF" style="width:auto">' + opts + '</select>' : '')
       + '<button id="cBase">時間割どおりに もどす</button><button id="cX">とじる</button></div></div>';
   }
@@ -312,7 +312,7 @@ function bindT() {
   $('tNote').oninput = function () { T.cfg.msg = this.value; dirty(); };
   $('tSave').onclick = saveT;
   app.querySelectorAll('td.cell').forEach(function (td) { td.onclick = function () { T.pick = td.getAttribute('data-ck'); renderT(); }; });
-  app.querySelectorAll('.ed [data-k]').forEach(function (b) { b.onclick = function () { var c = T.cfg.cells[T.pick] || { k: 'n', t: baseText(T.pick) }; c.k = b.getAttribute('data-k'); if (c.k !== 'f') { delete c.u; delete c.tk; } T.cfg.cells[T.pick] = c; dirty(); renderT(); }; });
+  app.querySelectorAll('.ed [data-k]').forEach(function (b) { b.onclick = function () { var c = T.cfg.cells[T.pick] || { k: 'n', t: baseText(T.pick) }; c.k = b.getAttribute('data-k'); if (c.k !== 'f') { delete c.u; delete c.tk; } if (c.k === 's') c.t = ''; else if (!c.t) c.t = baseText(T.pick); T.cfg.cells[T.pick] = c; dirty(); renderT(); }; });
   var cT = $('cT'); if (cT) cT.oninput = function () { var c = T.cfg.cells[T.pick] || { k: 'n' }; c.t = cT.value; T.cfg.cells[T.pick] = c; dirty(); };
   var cF = $('cF'); if (cF) cF.onchange = function () { var c = T.cfg.cells[T.pick]; var p = cF.value.split(':'); c.u = p[0] || ''; c.tk = p[1] || ''; dirty(); renderT(); };
   var cB = $('cBase'); if (cB) cB.onclick = function () { var t = baseText(T.pick); T.cfg.cells[T.pick] = { k: 'n', t: t }; dirty(); renderT(); };

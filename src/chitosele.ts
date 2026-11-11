@@ -79,7 +79,7 @@ function defaultCfg(): any {
       const t = BASE_TT[d][p]
       if (!t) continue
       const sel = SEL_SUBJ.indexOf(t) >= 0 && dk >= today
-      cells[dk + '|' + (p + 1)] = sel ? { k: 's', t } : { k: 'n', t }
+      cells[dk + '|' + (p + 1)] = sel ? { k: 's', t: '' } : { k: 'n', t }   // チトセレの コマに 教科は 入れない（子どもが 決める）
     }
   }
   return { v: 1, on: false, start: mon, weeks: 2, cells, units: JSON.parse(JSON.stringify(DEFAULT_UNITS)), msg: '' }
@@ -94,7 +94,7 @@ function cleanCfg(x: any): any {
     if (!/^\d{4}-\d{2}-\d{2}\|[1-7]$/.test(key)) return
     const v = cs[key] || {}
     const k = v.k === 's' || v.k === 'f' ? v.k : 'n'
-    const cell: any = { k, t: cleanStr(v.t, 40) }
+    const cell: any = { k, t: k === 's' ? '' : cleanStr(v.t, 40) }
     if (k === 'f') { cell.u = cleanStr(v.u, 10); cell.tk = cleanStr(v.tk, 4) }
     out.cells[key] = cell
   })
