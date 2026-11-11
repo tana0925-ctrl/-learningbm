@@ -53,11 +53,28 @@ textarea{min-height:60px;border-color:var(--line)}
 .chip{border:2px solid var(--line);border-radius:10px;padding:5px 6px;margin:5px 0;background:#fff}
 .chip .ct{font-size:13px;display:flex;gap:4px;align-items:flex-start}
 .chip .ct b{white-space:nowrap}
+.chip .cn{font-size:12px;color:#334155;margin:3px 2px 0;line-height:1.35}
 .chip .ct select.chg{margin:0;font-weight:900;font-size:13px;padding:4px 6px;border-width:2px}
 .chip .ct textarea.oth{margin:0;min-height:52px;resize:vertical}
 .chip .cx{margin-left:auto;border:none;background:#f1f5f9;border-radius:6px;font-weight:900;cursor:pointer;min-width:28px;min-height:28px}
 .slot select{margin-top:4px}
 .oth{margin-top:5px;border-color:#cbd5e1 !important;font-size:14px !important}
+.prog .prow{display:flex;align-items:flex-start;gap:8px;margin:6px 0}
+.psub{color:#fff;border-radius:8px;padding:4px 8px;font-size:13px;white-space:nowrap;flex:0 0 auto}
+.pch{display:flex;flex-wrap:wrap;gap:5px}
+.pc{min-width:48px;min-height:36px;border-radius:10px;border:2px solid var(--line);background:#fff;font-weight:900;font-size:14px;cursor:pointer;padding:0 8px}
+.pc.done{background:var(--okbg);border-color:#6ee7b7;color:var(--ok)}
+.pc.plan{background:#fef3c7;border-color:#fcd34d;color:#92400e}
+.pc.none{background:#fff;border-color:#fca5a5;color:#b91c1c}
+.pc.opt{background:#fff;border-style:dashed;color:#94a3b8}
+.pc.all{background:var(--allbg);border-color:#c4b5fd;color:var(--all)}
+.pc.fin{background:#f1f5f9;color:#94a3b8}
+.tip{border:2px solid;border-radius:12px;padding:8px 10px;margin:8px 0;background:#fff;font-size:14px}
+.tip small{color:var(--sub)}
+.pace{font-weight:900;margin:8px 0 4px}
+details.gl{margin-top:8px}
+details.gl summary,details.gl2 summary{cursor:pointer;font-weight:900;padding:4px 0}
+details.gl input{margin-top:6px}
 .save{position:fixed;right:12px;bottom:12px;background:#0f172a;color:#fff;border-radius:999px;padding:8px 14px;font-weight:900;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
 .save.show{opacity:.9}
 .warn{background:#fef2f2;border:2px solid #fca5a5;border-radius:12px;padding:8px 12px;font-weight:700;color:#991b1b;margin:8px 0}
@@ -136,29 +153,37 @@ function renderKid() {
   var cfg = K.cfg, h = '';
   if (cfg.msg) h += '<div class="msg">📣 ' + esc(cfg.msg) + '</div>';
   var sc = selCells(cfg), must = mustTasks(cfg);
-  var planned = sc.filter(function (ck) { return slotUsed(K.plan.s[ck]); }).length;
   var notYet = must.filter(function (k) { return !kidStatus(k).n; });
-  var doneN = must.filter(function (k) { return kidStatus(k).done; }).length;
-  h += '<div class="card"><h2>🎯 わたしの めあて</h2><input type="text" id="goal" maxlength="200" placeholder="例：社会は 問いを 1つずつ 解決する。算数は まちがえた 問題を やり直す。" value="' + esc(K.plan.goal || '') + '"></div>';
-  h += '<div class="card"><h2>📋 やること（学習ガイドの 課題）</h2>'
-    + '<div class="legend"><span class="b-none">⚪ まだ予定なし</span><span class="b-plan">📅 予定あり</span><span class="b-done">✅ できた</span><span class="b-all">👥 みんなで</span></div>'
-    + '<div style="margin:8px 0;font-weight:900">🌟 チトセレ <b>' + sc.length + '</b>コマ ／ 予定を入れた <b>' + planned + '</b>コマ ／ できた課題 <b>' + doneN + '</b>/' + must.length + '</div>';
-  if (notYet.length) h += '<div class="warn">まだ 予定に 入っていない 課題：' + notYet.map(function (k) { var x = taskOf(cfg, k); return esc(x.u.subj + ' ' + x.t.k); }).join('・') + '</div>';
-  else h += '<div class="good">👍 ぜんぶの 課題が 予定に 入ったね！</div>';
-  if (sc.length < must.length) h += '<div class="warn">チトセレの コマより 課題が 多いよ。1コマで 2つ やる 計画も 考えてみよう。</div>';
-  h += '<div class="units">';
+  var notDone = must.filter(function (k) { return !kidStatus(k).done; });
+  var left = sc.filter(function (ck) { return ck.split('|')[0] >= K.today; }).length;
+  // ① 進みぐあい（ひと目で わかる）
+  h += '<div class="card prog"><h2>📊 わたしの 進みぐあい</h2>';
   cfg.units.forEach(function (u) {
-    h += '<div class="unit" style="border-color:' + u.color + '"><h3 style="color:' + u.color + '">' + esc(u.subj) + '　' + esc(u.name) + '</h3>';
+    h += '<div class="prow"><b class="psub" style="background:' + u.color + '">' + esc(u.subj) + '</b><div class="pch">';
     u.tasks.forEach(function (t) {
-      var key = u.id + ':' + t.k, b;
-      if (t.done) b = '<span class="badge b-fin">おわり</span>';
-      else if (t.all) { var fat = fixedAt(key); b = '<span class="badge b-all">👥 ' + (fat ? esc(fat) : 'みんなで') + '</span>'; }
-      else { var st = kidStatus(key); b = st.done ? '<span class="badge b-done">✅ できた</span>' : st.n ? '<span class="badge b-plan">📅 ' + esc(st.at.map(slotName).join('・')) + '</span>' : '<span class="badge b-none">⚪ ' + (t.opt ? 'よゆうがあれば' : 'まだ') + '</span>'; }
-      h += '<div class="tk"><b class="key" style="background:' + u.color + '">' + esc(t.k) + '</b><div class="tt">' + esc(t.t) + '<small>' + esc(t.note || '') + '</small></div>' + b + '</div>';
+      var key = u.id + ':' + t.k, cls, ic;
+      if (t.done) { cls = 'fin'; ic = '✔'; }
+      else if (t.all) { cls = 'all'; ic = '👥'; }
+      else { var st = kidStatus(key); cls = st.done ? 'done' : st.n ? 'plan' : (t.opt ? 'opt' : 'none'); ic = st.done ? '✅' : st.n ? '📅' : '⚪'; }
+      h += '<button class="pc ' + cls + '" data-tip="' + esc(key) + '" title="' + esc(t.t) + '">' + ic + ' ' + esc(t.k) + '</button>';
     });
-    h += '</div>';
+    h += '</div></div>';
   });
-  h += '</div></div>';
+  if (K.tip) {
+    var tx = taskOf(cfg, K.tip);
+    if (tx) {
+      var tst = kidStatus(K.tip), where = tx.t.all ? fixedAt(K.tip) : tst.at.map(slotName).join('・');
+      h += '<div class="tip" style="border-color:' + tx.u.color + '"><b style="color:' + tx.u.color + '">' + esc(tx.u.subj + ' ' + tx.t.k + '　' + tx.t.t) + '</b><br><small>' + esc(tx.t.note || '') + '</small>'
+        + '<div>' + (tx.t.done ? 'もう おわったよ' : tx.t.all ? '👥 みんなで：' + esc(where || 'これから 先生が きめるよ') : tst.done ? '✅ できた！' : tst.n ? '📅 ' + esc(where) : '⚪ まだ 予定に 入っていないよ。下の 時間わりの 🌟チトセレに 入れよう') + '</div></div>';
+    }
+  }
+  h += '<div class="pace">のこりの 🌟チトセレ <b>' + left + '</b>コマ ／ まだ できていない 課題 <b>' + notDone.length + '</b>こ</div>';
+  if (notYet.length) h += '<div class="warn">⚪ まだ 予定に 入っていない：' + notYet.map(function (k) { var x = taskOf(cfg, k); return esc(x.u.subj + x.t.k); }).join('・') + '</div>';
+  else if (!notDone.length) h += '<div class="good">🎉 ぜんぶの 課題が できたね！ よゆうの 課題や「その他」にも チャレンジしよう</div>';
+  else h += '<div class="good">👍 ぜんぶの 課題が 予定に 入ったね！</div>';
+  if (left < notDone.length) h += '<div class="warn">のこりの コマより 課題が 多いよ。1コマで 2つ やる 計画も 考えてみよう。</div>';
+  h += '<details class="gl"' + (K.goalOpen ? ' open' : '') + '><summary>🎯 わたしの めあて' + (K.plan.goal ? '：' + esc(K.plan.goal) : '（まだ）') + '</summary><input type="text" id="goal" maxlength="200" placeholder="例：社会は 問いを 1つずつ 解決する。算数は まちがえた 問題を やり直す。" value="' + esc(K.plan.goal || '') + '"></details>';
+  h += '</div>';
   var D = days(cfg), wi = K.week || 0;
   if (D.length > 1) h += '<div class="tabs">' + D.map(function (wk, i) { return '<button data-wk="' + i + '" class="' + (i === wi ? 'on' : '') + '">' + (i === 0 ? '今週' : i === 1 ? '来週' : i === 2 ? '再来週' : (i + 1) + '週目') + '（' + md(wk[0]) + '〜' + md(wk[4]) + '）</button>'; }).join('') + '</div>';
   h += '<div class="week">';
@@ -175,6 +200,7 @@ function renderKid() {
           // 計画を なおせるように：課題の 名前の ところが そのまま えらびなおしの ドロップダウン
           var others = v.items.map(function (o) { return o.task; }).filter(function (k) { return k !== it.task; });
           h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><select class="chg" data-chg="' + ck + '#' + ii + '" style="border-color:' + x.u.color + ';color:' + x.u.color + '">' + taskOptions(others, '', false, it.task) + '</select><button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
+            + '<div class="cn">' + esc(x.t.t) + '</div>'
             + '<div class="sbtn"><button data-ist="done" data-i="' + ck + '#' + ii + '" class="done' + (it.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-ist="cont" data-i="' + ck + '#' + ii + '" class="cont' + (it.st === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>';
         });
         var showOth = !!v.other.trim() || !!(K.oth && K.oth[ck]);   // その他は ドロップダウンで えらんだら 書く欄が 出る
@@ -190,8 +216,17 @@ function renderKid() {
     h += '</div>';
   });
   h += '</div>';
+  // ③ 課題の くわしい 説明（ひらくと 出る）
+  h += '<details class="card gl2"><summary><b>📋 課題の くわしい 説明（教科書の ページ）</b></summary><div class="units" style="margin-top:8px">';
+  cfg.units.forEach(function (u) {
+    h += '<div class="unit" style="border-color:' + u.color + '"><h3 style="color:' + u.color + '">' + esc(u.subj) + '　' + esc(u.name) + '</h3>';
+    u.tasks.forEach(function (t) { h += '<div class="tk"><b class="key" style="background:' + u.color + '">' + esc(t.k) + '</b><div class="tt">' + esc(t.t) + '<small>' + esc(t.note || '') + (t.all ? '（みんなで）' : t.opt ? '（よゆうがあれば）' : '') + '</small></div></div>'; });
+    h += '</div>';
+  });
+  h += '</div></details>';
   app.innerHTML = h;
   bindKid();
+  if (!K.scrolled) { K.scrolled = 1; var td = app.querySelector('.day.today'); if (td && window.innerWidth < 820) setTimeout(function () { try { td.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 300); }
 }
 function fixedAt(key) {
   var cfg = K ? K.cfg : T.cfg, out = [];
@@ -207,7 +242,7 @@ function taskOptions(have, first, withOther, selected) {
       if (t.all) return;
       var key = u.id + ':' + t.k, st = kidStatus(key);
       if (have.indexOf(key) >= 0) return;
-      h += '<option value="' + esc(key) + '"' + (key === selected ? ' selected' : '') + '>' + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.done ? '（おわり）' : st.done ? '　✅' : '') + '</option>';
+      h += '<option value="' + esc(key) + '"' + (key === selected ? ' selected' : '') + '>' + (t.done ? '✔ ' : st.done ? '✅ ' : st.n ? '📅 ' : '⚪ ') + esc(u.subj + ' ' + t.k + '　' + t.t) + (t.opt ? '（よゆう）' : '') + '</option>';
     });
     h += '</optgroup>';
   });
@@ -227,8 +262,30 @@ function bindKid() {
   app.querySelectorAll('[data-rm]').forEach(function (b) {
     b.onclick = function () { var p = b.getAttribute('data-rm').split('#'); var v = cur(p[0]); v.items.splice(Number(p[1]), 1); saveKid(); renderKid(); };
   });
+  app.querySelectorAll('[data-tip]').forEach(function (b) { b.onclick = function () { var k = b.getAttribute('data-tip'); K.tip = K.tip === k ? '' : k; renderKid(); }; });
+  var gd = app.querySelector('details.gl'); if (gd) gd.ontoggle = function () { K.goalOpen = gd.open; };
   app.querySelectorAll('[data-ist]').forEach(function (b) {
-    b.onclick = function () { var p = b.getAttribute('data-i').split('#'), st = b.getAttribute('data-ist'); var it = cur(p[0]).items[Number(p[1])]; if (it) it.st = it.st === st ? '' : st; saveKid(); renderKid(); };
+    b.onclick = function () {
+      var p = b.getAttribute('data-i').split('#'), st = b.getAttribute('data-ist'); var it = cur(p[0]).items[Number(p[1])]; if (!it) return;
+      it.st = it.st === st ? '' : st;
+      var later = selCells(K.cfg).filter(function (ck) { return ck > p[0]; });
+      var x = taskOf(K.cfg, it.task), nm = x ? x.u.subj + x.t.k : '';
+      if (it.st === 'cont') {
+        // ➡ つづき：あとの コマに 入っていなければ、つぎの あいている コマに 入れるか きく
+        var has = later.some(function (ck) { return itemsOf(K.plan.s[ck]).items.some(function (o) { return o.task === it.task; }); });
+        if (!has) {
+          var nx = later.filter(function (ck) { return itemsOf(K.plan.s[ck]).items.length < 4; })[0];
+          if (nx && confirm('つぎの チトセレ（' + slotName(nx) + '）に「' + nm + '」の つづきを 入れる？')) { cur(nx).items.push({ task: it.task, st: '' }); flash('📅 ' + slotName(nx) + ' に 入れたよ'); }
+        }
+      } else if (it.st === 'done') {
+        // ✅ できた：あとの コマにも 同じ 課題が 入っていたら、はずして あける か きく
+        var dup = later.filter(function (ck) { return itemsOf(K.plan.s[ck]).items.some(function (o) { return o.task === it.task && !o.st; }); });
+        if (dup.length && confirm('「' + nm + '」が できたね！ あとの コマ（' + dup.map(slotName).join('・') + '）の「' + nm + '」を はずして、ほかの 課題を 入れられるように する？')) {
+          dup.forEach(function (ck) { var v = cur(ck); v.items = v.items.filter(function (o) { return !(o.task === it.task && !o.st); }); });
+        }
+      }
+      saveKid(); renderKid();
+    };
   });
   app.querySelectorAll('[data-oth]').forEach(function (i) {
     // 書いている とちゅうで 画面を 書きなおさない（日本語入力が 切れて 2文字しか 入らなかった）
@@ -277,9 +334,10 @@ function renderT() {
     + '<b>週の数：</b><select id="tWeeks" style="width:auto">' + [1, 2, 3].map(function (n) { return '<option' + (n === cfg.weeks ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select>'
     + '<button class="btn main" id="tSave">💾 保存する</button><span id="tMsg" style="font-weight:900;color:#059669"></span></div>'
     + '<div style="margin-top:8px"><b>子どもへの ひとこと：</b><input type="text" id="tNote" maxlength="300" value="' + esc(cfg.msg || '') + '" placeholder="例：みんなで やる時間（👥）は 予定に 入れなくて いいよ。"></div></div>';
-  h += '<div class="tabs"><button data-tt="grid" class="' + (T.tab === 'grid' ? 'on' : '') + '">🗓 時間割</button><button data-tt="kids" class="' + (T.tab === 'kids' ? 'on' : '') + '">👀 みんなの計画</button><button data-tt="units" class="' + (T.tab === 'units' ? 'on' : '') + '">📋 課題メニュー</button></div>';
+  h += '<div class="tabs"><button data-tt="grid" class="' + (T.tab === 'grid' ? 'on' : '') + '">🗓 時間割</button><button data-tt="now" class="' + (T.tab === 'now' ? 'on' : '') + '">🕐 コマごと（だれが なにを）</button><button data-tt="kids" class="' + (T.tab === 'kids' ? 'on' : '') + '">👀 みんなの計画</button><button data-tt="units" class="' + (T.tab === 'units' ? 'on' : '') + '">📋 課題メニュー</button></div>';
   if (T.tab === 'grid') h += gridT();
   else if (T.tab === 'kids') h += kidsT();
+  else if (T.tab === 'now') h += nowT();
   else h += unitsT();
   app.innerHTML = h;
   bindT();
@@ -323,7 +381,7 @@ function gridT() {
 function fixedAtT(key) { var cfg = T.cfg, out = []; Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(ck); }); return out.length; }
 function kidsT() {
   var cfg = T.cfg, sc = selCells(cfg), must = mustTasks(cfg);
-  var h = '<div class="card"><h2>👀 みんなの計画</h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
+  var h = '<div class="card"><h2>👀 みんなの計画　<button class="btn" id="kidsReload">🔄 さいしん</button></h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
   T.kids.forEach(function (k) {
     var s = (k.plan && k.plan.s) || {};
     var st = function (key) { var n = 0, dn = false; Object.keys(s).forEach(function (ck) { itemsOf(s[ck]).items.forEach(function (it) { if (it.task === key) { n++; if (it.st === 'done') dn = true; } }); }); return { n: n, done: dn }; };
@@ -340,6 +398,33 @@ function kidsT() {
       }).join('') + '</tr>';
   });
   return h + '</table></div></div>';
+}
+// 🕐 コマごと：授業中に「だれが なにを やるか」を 課題ごとに まとめて 見る
+function nowT() {
+  var cfg = T.cfg, sc = selCells(cfg);
+  if (!sc.length) return '<div class="card">🌟 チトセレの コマが ありません。</div>';
+  if (!T.slot || sc.indexOf(T.slot) < 0) T.slot = sc.filter(function (ck) { return ck.split('|')[0] >= T.today; })[0] || sc[sc.length - 1];
+  var h = '<div class="card"><div class="ed"><b>コマ：</b><select id="nowSlot" style="width:auto">' + sc.map(function (ck) { return '<option value="' + ck + '"' + (ck === T.slot ? ' selected' : '') + '>' + esc(slotName(ck)) + (ck.split('|')[0] === T.today ? '（きょう）' : '') + '</option>'; }).join('') + '</select>'
+    + '<button class="btn" id="nowPrev">◀ まえ</button><button class="btn" id="nowNext">つぎ ▶</button><button class="btn" id="nowReload">🔄 さいしん</button></div>';
+  var groups = {}, others = [], none = [];
+  T.kids.forEach(function (k) {
+    var v = itemsOf(k.plan && k.plan.s ? k.plan.s[T.slot] : null);
+    if (!v.items.length && !v.other.trim()) { none.push(k.name); return; }
+    v.items.forEach(function (it) { (groups[it.task] = groups[it.task] || []).push({ n: k.name, st: it.st }); });
+    if (v.other.trim()) others.push({ n: k.name, t: v.other, st: v.otherSt });
+  });
+  var mk = function (st) { return st === 'done' ? ' ✅' : st === 'cont' ? ' ➡' : ''; };
+  h += '<div class="units" style="margin-top:10px">';
+  cfg.units.forEach(function (u) {
+    u.tasks.forEach(function (t) {
+      var key = u.id + ':' + t.k, g = groups[key]; if (!g) return;
+      h += '<div class="unit" style="border-color:' + u.color + '"><h3 style="color:' + u.color + '">' + esc(u.subj + ' ' + t.k + '　' + t.t) + '　<span class="badge b-plan">' + g.length + '人</span></h3><div style="font-size:14px">' + g.map(function (x) { return esc(x.n) + mk(x.st); }).join('、') + '</div></div>';
+    });
+  });
+  if (others.length) h += '<div class="unit"><h3>✏️ その他　<span class="badge b-plan">' + others.length + '人</span></h3><div style="font-size:14px">' + others.map(function (x) { return esc(x.n) + '：' + esc(x.t) + mk(x.st); }).join('<br>') + '</div></div>';
+  h += '</div>';
+  if (none.length) h += '<div class="warn">まだ このコマの 予定が ない（' + none.length + '人）：' + none.map(esc).join('、') + '</div>';
+  return h + '</div>';
 }
 function unitsT() {
   var cfg = T.cfg, h = '<div class="card uted"><h2>📋 課題メニュー（学習ガイドの A〜F）</h2><div style="font-size:13px;color:#64748b">「みんなで」にした課題は、子どもは えらべません（時間割で 👥 のコマに わりあてる）。「おわり」は もう すんだ課題。「よゆう」は やらなくても いい課題（数に 入れない）。</div>';
@@ -365,6 +450,13 @@ function bindT() {
   $('tWeeks').onchange = function () { T.cfg.weeks = Number(this.value); fillCells(); dirty(); renderT(); };
   $('tNote').oninput = function () { T.cfg.msg = this.value; dirty(); };
   $('tSave').onclick = saveT;
+  var kr = $('kidsReload'); if (kr) kr.onclick = reloadKids;
+  var ns = $('nowSlot'); if (ns) {
+    var sc0 = selCells(T.cfg), mv = function (d) { var i = sc0.indexOf(T.slot) + d; if (i >= 0 && i < sc0.length) { T.slot = sc0[i]; renderT(); } };
+    ns.onchange = function () { T.slot = ns.value; renderT(); };
+    $('nowPrev').onclick = function () { mv(-1); }; $('nowNext').onclick = function () { mv(1); };
+    $('nowReload').onclick = reloadKids;
+  }
   app.querySelectorAll('td.cell').forEach(function (td) { td.onclick = function () { T.pick = td.getAttribute('data-ck'); renderT(); }; });
   app.querySelectorAll('.ed [data-k]').forEach(function (b) { b.onclick = function () { var c = T.cfg.cells[T.pick] || { k: 'n', t: baseText(T.pick) }; c.k = b.getAttribute('data-k'); if (c.k !== 'f') { delete c.u; delete c.tk; } if (c.k === 's' || c.k === 'x') c.t = ''; else if (!c.t) c.t = baseText(T.pick); T.cfg.cells[T.pick] = c; dirty(); renderT(); }; });
   var cT = $('cT'); if (cT) cT.oninput = function () { var c = T.cfg.cells[T.pick] || { k: 'n' }; c.t = cT.value; T.cfg.cells[T.pick] = c; dirty(); };
@@ -376,6 +468,9 @@ function bindT() {
   app.querySelectorAll('[data-tc]').forEach(function (i) { i.onchange = function () { var p = i.getAttribute('data-tc').split(':'); var t = T.cfg.units[+p[0]].tasks[+p[1]]; if (i.checked) t[p[2]] = 1; else delete t[p[2]]; dirty(); }; });
   app.querySelectorAll('[data-td]').forEach(function (b) { b.onclick = function () { var p = b.getAttribute('data-td').split(':'); if (!confirm('この課題を けしますか？')) return; T.cfg.units[+p[0]].tasks.splice(+p[1], 1); dirty(); renderT(); }; });
   app.querySelectorAll('[data-ta]').forEach(function (b) { b.onclick = function () { T.cfg.units[+b.getAttribute('data-ta')].tasks.push({ k: '?', t: 'あたらしい課題', note: '' }); dirty(); renderT(); }; });
+}
+function reloadKids() {
+  api('/api/teacher/chitosele/' + encodeURIComponent(CID)).then(function (j) { if (j && j.ok) { T.kids = j.kids || []; renderT(); flash('さいしんに したよ'); } });
 }
 function saveT() {
   api('/api/teacher/chitosele/' + encodeURIComponent(CID), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cfg: T.cfg }) }).then(function (j) {
