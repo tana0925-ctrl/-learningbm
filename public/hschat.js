@@ -525,18 +525,44 @@
   function reMin() { act(function (s, c) { say(c, 'm', SAY.readyBack); c.step = 'min'; say(c, 'b', SAY.min); }); }
   function schoolNow() { try { return !call('hsIsRestDay', dayKey()) && typeof window.hsIsSchoolTimeNow === 'function' && window.hsIsSchoolTimeNow() && !viewOnly(); } catch (e) { return false; } }
   // 🔁 HSSAME_V1（2026-11-12 先生の指示）前回と 同じ 答えを えらんだら、阪神マンが「今日は どうやった？」と もう一歩 聞く（毎日 同じに ならないように）
-  var VAGUE_Q = {
-    todo: 'お、ええな！ もうちょい くわしく！ 何の 教科の、何を どこまで やる？（例：算数ドリル 12ページ・漢字 5こ）',
-    reason: 'なるほどな。もう少し くわしく 教えて！ どの 問題・どの ところで そう 思った？',
-    deep: 'なるほどな。もう少し くわしく 教えて！ どの 問題・どの ところで そう 思った？',
-    next: '具体的に いこか！ 次は 何を どれだけ やる？（例：10分 ふやす・音読 2回・まちがえた 問題を もう1回）',
-    nextMore: 'あと ひといき！ 何を どれだけ？ 数で 言えたら 最高や（例：漢字 10こ・3ページ）'
-  };
-  function isVague(t) {   // HSVAGUE_V1
-    t = stripIcon(t).replace(/[\s　、。,.！!？?…・〜ー～]/g, '');
-    if (/[0-9０-９一二三四五六七八九十百]|ページ|問|分|回|個|行|ドリル|漢字|計算|音読|プリント|ノート|教科書|単語|まとめ|算数|国語|社会|理科|英語|割合|分数|ひっ算|筆算|図|式/.test(t)) return false;
-    if (Array.from(t).length < 4) return true;
-    return Array.from(t).length < 15 && /がんば|頑張|ちゃんと|しっかり|ふつう|普通|なんとなく|いろいろ|色々|とくに|特に|べつに|別に|わからない|べんきょう|勉強|やる気|まあまあ|楽しかった|たのしかった|よかった|できた/.test(t);
+  // 🔎 HSVAGUE_V2 子どもが 書いた ことばに あわせて 聞きかえす（「がんばる」→ 何を がんばる？／「算数」→ 算数の 何を？／「たのしかった」→ 何が？）
+  var VAGUE_FIELDS = { todo: 'todo', reason: 'ref', deep: 'ref', next: 'next', nextMore: 'next' };
+  var SUBJ = /算数|国語|社会|理科|英語|外国語|音楽|図工|体育|家庭科|書写|道徳/;
+  var SUBJ_EX = { 算数: 'ドリル 12ページ・計算 10問', 国語: '漢字 10こ・音読 2回', 社会: 'ノートまとめ 1ページ・年表を かく', 理科: '教科書を 読んで まとめる 1ページ', 英語: '単語 5こを 3回ずつ', 外国語: '単語 5こを 3回ずつ' };
+  var DETAIL = /[0-9０-９一二三四五六七八九十百]|ページ|問|分|回|個|行|ドリル|漢字|計算|音読|プリント|ノート|教科書|単語|まとめ|割合|分数|筆算|算|図|式|字|読み|書き|ワーク|テスト/;
+  function vagueAsk(w, raw) {
+    var kind = VAGUE_FIELDS[w]; if (!kind) return '';
+    var v = cut(stripIcon(raw).trim(), 20), t = stripIcon(raw).replace(/[\s　、。,.！!？?…・〜～]/g, ''), n = Array.from(t).length;
+    var sm = t.match(SUBJ), sub = sm ? sm[0] : '';
+    if (DETAIL.test(t.replace(new RegExp(SUBJ.source, 'g'), ''))) return '';
+    if (n >= 15) return '';
+    var g = function (re) { var m = t.match(re); return m ? m[0] : ''; };
+    if (kind === 'todo') {
+      if (sub) return sub + 'やな！ ' + sub + 'の 何を どこまで やる？' + (SUBJ_EX[sub] ? '（例：' + SUBJ_EX[sub] + '）' : '');
+      if (g(/がんば|頑張/)) return '「' + v + '」ええな！ 何を がんばる？ 教科と、どこまで やるか 教えて（例：算数ドリル 12ページ）';
+      if (g(/宿題|しゅくだい/)) return '宿題やな！ 何の 宿題？ どこまで ある？（例：漢字ドリル 1ページ・計算 10問）';
+      if ((g(/べんきょう|勉強|やる/) && n < 8) || n < 4) return '「' + v + '」やな。もうちょい くわしく！ 何の 教科の、何を どこまで やる？';
+      return '';
+    }
+    if (kind === 'ref') {
+      if (g(/たのしかった|楽しかった|おもしろかった|面白かった/)) return '「' + v + '」って ええな！ 何が たのしかった？ どの 問題・どんな ところ？';
+      if (g(/できた/)) return 'できたんや！ どの 問題が できた？ どうやったら できたん？';
+      if (g(/わからな|わからん|わかんな|むずかし|難し/)) return 'そうか、「' + v + '」やったんやな。どこが？ 何ページの 何番か、どんな ところか 教えて';
+      if (g(/よかった|うまくいった/)) return '何が よかった？ 前と くらべて どう ちがった？';
+      if (g(/ふつう|普通|まあまあ/)) return '「' + v + '」かぁ。うまく いった ところと、むずかしかった ところ、1つずつ 言うてみ';
+      if (g(/とくに|特に|べつに|別に|なんとなく|わからない/)) return 'ちょっと 思い出してみよ。今日 いちばん 時間が かかったのは どこやった？';
+      if (g(/がんば|頑張/)) return '何を がんばった？ どの 問題・どの ところ？';
+      if (n < 4) return '「' + v + '」やな。もう少し くわしく！ どの 問題・どの ところで そう 思った？';
+      return '';
+    }
+    // next
+    if (sub) return sub + 'の 何を どれだけ やる？ 数で 言えたら 最高や（例：' + (SUBJ_EX[sub] || '10分 ふやす') + '）';
+    if (g(/はやく|早く/)) return '早く やるの ええな！ 何時に はじめる？（例：5時から・帰って すぐ）';
+    if (g(/集中/)) return '集中するために 何する？（例：テレビを けす・つくえを 片づける・タイマーを 15分に する）';
+    var gg = g(/がんば|頑張|ちゃんと|しっかり|もっと|いっぱい|たくさん/);
+    if (gg) return '「' + v + '」って、何を どれだけ やったら OKや？ 数で 言うてみ（例：10分 ふやす・漢字 10こ）';
+    if ((g(/べんきょう|勉強|やる/) && n < 8) || n < 4) return '「' + v + '」やな。具体的に いこか！ 何を どれだけ やる？（例：音読 2回・まちがえた 問題を もう1回）';
+    return '';
   }
   function prevMain(field) { try { var r = prevRec(); return r ? stripIcon(String(r[field] || '').split('：')[0]).trim() : ''; } catch (e) { return ''; } }
   function startNow() {
@@ -568,11 +594,11 @@
     act(function (s, c) {
       var w = c.waiting; c.waiting = '';
       say(c, 'm', v);
-      // 🔎 HSVAGUE_V1 ぼんやりした 答え（「がんばる」「ふつう」など）は 1回だけ「具体的に」と 聞きかえす。2回目の 答えは つなげて のこす
-      if (VAGUE_Q[w]) {
+      // 🔎 HSVAGUE_V1/V2 ぼんやりした 答え（「がんばる」「ふつう」など）は、書いた ことばに あわせて 1回だけ 聞きかえす。2回目の 答えは つなげて のこす
+      if (VAGUE_FIELDS[w]) {
         c.vq = c.vq || {};
         if (c.vq[w] && c.vq[w] !== 1) { v = buildText(c.vq[w], v); c.vq[w] = 1; }
-        else if (!c.vq[w] && isVague(v)) { c.vq[w] = cut(v, 150); c.waiting = w; say(c, 'b', VAGUE_Q[w]); return; }
+        else if (!c.vq[w]) { var vqA = vagueAsk(w, v); if (vqA) { c.vq[w] = cut(v, 150); c.waiting = w; say(c, 'b', vqA); return; } }
       }
       if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', 'other')); say(c, 'b', SAY.why); }
       else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
