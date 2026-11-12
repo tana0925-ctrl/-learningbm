@@ -5,6 +5,26 @@ import { defAutoBattleRT } from './def_engine'
 
 const DEF_DEFAULT_PROG = [{ c: 'always', a: 'attackBase' }]
 
+// 🪙 DEF_COIN_TIER_V1（2026-11-13 先生の指示）勝ったときの コインに 差を つける。
+//   じどう参加 10 ／ 自分で 出陣（さいしょの プログラムの まま）20 ／ プログラムを 工夫して 出陣 40
+//   「工夫」＝ 出した プログラムが さいしょの すがた（D2T_START）でも 空でも ふるい既定でも ない こと。
+const DEF_START_SIGS = [
+  '[{"t":"if","c":"allyBaseBelow","cn":40,"body":[{"t":"a","a":"returnBase"}],"els":[{"t":"a","a":"attackBase"}]}]',
+  '[{"c":"always","a":"attackBase"}]', '[]', ''
+]
+function defProgSig(p: any): string {
+  try {
+    const v = (typeof p === 'string') ? JSON.parse(p) : p
+    if (!Array.isArray(v)) return ''
+    return JSON.stringify(v, function (k, x) { return (k === '_id' || k === 'id') ? undefined : x })
+  } catch (_e) { return '' }
+}
+export const DEF_COIN_AUTO = 10, DEF_COIN_SELF = 20, DEF_COIN_KUFU = 40
+export function defWinCoins(au: any, pg: any): number {
+  if (Number(au) === 1) return DEF_COIN_AUTO
+  return DEF_START_SIGS.indexOf(defProgSig(pg)) >= 0 ? DEF_COIN_SELF : DEF_COIN_KUFU
+}
+
 // public/defense2.js から機械的に抜き出した computeMVP（手で書き写していない）
 function computeMVP(rep, entrants){
     try{

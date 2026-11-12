@@ -1,4 +1,5 @@
 import { defStageDownIfLosing } from './def_stage' // __DEFSTAGE_DOWN_V1__
+import { defWinCoins } from './def_resolve' // DEF_COIN_TIER_V1
 // __DEF_AUTO_RESOLVE_V1__ 先生が 画面を ひらいていなくても 12:30 に 決戦が おきるようにする。
 //
 // 2026-09-14 / 09-15 / 09-16 と 3日つづけて 12:30 に はじまりませんでした。
@@ -133,9 +134,9 @@ async function darResolve(env: any, st: any, classId: any) {
       if (up && up.meta && Number(up.meta.changes || 0) === 1) await d.defStageMakeLedger(env, classId, stage)
     } catch (_e) {}
     try {
-      const es = await env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all()
+      const es = await env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au, json_extract(monster_json, '$.prog') AS pg FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all()
       const rw = env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))")
-      const list = ((es && es.results) || []).map((r: any) => rw.bind(st.eventKey, classId, String(r.user_id), (Number(r.au) === 1 ? d.DEFENSE_WIN_COINS : d.DEFENSE_WIN_COINS + d.DEFENSE_ENTRY_BONUS_COINS)))
+      const list = ((es && es.results) || []).map((r: any) => rw.bind(st.eventKey, classId, String(r.user_id), defWinCoins(r.au, r.pg)))
       if (list.length) await env.DB.batch(list)
     } catch (_e) {}
   }

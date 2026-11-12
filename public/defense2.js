@@ -1600,6 +1600,60 @@ function def2HypeHtml(log, st){
     }).catch(function(){ TB.busy=false; tbSorry('うまく うごきませんでした。もういちど ためしてね。'); });
   }
 
+  /* ===== DEF2_TEN_V1 🏆 本番の てきと 10回勝負 =====
+     クラス みんなが じぶんと おなじ モンスター・おなじ プログラムで 本番の てき（きょうの ステージ）と 10回 たたかったら 何勝 するか。
+     くらべるために「さいしょの プログラム」でも 10回 たたかう（ステージごとに 1回だけ けいさんして おぼえておく）。
+     端末の 中だけで うごく。サーバにも きろくにも コインにも のこらない。 */
+  var TEN = { busy:false, html:'', base:{} };
+  function tenOne(pick, prog, foes, n, seed){
+    var A=[], pa=[], i, rep=null;
+    for(i=0;i<n;i++){ A.push({id:pick.id, level:pick.level, strategy:pick.strategy, raw:pick.raw}); pa.push(prog); }
+    try{ rep=window.autoBattleRT(A, JSON.parse(JSON.stringify(foes)), {bases:true,lanes:true,laneCount:3,seed:seed,program:true,programsA:pa,programsB:[ENEMY_PROG],forts:false,tactics:true,contact:true,foeLaneMix:true,mopTicks:120,baseHitCap:0.08}); }catch(e){ rep=null; }
+    return rep && rep.winner==='A';
+  }
+  function tenRes(h){ TEN.html=h; var el=document.getElementById('def2Try10Res'); if(el) el.innerHTML=h; }
+  function tbTen(){
+    if(TEN.busy || TB.busy) return;
+    var pick=tbPick();
+    if(!pick){ tbSorry('さきに モンスターを えらんでね。'); return; }
+    if(typeof window.autoBattleRT!=='function'){ tbSorry('いま ためせません。ページを もういちど ひらいてね。'); return; }
+    TEN.busy=true; tenRes('<div style="font-size:13px;color:#92400e;font-weight:900;">⚔️ たたかっています… 0 / 10</div>');
+    tbStatus().then(function(st){
+      var sq=(st && st.enemy_squad && st.enemy_squad.length) ? st.enemy_squad : null;
+      if(!sq){ TEN.busy=false; tenRes('<div style="font-size:12px;color:#b91c1c;">きょうの てきが まだ 読みこめません。</div>'); return; }
+      var foes=sq.map(function(en){ return {raw:{name:en.name,sprite:en.sprite,hp:en.hp,atk:en.atk,def:en.def,spd:en.spd,buff:en.buff,skillPow:en.skillPow,elementType:en.elementType,skills:en.skills}, strategy:'attack'}; });
+      var n=23; try{ var en0=Number(st.entry_count||st.entries_count||0); if(en0>=5 && en0<=35) n=en0; }catch(e){}
+      var prog=progFromRules(); if(!prog || !prog.length) prog=DEFAULT_PROG;
+      var key=String(st.stage||1)+':'+String(st.event_key||'');
+      var needBase=(TEN.base[key]==null), base=0, win=0, k=0, total=needBase?20:10;
+      var seeds=[]; for(var z=0;z<10;z++) seeds.push((Math.floor(Math.random()*4294967296)>>>0));
+      function step(){
+        try{
+          if(k<10){ if(tenOne(pick, prog, foes, n, seeds[k])) win++; }
+          else { if(tenOne(pick, D2T_START, foes, n, seeds[k-10])) base++; }
+        }catch(e){}
+        k++;
+        if(k<total){ tenRes('<div style="font-size:13px;color:#92400e;font-weight:900;">⚔️ たたかっています… '+Math.min(k,10)+' / 10'+(k>=10?'（さいしょの プログラムとも くらべ中）':'')+'</div>'); setTimeout(step, 15); return; }
+        if(needBase) TEN.base[key]=base;
+        var b=TEN.base[key];
+        var bar=''; for(var q=0;q<10;q++) bar+=(q<win?'🟢':'⚪');
+        var msg = win>b ? '👏 さいしょの プログラムより '+(win-b)+'勝 ふえた！ この 工夫は きいてるぞ！'
+                : win===b ? '🤔 さいしょの プログラムと おなじ。どこを かえたら 勝てるかな？'
+                : '💦 さいしょの プログラムより へっちゃった。ためしバトルで うごきを 見てみよう';
+        if(win>=9) msg='🏆 ほぼ ぜんしょう！ すごい 作戦だ！';
+        tenRes('<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:12px;padding:9px 10px;">'
+          +'<div style="font-size:12px;color:#92400e;font-weight:900;">クラス みんなが きみと おなじ プログラムだったら…</div>'
+          +'<div style="font-size:22px;font-weight:900;color:#78350f;margin:2px 0;">10回中 '+win+'勝</div>'
+          +'<div style="font-size:18px;letter-spacing:1px;">'+bar+'</div>'
+          +'<div style="font-size:12px;color:#475569;margin-top:3px;">くらべると：さいしょの プログラムなら 10回中 '+b+'勝</div>'
+          +'<div style="font-size:13px;font-weight:900;color:#92400e;margin-top:4px;">'+msg+'</div>'
+          +'<div style="font-size:11px;color:#94a3b8;margin-top:3px;">本番は みんなの プログラムが まざるので、けっかは かわるよ。れんしゅうなので きろくにも コインにも のこりません。</div></div>');
+        TEN.busy=false;
+      }
+      setTimeout(step, 30);
+    }).catch(function(){ TEN.busy=false; tenRes('<div style="font-size:12px;color:#b91c1c;">うまく うごきませんでした。</div>'); });
+  }
+
   function tbIsPreset(v){ return TB.allies===v.allies && TB.foes===v.foes && TB.power===v.power && TB.move===v.move; }
 
   function tbRow(label, id, opts, cur){
@@ -1615,6 +1669,10 @@ function def2HypeHtml(log, st){
       +'<div style="font-weight:900;font-size:13px;color:#0f766e;">🧪 ためす</div>'
       +'<div style="font-size:11px;color:#64748b;">れんしゅう。きろくにも コインにも のこりません</div></div>';
     s+='<button id="def2TryGo" style="width:100%;border:0;background:#0d9488;color:#fff;border-radius:12px;padding:14px;font-weight:900;font-size:17px;cursor:pointer;">🧪 ためしてみる</button>';
+    /* DEF2_TEN_V1 本番の てきと 10回勝負（みんなが じぶんの プログラムだったら 何勝？） */
+    s+='<button id="def2Try10" style="width:100%;margin-top:8px;border:2px solid #b45309;background:#fffbeb;color:#92400e;border-radius:12px;padding:11px;font-weight:900;font-size:15px;cursor:pointer;">🏆 本番の てきと 10回勝負</button>'
+      +'<div id="def2Try10Res" style="margin-top:6px;">'+(TEN.html||'')+'</div>'
+      +'<div style="margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:7px 9px;font-size:12px;color:#334155;line-height:1.6">🪙 <b>勝ったときの コイン</b>：プログラムを 自分で 工夫して 出陣 <b>40まい</b>／自分で 出陣（さいしょの プログラムの まま）20まい／じどう参加 10まい<br>🏅 活やく（MVP）に えらばれると さらに もらえるよ</div>';
     s+='<div style="text-align:center;margin-top:6px;"><button id="def2TryMore" style="border:0;background:transparent;color:#64748b;font-size:12px;cursor:pointer;text-decoration:underline;">くわしく えらぶ '+(TB.open2?'▲':'▼')+'</button></div>';
     if(TB.open2){
       s+='<div style="margin-top:6px;display:grid;gap:6px;">';
@@ -1647,6 +1705,7 @@ function def2HypeHtml(log, st){
     var box=document.getElementById('def2TryBox'); if(!box) return;
     box.innerHTML=tbUiHtml();
     var g=document.getElementById('def2TryGo'); if(g) g.addEventListener('click', function(){ tbRun(); });
+    var g10=document.getElementById('def2Try10'); if(g10) g10.addEventListener('click', function(){ tbTen(); });
     var m=document.getElementById('def2TryMore'); if(m) m.addEventListener('click', function(){ TB.open2=!TB.open2; tbRenderUi(); });
     var t=document.getElementById('def2TryTune'); if(t) t.addEventListener('click', function(){ TB.open3=!TB.open3; tbRenderUi(); });
     var ps=box.querySelectorAll('.def2TryPre'), i;

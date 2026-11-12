@@ -1,4 +1,5 @@
 import { defStageDownIfLosing } from './def_stage' // __DEFSTAGE_DOWN_V1__
+import { defWinCoins } from './def_resolve' // DEF_COIN_TIER_V1
 // __DEF_TEACHER_START_V1__ 先生の画面から その場で 決戦を はじめる。
 //
 // 2026-09-14（初日の本番）に 12:30 の 防衛戦が はじまらず、14:05 に なってしまった
@@ -121,9 +122,9 @@ export function registerDefTeacherStart(app: any, deps: any) {
         if (up && up.meta && Number(up.meta.changes || 0) === 1) await defStageMakeLedger(env, classId, stage)
       } catch (_e) {}
       try {
-        const es = await env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all()
+        const es = await env.DB.prepare("SELECT user_id, json_extract(monster_json, '$.auto') AS au, json_extract(monster_json, '$.prog') AS pg FROM defense_entries WHERE event_key=? AND class_id=?").bind(st.eventKey, classId).all()
         const rw = env.DB.prepare("INSERT OR IGNORE INTO defense_rewards (event_key, class_id, user_id, coins, seen, created_at) VALUES (?,?,?,?,0,datetime('now'))")
-        const list = ((es && es.results) || []).map((r: any) => rw.bind(st.eventKey, classId, String(r.user_id), (Number(r.au) === 1 ? DEFENSE_WIN_COINS : DEFENSE_WIN_COINS + DEFENSE_ENTRY_BONUS_COINS)))
+        const list = ((es && es.results) || []).map((r: any) => rw.bind(st.eventKey, classId, String(r.user_id), defWinCoins(r.au, r.pg)))
         if (list.length) await env.DB.batch(list)
       } catch (_e) {}
     }
