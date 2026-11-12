@@ -111,6 +111,34 @@
     signBtn: '✍️ おうちの人の サインを もらう',
     introSub: 'やることを えらんで、タイマーで がんばって、さいごに ふりかえる。ぜんぶ 話しながら すすめられるで。いつものシートも そのまま 使えるで。'
   };
+  // 🎲 HSVARY_V1（2026-11-12 先生の指示）同じ 中身でも 言い方を かえる。日が かわると べつの 言い方（同じ日は そろう）。
+  var SAY_ALT = {
+    hello: ['よう来たな！ 今日の家庭学習、いっしょに やっていこか！', 'おかえり！ さあ、今日の家庭学習 はじめよか！', 'まってたで！ 今日も いっしょに がんばろな！', 'おっ、ええとこに 来たな！ 今日の家庭学習、作戦 立てよか！'],
+    todo: ['今日は なにから やる？', '今日の メニュー、なににする？', 'さて、今日は なにを がんばる？', '今日 やること、えらんでみよか！'],
+    why: ['それに した わけは？', 'お、なんで それに したん？ 教えて！', 'それを えらんだ わけ、聞かせてな', 'ええな！ どうして それに したん？'],
+    min: ['何分 がんばる？', '時間は どれくらいに する？', 'タイマー、何分に しとこか？', '何分 集中してみる？'],
+    ready: ['{n}分やな！ じゅんび できたら スタートしよか？', '{n}分で いこか！ 用意が できたら スタートや！', 'よっしゃ {n}分！ えんぴつ もったら スタートおしてな'],
+    go: ['よっしゃ、スタートや！ 応援してるで！', 'いってらっしゃい！ 集中モード オンや！', 'タイマー スタート！ じぶんの ペースで いこな！', 'はじめ！ 終わったら また 話そな！'],
+    running: ['がんばり中やな！ 終わったら「おわる」を おしてな', 'いい調子や！ 終わったら「おわる」で 教えてな', '集中しとるな〜！ 終わったら「おわる」やで'],
+    timeUp: ['⏰ 時間やで！ もう少し やる？', '⏰ ピピピ！ 時間や！ まだ いけそう？', '⏰ 時間に なったで！ つづける？ おわる？'],
+    extend: ['ええやん！ あと {n}分 いこか！', 'その意気や！ もう {n}分 がんばろ！', 'すごいな！ あと {n}分 つづけよか！'],
+    done: ['おつかれ！ {m}分 がんばったな！', 'ようやった！ {m}分 やりきったで！', '{m}分 おつかれさん！ ええ集中やったで！', 'やったな！ {m}分 がんばったで！'],
+    feel: ['やってみて、今の 気もちは？', '今日の きもちの 天気は どうや？', 'おわってみて、どんな 気もち？', '今の こころの 天気、教えて！'],
+    reason: ['なんで？', 'どうして そう 思ったん？', 'そう 感じた わけは？', 'へえ、なにが あったん？'],
+    nextSun: ['この晴れを 続けるには？', '明日も 晴れに するには どうする？', 'ええ天気やな！ 明日も 晴れに する コツは？'],
+    nextElse: ['次 もっといい天気に するには？', '明日 晴れに するには、どうしたら ええかな？', 'つぎは どうしたら もっと よく なりそう？'],
+    bye: ['おつかれさん！ 写真が あったら つけて、先生に 出そう！', 'ようがんばった！ 写真が あったら つけて、提出しよか！', 'ばっちりや！ さいごに 写真を つけて（なくても OK）先生に 出そな！'],
+    sent: ['提出できたで！ {msg} また あした 話そな！', '先生に とどいたで！ {msg} あしたも まってるで！', 'とどけたで！ {msg} 今日も おつかれさん！'],
+    already: ['今日の家庭学習は もう 提出ずみやで！ また あした 話そな！', '今日は もう 出してるで！ ゆっくり 休んでな。また あしたな！'],
+    wplan: ['月曜日やから、まず 今週の 計画を 立てよか！ 今週の 自主学習、何を どこまで やる？', '新しい 週の はじまりや！ 今週は 何を どこまで やる？', '月曜日は 作戦会議や！ 今週の 自主学習、どこまで いく？'],
+    wref: ['金曜日やから、今週 1週間を ふりかえろう！ 今週 いちばん がんばったことは？', '1週間 おつかれさん！ 今週 いちばん がんばったことは なに？', '金曜日や！ 今週を ふりかえろか。いちばん がんばったことは？'],
+    minnaAsk: ['さいごに ひとつ！ 今日の ふりかえり、クラスの「みんなのふりかえり」に のせても ええ？ 先生が えらんで、いくつか しょうかいするで。', 'あと ひとつだけ！ 今日の ふりかえり、「みんなのふりかえり」で 友だちに 見せても ええ？（先生が えらんだら のるで）']
+  };
+  Object.keys(SAY_ALT).forEach(function (k) {
+    var base = SAY[k]; if (typeof base !== 'string') return;
+    var list = [base].concat(SAY_ALT[k]);
+    try { Object.defineProperty(SAY, k, { get: function () { return window.__HS_NOVARY__ ? base : vary(list, 'say:' + k); }, enumerable: true, configurable: true }); } catch (e) {}
+  });
   var TODO_FIXED = [
     { k: 'school', label: '🏫 学校の宿題（漢字・計算など）' },
     { k: 'app', label: '🎮 アプリの修行', text: 'アプリの修行' },
@@ -240,8 +268,22 @@
   function dayKey() { var v = call('hsGetDayKey830', new Date()); if (v) return v; var d = new Date(Date.now() - 8.5 * 3600000); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
   function submittedToday() { try { var logs = call('hsLogs') || []; return !!call('hsHasLogForDay', logs, dayKey()); } catch (e) { return false; } }
   function getSess() { var s = call('hsGetSession'); return (s && s.dayKey === dayKey()) ? s : null; }
-  function ensureSess() { return call('hsEnsureSessionForToday') || getSess(); }
-  function saveSess(s) { call('hsSetSession', s); }
+  // 💾 HSKEEP_V1（2026-11-12）対話の とちゅうを 端末にも 控える。サーバの 保存が おくれて／とどかずに、ひらきなおしたら
+  //   とちゅうから 消えていた ときは、この 控えから もどす（同じ 日・同じ 人・控えの ほうが 先まで 進んでいる ときだけ）。
+  function keepKey() { try { return 'hsKeepV1:' + String((window.player && (player.userId || player.name)) || ''); } catch (e) { return 'hsKeepV1:'; } }
+  function keepPut(s) { try { if (s && s.dayKey && s._chat && !viewOnly()) localStorage.setItem(keepKey(), JSON.stringify({ dk: s.dayKey, at: Date.now(), s: s })); } catch (e) {} }
+  function keepFix(s) {
+    try {
+      if (!s || viewOnly()) return s;
+      var k = JSON.parse(localStorage.getItem(keepKey()) || 'null');
+      if (!k || k.dk !== s.dayKey || !k.s || !k.s._chat) return s;
+      var mine = (s._chat && s._chat.log) ? s._chat.log.length : 0, kept = (k.s._chat.log || []).length;
+      if (kept > mine && !(submittedToday && submittedToday())) { call('hsSetSession', k.s); return k.s; }
+    } catch (e) {}
+    return s;
+  }
+  function ensureSess() { return keepFix(call('hsEnsureSessionForToday') || getSess()); }
+  function saveSess(s) { call('hsSetSession', s); keepPut(s); }
   function elapsedMs(s) { var v = call('hsGetElapsedMs', s); if (typeof v === 'number') return v; if (!s || !s.started) return 0; var b = Number(s.elapsedMs || 0) || 0; return s.paused || !s.startTs ? b : b + (Date.now() - s.startTs); }
   function mmss(ms) { var t = Math.max(0, Math.floor(ms / 1000)); var m = Math.floor(t / 60), r = t % 60; return m + ':' + (r < 10 ? '0' : '') + r; }
 

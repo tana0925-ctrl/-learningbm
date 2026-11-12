@@ -12002,11 +12002,16 @@ sessionStartTime = now;
                     // player.userId はloadData()がDBから認証取得した際にセットされる
                     // → ログイン済み学生の場合のみ保存（__loggedInRoleの競合状態を回避）
                     if (typeof apiJson === 'function' && player.userId) {
+                        // SAVEQ_V1（2026-11-12）保存は 1つずつ 順番に。送っている とちゅうに 次の 保存が 来たら、終わってから「いちばん 新しい 状態」を 1回だけ 送る。
+                        //   （大きな 保存が 前後して とどき、古い 状態で 上書きされて「阪神マンとの 対話が とちゅうから 消える」のを ふせぐ）
+                        if (window.__saveInflight && Date.now() - (window.__saveInflightAt || 0) < 20000) { window.__saveAgain = true; return; }
+                        window.__saveInflight = true; window.__saveInflightAt = Date.now();
+                        var _sqDone = function () { window.__saveInflight = false; if (window.__saveAgain) { window.__saveAgain = false; setTimeout(function () { try { saveData(); } catch (_e) {} }, 0); } };
                         apiJson('/api/student/progress', {
                             method: 'PUT',
                             headers: { 'content-type': 'application/json' },
                             body: JSON.stringify({ state: player })
-                        }).then(function(res) {
+                        }).then(function(res) { _sqDone(); return res; }, function(e) { _sqDone(); throw e; }).then(function(res) {
                             if (!res || !res.ok) {
                                 console.warn('[saveData] DB save failed:', res);
                             }

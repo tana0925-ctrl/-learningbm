@@ -39,6 +39,7 @@ async function device({ store = null, ls = null, viewAs = false, role = 'student
   const w = dom.window
   if (ls) for (const k of Object.keys(ls)) w.localStorage.setItem(k, ls[k])
   w.__calls = []; w.__reply = reply; w.__alerts = []
+  w.__HS_NOVARY__ = true   // HSVARY_V1 テストは いつもの ことばで
   w.__HSAUTH_NO_NAV__ = true
   w.__loggedInRole = role
   w.alert = (m) => { w.__alerts.push(String(m)) }
