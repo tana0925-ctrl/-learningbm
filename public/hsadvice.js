@@ -3,6 +3,8 @@
  *  ・これから：阪神マンと 子どもの ふきだしが 下に つみかさなる。えらんだ ことばも 子どもの ふきだしで のこる。
  *    答えの あとに「わかった！」「ほかのことも 聞く」（算数の 単元なら「🔍 理解度チェック」も）を 出す。
  *  ・中身（HANSHIN_ADVICE_TREE）は そのまま つかう。言い方は 日ごとに すこし かわる。
+ *  ・HSADVICE_CHAT_V2（2026-11-13 先生の指示）見た目を 家庭学習の 阪神マン（hschat）と おなじ 画面に：
+ *    上に 黄色い 見出し＋とじる、まんなかに 顔つきの ふきだし、下に 大きい えらぶボタン（2れつ）。
  *  ・index.html は 手で 編集しない（window.HanshinManSystem の render などを おきかえる）。
  */
 (function () {
@@ -34,54 +36,85 @@
     function rootNode() { return root; }
     function canCheck() { try { return !!(window.HSCHECK && window.HSCHECK.UNIT2GOAL && window.HSCHECK.UNIT2GOAL[mode()]); } catch (e) { return false; } }
 
+    // ── HSADVICE_CHAT_V2 hschat と おなじ 見た目の 画面 ──
+    var CSS = '#hsAdv{position:fixed;top:0;right:0;bottom:0;left:0;z-index:9991;background:rgba(15,23,42,.45);display:flex;justify-content:center;align-items:stretch;font-family:inherit}'
+      + '#hsAdv .hc-box{width:100%;max-width:780px;background:#fef9f0;display:flex;flex-direction:column;height:100%;box-shadow:0 0 30px rgba(0,0,0,.25)}'
+      + '#hsAdv .hc-head{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#facc15;color:#1f2937;font-weight:900;font-size:18px}'
+      + '#hsAdv .hc-x{margin-left:auto;background:#fff;border:2px solid #a16207;border-radius:12px;padding:8px 14px;font-size:15px;font-weight:800;color:#713f12;min-height:44px;cursor:pointer}'
+      + '#hsAdv .hc-log{flex:1;overflow-y:auto;padding:14px 14px 6px;-webkit-overflow-scrolling:touch}'
+      + '#hsAdv .hc-row{display:flex;gap:8px;margin:8px 0;align-items:flex-end}'
+      + '#hsAdv .hc-row.me{justify-content:flex-end}'
+      + '#hsAdv .hc-face{width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;font-size:30px;background:#fff;border-radius:50%;border:2px solid #fde68a;overflow:hidden}'
+      + '#hsAdv .hc-face img{max-width:40px;max-height:40px}'
+      + '#hsAdv .hc-b{max-width:74%;padding:10px 14px;border-radius:18px;font-size:17px;line-height:1.55;white-space:pre-wrap;word-break:break-word}'
+      + '#hsAdv .bot .hc-b{background:#fff;border:2px solid #fde68a;border-bottom-left-radius:6px;color:#1f2937}'
+      + '#hsAdv .me .hc-b{background:#86efac;border-bottom-right-radius:6px;color:#14532d;font-weight:700}'
+      + '#hsAdv .hc-foot{border-top:2px solid #fde68a;background:#fffbeb;padding:10px 12px 14px;max-height:46vh;overflow-y:auto}'
+      + '#hsAdv .hc-ch{display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+      + '#hsAdv .hc-ch + .hc-ch{margin-top:8px}'
+      + '#hsAdv .hc-ch.one{grid-template-columns:1fr}'
+      + '#hsAdv .hc-btn{min-height:56px;border-radius:16px;border:2px solid #f59e0b;background:#fff;color:#78350f;font-size:17px;font-weight:800;padding:8px 10px;text-align:center;cursor:pointer;touch-action:manipulation}'
+      + '#hsAdv .hc-btn:active{transform:scale(.98)}'
+      + '#hsAdv .hc-btn.main{background:#f97316;border-color:#c2410c;color:#fff}'
+      + '#hsAdv .hc-btn.blue{background:#0ea5e9;border-color:#0369a1;color:#fff}'
+      + '#hsAdv .hc-btn.sub{background:#f1f5f9;border-color:#cbd5e1;color:#334155;min-height:48px;font-size:15px}'
+      + '@media (max-width:520px){#hsAdv .hc-ch{grid-template-columns:1fr}}';
+    function face() { var f = '🐯'; try { if (typeof window.monSpriteHtml === 'function') f = window.monSpriteHtml(154, '🐯'); } catch (e) {} return f; }
+    function ui() {
+      var root = document.getElementById('hsAdv');
+      if (!root) {
+        if (!document.getElementById('hsAdvCss')) { var st = document.createElement('style'); st.id = 'hsAdvCss'; st.textContent = CSS; document.head.appendChild(st); }
+        root = document.createElement('div'); root.id = 'hsAdv';
+        root.innerHTML = '<div class="hc-box"><div class="hc-head"><span class="hc-face">' + face() + '</span><span>阪神マン</span><button type="button" class="hc-x" id="hsAdvX">とじる</button></div>'
+          + '<div class="hc-log" id="hsAdvLog"></div><div class="hc-foot" id="hsAdvFoot"></div></div>';
+        document.body.appendChild(root);
+        root.querySelector('#hsAdvX').onclick = function () { H.close(); };
+      }
+      root.style.display = 'flex';
+      return { root: root, log: root.querySelector('#hsAdvLog'), foot: root.querySelector('#hsAdvFoot') };
+    }
     function bubble(x) {
-      if (x.w === 'm') return '<div style="display:flex;justify-content:flex-end;margin:6px 0"><div style="max-width:82%;background:#86efac;color:#14532d;border-radius:14px 14px 4px 14px;padding:7px 11px;font-weight:800">' + esc(x.t) + '</div></div>';
-      return '<div style="display:flex;gap:6px;align-items:flex-end;margin:6px 0"><span style="font-size:22px;line-height:1">🐯</span><div style="max-width:86%;background:#fff;border:2px solid #fde68a;color:#1f2937;border-radius:14px 14px 14px 4px;padding:7px 11px;white-space:pre-wrap">' + esc(x.t) + '</div></div>';
+      if (x.w === 'm') return '<div class="hc-row me"><div class="hc-b">' + esc(x.t) + '</div></div>';
+      return '<div class="hc-row bot"><span class="hc-face">' + face() + '</span><div class="hc-b">' + esc(x.t) + '</div></div>';
     }
     function btn(label, cls, fn) {
-      var b = document.createElement('button');
-      b.className = cls || 'w-full text-left bg-white p-3 rounded-lg shadow font-bold hover:bg-yellow-200 transition border border-yellow-300 option-btn';
+      var b = document.createElement('button'); b.type = 'button';
+      b.className = 'hc-btn ' + (cls || '');
       b.textContent = label; b.onclick = fn; return b;
     }
+    function row(list) { var d = document.createElement('div'); d.className = 'hc-ch'; list.forEach(function (b) { d.appendChild(b); }); return d; }
+    function hideOld() { try { var m = document.getElementById('hanshinManModal'); if (m) { m.classList.add('hidden'); m.classList.remove('flex'); m.style.display = 'none'; } } catch (e) {} }
 
     H.render = function (node) {
       this.currentNode = node;
-      var modal = document.getElementById('hanshinManModal');
-      var content = document.getElementById('hanshinManContent');
-      var opts = document.getElementById('hanshinManOptions');
-      if (!modal || !content || !opts) return;
       var self = this;
       if (!open || (!this.history.length && !skipLog && !pendingMe)) {
-        log = [{ w: 'b', t: vary(HELLO, 'h') + '\n' + (node.question || '') }];
+        log = [{ w: 'b', t: vary(HELLO, 'h') }, { w: 'b', t: node.question || '' }];
         open = true; root = node; rootKey = '';
       } else if (!skipLog) {
         if (pendingMe) log.push({ w: 'm', t: pendingMe });
         log.push({ w: 'b', t: node.options ? (node.question || vary(MORE, 'm')) : (node.answer || node.question || '') });
       }
       pendingMe = ''; skipLog = false;
-      if (log.length > 40) log = log.slice(-40);
-      content.style.maxHeight = '46vh'; content.style.overflowY = 'auto'; content.style.background = '#fffbeb';
-      content.innerHTML = log.map(bubble).join('');
-      content.scrollTop = content.scrollHeight;
-      opts.innerHTML = '';
+      if (log.length > 60) log = log.slice(-60);
+      hideOld();
+      var v = ui();
+      function draw() { v.log.innerHTML = log.map(bubble).join(''); v.log.scrollTop = v.log.scrollHeight; }
+      draw();
+      v.foot.innerHTML = '';
       if (node.options) {
-        node.options.forEach(function (opt, i) { opts.appendChild(btn(opt.text, '', function () { self.selectOption(i); })); });
+        v.foot.appendChild(row(node.options.map(function (opt, i) { return btn(opt.text, '', function () { self.selectOption(i); }); })));
+        if (this.history.length > 0) v.foot.appendChild(row([btn('↩️ 前の 質問に もどる', 'sub', function () { self.goBack(); }), btn('❓ さいしょから 聞く', 'sub', function () { self.goFirst(); })]));
       } else {
-        opts.appendChild(btn('🙆 わかった！', 'w-full text-center bg-green-500 text-white p-3 rounded-lg shadow font-black hover:bg-green-600 transition', function () {
-          log.push({ w: 'm', t: 'わかった！' }); log.push({ w: 'b', t: vary(GOT, 'g') });
-          content.innerHTML = log.map(bubble).join(''); content.scrollTop = content.scrollHeight;
-          opts.innerHTML = '';
-          opts.appendChild(btn('❓ ほかのことも 聞く', 'w-full text-center bg-yellow-400 p-2 rounded-lg shadow font-bold text-yellow-900 hover:bg-yellow-500 transition text-sm', function () { self.goFirst(); }));
-          opts.appendChild(btn('とじる', 'w-full text-center bg-gray-200 p-2 rounded-lg shadow font-bold text-gray-600 hover:bg-gray-300 transition text-sm', function () { self.close(); }));
-        }));
-        if (canCheck()) opts.appendChild(btn('🔍 ほんまに できるか 理解度チェック', 'w-full text-center bg-sky-500 text-white p-2 rounded-lg shadow font-bold hover:bg-sky-600 transition text-sm', function () {
-          var m = mode(); self.close(); try { window.HSCHECK.open(m); } catch (e) {}
-        }));
-        opts.appendChild(btn('❓ ほかのことも 聞く', 'w-full text-center bg-yellow-400 p-2 rounded-lg shadow font-bold text-yellow-900 hover:bg-yellow-500 transition text-sm', function () { self.goFirst(); }));
+        var main = [btn('🙆 わかった！', 'main', function () {
+          log.push({ w: 'm', t: '🙆 わかった！' }); log.push({ w: 'b', t: vary(GOT, 'g') }); draw();
+          v.foot.innerHTML = '';
+          v.foot.appendChild(row([btn('❓ ほかのことも 聞く', '', function () { self.goFirst(); }), btn('とじる', 'sub', function () { self.close(); })]));
+        })];
+        if (canCheck()) main.push(btn('🔍 理解度チェックで たしかめる', 'blue', function () { var m = mode(); self.close(); try { window.HSCHECK.open(m); } catch (e) {} }));
+        var mr = row(main); if (main.length === 1) mr.className += ' one'; v.foot.appendChild(mr);
+        v.foot.appendChild(row([btn('❓ ほかのことも 聞く', 'sub', function () { self.goFirst(); }), btn('↩️ 前の 質問に もどる', 'sub', function () { self.goBack(); })]));
       }
-      if (this.history.length > 0 && node.options) opts.appendChild(btn('↩️ 前の質問に もどる', 'w-full text-center bg-gray-200 p-2 mt-1 rounded-lg shadow font-bold text-gray-600 hover:bg-gray-300 transition text-sm', function () { self.goBack(); }));
-      modal.style.display = 'flex'; modal.classList.remove('hidden');
-      setTimeout(function () { modal.classList.add('flex'); }, 10);
     };
     H.selectOption = function (i) {
       var sel = this.currentNode && this.currentNode.options && this.currentNode.options[i];
@@ -93,7 +126,7 @@
     H.goBack = function () {
       if (!this.history.length) return;
       var prev = this.history.pop();
-      log.push({ w: 'm', t: '前の 質問に もどる' });
+      log.push({ w: 'm', t: '↩️ 前の 質問に もどる' });
       log.push({ w: 'b', t: prev.question || vary(MORE, 'm') });
       skipLog = true; this.render(prev);
     };
@@ -104,7 +137,7 @@
       log.push({ w: 'b', t: vary(MORE, 'm') + '\n' + (r.question || '') });
       skipLog = true; this.render(r);
     };
-    H.close = function () { open = false; log = []; root = null; rootKey = ''; pendingMe = ''; skipLog = false; return origClose.apply(this, arguments); };
+    H.close = function () { open = false; log = []; root = null; rootKey = ''; pendingMe = ''; skipLog = false; try { var r = document.getElementById('hsAdv'); if (r) r.style.display = 'none'; } catch (e) {} return origClose.apply(this, arguments); };
     return true;
   }
   if (!patch()) { var n = 0, t = setInterval(function () { if (patch() || ++n > 120) clearInterval(t); }, 500); }
