@@ -57,23 +57,25 @@
     + '#skbPop .sk-btn.main{background:#0ea5e9;border-color:#0369a1;color:#fff}'
     + '@media (max-width:480px){#skbPop .sk-ch{grid-template-columns:1fr}}';
   function face() { var f = '🐯'; try { if (typeof window.monSpriteHtml === 'function') f = window.monSpriteHtml(154, '🐯'); } catch (e) {} return f; }
+  // UNIT_PATH_V1 単元ごとの「もどる道」を そのまま 見せる（ひとつ前の 単元では なく、関係する 技だけ）
   var LINES = [
-    'むずかしい 問題やな！ ひょっとしたら 前に 習った「{p}」で つまずいてるかも しれへん。',
-    'まちがいが つづいとるな。こういう ときは、前に 習った「{p}」が カギに なってる ことが 多いんや。',
-    'あせらんで ええで！ 1回 前に 習った「{p}」が できてるか、たしかめてみよか？'
+    'むずかしい 問題やな！「{u}」で つまずく ときは、前に 習った 技に 原因が あることが 多いんや。',
+    'まちがいが つづいとるな。あせらんで ええで！「{u}」の 根っこに ある 技を たしかめてみよか。',
+    'ここが ふんばりどころや！「{u}」を ささえてる 前の 技、どこまで できてるか 見てみよ。'
   ];
   function offer(mode) {
     if (curMode() !== mode || asked(mode) || document.getElementById('skbPop')) return;
     var H = HC(); if (!H || typeof H.open !== 'function') return;
     var g = skill(goalOf(mode)); if (!g) return;
-    var pre = (g.pre || []).map(skill).filter(Boolean)[0];
-    var pname = pre ? (pre.g + '年の ' + pre.name) : (g.g + '年の ' + g.name);
+    var uname = mode; try { var C2 = window.CURRICULUM; var gs = C2 && C2.math && C2.math.grades || {}; for (var gk in gs) (gs[gk].units || []).forEach(function (u) { if (u.id === mode) uname = u.name; }); } catch (e) {}
+    var route = ''; try { route = (typeof H.pathText === 'function') ? H.pathText(mode) : ''; } catch (e) {}
     markAsked(mode);
     if (!document.getElementById('skbCss')) { var st = document.createElement('style'); st.id = 'skbCss'; st.textContent = CSS; document.head.appendChild(st); }
     var k = (new Date().getDate() + mode.length) % LINES.length;
     var root = document.createElement('div'); root.id = 'skbPop';
-    root.innerHTML = '<div class="sk-box"><div class="sk-row"><span class="sk-face">' + face() + '</span><div class="sk-b">' + esc(LINES[k].replace('{p}', pname))
-      + '<br>阪神マンと いっしょに「ここは できてる？」を 5分くらいで しらべよか？</div></div>'
+    root.innerHTML = '<div class="sk-box"><div class="sk-row"><span class="sk-face">' + face() + '</span><div class="sk-b">' + esc(LINES[k].replace('{u}', uname))
+      + (route ? '<div style="margin:6px 0;background:#fffbeb;border-radius:10px;padding:5px 8px;font-size:14px;font-weight:800;color:#92400e">🛤 もどる道：' + esc(g.name.replace(/（.*?）/g, '')) + ' → ' + esc(route) + '</div>' : '')
+      + '阪神マンと いっしょに「どこで つまずいてるか」を 5分くらいで しらべよか？</div></div>'
       + '<div class="sk-ch"><button type="button" class="sk-btn main" id="skbGo">🔍 たしかめる</button><button type="button" class="sk-btn" id="skbNo">💪 このまま がんばる</button></div></div>';
     document.body.appendChild(root);
     document.getElementById('skbGo').onclick = function () { close(); try { H.open(mode, { src: 'auto' }); } catch (e) {} };

@@ -269,6 +269,46 @@ var UNIT2GOAL = {
   'm6-frac-mul': 'g6_frac_mul', 'm6-frac-div': 'g6_frac_div', 'm6-frac-int': 'g6_frac_mul', 'm6-frac-mixed': 'g6_frac_div', 'm6-frac-triple': 'g6_frac_div', 'm6-frac-dec': 'g6_frac_div',
   'm6-ratio': 'g6_ratio_value', 'm6-circle': 'g6_circle', 'm6-proportion': 'g6_prop', 'm6-expression': 'g6_letters', 'm6-scale': 'g6_ratio_value', 'm6-prism': 'g6_circle', 'm6-data': 'g5_avg'
 };
+// 🛤 UNIT_PATH_V1（2026-11-13 先生の指示）単元ごとの「もどる道」。
+//   単元の技（goal）が ❌ のとき、その単元に 本当に 関係する 前の技だけを、近い順に 1本ずつ たどる。
+//   1本の 道は ⭕ が 出たら そこで 止まり、その すぐ手前の ❌ が「もどる場所（根っこ）」。
+//   関係の うすい技（ひとつ前の 単元・ほかの 単元）へは 行かない。道が 2本 ある 単元は 2本とも 見る。
+var UNIT_PATHS = {
+  'm1-add-no': [['g1_count']], 'm1-sub-no': [['g1_count']], 'm1-add-cy': [['g1_add1', 'g1_count']], 'm1-sub-bo': [['g1_sub1', 'g1_count']], 'm1-3num': [['g1_add1', 'g1_count']],
+  'm2-add2': [['g1_add_carry', 'g1_add1', 'g1_count'], ['g2_place']], 'm2-sub2': [['g1_sub_borrow', 'g1_sub1', 'g1_count'], ['g2_place']],
+  'm2-kuku': [['g2_kuku_25', 'g1_add1']], 'm2-length': [['g2_place', 'g1_count']],
+  'm3-mul1': [['g2_kuku_all', 'g2_kuku_25'], ['g2_add2', 'g1_add_carry']], 'm3-div0': [['g2_kuku_all', 'g2_kuku_25']],
+  'm3-divR': [['g3_div_basic', 'g2_kuku_all', 'g2_kuku_25'], ['g1_sub_borrow', 'g1_sub1']], 'm3-large': [['g2_place', 'g1_count']], 'm3-weight': [['g2_mm', 'g2_place']],
+  'rounding': [['g3_large_num', 'g2_place']], 'division': [['g3_div_basic', 'g2_kuku_all', 'g2_kuku_25'], ['g1_sub_borrow']],
+  'long-division': [['g3_div_rem', 'g3_div_basic', 'g2_kuku_all'], ['g3_mul_2x1', 'g2_kuku_all'], ['g2_sub2', 'g1_sub_borrow']],
+  'fraction-mixed': [['g3_div_rem', 'g3_div_basic', 'g2_kuku_all'], ['g3_frac_add']],
+  'decimal': [['g3_mul_2x1', 'g2_kuku_all'], ['g4_dec_place', 'g3_dec_place']], 'area': [['g3_mul_2x1', 'g2_kuku_all']],
+  'brackets': [['g3_mul_2x1', 'g2_kuku_all'], ['g3_div_basic', 'g2_kuku_all'], ['g2_sub2', 'g1_sub_borrow']],
+  'm5-frac-eq': [['g5_divisor', 'g3_div_basic', 'g2_kuku_all'], ['g5_frac_common', 'g5_multiple', 'g2_kuku_all']],
+  'm5-percent': [['g5_per', 'g5_dec_div', 'g4_dec_div_int', 'g4_div_1digit', 'g3_div_basic'], ['g5_dec_mul', 'g4_dec_mul_int', 'g3_mul_2x1']],
+  'm5-volume': [['g4_area_rect', 'g3_mul_2x1', 'g2_kuku_all']], 'm5-avg': [['g4_div_1digit', 'g3_div_rem', 'g3_div_basic'], ['g3_add3', 'g2_add2']],
+  'm5-dec-mul': [['g4_dec_mul_int', 'g3_mul_2x1', 'g2_kuku_all'], ['g4_dec_place', 'g3_dec_place']],
+  'm5-dec-div': [['g4_dec_div_int', 'g4_div_1digit', 'g3_div_rem', 'g3_div_basic'], ['g4_dec_place', 'g3_dec_place']],
+  'm5-speed': [['g4_div_1digit', 'g3_div_basic', 'g2_kuku_all'], ['g3_mul_2x1', 'g2_kuku_all']], 'm5-unit-qty': [['g4_dec_div_int', 'g4_div_1digit', 'g3_div_basic', 'g2_kuku_all']],
+  'm6-frac-mul': [['g5_frac_eq', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all'], ['g4_frac_mixed', 'g3_div_rem']],
+  'm6-frac-int': [['g5_frac_eq', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all']],
+  'm6-frac-div': [['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all'], ['g4_frac_mixed', 'g3_div_rem']],
+  'm6-frac-mixed': [['g4_frac_mixed', 'g3_div_rem', 'g3_div_basic'], ['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g2_kuku_all']],
+  'm6-frac-triple': [['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all']],
+  'm6-frac-dec': [['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g3_div_basic'], ['g4_dec_place', 'g3_dec_place']],
+  'm6-ratio': [['g6_ratio_simplify', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all']],
+  'm6-scale': [['g4_dec_mul_int', 'g3_mul_2x1', 'g2_kuku_all'], ['g6_metric', 'g3_len_weight']],
+  'm6-circle': [['g5_circum', 'g4_dec_mul_int', 'g3_mul_2x1', 'g2_kuku_all'], ['g4_area_rect']],
+  'm6-prism': [['g6_circle', 'g5_circum', 'g4_dec_mul_int'], ['g5_volume', 'g4_area_rect', 'g3_mul_2x1']],
+  'm6-proportion': [['g3_div_basic', 'g2_kuku_all'], ['g4_dec_div_int', 'g4_div_1digit']],
+  'm6-expression': [['g3_div_basic', 'g2_kuku_all'], ['g3_sub3', 'g2_sub2']],
+  'm6-data': [['g4_div_1digit', 'g3_div_rem', 'g3_div_basic'], ['g3_add3', 'g2_add2']]
+};
+// 単元の 道を ことばに（例：約分 → 約数 → わり算 → 九九）
+function pathText(unitId) {
+  var ps = UNIT_PATHS[unitId]; if (!ps) return '';
+  return ps.map(function (p) { return p.map(function (id) { var s = S_by[id]; return s ? s.name.replace(/（.*?）/g, '') : id; }).join(' → '); }).join(' ／ ');
+}
 // 技 → もどる 修行（ないものは null：やり方だけ伝える）
 var SK2UNIT = {
   g1_count: 'm1-add-no', g1_add1: 'm1-add-no', g1_sub1: 'm1-sub-no', g1_add_carry: 'm1-add-cy', g1_sub_borrow: 'm1-sub-bo', g1_clock: null,
@@ -388,6 +428,9 @@ var SAY = {
   pass: '「{n}」は ばっちりやな！',
   passTri: '「{n}」は だいたい できてるで！',
   back: '「{n}」は ちょっと むずかしかったな。その前に 学ぶ技を 見てみよか！',
+  backPath: '「{n}」も むずかしかったな。この道を もう1つ 前へ さかのぼるで！',
+  backEnd: '「{n}」が 根っこ みたいやな。よう がんばった！',
+  unitSelf: '前に 習った技は ちゃんと できてるで！ つまずきは「{n}」の 中にあるみたいや。修行で「{n}」を ゆっくり 練習しよな。💡 わからん時は ヒントを 見てな',
   backNone: '「{n}」は ちょっと むずかしかったな。ここが 練習のしどころや！',
   goalOk: '🎉 「{n}」に 必要な技は 身についてるで！ この調子で 修行して 腕を みがこか！',
   goalHint: '🙂 ヒントが あれば できるな！ つぎは ヒントなしでも できるか、修行で ためしてみよか！',
@@ -454,6 +497,8 @@ function pickList() {
 function begin(unitId) {
   var goal = UNIT2GOAL[unitId];
   C.goalUnit = unitId; C.goal = goal; C.queue = [goal]; C.res = {}; C.order = []; C.step = 'quiz';
+  C.paths = UNIT_PATHS[unitId] ? UNIT_PATHS[unitId].map(function (p) { return p.filter(function (id) { return !!S_by[id] && id !== goal; }); }).filter(function (p) { return p.length; }) : null;
+  C.walk = null;   // UNIT_PATH_V1 道ごとの いま いる場所
   say('b', SAY.start);
   nextSkill();
 }
@@ -505,6 +550,18 @@ function next() {
   if (c.right >= 2) st = (c.n === 2 && !c.hintOk) ? 'ok' : 'tri'; else if (wrong >= 2) st = 'x';
   if (!st) { newQ(); draw(); return; }
   C.res[c.id] = { st: st, right: c.right, n: c.n, hint: !!c.hintOk };
+  if (C.paths) {   // UNIT_PATH_V1 単元の 道を たどる
+    if (c.id === C.goal) {
+      if (st === 'x') {
+        C.walk = C.paths.map(function (p) { return { p: p, i: 0, done: false }; });
+        say('b', fill(SAY.back, { n: s.name }) + '\n🛤 この単元の もどる道：' + pathText(C.goalUnit));
+      } else say('b', fill(st === 'ok' ? SAY.pass : SAY.passTri, { n: s.name }));
+    } else {
+    }
+    walkAdvance();
+    if (c.id !== C.goal) say('b', fill(st === 'x' ? (C.queue.length ? SAY.backPath : SAY.backEnd) : (st === 'ok' ? SAY.pass : SAY.passTri), { n: s.name }));
+    nextSkill(); draw(); return;
+  }
   if (st === 'x') {
     var pre = s.pre.filter(function (p) { return !C.res[p] && C.queue.indexOf(p) < 0; });
     say('b', fill(pre.length ? SAY.back : SAY.backNone, { n: s.name }));
@@ -512,14 +569,41 @@ function next() {
   } else say('b', fill(st === 'ok' ? SAY.pass : SAY.passTri, { n: s.name }));
   nextSkill(); draw();
 }
+// UNIT_PATH_V1 道を すすめる：いまの 技が ❌ なら その道の つぎへ、⭕🔺 なら その道は おしまい
+function walkAdvance() {
+  if (!C.walk) return;
+  C.queue = [];
+  C.walk.forEach(function (w) {
+    while (!w.done) {
+      var id = w.p[w.i];
+      if (id == null) { w.done = true; break; }
+      var r = C.res[id];
+      if (!r) { if (C.queue.indexOf(id) < 0) C.queue.push(id); break; }
+      if (r.st === 'x') { w.i++; continue; }
+      w.done = true;
+    }
+  });
+}
+// UNIT_PATH_V1 根っこ＝道ごとに いちばん 奥の ❌（つぎが ⭕🔺 か 道の おわり）。どの道も 1つめが ⭕ なら 単元そのものが 練習の しどころ
+function pathRoots() {
+  var out = [];
+  (C.walk || []).forEach(function (w) {
+    var deepest = null;
+    for (var i = 0; i < w.p.length; i++) { var r = C.res[w.p[i]]; if (!r) break; if (r.st === 'x') deepest = w.p[i]; else break; }
+    if (deepest && out.indexOf(deepest) < 0) out.push(deepest);
+  });
+  return out.sort(function (a, b) { return S_by[a].g - S_by[b].g; });
+}
 function hint() { var s = S_by[C.cur.id]; C.hinted = true; say('m', '💡 ヒント'); say('b', '💡 ' + s.how); draw(); }
 
 function result(quit) {
   C.step = 'result';
   var res = C.res, ids = Object.keys(res), goal = C.goal, gs = S_by[goal];
   var gr = res[goal];
-  var roots = ids.filter(function (id) { return res[id].st === 'x' && S_by[id].pre.every(function (p) { return !res[p] || res[p].st !== 'x'; }); })
+  var roots = C.paths ? pathRoots() : ids.filter(function (id) { return res[id].st === 'x' && S_by[id].pre.every(function (p) { return !res[p] || res[p].st !== 'x'; }); })
     .sort(function (a, b) { return S_by[a].g - S_by[b].g; });
+  // UNIT_PATH_V1 単元の技は ❌ でも、道の 1つめが ぜんぶ ⭕ なら「単元そのもの」を 練習（前に もどらなくて ええ）
+  var unitSelf = !!(C.paths && gr && gr.st === 'x' && !roots.length);
   // さかのぼりきれなかった（上限）ときは、まだ調べていない前の技も ある
   var lad = ids.slice().sort(function (a, b) { return S_by[b].g - S_by[a].g; })
     .map(function (id) { var r = res[id]; return (r.st === 'ok' ? '⭕' : r.st === 'tri' ? '🔺' : '❌') + ' ' + S_by[id].g + '年 ' + S_by[id].name + '（' + r.right + '/' + r.n + '）'; });
@@ -527,6 +611,9 @@ function result(quit) {
   C.go = [];
   if (gr && gr.st !== 'x') {
     say('b', gr.hint ? SAY.goalHint : fill(SAY.goalOk, { n: unitName(C.goalUnit) }));
+    C.go.push(C.goalUnit);
+  } else if (unitSelf) {
+    say('b', fill(SAY.unitSelf, { n: unitName(C.goalUnit) }));
     C.go.push(C.goalUnit);
   } else if (roots.length) {
     say('b', SAY.roots);
@@ -685,6 +772,6 @@ function tick() {
   else if (ct && ct.parentNode) { var o = ct.parentNode.querySelector('.hkEntry[data-k="math"]'); if (o && !isMath) o.remove(); }
 }
 setInterval(function () { try { tick(); } catch (e) {} }, 1200);
-window.HSCHECK = { open: open, resolveNow: resolveNow, S: S, UNIT2GOAL: UNIT2GOAL, SK2UNIT: SK2UNIT, _t: { readAns: readAns, judge: judge, ansText: ansText, state: function () { return C; }, setData: function (d) { _data = d; } } };
+window.HSCHECK = { open: open, UNIT_PATHS: UNIT_PATHS, pathText: pathText, resolveNow: resolveNow, S: S, UNIT2GOAL: UNIT2GOAL, SK2UNIT: SK2UNIT, _t: { readAns: readAns, judge: judge, ansText: ansText, state: function () { return C; }, setData: function (d) { _data = d; } } };
 
 })();
