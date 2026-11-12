@@ -656,6 +656,14 @@ out.push('');
 out.push('【目印の種類】');
     if (want.daily)   out.push('・=== [DAILY:...] === … その日の家庭学習への先生コメント。1〜2文、40字以内。子ども向け。');
     if (want.daily)   out.push('    ※同じ子に DAILY の目印が2つ以上あることがあります。目印ごとに、その日の中身に合わせて別々に書く。1つも飛ばさない。');
+    if (want.daily) {   // ZURU_CHECK_V1
+      out.push('    ※【ずるかも チェック（先生だけ）】次のどれかに あてはまりそうなら、その DAILY の いちばん上の 1行に「【ずる？】理由（20字くらい）」と書き、2行目から いつものコメントを書く:');
+      out.push('      ・前の日の 自分と 同じ 内容（言いかえただけ）／ほかの子と 同じ 内容');
+      out.push('      ・具体的でない（何を どこまで やったか わからない。例：「勉強した」「がんばった」だけ）');
+      out.push('      ・やったこと・時間・ふりかえりが かみ合わない（例：5分で 漢字ドリル10ページ、習い事を 家庭学習に）');
+      out.push('      ・「⚠ 機械チェック」が ついている');
+      out.push('      あてはまらなければ 書かない。【ずる？】の 行は 子どもには 届かない（先生が たしかめてから 返す）。');
+    }
     if (want.karte)   out.push('・=== [KARTE:...] === … 阪神マンから本人へのひとこと。子ども向け。');
     if (want.karte) {
       out.push('    ※阪神マンのひとこと（大事）:');
@@ -1084,6 +1092,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
           if (onlyHw && !onlyHw[String(s.id)]) return false;
           return true;
         }).sort(function (a, b) { return String(a.dayKey) < String(b.dayKey) ? -1 : String(a.dayKey) > String(b.dayKey) ? 1 : 0; });
+        try { var _sq = await getJson('/api/teacher/homework/suspect?classId=' + encodeURIComponent(cid)); window.__ZURU = (_sq && _sq.suspects) || {}; } catch (_e) { window.__ZURU = window.__ZURU || {}; }   // ZURU_CHECK_V1
         _hs.forEach(function (s) {
           var arr = hwByUser[s.userId] || (hwByUser[s.userId] = []);
           if (arr.length >= HW_PER_KID) { hwOver++; return; }
@@ -1218,6 +1227,7 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
         if (hw.weatherReason)  out.push('　ふりかえり: ' + hw.weatherReason);
         if (hw.nextImprove)    out.push('　次にがんばること: ' + hw.nextImprove);
         if (hw.parentComment)  out.push('　おうちの人から: ' + hw.parentComment);
+        try { var _zq = (window.__ZURU || {})[String(hw.id)]; if (_zq && _zq.length) out.push('　⚠ 機械チェック: ' + _zq.join('／')); } catch (_e) {}   // ZURU_CHECK_V1
         if (hw.weeklyReflection && String(hw.weeklyReflection).trim()) {   // WEEKREF_V1 二重に返さない
           var _pk2 = _refl.pick ? _refl.pick[st.userId] : null;
           if (_reflDefer && _pk2 && _pk2.weekKey === isoWeekOf(hw.dayKey)) out.push('　🌟週の振り返り: （この週の振り返りは REFLECT でまとめて返します。DAILY ではふれない）');
@@ -2354,8 +2364,13 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
     // --- 家庭学習コメント（既存の返却APIをそのまま使う＝コイン付与は既存のまま） ---
     if (byKind.DAILY) {
       var n = 0;
+      var _held = [];
+      try { var _sq2 = await getJson('/api/teacher/homework/suspect?classId=' + encodeURIComponent(cid)); window.__ZURU = (_sq2 && _sq2.suspects) || window.__ZURU || {}; } catch (_e) {}
       for (var i = 0; i < byKind.DAILY.length; i++) {
         var it = byKind.DAILY[i];
+        // ZURU_CHECK_V1 ずるかも（AIの【ずる？】／機械チェック）は まとめて 返さない。先生が ひらいて たしかめてから 返す
+        var _zr = /^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || '')) || ((window.__ZURU || {})[String(it.refKey)] || []).length > 0;
+        if (_zr) { _held.push(it.targetName || it.refKey); continue; }
         sayPub('家庭学習コメントを返しています... (' + (i + 1) + '/' + byKind.DAILY.length + ')');
         try {
           var rr = await fetch('/api/teacher/homework/' + encodeURIComponent(it.refKey) + '/return', {
@@ -2368,6 +2383,7 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
         } catch (e) {}
       }
       if (n) msgs.push('家庭学習コメント' + n + '人');
+      if (_held.length) msgs.push('⚠ ずるかもで 返さなかった ' + _held.length + '人（' + _held.join('、') + '）→ 📋振り返り一覧で ひらいて たしかめてね');
     }
 
     // --- AIFLOW_V1 流れのメモ（先生だけ。公開すると次のコピーの「先週までの流れ」に入る） ---

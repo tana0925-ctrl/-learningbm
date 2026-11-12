@@ -126,18 +126,29 @@
     var ng = ngWords(body);
     var nm = otherNames(o.r.id).filter(function (n) { return flat.indexOf(n) >= 0; });
     var stale = !!(it.draft.createdAt && Number(it.submittedAt) > Number(it.draft.createdAt) + 60000);
-    return { ng: ng, names: nm, stale: stale, ok: !ng.length && !nm.length && !stale };
+    var zr = zuruOf(it);
+    return { ng: ng, names: nm, stale: stale, zuru: zr, ok: !ng.length && !nm.length && !stale && !zr.length };
   }
+  // ZURU_CHECK_V1 その 提出の「ずるかも」の わけ（機械チェック＋AIの【ずる？】）
+  function zuruOf(it) {
+    if (!it) return [];
+    var out = (S.mode === 'day' && it.id && S.zuru && S.zuru[String(it.id)]) ? S.zuru[String(it.id)].slice() : [];
+    var m = it.draft && String(it.draft.body || '').match(/^\s*[【\[]\s*(?:ずる|ZURU)[^】\]]*[】\]]\s*(.*)$/im);
+    if (m) out.push('AI：' + (m[1] || 'たしかめて'));
+    return out;
+  }
+  function stripZuru(t) { return String(t || '').split('\n').filter(function (l) { return !/^\s*[【\[]\s*(ずる|ZURU)/i.test(l); }).join('\n').trim(); }
   function flagChips(f) {
     if (!f) return '';
     var h = '';
     if (f.ng.length) h += '<span class="tbChip" style="background:#fef9c3;color:#854d0e;border:1px solid #fde047">🟡 ことば</span>';
     if (f.names.length) h += '<span class="tbChip" style="background:#fee2e2;color:#b91c1c">⚠ 名前</span>';
     if (f.stale) h += '<span class="tbChip" style="background:#e0f2fe;color:#0369a1">🔄 書き直しあり</span>';
+    if (f.zuru && f.zuru.length) h += '<span class="tbChip" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5" title="' + esc(f.zuru.join('／')) + '">⚠ ずる？</span>';
     return h;
   }
   function returnWeek(list) {   // [{o, body}] … 既存の返却API（reflection-comments）をそのまま使う
-    var comments = list.map(function (x) { return { studentId: x.o.r.id, comment: String(x.body).slice(0, 1000), weekKey: S.week }; });
+    var comments = list.map(function (x) { return { studentId: x.o.r.id, comment: stripZuru(x.body).slice(0, 1000), weekKey: S.week }; });
     return jpost('/api/teacher/reflection-comments', { weekKey: S.week, comments: comments }).then(function (j) {
       if (!j || !j.ok) return { ok: false, saved: 0 };
       var ids = list.filter(function (x) { return x.o.it.draft; }).map(function (x) { return x.o.it.draft.id; });
@@ -319,6 +330,8 @@
       S.data = d;
       render();
     });
+    S.zuru = {};   // ZURU_CHECK_V1 ずるかも（機械チェック）
+    jget('/api/teacher/homework/suspect?classId=' + encodeURIComponent(S.cid)).then(function (z) { if (my !== _seq) return; S.zuru = (z && z.suspects) || {}; if (S.data) render(); });
   }
   function rows() {
     var d = S.data; if (!d) return [];
@@ -374,6 +387,8 @@
       h += '<div class="tbName">' + (S.mode === 'day' && WEA[it.endWeather] ? WEA[it.endWeather] + ' ' : '') + (S.mode === 'week' && it.kantan ? '<span style="color:#b45309">' + esc(it.kantan.charAt(0)) + '</span> ' : '') + esc(o.name) + '</div>';
       h += '<div class="tbTime">' + esc(timeJa(it.submittedAt)) + (it.draft ? ' <span class="tbChip" style="background:#eef2ff;color:#4338ca">下書き</span>' : '') + '</div>';
       if (star) h += '<div><span class="tbChip" style="background:#f59e0b;color:#fff">⭐掲載候補</span></div><div style="font-size:11px;color:#92400e;line-height:1.4">AI：' + esc(it.pick.reason || '') + '</div>';
+      var zr = zuruOf(it);
+      if (zr.length && isUnret(it)) h += '<div style="background:#fee2e2;border-radius:8px;padding:3px 6px;font-size:11px;color:#991b1b;font-weight:800;line-height:1.4">⚠ ずる？ ' + esc(zr.join('／')) + '</div>';
       h += '<div class="tbTxt">' + esc(summaryOf(it) || '（文はありません）') + '</div>';
       if (S.mode === 'week' && it.draft && !it.returnedAt) {   /* WEEKREF2_V1 ひと往復の下書きを そのまま */
         var fl = draftFlags(o);
@@ -458,6 +473,8 @@
     var ret = it.returnedAt
       ? '<div style="font-size:12px;color:#475569;margin-bottom:4px">✅ ' + esc(timeJa(it.returnedAt)) + ' に返却ずみ' + (S.mode === 'day' ? '（コメントを直せます。子どもへの知らせは送りません）' : '') + '</div>'
       : '';
+    var _zr = zuruOf(it);
+    var zuruBox = (_zr.length && isUnret(it)) ? '<div style="background:#fee2e2;border:2px solid #fca5a5;border-radius:10px;padding:6px 10px;margin-bottom:6px;font-size:13px;color:#991b1b"><b>⚠ ずるかも（先生だけ）</b>：' + esc(_zr.join('／')) + '<div style="font-size:11.5px;color:#7f1d1d;margin-top:2px">たしかめて、だいじょうぶなら 返却。ちがうと 思ったら 返却しないで 本人と 話してね（返却しないと 先生PJの 練習試合にも つながらないよ）。</div></div>' : '';
     var draft = it.draft ? '<div style="background:#eef2ff;border:1.5px dashed #818cf8;border-radius:10px;padding:8px;margin-bottom:6px"><div style="font-size:12px;font-weight:900;color:#4338ca">📝 今日のひと往復の下書き（まだ子どもには見えていません）</div><div style="white-space:pre-wrap;font-size:13.5px;margin-top:3px">' + markNg(it.draft.body) + '</div>' + (ngWords(it.draft.body).length ? '<div style="font-size:12px;font-weight:800;color:#854d0e;background:#fef9c3;border-radius:6px;padding:2px 6px;margin-top:3px">🟡 子どもには きつく聞こえることば：「' + esc(ngWords(it.draft.body).join('」「')) + '」（直してから返してください）</div>' : '') + (function () { var f0 = draftFlags(o); return f0 && (f0.names.length || f0.stale) ? '<div style="font-size:12px;font-weight:800;color:#b91c1c;margin-top:3px">' + (f0.names.length ? '⚠ ほかの子の名前らしいことば：' + esc(f0.names.join('、')) + '　' : '') + (f0.stale ? '🔄 下書きを作ったあとで、この子が振り返りを書き直しています。今の文と合っているか確かめてください' : '') + '</div>' : ''; })() + '<button type="button" id="tbUseDraft" style="margin-top:4px;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer">↓ この下書きを使う</button></div>' : '';
     var canReturn = S.mode === 'day' || !it.returnedAt;
     var star = it.pick ? '<div style="background:#fffbeb;border:2px solid #fcd34d;border-radius:10px;padding:6px 8px;margin:6px 0;font-size:13px"><b style="color:#b45309">⭐ 掲載候補</b>　AIの理由：' + esc(it.pick.reason || '') + '</div>' : '';
@@ -477,7 +494,7 @@
       '<div id="tbPrevBox" style="background:#f8fafc;border-radius:12px;padding:8px 10px"><div style="font-size:12px;font-weight:900;color:#475569">前回のふりかえり（くらべる）</div><div style="font-size:12px;color:#94a3b8">読み込み中…</div></div>' +
       '</div>' +
       '<div style="border-top:1px solid #e2e8f0;margin-top:10px;padding-top:8px">' +
-      draft + ret +
+      zuruBox + draft + ret +
       (canReturn
         ? '<textarea id="tbCmt" rows="3" maxlength="' + (S.mode === 'day' ? 500 : 1000) + '" style="width:100%;border:1.5px solid #cbd5e1;border-radius:10px;padding:8px;font-size:14px" placeholder="コメントを書いて返却">' + esc(it.teacherComment || '') + '</textarea>' +
           '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">' +
@@ -493,7 +510,7 @@
     $('tbX').onclick = closeModal;
     $('tbL').onclick = function () { step(-1); };
     $('tbR').onclick = function () { step(1); };
-    var ud = $('tbUseDraft'); if (ud) ud.onclick = function () { var c = $('tbCmt'); if (c) { c.value = it.draft.body.slice(0, Number(c.getAttribute('maxlength')) || 1000); c.focus(); } };
+    var ud = $('tbUseDraft'); if (ud) ud.onclick = function () { var c = $('tbCmt'); if (c) { c.value = stripZuru(it.draft.body).slice(0, Number(c.getAttribute('maxlength')) || 1000); c.focus(); } };
     var rb = $('tbRet'); if (rb) rb.onclick = function () { doReturn(o); };
     var po = $('tbPickOpen'); if (po) po.onclick = function () { openPick(i); };
     m.scrollTop = 0;

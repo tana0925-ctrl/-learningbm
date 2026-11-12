@@ -6751,6 +6751,60 @@ app.get('/api/teacher/class/:classId/photos', async (c) => {
   return c.json({ ok: true, class: cls, photos: ((rows && rows.results) || []) })
 })
 
+// 🕵️ ZURU_CHECK_V1（2026-11-12 先生の指示）返却の前に「ずるかも」を 機械で しらべる（未返却・直近35日）。
+//   ① 学校の 時間（平日 8:30〜15:15）に 提出　② タイマーなしで 時間を 入れた（hw_fail_log）
+//   ③ 前の 自分の 提出と まったく 同じ 文（なぜ・ふりかえり・やったこと）　④ ほかの子と まったく 同じ 文（同じ日）
+//   ⑤ 写真が 前の 自分（または ほかの子）の 写真と まったく 同じ。　⑥ はかった 時間を こえて 書こうと した（hw_fail_log）
+//   ここで 見つけたものは、まとめて 返却から 外し、先生が ひらいて たしかめてから 返す。「同じ 内容」（言いかえ）は AI に 見てもらう。
+app.get('/api/teacher/homework/suspect', async (c) => {
+  const u = c.get('user')
+  if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  if (!classId) return jsonError(c, 400, 'invalid')
+  const own: any = u.role === 'admin' ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=?').bind(classId).first() : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, u.id).first()
+  if (!own) return jsonError(c, 404, 'class_not_found')
+  const from = new Date(Date.now() + 9 * 3600000 - 35 * 86400000).toISOString().slice(0, 10)
+  const hist = new Date(Date.now() + 9 * 3600000 - 70 * 86400000).toISOString().slice(0, 10)
+  const rr = await c.env.DB.prepare(`SELECT hs.id, hs.user_id AS uid, hs.day_key AS dk, hs.submitted_at AS at, hs.todo, hs.why, hs.weather_reason AS wr, hs.next_improve AS ni, hs.returned_at AS ret, hs.rest_day AS rest
+    FROM homework_submissions hs JOIN class_members cm ON cm.user_id = hs.user_id AND cm.class_id = ? WHERE hs.day_key >= ? ORDER BY hs.day_key`).bind(classId, hist).all<any>()
+  const all = ((rr && rr.results) || []) as any[]
+  const norm = (x: any) => String(x || '').replace(/[\s　、。！？!?.,・]/g, '')
+  const out: any = {}
+  const add = (id: string, why: string) => { (out[id] = out[id] || []).indexOf(why) < 0 && out[id].push(why) }
+  const FIELDS: Array<[string, string]> = [['why', 'なぜ'], ['wr', 'ふりかえり'], ['todo', 'やったこと']]
+  let fails: any[] = []
+  try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND (reason LIKE 'not_started_manual%' OR reason LIKE 'minutes_cap%')").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
+  for (const h of all) {
+    if (h.ret || h.rest || String(h.dk) < from) continue
+    const id = String(h.id)
+    // ① 学校の 時間
+    const t = new Date(Number(h.at) + 9 * 3600000), w = t.getUTCDay(), m = t.getUTCHours() * 60 + t.getUTCMinutes()
+    if (w >= 1 && w <= 5 && m >= 510 && m < 915) add(id, '学校の時間に提出（' + t.getUTCHours() + ':' + String(t.getUTCMinutes()).padStart(2, '0') + '）')
+    // ②⑥ タイマー
+    for (const f of fails) if (String(f.uid) === String(h.uid) && String(f.dk) === String(h.dk)) add(id, String(f.reason).indexOf('minutes_cap') === 0 ? 'はかった時間より長く書こうとした' : 'タイマーなしで時間を入力')
+    // ③ 前の 自分と 同じ 文 ④ ほかの子と 同じ 文
+    for (const [k, lab] of FIELDS) {
+      const v = norm(h[k]); if (v.length < 6) continue
+      const mine = all.find((o: any) => String(o.uid) === String(h.uid) && String(o.dk) < String(h.dk) && norm(o[k]) === v)
+      if (mine) add(id, '「' + lab + '」が ' + mine.dk.slice(5).replace('-', '/') + ' と まったく同じ')
+      const other = all.find((o: any) => String(o.uid) !== String(h.uid) && String(o.dk) === String(h.dk) && norm(o[k]) === v)
+      if (other && v.length >= 10) add(id, '「' + lab + '」が ほかの子と まったく同じ')
+    }
+  }
+  // ⑤ 同じ 写真（大きさが 同じ もの だけ 中身を くらべる）
+  try {
+    const pr = await c.env.DB.prepare(`SELECT a.user_id AS uid, a.day_key AS dk, b.day_key AS bdk, CASE WHEN a.user_id = b.user_id THEN 1 ELSE 0 END AS self
+      FROM homework_photos2 a JOIN class_members cm ON cm.user_id = a.user_id AND cm.class_id = ?
+      JOIN homework_photos2 b ON b.byte_size = a.byte_size AND NOT (b.user_id = a.user_id AND b.day_key = a.day_key) AND b.bytes = a.bytes
+      WHERE a.day_key >= ? LIMIT 200`).bind(classId, from).all<any>()
+    for (const p of (((pr && pr.results) || []) as any[])) {
+      const h = all.find((o: any) => String(o.uid) === String(p.uid) && String(o.dk) === String(p.dk) && !o.ret)
+      if (h) add(String(h.id), Number(p.self) ? ('写真が ' + String(p.bdk).slice(5).replace('-', '/') + ' と まったく同じ') : '写真が ほかの子の 写真と まったく同じ')
+    }
+  } catch (_e) {}
+  return c.json({ ok: true, suspects: out })
+})
+
 app.get('/api/teacher/homework', async (c) => {
   const u = c.get('user')
   if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
@@ -6866,7 +6920,8 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
   //     POST /api/homework/:id/claim は reward_claimed だけを見てごほうびを渡すので、
   //     戻すと同じごほうびを二重に受け取れてしまう。
   const editOnly = (body && body.editOnly === true)
-  const comment = String(body.comment || '').slice(0, 500)
+  // ZURU_CHECK_V1 AIの「【ずる？】…」の 行は 先生だけの メモ。子どもに 届く 文からは かならず 消す
+  const comment = String(body.comment || '').split('\n').filter((l: string) => !/^\s*[【\[]\s*(ずる|ZURU)/i.test(l)).join('\n').trim().slice(0, 500)
   if (editOnly) {
     const cur = await c.env.DB.prepare('SELECT user_id, day_key, returned_at FROM homework_submissions WHERE id=? LIMIT 1').bind(hwId).first<any>()
     if (!cur || !cur.returned_at) return jsonError(c, 400, 'not_returned_yet')
@@ -11201,7 +11256,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/hsadvice.js?v=1"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=10"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/hsadvice.js?v=1"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=11"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18150,8 +18205,8 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=25"></script>
-    <script src="/teibako.js?v=6"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/teacher-ai.js?v=26"></script>
+    <script src="/teibako.js?v=7"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->

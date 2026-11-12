@@ -437,6 +437,15 @@ await t('16 HSTALK もう一歩：理由をえらぶと1問だけ → ボタン�
   eq(f.sess().weatherReason, '音楽をきいた', 'そのまま'); ok(has(f, R(f, 'reason', 'other')), '受け止め'); ok(f.foot().textContent.indexOf('このままでOK') >= 0, 'すぐ 次どうする')
 })
 
+await t('16b HSVAGUE ぼんやりした答えは 1回だけ 聞きかえす', async () => {
+  const d = await device(); d.w.HSCHAT.open(); await sleep(50)
+  await d.click('その他（自分で書く）'); await d.type('がんばる')
+  ok(d.log()[d.log().length - 1].indexOf('どこまで やる？') >= 0, 'やること 聞きかえす')
+  await d.type('算数ドリル 12ページ'); eq(d.sess().todo, 'がんばる：算数ドリル 12ページ', 'つなげて のこす')
+  await d.click('その他（自分で書く）'); await d.type('リコーダーの練習')
+  ok(!d.log().some((x) => x.indexOf('どの 問題・どの ところ') >= 0), '具体的なら 聞かない')
+})
+
 await t('17 HSTALK 前の自分：前の「次どうする」から はじめる／天気が よくなったら 作戦とつなぐ／同じ作戦を つづける', async () => {
   const d = await device({ store: storeWithPrev(1, { endWeather: 'cloud', weatherReason: '気が散った', nextImprove: '場所を変える' }) })
   d.w.HSCHAT.open(); await sleep(50)

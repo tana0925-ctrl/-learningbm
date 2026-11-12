@@ -525,6 +525,19 @@
   function reMin() { act(function (s, c) { say(c, 'm', SAY.readyBack); c.step = 'min'; say(c, 'b', SAY.min); }); }
   function schoolNow() { try { return !call('hsIsRestDay', dayKey()) && typeof window.hsIsSchoolTimeNow === 'function' && window.hsIsSchoolTimeNow() && !viewOnly(); } catch (e) { return false; } }
   // 🔁 HSSAME_V1（2026-11-12 先生の指示）前回と 同じ 答えを えらんだら、阪神マンが「今日は どうやった？」と もう一歩 聞く（毎日 同じに ならないように）
+  var VAGUE_Q = {
+    todo: 'お、ええな！ もうちょい くわしく！ 何の 教科の、何を どこまで やる？（例：算数ドリル 12ページ・漢字 5こ）',
+    reason: 'なるほどな。もう少し くわしく 教えて！ どの 問題・どの ところで そう 思った？',
+    deep: 'なるほどな。もう少し くわしく 教えて！ どの 問題・どの ところで そう 思った？',
+    next: '具体的に いこか！ 次は 何を どれだけ やる？（例：10分 ふやす・音読 2回・まちがえた 問題を もう1回）',
+    nextMore: 'あと ひといき！ 何を どれだけ？ 数で 言えたら 最高や（例：漢字 10こ・3ページ）'
+  };
+  function isVague(t) {   // HSVAGUE_V1
+    t = stripIcon(t).replace(/[\s　、。,.！!？?…・〜ー～]/g, '');
+    if (/[0-9０-９一二三四五六七八九十百]|ページ|問|分|回|個|行|ドリル|漢字|計算|音読|プリント|ノート|教科書|単語|まとめ|算数|国語|社会|理科|英語|割合|分数|ひっ算|筆算|図|式/.test(t)) return false;
+    if (Array.from(t).length < 4) return true;
+    return Array.from(t).length < 15 && /がんば|頑張|ちゃんと|しっかり|ふつう|普通|なんとなく|いろいろ|色々|とくに|特に|べつに|別に|わからない|べんきょう|勉強|やる気|まあまあ|楽しかった|たのしかった|よかった|できた/.test(t);
+  }
   function prevMain(field) { try { var r = prevRec(); return r ? stripIcon(String(r[field] || '').split('：')[0]).trim() : ''; } catch (e) { return ''; } }
   function startNow() {
     unlockAudio();
@@ -555,6 +568,12 @@
     act(function (s, c) {
       var w = c.waiting; c.waiting = '';
       say(c, 'm', v);
+      // 🔎 HSVAGUE_V1 ぼんやりした 答え（「がんばる」「ふつう」など）は 1回だけ「具体的に」と 聞きかえす。2回目の 答えは つなげて のこす
+      if (VAGUE_Q[w]) {
+        c.vq = c.vq || {};
+        if (c.vq[w] && c.vq[w] !== 1) { v = buildText(c.vq[w], v); c.vq[w] = 1; }
+        else if (!c.vq[w] && isVague(v)) { c.vq[w] = cut(v, 150); c.waiting = w; say(c, 'b', VAGUE_Q[w]); return; }
+      }
       if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', 'other')); say(c, 'b', SAY.why); }
       else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
       else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
