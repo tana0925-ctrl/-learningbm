@@ -897,6 +897,18 @@ app.put('/api/student/progress', async (c) => {
         try { if (_inc.fractionFest) _inc.fractionFest.totalShards = _inc.lab.shards } catch (_e) {}
         saveJson = JSON.stringify(_inc)
       }
+      // 🔁 RANKSWAP_V1：ランキングの かけらを コインに かえた分（サーバが かえた分を、古い端末の 全置換保存でも 必ず 反映）
+      const _srvSwS = Number(_srv._rankSwapShards) || 0, _cliSwS = Number(_inc._rankSwapShards) || 0
+      const _srvSwC = Number(_srv._rankSwapCoins) || 0, _cliSwC = Number(_inc._rankSwapCoins) || 0
+      if (_srvSwS > _cliSwS || _srvSwC > _cliSwC) {
+        if (!_inc.lab || typeof _inc.lab !== 'object') _inc.lab = { shards: 0, use: {} }
+        _inc.lab.shards = Math.max(0, (Number(_inc.lab.shards) || 0) - Math.max(0, _srvSwS - _cliSwS))
+        _inc.coins = (Number(_inc.coins) || 0) + Math.max(0, _srvSwC - _cliSwC)
+        _inc._rankSwapShards = Math.max(_srvSwS, _cliSwS); _inc._rankSwapCoins = Math.max(_srvSwC, _cliSwC)
+        try { if (_inc.decimalFest) _inc.decimalFest.totalShards = _inc.lab.shards } catch (_e) {}
+        try { if (_inc.fractionFest) _inc.fractionFest.totalShards = _inc.lab.shards } catch (_e) {}
+        saveJson = JSON.stringify(_inc)
+      }
       // 🎟️ シール1枚交換けんの支払い（300コイン）：サーバが引いた分を、クライアントの全置換保存でも必ず反映する。
       //    _contactCoinsApplied / _miCoinsApplied とまったく同じ「サーバ累計 vs クライアント累計」方式で、
       //    向きが引き算なだけ。クライアントからの申告は一切信じない：
@@ -7162,6 +7174,34 @@ app.get('/api/student/ranking-rewards', async (c) => {
   try { rows = await c.env.DB.prepare("SELECT week_key as weekKey, type, rank, shards FROM ranking_rewards WHERE user_id=? AND seen=0 ORDER BY shards DESC").bind(u.id).all<any>() } catch {}
   const list = (((rows && rows.results) || []) as any[]).map((r) => ({ weekKey: r.weekKey, type: r.type, label: labelMap[r.type] || r.type, rank: r.rank, shards: r.shards }))
   return c.json({ ok: true, rewards: list })
+})
+
+// 🔁 RANKSWAP_V1（2026-11-12 先生の指示）ランキングの ごほうび：かけら か コイン を えらべる（かけら 1こ＝30コイン）。
+//   かけらは しめきりの ときに もう 入っているので、えらんだら サーバで「かけらを 引いて コインを 足す」。台帳は seen=2。
+const RANK_SWAP_RATE = 30
+app.post('/api/student/ranking-rewards/swap', async (c) => {
+  const u = c.get('user')
+  if (!u || u.role !== 'student') return jsonError(c, 403, 'forbidden')
+  const b = await c.req.json<any>().catch(() => null)
+  const wk = String((b && b.weekKey) || ''), tp = String((b && b.type) || '')
+  const row: any = await c.env.DB.prepare('SELECT shards FROM ranking_rewards WHERE user_id=? AND week_key=? AND type=? AND seen=0 LIMIT 1').bind(u.id, wk, tp).first().catch(() => null)
+  if (!row) return c.json({ ok: false, error: 'not_found' })
+  const n = Number(row.shards) || 0, coins = n * RANK_SWAP_RATE
+  const prog: any = await c.env.DB.prepare('SELECT state_json FROM progress WHERE user_id=?').bind(u.id).first().catch(() => null)
+  if (!prog || !prog.state_json) return c.json({ ok: false, error: 'no_state' })
+  const st = JSON.parse(String(prog.state_json))
+  if (!st.lab || typeof st.lab !== 'object') st.lab = { shards: 0, use: {} }
+  if ((Number(st.lab.shards) || 0) < n) return c.json({ ok: false, error: 'shards_used' })   // もう つかって しまった ときは かえられない
+  const mark = await c.env.DB.prepare('UPDATE ranking_rewards SET seen=2 WHERE user_id=? AND week_key=? AND type=? AND seen=0').bind(u.id, wk, tp).run()
+  if (!mark.meta || !mark.meta.changes) return c.json({ ok: false, error: 'not_found' })
+  st.lab.shards = (Number(st.lab.shards) || 0) - n
+  st.coins = (Number(st.coins) || 0) + coins
+  st._rankSwapShards = (Number(st._rankSwapShards) || 0) + n
+  st._rankSwapCoins = (Number(st._rankSwapCoins) || 0) + coins
+  try { if (st.decimalFest) st.decimalFest.totalShards = st.lab.shards } catch (_e) {}
+  try { if (st.fractionFest) st.fractionFest.totalShards = st.lab.shards } catch (_e) {}
+  await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(st), u.id).run()
+  return c.json({ ok: true, shards: n, coins, labShards: st.lab.shards, totalCoins: st.coins, swapS: st._rankSwapShards, swapC: st._rankSwapCoins })
 })
 
 app.post('/api/student/ranking-rewards/seen', async (c) => {
