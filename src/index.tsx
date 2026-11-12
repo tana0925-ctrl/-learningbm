@@ -11196,7 +11196,7 @@ app.get('/', async (c) => {
       // 👆 KANTAN_REF_V1 かんたんふりかえり（タップで答える振り返り）・阪神マンの1タップ案内・アプリを開いた日。中身は public/kantanref.js。
       t = t.replace('</body>', '<script src="/kantanref.js?v=1"></script></body>')
       // 📖 MINNA_FURI_V1 みんなのふりかえり（のせてもいいよ・読むページ）。中身は public/minnafuri.js。
-      t = t.replace('</body>', '<script src="/minnafuri.js?v=3"></script></body>')
+      t = t.replace('</body>', '<script src="/minnafuri.js?v=4"></script></body>')
       // 🔄 WEEKREF2_V1 週の振り返り：先週決めたこと・今週の記録・考える問い・🏫学校での学び・友だちの見本。中身は public/weekref2.js（kantanref.js の欄に入る）。
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。

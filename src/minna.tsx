@@ -471,7 +471,7 @@ export function registerMinna(app: any) {
       WHERE mp.class_id = ? AND mp.status = 'on' ORDER BY mp.updated_at DESC LIMIT 200`).bind(classId).all()
     const posts = (((r && r.results) || []) as any[]).map((x) => {
       const wk = x.kind === 'week' ? String(x.ref) : minnaIsoWeek(new Date(String(x.ref) + 'T00:00:00Z'))
-      return { kind: x.kind, ref: String(x.ref), weekKey: wk, body: cut(x.body, MINNA_BODY_MAX), reason: cut(x.reason || '', 200), name: x.mode === 'named' ? cut(x.name, 30) : '', mine: String(x.uid) === String(u.id) }
+      return { kind: x.kind, ref: String(x.ref), weekKey: wk, body: cut(x.body, MINNA_BODY_MAX), reason: cut(x.reason || '', 200), name: x.mode === 'named' ? cut(x.name, 30) : '', mine: String(x.uid) === String(u.id), at: String(x.at || '') }
     })
     return c.json({ ok: true, posts })
   })

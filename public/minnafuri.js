@@ -278,4 +278,60 @@
   // 画面が描き直されて消えたときに戻す
   setInterval(function () { try { ensureEntry(); ensureDayBox(); ensureWeekBox(); } catch (e) {} }, 2500);
   try { window.minnaFuriOpen = openPage; } catch (e) {}
+
+  // 🔎 MINNA_FIND_V1（2026-11-12 先生の指示）みつけやすく：
+  //   ① 左の メニュー（家庭学習・チトセレの 下）に「📖 みんなの ふりかえり」 ② 家庭学習の 画面の 上に カード
+  //   ③ まだ 読んでいない 新しい のが あれば「NEW ○」。ひらいたら 既読に する（この 端末に 控える）。
+  var newN = 0, latestAt = '';
+  function seenKey() { var p = curP(); return 'minnaSeenV1:' + String((p && p.userId) || ''); }
+  function seenAt() { try { return localStorage.getItem(seenKey()) || ''; } catch (e) { return ''; } }
+  function markSeen() { try { if (latestAt) localStorage.setItem(seenKey(), latestAt); } catch (e) {} newN = 0; drawBadges(); }
+  function countNew() {
+    var p = curP(); if (!p || !p.userId || window.__VIEWAS_ON__) return;
+    jget('/api/student/minna/posts').then(function (d) {
+      var posts = (d && d.posts) || [], s = seenAt();
+      latestAt = posts.reduce(function (m, x) { return x.at > m ? x.at : m; }, '');
+      newN = posts.filter(function (x) { return !x.mine && x.at && x.at > s; }).length;
+      if (!s && newN > 5) newN = Math.min(newN, 9);
+      drawBadges();
+    });
+  }
+  function badge() { return newN > 0 ? '<span class="mfNew" style="margin-left:6px;background:#ef4444;color:#fff;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:900">NEW ' + newN + '</span>' : ''; }
+  function drawBadges() {
+    var b = $('btn-minnafuri'); if (b) b.innerHTML = '<span class="nav3d-icon">📖</span><span style="font-size:.82em;line-height:1.15;display:inline-block;text-align:left">みんなの<br>ふりかえり</span>' + badge();
+    var c = $('minnaFuriHsCard'); if (c) { var t = c.querySelector('.mfT'); if (t) t.innerHTML = '📖 みんなの ふりかえりを 読む' + badge(); }
+    var e = $('minnaFuriOpen'); if (e && newN > 0 && !e.querySelector('.mfNew')) e.insertAdjacentHTML('beforeend', badge());
+    if (e && newN === 0) { var x = e.querySelector('.mfNew'); if (x) x.remove(); }
+  }
+  function openAndSeen() { openPage(); markSeen(); }
+  function ensureNav() {
+    var p = curP(); if (!p || !p.userId) return;
+    if (!$('btn-minnafuri')) {
+      var after = $('btn-chitosele') || $('btn-homestudy');
+      if (after && after.parentNode) {
+        var b = document.createElement('button');
+        b.id = 'btn-minnafuri'; b.className = 'nav3d relative';
+        b.style.background = 'linear-gradient(180deg, #2dd4bf, #0f766e)';
+        b.onclick = openAndSeen;
+        after.parentNode.insertBefore(b, after.nextSibling);
+        drawBadges();
+      }
+    }
+    if (!$('minnaFuriHsCard')) {
+      var anchor = $('hsTodayInfo');
+      if (anchor && anchor.parentNode) {
+        var c = document.createElement('button');
+        c.id = 'minnaFuriHsCard'; c.type = 'button';
+        c.setAttribute('style', 'display:flex;align-items:center;gap:8px;width:100%;margin:8px 0;padding:10px 14px;border-radius:14px;border:2px solid #5eead4;background:linear-gradient(135deg,#f0fdfa,#ecfeff);text-align:left;cursor:pointer');
+        c.innerHTML = '<span style="flex:1"><span class="mfT" style="display:block;font-weight:900;color:#0f766e;font-size:15px"></span><span style="display:block;font-size:12px;color:#475569">友だちの ふりかえりや、阪神マンが ええなと 思った わけが 読めるよ</span></span><span style="font-weight:900;color:#0f766e">ひらく ›</span>';
+        c.onclick = openAndSeen;
+        anchor.parentNode.insertBefore(c, anchor);
+        drawBadges();
+      }
+    }
+    var e = $('minnaFuriOpen'); if (e && !e.__seen) { e.__seen = 1; e.onclick = openAndSeen; drawBadges(); }
+  }
+  setInterval(function () { try { ensureNav(); } catch (e) {} }, 2500);
+  setTimeout(countNew, 5000);
+  setInterval(countNew, 10 * 60000);
 })();
