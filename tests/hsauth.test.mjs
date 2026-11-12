@@ -40,6 +40,7 @@ async function device({ store = null, ls = null, viewAs = false, role = 'student
   if (ls) for (const k of Object.keys(ls)) w.localStorage.setItem(k, ls[k])
   w.__calls = []; w.__reply = reply; w.__alerts = []
   w.__HS_NOVARY__ = true   // HSVARY_V1 テストは いつもの ことばで
+  w.__HS_NOSCHOOL__ = true   // HSHONEST_V1 テストは 時刻に よらない
   w.__HSAUTH_NO_NAV__ = true
   w.__loggedInRole = role
   w.alert = (m) => { w.__alerts.push(String(m)) }
@@ -100,7 +101,7 @@ async function toSubmit(d) {
 function sheetReady(d) {
   const s = d.w.eval('hsEnsureSessionForToday()')
   s.todo = 'ドリル'; s.why = 'わけ'; s.aim = '10分 がんばる'; d.w.eval('hsStartStudy()')
-  const s2 = d.sess(); s2.unlocked = true; s2.endWeather = 'sun'
+  const s2 = d.sess(); s2.unlocked = true; s2.endWeather = 'sun'; s2.elapsedMs = 15 * 60000; s2.startTs = null; s2.paused = true   // HSHONEST_V1 15分 はかった
   try { d.w.document.getElementById('hsMinutes').value = '10' } catch (e) {}   // HSFAIL_V1 時間が 空なら たずねる
 }
 

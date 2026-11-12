@@ -42,6 +42,7 @@ async function device({ store = null, ls = null, viewAs = false, submitFail = fa
   if (ls) for (const k of Object.keys(ls)) w.localStorage.setItem(k, ls[k])
   w.__calls = []; w.__saved = 0; w.__submitFail = submitFail
   w.__HS_NOVARY__ = true   // HSVARY_V1 テストは いつもの ことばで
+  w.__HS_NOSCHOOL__ = true   // HSHONEST_V1 テストは 時刻に よらない
   w.alert = (m) => { w.__alerts = (w.__alerts || []).concat([m]) }
   w.console.warn = () => {}
   if (viewAs) w.__VIEWAS_ON__ = true

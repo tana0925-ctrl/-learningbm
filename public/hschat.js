@@ -254,6 +254,7 @@
         case 'hsPhotosSelected': return typeof hsPhotosSelected === 'function' ? hsPhotosSelected : null;
         case 'hsFetchWeeklyMenu': return typeof hsFetchWeeklyMenu === 'function' ? hsFetchWeeklyMenu : null;
         case 'hsGetDayOfWeek': return typeof hsGetDayOfWeek === 'function' ? hsGetDayOfWeek : null;   // WEEKCHAT_V1
+        case 'hsIsRestDay': return typeof hsIsRestDay === 'function' ? hsIsRestDay : null;   // HSHONEST_V1
         case 'hsGetWeekKey': return typeof hsGetWeekKey === 'function' ? hsGetWeekKey : null;
         case 'hsGetWeekDayKey830': return typeof hsGetWeekDayKey830 === 'function' ? hsGetWeekDayKey830 : null;
         case 'hwGetPlanForWeek': return typeof hwGetPlanForWeek === 'function' ? hwGetPlanForWeek : null;
@@ -522,11 +523,15 @@
     });
   }
   function reMin() { act(function (s, c) { say(c, 'm', SAY.readyBack); c.step = 'min'; say(c, 'b', SAY.min); }); }
+  function schoolNow() { try { return !call('hsIsRestDay', dayKey()) && typeof window.hsIsSchoolTimeNow === 'function' && window.hsIsSchoolTimeNow() && !viewOnly(); } catch (e) { return false; } }
+  // 🔁 HSSAME_V1（2026-11-12 先生の指示）前回と 同じ 答えを えらんだら、阪神マンが「今日は どうやった？」と もう一歩 聞く（毎日 同じに ならないように）
+  function prevMain(field) { try { var r = prevRec(); return r ? stripIcon(String(r[field] || '').split('：')[0]).trim() : ''; } catch (e) { return ''; } }
   function startNow() {
     unlockAudio();
     act(function (s, c) {
       if (c.step !== 'ready' || !c.goalMin) return;
       say(c, 'm', SAY.readyBtn);
+      if (schoolNow()) { say(c, 'b', '🏫 いまは 学校の 時間やで！ 家庭学習の タイマーは おうちに 帰ってから スタートしよな。計画は のこしとくで！'); return; }   // HSHONEST_V1
       s.todo = c.todoText || s.todo; s.why = c.whyText || s.why; s.aim = buildAim(c.goalMin);
       saveSess(s);
       call('hsStartStudy');
@@ -555,6 +560,7 @@
       else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
       else if (w === 'deep') { deepDone(s, c, v); }
       else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); afterNext(s, c); }
+      else if (w === 'nextMore') { s.nextImprove = buildText(c.next, v); c.next = s.nextImprove; say(c, 'b', 'ええやん、具体的や！ それなら きっと できるで！'); afterNext(s, c); }
       else if (w === 'wplan') { s.weeklyPlan = cut(v, 300); c.step = 'wplan2'; say(c, 'b', SAY.wplan2); }
       else if (w === 'wplan2') { s.weeklyPlan = cut(String(s.weeklyPlan || '') + (s.weeklyPlan ? '、' : '') + cut(v, 100), 300); say(c, 'b', fill(SAY.wplanDone, { plan: cut(s.weeklyPlan || '', 80) })); c.step = 'todo'; say(c, 'b', SAY.todo); }
       else if (w === 'wref') { c.wrGood = cut(v, 140); c.step = 'wref2'; say(c, 'b', SAY.wref2); }
@@ -597,6 +603,8 @@
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.reasonOther); c.waiting = 'reason'; }); return; }
     act(function (s, c) {
       say(c, 'm', t); c.reason = t; c.deep = ''; s.weatherReason = t;
+      c.sameR = !!(prevMain('weatherReason') && prevMain('weatherReason') === stripIcon(t).trim());
+      if (c.sameR) { say(c, 'b', '前回も「' + stripIcon(t) + '」やったな！ 今日は どんなふうに？ 前と ちがう ところを 教えて'); if (!DEEP[t]) { c.step = 'deep'; c.waiting = 'deep'; return; } }
       if (DEEP[t]) { c.step = 'deep'; say(c, 'b', DEEP[t].q); return; }   // HSTALK_V1 もう一歩
       c.step = 'next'; say(c, 'b', react('reason', t)); say(c, 'b', nextAsk(c));
     });
@@ -620,7 +628,12 @@
   }
   function pickNext(label, other) {
     if (other) { act(function (s, c) { say(c, 'm', '✍️ その他'); say(c, 'b', SAY.nextOther); c.waiting = 'next'; }); return; }
-    act(function (s, c) { say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next; nextReact(c); afterNext(s, c); });
+    act(function (s, c) {
+      say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next;
+      var pn = prevMain('nextImprove');
+      if (pn && pn !== 'このままでOK' && pn === stripIcon(label).trim()) { nextReact(c); c.step = 'next'; c.waiting = 'nextMore'; say(c, 'b', '今度は 具体的に どう する？（例：10分 ふやす・2ページ やる）'); return; }   // HSSAME_V1
+      nextReact(c); afterNext(s, c);
+    });
   }
   // ───────── 📋🌟 WEEKCHAT_V1（2026-11-10）月曜の「週の計画」・金曜の「週の振り返り」も 対話で ─────────
   //   シートの 同じ 欄（weeklyPlan・weeklyReflection）に 入る。シートで もう 書いてあれば 聞かない。
@@ -941,9 +954,14 @@
       bind(foot, rs.map(function (r, i) { return function () { if (i === rs.length - 1) pickReason('', true); else pickReason(r.label); }; }));
     } else if (step === 'deep') {   // 🗣 HSTALK_V1 もう一歩
       var dp = DEEP[c.reason] || { opts: [] };
-      var ds = dp.opts.map(function (t) { return { label: t }; }).concat([{ label: DEEP_OTHER }, { label: DEEP_SKIP, cls: 'sub' }]);
-      foot.innerHTML = btns(ds);
-      bind(foot, ds.map(function (r, i) { return function () { if (i === ds.length - 1) pickDeep('', 'skip'); else if (i === ds.length - 2) pickDeep('', 'other'); else pickDeep(r.label); }; }));
+      var ds = dp.opts.map(function (t) { return { label: t }; }).concat([{ label: DEEP_OTHER }].concat(c.sameR ? [] : [{ label: DEEP_SKIP, cls: 'sub' }]));
+      if (!dp.opts.length && c.sameR) { foot.innerHTML = '<div class="hc-note">✏️ 下の らんに 書いてな</div>'; }
+      else {
+        foot.innerHTML = btns(ds);
+        bind(foot, ds.map(function (r, i) { return function () { if (!c.sameR && i === ds.length - 1) pickDeep('', 'skip'); else if (i === dp.opts.length) pickDeep('', 'other'); else pickDeep(r.label); }; }));
+      }
+    } else if (step === 'next' && c.waiting === 'nextMore') {   // HSSAME_V1
+      foot.innerHTML = '<div class="hc-note">✏️ 下の らんに 書いてな</div>';
     } else if (step === 'next') {
       var ns = NEXTS.map(function (t) { return { label: t }; }).concat([{ label: '✍️ その他' }]);
       foot.innerHTML = btns(ns);

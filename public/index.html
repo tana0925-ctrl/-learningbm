@@ -44410,6 +44410,7 @@ function hsStartStudy(){
     hsEnsureState();
     const logs = hsLogs();
     const dayKey = hsGetDayKey830(new Date());
+    if (!hsIsRestDay(dayKey) && hsIsSchoolTimeNow() && !window.__VIEWAS_ON__) { alert('🏫 いまは 学校の 時間だよ。\n家庭学習の タイマーは おうちに 帰ってから スタートしてね。'); return; }   // HSHONEST_V1
     if (hsHasLogForDay(logs, dayKey)){
       hsRender();
       return;
@@ -44650,7 +44651,7 @@ function hsRender(light){
       if (unlocked && !sess.unlocked){
         sess.unlocked = true;
         // minutes の初期値（30分以上経過したら経過分）
-        const mins = Math.max(30, Math.round(hsGetElapsedMs(sess) / 60000));
+        const mins = Math.max(0, Math.floor(hsGetElapsedMs(sess) / 60000));   // HSHONEST_V1 はかった 時間（30分の 下限は なし）
         if (!String(sess.minutes||"").trim()) sess.minutes = String(mins);
         hsSetSession(sess);
       }
@@ -45598,8 +45599,15 @@ async function hsSubmitAndExport(){
     const minEl = document.getElementById("hsMinutes");
     let minutes = Math.max(0, (parseInt((minEl && minEl.value) ? minEl.value : (sess.minutesManual||sess.minutes||"0"), 10) || 0));
     // HSFAIL_V1 タイマーを 回していない（または 止まって しまった）ときも、やった時間を たしかめて 出せる
-    if (!sess.started || (!minutes && !hsIsRestDay(dayKey) && !sess.zeroMinAsked)) {
-      const ans = prompt(!sess.started ? '⏱ タイマーが 回っていなかったみたい。\nやった時間（分）を 入れて「OK」で 提出できるよ。' : '⏱ やった時間（分）を 入れてね。「OK」で 提出するよ。', String(minutes || ''));
+    // HSHONEST_V1（2026-11-12 先生の指示）学校の 時間（平日 8:30〜15:15）には 出せない／タイマーなしでは 出せない／はかった 時間より 長くは 出せない
+    if (!hsIsRestDay(dayKey) && hsIsSchoolTimeNow()) { _hsStop('school_time', '🏫 いまは 学校の 時間だよ。\n家庭学習は おうちで やって、帰ってから 出そうね。'); return; }
+    if (!sess.started) { _hsStop('not_started', '⏱ タイマーが まだ 動いていないよ。\n「スタート」を おして はかってから 出してね。\n（はかった 時間が「やった時間」に なるよ）'); return; }
+    if (sess.started) {
+      const _elMin = Math.floor(hsGetElapsedMs(sess) / 60000);
+      if (minutes > _elMin + 5) { hsFailLog('minutes_cap:' + minutes + '>' + _elMin, dayKey); minutes = _elMin; try { if (minEl) minEl.value = String(minutes); sess.minutesManual = String(minutes); hsSetSession(sess); } catch (_e) {} alert('⏱ タイマーで はかった 時間は ' + _elMin + '分 だったよ。' + _elMin + '分で 出すね。'); }
+    }
+    if (!minutes && !hsIsRestDay(dayKey) && !sess.zeroMinAsked) {
+      const ans = prompt('⏱ やった時間（分）を 入れてね。「OK」で 提出するよ。', String(minutes || ''));
       if (ans === null) { _hsStop('not_started_cancel', ''); return; }
       minutes = Math.max(0, Math.min(600, parseInt(String(ans).replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)), 10) || 0));
       if (!minutes) { _hsStop('not_started_zero', 'やった時間（分）を 数字で 入れてね。'); return; }
@@ -45787,6 +45795,12 @@ async function hsSubmitAndExport(){
     if (btn) { btn.disabled = false; btn.textContent = '📤 先生に提出'; }
   }
 }
+// HSHONEST_V1：学校の 時間（平日 8:30〜15:15・日本時間）
+function hsIsSchoolTimeNow(){
+  if (window.__HS_NOSCHOOL__) return false;   // テスト用
+  try { var d = new Date(Date.now() + 9 * 3600000), w = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes(); return w >= 1 && w <= 5 && m >= 510 && m < 915; } catch (e) { return false; }
+}
+window.hsIsSchoolTimeNow = hsIsSchoolTimeNow;
 // HSFAIL_V1（2026-11-10）：提出できなかった わけを サーバに 書きのこす（原因を あとで たしかめるため）。ログインが 切れていても 送る。
 function hsFailLog(reason, dayKey){
   try {
