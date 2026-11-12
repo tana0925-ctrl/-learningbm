@@ -150,7 +150,7 @@ export function registerMinna(app: any) {
     if (mode === 'day') {
       const r: any = await DB.prepare(`SELECT hs.id AS id, hs.user_id AS uid, hs.submitted_at AS submittedAt, hs.todo AS todo, hs.why AS why, hs.aim AS aim,
           hs.minutes AS minutes, hs.end_weather AS endWeather, hs.weather_reason AS weatherReason, hs.next_improve AS nextImprove,
-          hs.rest_day AS restDay, hs.teacher_comment AS teacherComment, hs.returned_at AS returnedAt, hs.has_physical AS hasPhysical,
+          hs.rest_day AS restDay, hs.teacher_comment AS teacherComment, hs.returned_at AS returnedAt, hs.rejected_at AS rejectedAt, hs.has_physical AS hasPhysical,
           hs.weekly_reflection AS weeklyReflection, hs.parent_comment AS parentComment, hs.work_photo_analysis AS photoAnalysis
         FROM class_members cm JOIN homework_submissions hs ON hs.user_id = cm.user_id AND hs.day_key = ? WHERE cm.class_id = ?`).bind(ref, classId).all()
       for (const row of (((r && r.results) || []) as any[])) {
@@ -158,7 +158,7 @@ export function registerMinna(app: any) {
         Object.assign(s, {
           id: String(row.id), submittedAt: Number(row.submittedAt) || 0, todo: cut(row.todo, 500), why: cut(row.why, 500), aim: cut(row.aim, 500),
           minutes: Number(row.minutes) || 0, endWeather: cut(row.endWeather, 10), weatherReason: cut(row.weatherReason, 500), nextImprove: cut(row.nextImprove, 500),
-          restDay: !!row.restDay, teacherComment: cut(row.teacherComment, 500), returnedAt: Number(row.returnedAt) || 0, hasPhysical: !!row.hasPhysical,
+          restDay: !!row.restDay, teacherComment: cut(row.teacherComment, 500), returnedAt: Number(row.returnedAt) || 0, rejectedAt: Number(row.rejectedAt) || 0, hasPhysical: !!row.hasPhysical,
           weeklyReflection: cut(row.weeklyReflection, 1000), parentComment: cut(row.parentComment, 500), photoAnalysis: cut(row.photoAnalysis, 500), photoCount: 0,
         })
       }

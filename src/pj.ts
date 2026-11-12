@@ -224,7 +224,7 @@ export function installPj(app: any, d: Deps) {
       const hi = day > t ? day : t
       // PJ_HW_RETURN_V1（2026-11-12 先生の指示）出した だけでは なく、先生が 返却（承認）した 家庭学習が あれば OK。
       //   出したけど まだ 返却されていない ときは wait=true（「先生の 返却を まってね」と 出す）。
-      const r: any = await c.env.DB.prepare('SELECT MAX(CASE WHEN returned_at IS NOT NULL THEN 1 ELSE 0 END) AS ok, COUNT(*) AS n FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=?').bind(String(w.u.id), p, hi).first()
+      const r: any = await c.env.DB.prepare('SELECT MAX(CASE WHEN returned_at IS NOT NULL AND rejected_at IS NULL THEN 1 ELSE 0 END) AS ok, COUNT(CASE WHEN returned_at IS NULL THEN 1 END) AS n FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=?').bind(String(w.u.id), p, hi).first()
       hw = !!(r && Number(r.ok)); wait = !hw && !!(r && Number(r.n))
     } catch (_e) { hw = false }
     // PJ_PRACTICE3_V1 1日 3回まで（2026-11-10）

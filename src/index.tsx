@@ -6922,6 +6922,28 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
   const editOnly = (body && body.editOnly === true)
   // ZURU_CHECK_V1 AIの「【ずる？】…」の 行は 先生だけの メモ。子どもに 届く 文からは かならず 消す
   const comment = String(body.comment || '').split('\n').filter((l: string) => !/^\s*[【\[]\s*(ずる|ZURU)/i.test(l)).join('\n').trim().slice(0, 500)
+  // ↩ HW_REJECT_V1（2026-11-12 先生の指示）差し戻し：ずる など。出していない のと 同じ あつかい。
+  //   ・返却あつかい（returned_at）に して 一覧から 消すが、rejected_at を つける
+  //   ・ごほうびなし（先生ボーナスに 入らない／reward_claimed=1 で 受け取りも とめる）
+  //   ・先生PJの 練習試合・リーグ観戦の じょうけんにも ならない（pj.ts で rejected_at を 見る）
+  //   ・子どもには メッセージで「やりなおしてね」と とどく
+  if (body && body.reject === true) {
+    const cur = await c.env.DB.prepare('SELECT user_id, day_key, returned_at, reward_claimed FROM homework_submissions WHERE id=? LIMIT 1').bind(hwId).first<any>()
+    if (!cur) return jsonError(c, 404, 'not_found')
+    if (cur.returned_at && Number(cur.reward_claimed)) return jsonError(c, 400, 'already_claimed')
+    try { await c.env.DB.prepare('ALTER TABLE homework_submissions ADD COLUMN rejected_at INTEGER').run() } catch (_e) {}
+    const now = Date.now()
+    await c.env.DB.prepare('UPDATE homework_submissions SET teacher_id=?, teacher_comment=?, returned_at=COALESCE(returned_at, ?), rejected_at=?, reward_claimed=1 WHERE id=?').bind(u.id, comment, now, now, hwId).run()
+    try {
+      const cm = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(cur.user_id).first<any>()
+      if (cm?.class_id) {
+        const md = String(cur.day_key || '').slice(5).replace('-', '/').replace(/^0/, '').replace('/0', '/')
+        await c.env.DB.prepare('INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)')
+          .bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher', cur.user_id, '↩ ' + md + ' の 家庭学習は 先生が 差し戻しました（ごほうび・先生PJの 練習試合は なし）。\nおうちで タイマーを つかって、自分の ことばで もう一度 ていねいに やってみよう。' + (comment ? '\n\n先生から：' + comment : '')).run()
+      }
+    } catch (e) { console.error('reject notify failed:', e) }
+    return c.json({ ok: true, rejected: true })
+  }
   if (editOnly) {
     const cur = await c.env.DB.prepare('SELECT user_id, day_key, returned_at FROM homework_submissions WHERE id=? LIMIT 1').bind(hwId).first<any>()
     if (!cur || !cur.returned_at) return jsonError(c, 400, 'not_returned_yet')
@@ -18206,7 +18228,7 @@ function _faKarteGraphs(d){
     </script>
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=26"></script>
-    <script src="/teibako.js?v=7"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/teibako.js?v=8"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->

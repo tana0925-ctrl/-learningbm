@@ -403,7 +403,8 @@
       var chips = '';
       if (it.consent) chips += '<span class="tbChip" style="background:#ecfdf5;color:#047857;border:1px solid #6ee7b7">のせてもいいよ（' + (it.consent.mode === 'named' ? '名前あり' : '名前なし') + '）</span>';
       if (it.post && it.post.on) chips += '<span class="tbChip" style="background:#dbeafe;color:#1d4ed8">📖のせた</span>';
-      if (it.returnedAt) chips += '<span class="tbChip" style="background:#f1f5f9;color:#475569">返却ずみ</span>';
+      if (it.rejectedAt) chips += '<span class="tbChip" style="background:#fee2e2;color:#991b1b">↩ 差し戻し</span>';
+      else if (it.returnedAt) chips += '<span class="tbChip" style="background:#f1f5f9;color:#475569">返却ずみ</span>';
       if (chips) h += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:auto">' + chips + '</div>';
       if (canPick(it)) h += '<button type="button" class="tbPickBtn" data-i="' + idx + '" style="margin-top:2px;background:' + (it.post && it.post.on ? '#fff' : '#f59e0b') + ';color:' + (it.post && it.post.on ? '#b45309' : '#fff') + ';border:1.5px solid #f59e0b;border-radius:10px;padding:5px;font-size:12.5px;font-weight:900;cursor:pointer">' + (it.post && it.post.on ? '📖 のせた文を見る' : 'のせる') + '</button>';
       h += '</div>';
@@ -470,7 +471,9 @@
       for (var p = 0; p < Math.min(3, it.photoCount); p++) photos += '<a href="' + photoUrl(o.r.id, p) + '" target="_blank" rel="noopener"><img src="' + photoUrl(o.r.id, p) + '" alt="写真" style="max-height:220px;max-width:100%;border-radius:10px;border:1px solid #e2e8f0" onerror="this.style.display=\'none\'"></a>';
       photos += '</div>';
     }
-    var ret = it.returnedAt
+    var ret = it.rejectedAt
+      ? '<div style="font-size:12px;color:#991b1b;font-weight:800;margin-bottom:4px">↩ ' + esc(timeJa(it.rejectedAt)) + ' に差し戻しずみ（出していない のと 同じ：ごほうび・先生PJの 練習試合なし）</div>'
+      : it.returnedAt
       ? '<div style="font-size:12px;color:#475569;margin-bottom:4px">✅ ' + esc(timeJa(it.returnedAt)) + ' に返却ずみ' + (S.mode === 'day' ? '（コメントを直せます。子どもへの知らせは送りません）' : '') + '</div>'
       : '';
     var _zr = zuruOf(it);
@@ -500,6 +503,7 @@
           '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">' +
           (S.mode === 'day' && !it.returnedAt ? '<label style="font-size:12.5px"><input type="checkbox" id="tbPhys"> 成果物あり</label>' : '') +
           '<button type="button" id="tbRet" style="background:#ef4444;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:14px;font-weight:900;cursor:pointer">' + (it.returnedAt ? 'コメントを直す' : '返却する') + '</button>' +
+          (S.mode === 'day' && !it.returnedAt ? '<button type="button" id="tbRej" title="出していない のと 同じ あつかい。ごほうびなし・先生PJの 練習試合も ひらかない。子どもに「やりなおしてね」と とどく" style="background:' + (_zr.length ? '#7f1d1d' : '#fff') + ';color:' + (_zr.length ? '#fff' : '#991b1b') + ';border:2px solid #991b1b;border-radius:10px;padding:6px 12px;font-size:13px;font-weight:900;cursor:pointer">↩ 差し戻す</button>' : '') +
           '<span id="tbRetMsg" style="font-size:12.5px;font-weight:700;color:#047857"></span></div>'
         : '<div style="white-space:pre-wrap;font-size:14px;background:#f8fafc;border-radius:10px;padding:8px">' + esc(it.teacherComment || '') + '</div>') +
       (canPick(it) ? '<div style="margin-top:8px"><button type="button" id="tbPickOpen" style="background:#f59e0b;color:#fff;border:none;border-radius:10px;padding:7px 14px;font-size:13.5px;font-weight:900;cursor:pointer">' + (it.post && it.post.on ? '📖 のせた文を見る・取り消す' : '📖 みんなのふりかえりに のせる') + '</button></div>' : '') +
@@ -512,6 +516,7 @@
     $('tbR').onclick = function () { step(1); };
     var ud = $('tbUseDraft'); if (ud) ud.onclick = function () { var c = $('tbCmt'); if (c) { c.value = stripZuru(it.draft.body).slice(0, Number(c.getAttribute('maxlength')) || 1000); c.focus(); } };
     var rb = $('tbRet'); if (rb) rb.onclick = function () { doReturn(o); };
+    var rj = $('tbRej'); if (rj) rj.onclick = function () { doReject(o); };
     var po = $('tbPickOpen'); if (po) po.onclick = function () { openPick(i); };
     m.scrollTop = 0;
     loadPrev(o);
@@ -532,6 +537,21 @@
         h += '<div style="font-size:12px;color:#64748b">' + esc(wkJa(p.weekKey)) + '</div>' + row('振り返り', String(p.freeText || '').trim() || p.planReflection) + row('よかったこと', p.goodPoint) + row('くふうしたいこと', p.improvePoint);
       }
       box.innerHTML = h;
+    });
+  }
+  // ↩ HW_REJECT_V1 差し戻し（出していない のと 同じ）。コメントは なくても よい（定型の 文が 子どもに とどく）
+  function doReject(o) {
+    var it = o.it, c = $('tbCmt'), msg = $('tbRetMsg'), btn = $('tbRej');
+    var text = c ? stripZuru(c.value) : '';
+    if (!confirm(o.name + ' さんの この 家庭学習を 差し戻します。\n・ごほうびなし\n・先生PJの 練習試合は ひらかない\n・子どもに「やりなおしてね」と メッセージが とどく' + (text ? '（コメントも いっしょに）' : '') + '\nよろしいですか？')) return;
+    btn.disabled = true; if (msg) { msg.style.color = '#475569'; msg.textContent = '送っています…'; }
+    jpost('/api/teacher/homework/' + encodeURIComponent(it.id) + '/return', { comment: text, reject: true }).then(function (j) {
+      btn.disabled = false;
+      if (!j || !j.ok) { if (msg) { msg.style.color = '#b91c1c'; msg.textContent = '差し戻せませんでした（' + ((j && j.error) || '通信') + '）'; } return; }
+      it.teacherComment = text; it.returnedAt = it.returnedAt || Date.now(); it.rejectedAt = Date.now();
+      if (it.draft) { jpost('/api/teacher/ai-drafts/mark', { ids: [it.draft.id], status: 'published' }); it.draft = null; }
+      if (msg) { msg.style.color = '#991b1b'; msg.textContent = '↩ 差し戻しました'; }
+      render(); openAt(S.open);
     });
   }
   function doReturn(o) {
