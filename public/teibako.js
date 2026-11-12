@@ -582,6 +582,8 @@
       (it.pick ? '<div style="font-size:12px;background:#fffbeb;border-radius:8px;padding:4px 8px;margin-bottom:6px">⭐ AIの理由：' + esc(it.pick.reason || '') + '</div>' : '') +
       '<textarea id="tbPickTxt" rows="7" maxlength="600" style="width:100%;border:1.5px solid #f59e0b;border-radius:10px;padding:8px;font-size:15px;line-height:1.7"></textarea>' +
       '<div id="tbPickWarn" style="font-size:12px;color:#b91c1c;min-height:16px"></div>' +
+      '<div style="font-size:13px;font-weight:900;color:#0f766e;margin-top:2px">🌟 のせた わけ（子どもたちにも 見えます。やさしい ことばで）</div>' +   /* MINNA_REASON_V1 */
+      '<textarea id="tbPickWhy" rows="2" maxlength="200" placeholder="例：やったことと、つぎに どうするかが はっきりしていて、まねしやすいから。" style="width:100%;border:1.5px solid #14b8a6;border-radius:10px;padding:6px 8px;font-size:14px;line-height:1.6"></textarea>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">' +
       '<button type="button" id="tbPickOk" style="background:#f59e0b;color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:900;cursor:pointer">採用</button>' +
       (it.post && it.post.on ? '<button type="button" id="tbPickOff" style="background:#fff;color:#b91c1c;border:1.5px solid #fca5a5;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer">採用を取り消す</button>' : '') +
@@ -591,8 +593,9 @@
       '</div>';
     document.body.appendChild(w);
     var ta = $('tbPickTxt'); ta.value = init;
-    function chk() { var h = warnWords(ta.value), g = ngWords(ta.value); $('tbPickWarn').textContent = (h.length ? '⚠ 名前らしいことばがあります：' + h.join('、') + '（消してから採用してください）　' : '') + (g.length ? '🟡 きつく聞こえることば：' + g.join('、') : ''); return h.concat(g); }
-    ta.oninput = chk; chk();
+    var tw = $('tbPickWhy'); tw.value = (it.post && it.post.reason) || (it.pick && it.pick.reason) || '';   /* MINNA_REASON_V1 */
+    function chk() { var all = ta.value + '\n' + tw.value, h = warnWords(all), g = ngWords(all); $('tbPickWarn').textContent = (h.length ? '⚠ 名前らしいことばがあります：' + h.join('、') + '（消してから採用してください）　' : '') + (g.length ? '🟡 きつく聞こえることば：' + g.join('、') : ''); return h.concat(g); }
+    ta.oninput = chk; tw.oninput = chk; chk();
     function close() { if (w.parentNode) w.parentNode.removeChild(w); }
     w.addEventListener('click', function (ev) { if (ev.target === w) close(); });
     $('tbPickCancel').onclick = close;
@@ -602,10 +605,11 @@
       if (chk().length && !confirm('名前らしいことば・きつく聞こえることばが残っています。このまま採用しますか？')) return;
       this.disabled = true; msg.style.color = '#475569'; msg.textContent = '保存しています…';
       var self = this;
-      jpost('/api/teacher/minna/adopt', { consentId: it.consent.id, body: txt }).then(function (j) {
+      var why = String(tw.value || '').trim();
+      jpost('/api/teacher/minna/adopt', { consentId: it.consent.id, body: txt, reason: why }).then(function (j) {
         self.disabled = false;
         if (!j || !j.ok) { msg.style.color = '#b91c1c'; msg.textContent = (j && j.error === 'no_consent') ? 'この子は「のせてもいいよ」を取り消しています' : '採用できませんでした'; return; }
-        it.post = { body: txt, on: true };
+        it.post = { body: txt, reason: why, on: true };
         msg.style.color = '#047857'; msg.textContent = j.rewardedNow ? '✓ 採用しました（' + j.coins + 'コインを送りました）' : '✓ 採用しました';
         render(); if (S.open >= 0) openAt(S.open);
         setTimeout(close, 900);
@@ -654,6 +658,7 @@
     out.push('・理由にも、否定・比較・責めることば（おそい・少ない・足りない・できていない・〜しかない・まだ〜ない・ダメ・ちゃんと など）を使わない。');   /* NGWORD_V1 */
     out.push('・いろいろな子の振り返りが入るようにする。同じ子（同じ「K01」などの符号）ばかりにしない。「もう載せた」とあるものは選ばない。');
     out.push('・書き方（1件1行・行の形を変えない・前置きやまとめは書かない）：');
+    out.push('・理由は、クラスの子どもたちも 読む（「先生が えらんだ わけ」として のる）。小学生に わかる やさしい ことばで、この ふりかえりの よいところ・まねしたいところを 書く。名前は 書かない。');   /* MINNA_REASON_V1 */
     out.push('[PICK:振り返りID] 理由（40字くらい）');
     out.push('');
     var n = 0;

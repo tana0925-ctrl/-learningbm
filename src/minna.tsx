@@ -251,8 +251,8 @@ export function registerMinna(app: any) {
       }
       const p: any = await DB.prepare('SELECT consent_id AS cid, reason FROM minna_picks WHERE class_id = ? AND kind = ? AND ref_key = ?').bind(classId, mode, ref).all()
       for (const row of (((p && p.results) || []) as any[])) { const s = byId[String(row.cid)]; if (s) s.pick = { reason: cut(row.reason, 300) } }
-      const q: any = await DB.prepare("SELECT consent_id AS cid, body, status FROM minna_posts WHERE class_id = ? AND status IN ('on','off') AND ref_key = ? AND kind = ?").bind(classId, ref, mode).all()
-      for (const row of (((q && q.results) || []) as any[])) { const s = byId[String(row.cid)]; if (s) s.post = { body: cut(row.body, MINNA_BODY_MAX), on: row.status === 'on' } }
+      const q: any = await DB.prepare("SELECT consent_id AS cid, body, reason, status FROM minna_posts WHERE class_id = ? AND status IN ('on','off') AND ref_key = ? AND kind = ?").bind(classId, ref, mode).all()
+      for (const row of (((q && q.results) || []) as any[])) { const s = byId[String(row.cid)]; if (s) s.post = { body: cut(row.body, MINNA_BODY_MAX), reason: cut(row.reason, 200), on: row.status === 'on' } }
     } catch (e) { console.error('MINNA teibako consents', e) }
 
     return c.json({ ok: true, class: { id: cls.id, name: cls.name }, mode, ref, roster, items: Object.keys(items).map((k) => items[k]), pickMax: MINNA_PICK_MAX, adoptCoins: MINNA_ADOPT_COINS })
@@ -290,6 +290,7 @@ export function registerMinna(app: any) {
     const body = await c.req.json().catch(() => null)
     const cid = String((body && body.consentId) || '')
     const text = String((body && body.body) || '').replace(/\r/g, '').trim().slice(0, MINNA_BODY_MAX)
+    const reason = String((body && body.reason) || '').replace(/\r/g, '').trim().slice(0, 200)   // MINNA_REASON_V1 のせた わけ（子どもたちにも 見える）
     if (!cid || !text) return jerr(c, 400, 'invalid')
     const cs: any = await c.env.DB.prepare('SELECT id, user_id, class_id, kind, ref_key, mode FROM minna_consents WHERE id=? LIMIT 1').bind(cid).first()
     if (!cs) return jerr(c, 404, 'not_found')
@@ -297,8 +298,8 @@ export function registerMinna(app: any) {
     const mem = await c.env.DB.prepare('SELECT 1 AS x FROM class_members WHERE class_id=? AND user_id=? LIMIT 1').bind(cs.class_id, cs.user_id).first()
     if (!mem) return jerr(c, 404, 'not_found')
     if (!cs.mode) return jerr(c, 400, 'no_consent')   // 同意していない（とりけした）振り返りは載せられない
-    await c.env.DB.prepare("INSERT INTO minna_posts (consent_id, class_id, user_id, kind, ref_key, body, status, teacher_id, created_at, updated_at) VALUES (?,?,?,?,?,?,'on',?,datetime('now'),datetime('now')) ON CONFLICT(consent_id) DO UPDATE SET body=excluded.body, status='on', teacher_id=excluded.teacher_id, updated_at=datetime('now')")
-      .bind(cs.id, cs.class_id, cs.user_id, cs.kind, cs.ref_key, text, u.id).run()
+    await c.env.DB.prepare("INSERT INTO minna_posts (consent_id, class_id, user_id, kind, ref_key, body, reason, status, teacher_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,'on',?,datetime('now'),datetime('now')) ON CONFLICT(consent_id) DO UPDATE SET body=excluded.body, reason=excluded.reason, status='on', teacher_id=excluded.teacher_id, updated_at=datetime('now')")
+      .bind(cs.id, cs.class_id, cs.user_id, cs.kind, cs.ref_key, text, reason, u.id).run()
     const g = await minnaGrant(c.env, String(cs.user_id), String(cs.kind), String(cs.ref_key))
     if (g.rewardedNow) {
       try {
@@ -463,14 +464,14 @@ export function registerMinna(app: any) {
     if (!u || u.role !== 'student') return jerr(c, 403, 'forbidden')
     const classId = await studentClass(c, u.id)
     if (!classId) return c.json({ ok: true, posts: [] })
-    const r: any = await c.env.DB.prepare(`SELECT mp.kind AS kind, mp.ref_key AS ref, mp.body AS body, mp.user_id AS uid, mc.mode AS mode, us.name AS name, mp.updated_at AS at
+    const r: any = await c.env.DB.prepare(`SELECT mp.kind AS kind, mp.ref_key AS ref, mp.body AS body, mp.reason AS reason, mp.user_id AS uid, mc.mode AS mode, us.name AS name, mp.updated_at AS at
       FROM minna_posts mp JOIN minna_consents mc ON mc.id = mp.consent_id AND mc.mode <> ''
       JOIN class_members cm ON cm.class_id = mp.class_id AND cm.user_id = mp.user_id
       LEFT JOIN users us ON us.id = mp.user_id
       WHERE mp.class_id = ? AND mp.status = 'on' ORDER BY mp.updated_at DESC LIMIT 200`).bind(classId).all()
     const posts = (((r && r.results) || []) as any[]).map((x) => {
       const wk = x.kind === 'week' ? String(x.ref) : minnaIsoWeek(new Date(String(x.ref) + 'T00:00:00Z'))
-      return { kind: x.kind, ref: String(x.ref), weekKey: wk, body: cut(x.body, MINNA_BODY_MAX), name: x.mode === 'named' ? cut(x.name, 30) : '', mine: String(x.uid) === String(u.id) }
+      return { kind: x.kind, ref: String(x.ref), weekKey: wk, body: cut(x.body, MINNA_BODY_MAX), reason: cut(x.reason || '', 200), name: x.mode === 'named' ? cut(x.name, 30) : '', mine: String(x.uid) === String(u.id) }
     })
     return c.json({ ok: true, posts })
   })
