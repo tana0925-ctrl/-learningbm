@@ -3,6 +3,7 @@
 // ステージ1の素は src/index.tsx の DEFENSE_ENEMIES。ここでは受け取るだけで、元の配列には触らない。
 // @ts-nocheck
 /* eslint-disable */
+import { DEF_NOBU_ON, nobuDiff } from './def_nobu'
 
 export const DEF_STAGE_MAX = 30
 
@@ -23,7 +24,7 @@ export function defStageClamp(stage) {
 //   spd      10 から 240 まで（速いほど手数が増える）
 export function defStageEnemies(base, stage, n) {
   if (!Array.isArray(base)) return []
-  const k = defStageClamp(stage) - 1
+  const k = defStageClamp(DEF_NOBU_ON ? nobuDiff(stage) : stage) - 1   // DEF_NOBU_V1 信長編は 戦いの 番号を つよさに わりあてる
   // DEF_STAGE_V5 __DEFSTAGE_30_V1__ __DEFSTAGE_N_V1__ 段の強さは 段だけで きまる。
   //   クラス全員が 出るので 人数は ほぼ 一定。人数で わりつけると 友だちを さそうほど
   //   てきが 強くなり「みんなで やれば 勝てる」と 逆に なる。n は 受け取るが つかわない。

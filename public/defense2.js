@@ -927,6 +927,22 @@
     }catch(e){ console.error('def2 awards', e); return ''; }
   }
 
+/* ⚔️ DEF_NOBU_V1 信長編：いまの 戦いの 見出しと 説明（子ども向け） */
+window.__nobuBanner=function(nb,past){
+  try{
+    var e=function(x){return String(x==null?'':x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+    if(!nb) return '';
+    var head = past ? ('📜 この 戦い：') : (nb.cleared ? '🏆 信長編 ぜんぶ クリア！ もう一度 ' : '⚔️ 信長編 ');
+    var pct=Math.round((Math.min(nb.n,nb.total)/nb.total)*100);
+    return '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #b45309;border-radius:12px;padding:8px 10px;margin:6px 0 8px;font-weight:400;color:#451a03">'
+      +'<div style="font-size:12px;font-weight:900;color:#92400e">'+head+(past?'':'第'+nb.n+'戦 ／ 全'+nb.total+'戦')+'</div>'
+      +'<div style="font-size:18px;font-weight:900;margin:2px 0">'+e(nb.title)+' <span style="font-size:12px;color:#92400e">（'+e(nb.year)+'年）</span></div>'
+      +'<div style="font-size:12.5px;font-weight:700;margin-bottom:3px">あいて：'+e(nb.army)+'（大将 '+e(nb.general)+'）</div>'
+      +'<div style="font-size:13px;line-height:1.6">'+e(nb.story)+'</div>'
+      +(past?'':'<div style="margin-top:5px;height:8px;background:#fff7ed;border-radius:99px;overflow:hidden;border:1px solid #f59e0b"><div style="height:100%;width:'+pct+'%;background:#d97706"></div></div><div style="font-size:11px;color:#92400e;margin-top:2px">勝つと つぎの 戦いへ すすむよ（3回 つづけて 負けると 1つ もどる）</div>')
+      +'</div>';
+  }catch(_e){ return ''; }
+};
 function def2HypeHtml(log, st){
     try{
       var rep = (log && log.replay) || {};
@@ -1139,7 +1155,7 @@ function def2HypeHtml(log, st){
           var entrantsHtml = (log.entrants||[]).map(function(e){ return '<span style="display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;border-radius:999px;padding:2px 8px;margin:2px;font-size:12px;">'+esc(e.sprite)+esc(e.name)+'</span>'; }).join('');
           var mvpHtml = log.mvp ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px;margin:8px 0;font-weight:900;color:#b45309;">🏆 MVP：'+esc(log.mvp.sprite||'')+esc(log.mvp.name||'')+'</div>' : '';
           try{ restoreGym(); }catch(_rg){}   /* DEF2_REPLAY_REVIVE_V1 かきなおす 前に 戦いの 画面を もとの 場所へ もどす（いっしょに 消さない） */
-          rp.innerHTML=def2HypeHtml(log,st)+'<div style="margin-bottom:6px;"><div style="font-weight:900;font-size:13px;color:#334155;margin-bottom:4px;">🙋 エントリーした人（'+((log.entrants||[]).length)+'人）</div><div>'+entrantsHtml+'</div></div>'+''
+          rp.innerHTML=((st&&st.nobu_last&&window.__nobuBanner)?window.__nobuBanner(st.nobu_last,true,log&&log.result):'')+def2HypeHtml(log,st)+'<div style="margin-bottom:6px;"><div style="font-weight:900;font-size:13px;color:#334155;margin-bottom:4px;">🙋 エントリーした人（'+((log.entrants||[]).length)+'人）</div><div>'+entrantsHtml+'</div></div>'+''
             +'<div style="font-weight:900;font-size:13px;color:#334155;margin:6px 0;">⚔️ みんなで見る決戦リプレイ</div><div id="def2Anim" style="position:relative;width:100%;min-height:320px;background:#0b1220;border-radius:10px;overflow:hidden;"></div>';
           var host=document.getElementById('def2Anim'); if(host && window._defRenderBattle){ relocateGymInto(host); try{ window._defRenderBattle(log.replay); try{def2EnhanceReplay(log);}catch(_e){} }catch(e){ console.error(e); } }
         });
