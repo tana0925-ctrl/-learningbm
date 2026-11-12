@@ -214,7 +214,7 @@ export function installPj(app: any, d: Deps) {
   async function practiceInfo(c: any, w: any, st: any, ctx: any) {
     const day = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 10)
     if (w.test) return { can: true, hw: true, used: false, day, test: true }
-    let hw = !!w.gachi
+    let hw = !!w.gachi, wait = false
     // PJ_HW_PREV_V1 家庭学習は 家で 夜に 出すので、「前の 学校の日の 夜から きょうまで」に 出していれば OK。
     //   → きのうの 夜に 出した子は、きょうの お昼（学校）に 練習試合・リーグ観戦が できる。月曜は 金曜〜日曜に 出した分で OK。
     if (!hw) try {
@@ -222,12 +222,15 @@ export function installPj(app: any, d: Deps) {
       let p = d.addDay(t, -1)
       for (let i = 0; i < 14 && ctx && ctx.rest && ctx.rest(p); i++) p = d.addDay(p, -1)
       const hi = day > t ? day : t
-      const r = await c.env.DB.prepare('SELECT 1 AS x FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=? LIMIT 1').bind(String(w.u.id), p, hi).first(); hw = !!r
+      // PJ_HW_RETURN_V1（2026-11-12 先生の指示）出した だけでは なく、先生が 返却（承認）した 家庭学習が あれば OK。
+      //   出したけど まだ 返却されていない ときは wait=true（「先生の 返却を まってね」と 出す）。
+      const r: any = await c.env.DB.prepare('SELECT MAX(CASE WHEN returned_at IS NOT NULL THEN 1 ELSE 0 END) AS ok, COUNT(*) AS n FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=?').bind(String(w.u.id), p, hi).first()
+      hw = !!(r && Number(r.ok)); wait = !hw && !!(r && Number(r.n))
     } catch (_e) { hw = false }
     // PJ_PRACTICE3_V1 1日 3回まで（2026-11-10）
     const n = st.pr && st.pr.d === day ? Number(st.pr.n) || 0 : 0
     const used = n >= PRACTICE_MAX
-    return { can: hw && !used, hw, used, day, n, max: PRACTICE_MAX, left: Math.max(0, PRACTICE_MAX - n), win: PRACTICE_WIN }
+    return { can: hw && !used, hw, wait, used, day, n, max: PRACTICE_MAX, left: Math.max(0, PRACTICE_MAX - n), win: PRACTICE_WIN }
   }
 
   // その子の「きょう」と 休みの日
