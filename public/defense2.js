@@ -1087,7 +1087,7 @@ function def2HypeHtml(log, st){
   }
 
   var _gcHome = null;
-  function relocateGymInto(host){ var g=document.getElementById('gymChallengeBody'); if(!g) return null; if(!_gcHome){ _gcHome={parent:g.parentNode, next:g.nextSibling}; } host.appendChild(g); return g; }
+  function relocateGymInto(host){ var g=document.getElementById('gymChallengeBody'); if(!g){ /* DEF2_REPLAY_REVIVE_V1 前の リプレイ画面ごと 消えていたら つくりなおす（黒い画面の まま 見られない のを ふせぐ） */ g=document.createElement('div'); g.id='gymChallengeBody'; _gcHome=null; host.appendChild(g); return g; } if(!_gcHome){ _gcHome={parent:g.parentNode, next:g.nextSibling}; } host.appendChild(g); return g; }
   /* DEF2_STAGE0A_GCHOME_20260911
      restoreGym() never cleared _gcHome, so a stale parent/next pair survived a
      re-render: insertBefore() then threw NotFoundError, was swallowed by catch,
@@ -1138,6 +1138,7 @@ function def2HypeHtml(log, st){
           if(!log || (Array.isArray(log)) || log.v!==2){ if(typeof orig==='function'){ try{ return orig.apply(self,args); }catch(e){} } if(rp){ rp.textContent='リプレイデータがありません。'; } return; }
           var entrantsHtml = (log.entrants||[]).map(function(e){ return '<span style="display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;border-radius:999px;padding:2px 8px;margin:2px;font-size:12px;">'+esc(e.sprite)+esc(e.name)+'</span>'; }).join('');
           var mvpHtml = log.mvp ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px;margin:8px 0;font-weight:900;color:#b45309;">🏆 MVP：'+esc(log.mvp.sprite||'')+esc(log.mvp.name||'')+'</div>' : '';
+          try{ restoreGym(); }catch(_rg){}   /* DEF2_REPLAY_REVIVE_V1 かきなおす 前に 戦いの 画面を もとの 場所へ もどす（いっしょに 消さない） */
           rp.innerHTML=def2HypeHtml(log,st)+'<div style="margin-bottom:6px;"><div style="font-weight:900;font-size:13px;color:#334155;margin-bottom:4px;">🙋 エントリーした人（'+((log.entrants||[]).length)+'人）</div><div>'+entrantsHtml+'</div></div>'+''
             +'<div style="font-weight:900;font-size:13px;color:#334155;margin:6px 0;">⚔️ みんなで見る決戦リプレイ</div><div id="def2Anim" style="position:relative;width:100%;min-height:320px;background:#0b1220;border-radius:10px;overflow:hidden;"></div>';
           var host=document.getElementById('def2Anim'); if(host && window._defRenderBattle){ relocateGymInto(host); try{ window._defRenderBattle(log.replay); try{def2EnhanceReplay(log);}catch(_e){} }catch(e){ console.error(e); } }
