@@ -236,7 +236,7 @@
             + '<div style="font-size:11.5px;color:#0f766e;font-weight:800">' + (p.kind === 'week' ? '🔄 週の ふりかえり' : '📝 ' + esc(dayLabel(p.ref)) + 'の ふりかえり')
             + (p.name ? '　<span style="color:#334155">' + esc(p.name) + '</span>' : '') + (p.mine ? '　<span style="background:#ccfbf1;border-radius:999px;padding:0 6px">あなたの</span>' : '') + '</div>'
             + '<div style="font-size:14.5px;line-height:1.75;white-space:pre-wrap;margin-top:3px">' + esc(p.body) + '</div>'
-            + (p.reason ? '<div style="font-size:12.5px;line-height:1.6;margin-top:6px;background:#fefce8;border-radius:8px;padding:4px 8px;color:#713f12">🌟 先生が えらんだ わけ：' + esc(p.reason) + '</div>' : '')   /* MINNA_REASON_V1 */
+            + (p.reason ? '<div style="font-size:12.5px;line-height:1.6;margin-top:6px;background:#fefce8;border-radius:8px;padding:4px 8px;color:#713f12">🐯 阪神マンが ええなと 思った わけ：' + esc(p.reason) + '</div>' : '')   /* MINNA_REASON_V1 */
             + '</div>';
         });
         h += '</div></details>';

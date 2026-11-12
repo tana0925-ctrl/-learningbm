@@ -582,8 +582,8 @@
       (it.pick ? '<div style="font-size:12px;background:#fffbeb;border-radius:8px;padding:4px 8px;margin-bottom:6px">⭐ AIの理由：' + esc(it.pick.reason || '') + '</div>' : '') +
       '<textarea id="tbPickTxt" rows="7" maxlength="600" style="width:100%;border:1.5px solid #f59e0b;border-radius:10px;padding:8px;font-size:15px;line-height:1.7"></textarea>' +
       '<div id="tbPickWarn" style="font-size:12px;color:#b91c1c;min-height:16px"></div>' +
-      '<div style="font-size:13px;font-weight:900;color:#0f766e;margin-top:2px">🌟 のせた わけ（子どもたちにも 見えます。やさしい ことばで）</div>' +   /* MINNA_REASON_V1 */
-      '<textarea id="tbPickWhy" rows="2" maxlength="200" placeholder="例：やったことと、つぎに どうするかが はっきりしていて、まねしやすいから。" style="width:100%;border:1.5px solid #14b8a6;border-radius:10px;padding:6px 8px;font-size:14px;line-height:1.6"></textarea>' +
+      '<div style="font-size:13px;font-weight:900;color:#0f766e;margin-top:2px">🐯 阪神マンが いいと 思った わけ（子どもたちにも「阪神マンが ええなと 思った わけ」として 見えます）</div>' +   /* MINNA_REASON_V1 */
+      '<textarea id="tbPickWhy" rows="2" maxlength="200" placeholder="例：やったことと、つぎに どうするかが はっきりしていて、まねしやすいで！" style="width:100%;border:1.5px solid #14b8a6;border-radius:10px;padding:6px 8px;font-size:14px;line-height:1.6"></textarea>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">' +
       '<button type="button" id="tbPickOk" style="background:#f59e0b;color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:900;cursor:pointer">採用</button>' +
       (it.post && it.post.on ? '<button type="button" id="tbPickOff" style="background:#fff;color:#b91c1c;border:1.5px solid #fca5a5;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer">採用を取り消す</button>' : '') +
@@ -658,7 +658,7 @@
     out.push('・理由にも、否定・比較・責めることば（おそい・少ない・足りない・できていない・〜しかない・まだ〜ない・ダメ・ちゃんと など）を使わない。');   /* NGWORD_V1 */
     out.push('・いろいろな子の振り返りが入るようにする。同じ子（同じ「K01」などの符号）ばかりにしない。「もう載せた」とあるものは選ばない。');
     out.push('・書き方（1件1行・行の形を変えない・前置きやまとめは書かない）：');
-    out.push('・理由は、クラスの子どもたちも 読む（「先生が えらんだ わけ」として のる）。小学生に わかる やさしい ことばで、この ふりかえりの よいところ・まねしたいところを 書く。名前は 書かない。');   /* MINNA_REASON_V1 */
+    out.push('・理由は、クラスの子どもたちも 読む（「阪神マンが ええなと 思った わけ」として のる）。阪神マン（関西弁で やさしい）の 口ぶりで、小学生に わかる ことばで、この ふりかえりの よいところ・まねしたいところを 書く。名前は 書かない。');   /* MINNA_REASON_V1 */
     out.push('[PICK:振り返りID] 理由（40字くらい）');
     out.push('');
     var n = 0;
