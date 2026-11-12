@@ -417,7 +417,7 @@ function nowUnit() { var g = myGrade(); var r = resolveNow(_data, g); return r &
 function say(w, t, html) { C.log.push({ w: w, t: t, html: !!html }); }
 function face() { var f = '🐯'; try { if (typeof window.monSpriteHtml === 'function') f = window.monSpriteHtml(154, '🐯'); } catch (e) {} return f; }
 
-function open(unitId) {
+function open(unitId, opt) {
   ensureCss();
   C = { log: [], step: 'ask', res: {}, order: [], queue: [] };
   var root = document.getElementById('hkChat');
@@ -428,6 +428,7 @@ function open(unitId) {
     root.querySelector('.hk-x').onclick = function () { if (C && C.step === 'quiz' && Object.keys(C.res).length) { say('m', 'やめる'); say('b', SAY.quit); result(true); } else close(); };
   }
   root.style.display = 'flex';
+  C.src = (opt && opt.src) ? String(opt.src) : 'self';   // SAKANOBORI_V1 だれが ひらいたか（auto＝修行で つまずいて 阪神マンが さそった）
   if (unitId && UNIT2GOAL[unitId]) { C.now = { id: unitId, src: 'pick' }; begin(unitId); draw(); return; }
   draw();
   load(false).then(function () {
@@ -544,6 +545,15 @@ function saveLast(roots) {
   try {
     var k = 'hsCheckV1:' + String((window.player && (player.id || player.name)) || '');
     localStorage.setItem(k, JSON.stringify({ at: Date.now(), unit: C.goalUnit, go: C.go, roots: roots }));
+  } catch (e) {}
+  // SAKANOBORI_V1 先生に のこす（技の 名前つき）。しらべた 技が 1つも ない ときは 送らない
+  try {
+    var ids = Object.keys(C.res || {}); if (!ids.length) return;
+    var nm = function (id) { var s = S_by[id]; return s ? (s.g + '年 ' + s.name) : id; };
+    var body = { unit: C.goalUnit, unitName: unitName(C.goalUnit), src: C.src || 'self',
+      roots: roots.map(nm),
+      res: ids.map(function (id) { var r = C.res[id]; return { s: nm(id), st: r.st, r: r.right, n: r.n }; }) };
+    fetch('/api/student/check-log', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(function () {});
   } catch (e) {}
 }
 function goUnit(id) {

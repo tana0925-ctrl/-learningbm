@@ -3554,6 +3554,37 @@ app.get('/api/teacher/class/:classId/karte-guide', async (c) => {
 })
 // 🔍 HSCHECK_V1 阪神マンと理解度チェック：子どもの画面で「いまの算数の単元」を決める材料（読むだけ・2026-11-10）。
 //   先生が選んだ単元 → 授業メモの「算数：○○」 → クラスの記録 → 標準の進み方（決め方は public/hscheck.js。カルテの「いまの単元」と同じ順）。
+// 🪜 SAKANOBORI_V1 理解度チェック（さかのぼり）の けっかを 先生に のこす
+async function ensureCheckLog(env: any) {
+  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS hscheck_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, unit TEXT, unit_name TEXT, src TEXT, roots TEXT, res TEXT, at INTEGER)').run() } catch (_e) {}
+}
+app.post('/api/student/check-log', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'login_required')
+  if (u.role !== 'student') return c.json({ ok: true, skipped: true })
+  const b: any = await c.req.json().catch(() => null); if (!b) return jsonError(c, 400, 'invalid_json')
+  const cut = (x: any, n: number) => String(x == null ? '' : x).slice(0, n)
+  const roots = (Array.isArray(b.roots) ? b.roots : []).slice(0, 10).map((x: any) => cut(x, 60))
+  const res = (Array.isArray(b.res) ? b.res : []).slice(0, 12).map((r: any) => ({ s: cut(r && r.s, 60), st: cut(r && r.st, 4), r: Number(r && r.r) || 0, n: Number(r && r.n) || 0 }))
+  if (!res.length) return c.json({ ok: true, skipped: true })
+  await ensureCheckLog(c.env)
+  await c.env.DB.prepare('INSERT INTO hscheck_log (user_id, unit, unit_name, src, roots, res, at) VALUES (?,?,?,?,?,?,?)')
+    .bind(u.id, cut(b.unit, 40), cut(b.unitName, 60), b.src === 'auto' ? 'auto' : 'self', JSON.stringify(roots), JSON.stringify(res), Date.now()).run()
+  return c.json({ ok: true })
+})
+app.get('/api/teacher/check-log', async (c) => {
+  const t = requireTeacher(c); if (!t) return jsonError(c, 401, 'unauthorized')
+  const classId = String(c.req.query('classId') || '')
+  const own: any = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, (t as any).id).first()
+  if (!own && (t as any).role !== 'admin') return jsonError(c, 404, 'class_not_found')
+  await ensureCheckLog(c.env)
+  const since = Date.now() - 45 * 86400000
+  const r: any = await c.env.DB.prepare('SELECT h.user_id AS uid, u.name AS name, u.login_id AS lid, h.unit_name AS unit, h.src AS src, h.roots AS roots, h.res AS res, h.at AS at FROM hscheck_log h JOIN class_members cm ON cm.user_id = h.user_id AND cm.class_id = ? JOIN users u ON u.id = h.user_id WHERE h.at >= ? ORDER BY h.at DESC LIMIT 300').bind(classId, since).all()
+  let rn: any = {}
+  try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
+  const rows = ((r && r.results) || []).map((x: any) => { let ro: any = [], re: any = []; try { ro = JSON.parse(x.roots || '[]') } catch (_e) {} try { re = JSON.parse(x.res || '[]') } catch (_e) {} return { uid: x.uid, name: String(rn[x.lid] || x.name || x.lid || ''), lid: x.lid, unit: x.unit, src: x.src, roots: ro, res: re, at: Number(x.at) || 0 } })
+  return c.json({ ok: true, rows })
+})
+
 app.get('/api/student/check-now', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -11038,6 +11069,7 @@ app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
 app.get('/hsadvice.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsadvice.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSADVICE_CHAT_V1
 app.get('/hscheck.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hscheck.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHECK_V1
+app.get('/sakanobori.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/sakanobori.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // SAKANOBORI_V1
 app.get('/hsextra.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsextra.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/pjgift.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pjgift.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
@@ -11284,7 +11316,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=12"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=2"></script><script src="/sakanobori.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=12"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -14508,6 +14540,42 @@ app.get('/teacher', (c) => {
           csA.className = 'text-xs px-2 py-1 rounded font-bold bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100';
           csA.textContent = '🗓 チトセレをひらく';
           btnGroup.appendChild(csA);
+          // 🪜 SAKANOBORI_V1 さかのぼり（理解度チェック）の きろく
+          const skBtn = document.createElement('button');
+          skBtn.className = 'text-xs px-2 py-1 rounded font-bold bg-sky-50 text-sky-700 border border-sky-300 hover:bg-sky-100';
+          skBtn.textContent = '🪜 さかのぼりの きろく';
+          skBtn.title = '算数の 理解度チェックで、前の学年の どこで つまずいていたか';
+          skBtn.onclick = async ()=>{
+            const esc2 = (x)=>String(x==null?'':x).replace(/[&<>"]/g, (ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+            let ov = document.getElementById('skLogOv');
+            if (!ov) { ov = document.createElement('div'); ov.id = 'skLogOv'; ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.5);display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto'; ov.onclick = (e)=>{ if (e.target === ov) ov.remove(); }; document.body.appendChild(ov); }
+            ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:900px;width:100%;padding:16px">よみこみ中…</div>';
+            try {
+              const d = await api('/api/teacher/check-log?classId=' + encodeURIComponent(cls.id));
+              const rows = (d && d.rows) || [];
+                            const by = {};
+              rows.forEach((x)=>{ (by[x.uid] = by[x.uid] || { name: x.name, list: [] }).list.push(x); });
+              const kids = Object.keys(by).sort((a,b)=> String(by[a].name).localeCompare(String(by[b].name), 'ja'));
+              let h = '<div style="background:#fff;border-radius:16px;max-width:900px;width:100%;padding:16px"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:18px;font-weight:900">🪜 さかのぼりの きろく（45日）</div><button id="skLogX" style="margin-left:auto;background:#f1f5f9;border:none;border-radius:10px;padding:6px 12px;font-weight:800;cursor:pointer">とじる</button></div>'
+                + '<div style="font-size:12px;color:#64748b;margin:4px 0 10px">算数の 理解度チェックの けっか。<b>❌の 根っこ</b>＝その子が もどって 練習すると よい 前の学年の 技。「自動」は 修行で まちがいが つづいて 阪神マンが さそった もの。</div>';
+              if (!kids.length) h += '<div style="color:#94a3b8;padding:20px;text-align:center">まだ きろくは ありません</div>';
+              kids.forEach((k)=>{
+                const kk = by[k];
+                h += '<div style="border:1px solid #e2e8f0;border-radius:12px;padding:8px 10px;margin-bottom:8px"><div style="font-weight:900">' + esc2(kk.name) + '<span style="font-size:12px;color:#64748b;font-weight:400">（' + kk.list.length + '回）</span></div>';
+                kk.list.slice(0, 6).forEach((x)=>{
+                  const dt = new Date(x.at + 9*3600000).toISOString().slice(5,16).replace('T',' ').replace('-','/');
+                  const lad = (x.res||[]).map((r)=> (r.st==='ok'?'⭕':r.st==='tri'?'🔺':'❌') + esc2(r.s)).join('　');
+                  h += '<div style="font-size:12.5px;margin-top:4px;line-height:1.6"><span style="color:#64748b">' + dt + '</span> <b>' + esc2(x.unit) + '</b>' + (x.src==='auto' ? ' <span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:0 5px;font-size:11px">自動</span>' : '')
+                    + ((x.roots||[]).length ? '　<span style="color:#b91c1c;font-weight:800">❌の 根っこ：' + esc2(x.roots.join('・')) + '</span>' : '　<span style="color:#047857;font-weight:800">つまずき なし</span>')
+                    + '<div style="color:#475569;font-size:11.5px">' + lad + '</div></div>';
+                });
+                h += '</div>';
+              });
+              ov.innerHTML = h + '</div>';
+              const xb = document.getElementById('skLogX'); if (xb) xb.onclick = ()=> ov.remove();
+            } catch (e) { ov.innerHTML = '<div style="background:#fff;border-radius:16px;padding:16px">読みこめませんでした</div>'; }
+          };
+          btnGroup.appendChild(skBtn);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════
           //   ここに出すのは「人数」まで。名前は押したときだけ別の道で取りに行く。
