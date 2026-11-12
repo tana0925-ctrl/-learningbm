@@ -246,6 +246,17 @@ await t('13 ふく習コーナー：テストの「もう少し」から どこ�
   ok(!/[◎○△]|Ａ|Ｃ|点/.test(sec.replace(/ふく習 コーナー/, '')), '印や 点数は 出さない')
 })
 
+await t('14 先生PJ リーグ戦 ニュース（チーム名だけ・優勝）と 家庭学習の ごほうびの しくみ（％は 出さない）', async () => {
+  const d = rich()
+  d.league = [{ sp: 'sc', groups: [{ kids: 2, games: 15, done: 15, table: [{ name: 'ミラクルシティ', cpu: false, w: 4, l: 1, dr: 0 }, { name: 'CPU シティ', cpu: true, w: 3, l: 2, dr: 0 }] }] },
+    { sp: 'bb', groups: [{ kids: 4, games: 15, done: 6, table: [{ name: 'CPU ベアーズ', cpu: true, w: 2, l: 0, dr: 0 }] }] }]
+  const { html } = await make(d); const h = html()
+  ok(h.indexOf('先生PJ リーグ戦 ニュース') >= 0, 'リーグの欄'); ok(h.indexOf('優勝は 「ミラクルシティ」') >= 0, '優勝チーム')
+  ok(h.indexOf('いま トップは 「CPU ベアーズ」（6/15試合）') >= 0, 'とちゅう')
+  ok(h.indexOf('家庭学習の ごほうび') >= 0 && h.indexOf('契約延長券') >= 0, 'ごほうびの しくみ')
+  ok(!/\d+\s*[%％]/.test(h.replace(/<style[\s\S]*?<\/style>/g, '').replace(/style="[^"]*"/g, '')), '％なし')
+})
+
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== shinbun ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))

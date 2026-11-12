@@ -4361,6 +4361,31 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     curStreak: hwStreakCurrent([...new Set(_asofSub.map((x: any) => x.day_key).filter(Boolean))], khtAddDay(_lwTo, 1), _hwRest),
     maxStreak: hwStreakMax([...new Set(_asofSub.map((x: any) => x.day_key).filter(Boolean))], _hwRest),
   }
+  /* 📰 PJ_LG_NEWS_V1（2026-11-12）この号の 週の 先生PJ リーグ戦（チームの 名前と 勝ち負けだけ。子どもの 名前は のせない） */
+  const league: any[] = []
+  try {
+    if (michiClassId) {
+      const _lr = await c.env.DB.prepare('SELECT sp, j FROM pj_league WHERE cid=? AND wk=?').bind(michiClassId, _lwFrom).all<any>()
+      for (const r of (((_lr && _lr.results) || []) as any[])) {
+        let L: any = null; try { L = JSON.parse(String(r.j)) } catch (_e) {}
+        if (!L || !Array.isArray(L.groups)) continue
+        const res = L.res || {}
+        const groups = L.groups.map((g: any, gi: number) => {
+          const T = (g.teams || []).map((t: any, i: number) => ({ i, name: String(t.name || ''), cpu: !!t.cpu, w: 0, l: 0, dr: 0, gf: 0, ga: 0, pt: 0 }))
+          const ms = (L.matches || []).filter((m: any) => m.g === gi)
+          ms.filter((m: any) => res[m.id]).forEach((m: any) => {
+            const [x, y] = res[m.id], A = T[m.a], B = T[m.b]; if (!A || !B) return
+            A.gf += x; A.ga += y; B.gf += y; B.ga += x
+            if (x > y) { A.w++; B.l++; A.pt += 3 } else if (x < y) { B.w++; A.l++; B.pt += 3 } else { A.dr++; B.dr++; A.pt++; B.pt++ }
+          })
+          T.sort((a: any, b: any) => b.pt - a.pt || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf || a.i - b.i)
+          const done = ms.filter((m: any) => res[m.id]).length
+          return { kids: T.filter((t: any) => !t.cpu).length, games: ms.length, done, table: T.map((t: any) => ({ name: t.name, cpu: t.cpu, w: t.w, l: t.l, dr: t.dr })) }
+        })
+        league.push({ sp: String(r.sp), groups })
+      }
+    }
+  } catch (e) {}
   /* SHINBUN_BACKNO_V1 バックナンバー：配布ずみ（確定）の 号だけ。この号より 前の 号を 新しい順に */
   let issues: any[] = []
   try {
@@ -4371,7 +4396,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
 
   return c.json({
     ok: true,
-    issue, issues,
+    issue, issues, league,
     student: { id: member.id, name: member.name, loginId: member.login_id, grade: member.grade },
     overview: {
       totalSubmissions, firstDate, lastDate, totalMinutes, avgMinutes,
@@ -11135,7 +11160,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=7"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=1"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=8"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18088,7 +18113,7 @@ function _faKarteGraphs(d){
     <script src="/teibako.js?v=4"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=10"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=11"></script>
     <script src="/shinbun_nudge.js?v=3"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->

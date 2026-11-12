@@ -574,6 +574,29 @@
     use(ak);
     return tag(sec('4月からの あゆみ', '<div class="nums">' + a.map(function (x) { return '<div><b>' + x[0] + '</b><small>' + x[1] + (x[2] ? '<br>' + x[2] : '') + '</small></div>'; }).join('') + '</div>', 3), [ak]);
   }
+  // ⚾⚽ PJ_LG_NEWS_V1（2026-11-12 先生の指示）先生PJ リーグ戦 ニュース：チームの 名前だけ（子どもの 名前は 出さない）。優勝チームと 参加の 数
+  function leagueSec(c) {
+    var lg = (c.d && c.d.league) || [];
+    var L = [];
+    lg.forEach(function (x) {
+      var nm = x.sp === 'sc' ? '⚽ サッカー' : '⚾ 野球';
+      (x.groups || []).forEach(function (g, gi) {
+        if (!g.kids || !g.games || !g.table || !g.table.length) return;
+        var top = g.table[0], gn = (x.groups.length > 1 ? '（' + 'ABCD'.charAt(gi) + 'グループ）' : '');
+        var tn = (top.cpu && !/^CPU/i.test(top.name) ? 'CPUの ' : '') + '「' + esc(top.name) + '」';
+        if (g.done >= g.games) L.push('<b>' + nm + gn + '</b>　🏆 優勝は ' + tn + '！（' + top.w + '勝' + top.l + '敗' + (top.dr ? top.dr + '分' : '') + '）' + (top.cpu ? '　来週は リベンジや！' : ''));
+        else L.push('<b>' + nm + gn + '</b>　いま トップは ' + tn + '（' + g.done + '/' + g.games + '試合）');
+      });
+    });
+    if (!L.length) return '';
+    var k = 'lg:' + c.ws; if (old(k)) return '';
+    return tag(sec('先生PJ リーグ戦 ニュース', L.map(function (t) { return li(t); }).join('') + '<div class="mute sm">チームを 作っていれば 毎週 自動で 参加。優勝 2000コイン・2位 1000・3位 500・参加 200コイン！</div>', 3, '', 'チームの 名前で しょうかい'), [use(k)]);
+  }
+  // 🎁 PJ_REWARD_NEWS_V1（2026-11-12）家庭学習の ごほうびの しくみ（いちど のせたら しばらく 出さない）
+  function rewardSec(c) {
+    var k = 'rw:v1'; if (old(k)) return '';
+    return tag(sec('家庭学習の ごほうび', li('<b>🤝 1週間 毎日 出す</b>（学校の日 ぜんぶ）→「契約延長券 か 200コイン」') + li('<b>👥 クラスの 1日の 提出</b>　9わり→「🎟ノーマル券 か 200コイン」　9わり5ぶ→「🎯ポジション券 か 250コイン」　ぜんいん→「💎レア券 か 600コイン」') + '<div class="mute sm">券は 先生PJで つかえる。先生PJを やらない人は コインを えらんでね。クラスみんなで ねらおう！</div>', 3, '', 'しってた？'), [use(k)]);
+  }
   function classSec(c) {
     var t = c.ai && c.ai.cls; if (!t) return '';
     var tk = 'cls:' + nk(t); if (old(tk)) return '';
@@ -863,7 +886,7 @@
     /* SHINBUN_NETA_V1 欄の ならびも 号ごとに かえる（コラムは 1面の 頭のほう・天気は 1面に のこす） */
     var F0 = [weatherSec(rows), columnSec(c)], F1 = [voicesSec(rows), numsSec(c, facts), progressSec(c), newsSec(c, facts), roadsSec(c), triesSec(c), hqSec(c), lessonSec(c), quizSec(c, facts, rows, seed), reviewSec(c)];
     var F = shuf(F0, seed).concat(shuf(F1, seed + 1)).join('');
-    var B = shuf([interviewSec(c, ws), compareSec(c, facts, rows), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c)], seed + 2).concat([tipsSec(ws), switchSec(ws)]).join('');
+    var B = shuf([interviewSec(c, ws), compareSec(c, facts, rows), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), leagueSec(c), rewardSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c)], seed + 2).concat([tipsSec(ws), switchSec(ws)]).join('');
     var afk = c.ai && c.ai.after ? 'after:' + nk(c.ai.after) : '';
     var after = afk && !old(afk) ? '<div class="after" data-nk="' + esc(use(afk)) + '"><b>編集後記</b>　' + esc(cut(c.ai.after, 90)) + '（阪神マン）</div>' : '';
     var foot = function (n) { return '<div class="foot"><span>LearningBM ／ 道しるべ新聞（学びの道しるべ）</span><span>' + n + '面</span></div>'; };

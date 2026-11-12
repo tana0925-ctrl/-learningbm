@@ -402,6 +402,28 @@ export function installPj(app: any, d: Deps) {
     if ((L.st.rw && L.st.rw.ck) !== ck0) await save(c.env, w.sid, L.st, L.ver)
     return c.json({ ok: true, list: L.st.pg || [], eq: COIN_EQ })
   })
+  // 📣 PJ_REWARD_PROGRESS_V1（2026-11-12）家庭学習の ごほうびまで あと どれくらい（阪神マンが 提出の あとに 言う）
+  app.get('/api/pj/reward-progress', async (c: any) => {
+    await ensure(c.env)
+    const w: any = await who(c, d)
+    if (w.error || !w.classId || !w.u) return c.json({ ok: false })
+    const L = await load(c.env, w.sid)
+    const ctx = await dayCtx(c, w, L.st)
+    const now = hwDayNow()
+    const g = new Date(now + 'T12:00:00Z').getUTCDay()
+    const ws = d.addDay(now, -((g + 6) % 7))
+    const days = [0, 1, 2, 3, 4].map((i) => d.addDay(ws, i)).filter((k) => !ctx.rest(k))
+    const mine = await c.env.DB.prepare('SELECT day_key AS k FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=?').bind(String(w.u.id), ws, d.addDay(ws, 4)).all()
+    const have: any = {}; ((mine && mine.results) || []).forEach((r: any) => { have[String(r.k)] = 1 })
+    const done = days.filter((k) => have[k]).length
+    const missed = days.filter((k) => k < now && !have[k])
+    const left = days.filter((k) => k >= now && !have[k]).length
+    const ros: any = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=?").bind(w.classId).first()
+    const N = Number(ros && ros.n) || 0
+    const tr: any = await c.env.DB.prepare("SELECT COUNT(DISTINCT h.user_id) AS n FROM homework_submissions h JOIN class_members cm ON cm.user_id=h.user_id AND cm.class_id=? JOIN users u ON u.id=h.user_id AND u.role='student' WHERE h.day_key=?").bind(w.classId, now).first()
+    const n = Number(tr && tr.n) || 0
+    return c.json({ ok: true, today: now, week: { ws, school: days.length, done, missed, left, got: !!(L.st.rw && L.st.rw.w && L.st.rw.w[ws]) }, cls: { N, n, school: !ctx.rest(now), t90: Math.ceil(N * 0.9), t95: Math.ceil(N * 0.95) } })
+  })
   // 🎁 えらぶ：pick='tk'（券）／'coin'（コイン）
   app.post('/api/pj/rewards/claim', async (c: any) => {
     await ensure(c.env)

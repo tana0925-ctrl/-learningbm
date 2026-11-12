@@ -768,11 +768,52 @@
       _done.log = (_done.log || []).filter(function (x) { return x.t !== SAY.sending; });
       say(_done, 'b', fill(SAY.sent, { msg: msg }));
       draw(); drawPill();
+      rewardTalk(function (t) { if (_done && t) { say(_done, 'b', t); draw(); } });   // PJ_REWARD_PROGRESS_V1
     } else {
       act(function (s, c) { c.log = c.log.filter(function (x) { return x.t !== SAY.sending; }); say(c, 'b', SAY.sendRetry); });
     }
   }
   var _done = null;   // 提出したあと（下書きは消える）の画面はメモリだけ
+
+  // 🎁 PJ_REWARD_PROGRESS_V1（2026-11-12）提出の あとに「ごほうびまで あと どれくらい」を 阪神マンが 言う
+  //   自分：1週間（学校の日）毎日 出すと 🤝契約延長券（か200コイン）／クラス：その日 90%・95%・ぜんいんで みんなに 券（か コイン）
+  function rewardText(j) {
+    if (!j || !j.ok) return '';
+    var w = j.week || {}, c = j.cls || {}, out = [];
+    if (w.got) out.push('今週の 🤝契約延長券は もう とどいてるで！');
+    else if (w.missed && w.missed.length) out.push('今週は 出せへんかった日が あったから、🤝契約延長券は 来週 また チャレンジやな。来週は 学校の日 毎日 いこな！');
+    else if (!w.left && w.school) out.push('🎉 今週は 学校の日 ぜんぶ 出せたで！ あしたには 🎁「🤝契約延長券 か 200コイン」が とどくで！');
+    else if (w.left > 0) out.push('今週 あと ' + w.left + '日 出したら 🎁「🤝契約延長券 か 200コイン」が もらえるで！');
+    if (c.school && c.N >= 3) {
+      var n = c.n || 0, N = c.N;
+      if (n >= N) out.push('それに きょうは クラス ぜんいん そろったで！ みんなに 🎁「💎レア券 か 600コイン」や！');
+      else if (n < c.t90) out.push('きょうの クラスは ' + n + '/' + N + '人。あと ' + (c.t90 - n) + '人 出したら、みんなに 🎁「🎟ノーマル券 か 200コイン」やで！ 友だちにも 声かけてみよか！');
+      else if (n < c.t95) out.push('きょうの クラスは ' + n + '/' + N + '人。もう 🎟ノーマル券は きまり！ あと ' + (c.t95 - n) + '人で 🎯ポジション券（か 250コイン）やで！');
+      else out.push('きょうの クラスは ' + n + '/' + N + '人。あと ' + (N - n) + '人で ぜんいん！ 💎レア券（か 600コイン）まで もうちょっとや！');
+    }
+    return out.join('\n');
+  }
+  function rewardTalk(cb) {
+    if (viewOnly() || teacherAcct()) return;
+    fetch('/api/pj/reward-progress', { credentials: 'include', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { var t = rewardText(j); if (t) cb(t); }).catch(function () {});
+  }
+  // シート（対話を つかわない）で 出した ときも、阪神マンが 言う
+  (function hookSheet() {
+    var n = 0;
+    var t = setInterval(function () {
+      var f = window.hsSubmitAndExport;
+      if (typeof f === 'function' && !f.__rw) {
+        var w = async function () {
+          var before = submittedToday();
+          var r = await f.apply(this, arguments);
+          try { if (!_sending && !before && submittedToday()) rewardTalk(function (t) { afterSay(t); }); } catch (e) {}
+          return r;
+        };
+        w.__rw = 1; window.hsSubmitAndExport = w; clearInterval(t);
+      } else if (++n > 60) clearInterval(t);
+    }, 500);
+  })();
 
   // ───────── 描く ─────────
   function bubble(x) {
