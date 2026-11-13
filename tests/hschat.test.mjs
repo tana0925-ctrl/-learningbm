@@ -478,6 +478,22 @@ await t('17 HSTALK 前の自分：前の「次どうする」から はじめる
   r.w.HSCHAT.open(); await sleep(50); ok(!r.log().some((x) => x.indexOf('前は「') >= 0), '休みの日は 使わない')
 })
 
+await t('17b HSSAME_V2 前と まったく 同じ（なぜ・ふりかえり）は「◯/◯と まったく 同じ」と 教えて 今日だけの ことを 書かせる／このままでOKが つづくと レベルアップを 聞く', async () => {
+  const d = await device({ store: storeWithPrev(2, { why: 'テストがあるから', endWeather: 'sun', weatherReason: '集中できた：時間を決めた', nextImprove: 'このままでOK' }) })
+  d.w.HSCHAT.open(); await sleep(50)
+  await d.click('学校の宿題'); await d.click('テストがあるから')
+  ok(d.log().some((x) => /^「テストがあるから」は \d+\/\d+ と まったく 同じ やで/.test(x)), 'なぜ が 同じ と 教える')
+  ok(d.foot().textContent.indexOf('もどる') < 0, 'とばせない')
+  await d.type('漢字の 5〜8番が まだ 不安だから'); eq(d.sess().why, 'テストがあるから：漢字の 5〜8番が まだ 不安だから', 'つなげて のこす')
+  await d.click('15分'); await d.click('スタート'); d.pass(15); d.tick(); await sleep(20); await d.click('おわる')
+  await d.click('はれ'); await d.click('集中できた'); await d.click('時間を決めた')
+  ok(d.log().some((x) => x.indexOf('「集中できた：時間を決めた」は') === 0), 'ふりかえりが 同じ と 教える')
+  await d.type('15分に 決めたら さいごまで ゲームを 気にせず できた')
+  eq(d.sess().weatherReason, '集中できた：時間を決めた：15分に 決めたら さいごまで ゲームを 気にせず できた', 'ふりかえりに 足す')
+  await d.click('このままでOK')
+  ok(d.log()[d.log().length - 1].indexOf('「このままでOK」が つづいとるな') === 0, 'このままでOK が つづいたら レベルアップ')
+})
+
 await t('18 READY 何分かえらんだら すぐ始めず「スタートしよか？」と聞く → えらびなおせる → ▶スタートで はじまる', async () => {
   const d = await device()
   d.w.HSCHAT.open(); await sleep(50)

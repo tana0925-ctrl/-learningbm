@@ -314,6 +314,37 @@
       return best;
     } catch (e) { return null; }
   }
+  // 🔁 HSSAME_V2（2026-11-13 先生の指示）この 2週間の 自分の 提出と「まったく 同じ」答えを 見つける。
+  //   えらぶボタンは 入り口。同じに なったら 阪神マンが「◯/◯と まったく 同じ やで」と 教えて、今日だけの ことを 1つ 書いてもらう。
+  function normT(x) { return stripIcon(String(x || '')).replace(/[\s　、。,.！!？?…・「」『』()（）]/g, ''); }
+  function sameRecent(field, val, mainOnly) {
+    try {
+      var v = normT(mainOnly ? String(val || '').split('：')[0] : val); if (!v) return '';
+      var today = dayKey(), hit = '';
+      (call('hsLogs') || []).forEach(function (l) {
+        if (!l || l.restDay || !l.dayKey) return;
+        var dk = String(l.dayKey); if (!(dk < today) || dayNum(today) - dayNum(dk) > PREV_DAYS) return;
+        var x = normT(mainOnly ? String(l[field] || '').split('：')[0] : l[field]);
+        if (x && x === v && (!hit || dk > hit)) hit = dk;
+      });
+      return hit;
+    } catch (e) { return ''; }
+  }
+  function mdOf(dk) { var p = String(dk || '').split('-'); return p.length === 3 ? (Number(p[1]) + '/' + Number(p[2])) : dk; }
+  var SAME_TIP = {
+    todo: '今日は 何を・どこまで やる？ 今日だけの ことを 教えて（例：漢字テストの 3〜5番を 2回ずつ・ドリル 14ページ）',
+    why: '同じ わけでも ええけど、今日だけの わけを 足してみよ（例：どの テスト？ 何が 不安？ 前に まちがえたから？）',
+    ref: '今日 ほんまに あったことを 1つ 書いてみて。コツは「どこで・どうなった・なんで」や。（例：15分に 決めたら、さいごまで ゲームを 気にせず できた）'
+  };
+  function sameAsk(c, field, val, dk) {
+    c.sm = c.sm || {};
+    if (c.sm[field]) return false;   // 1回だけ
+    c.sm[field] = 1;
+    say(c, 'b', '「' + cut(stripIcon(val), 30) + '」は ' + mdOf(dk) + ' と まったく 同じ やで！ 毎日 同じ ことばだと、何が できるように なったか 見えへんのや。');
+    say(c, 'b', SAME_TIP[field]);
+    c.waiting = field + 'More';
+    return true;
+  }
   function prevNext(p) { return cut(stripIcon(String((p && p.nextImprove) || '').replace(/[\r\n]+/g, ' ')), 24); }
   function startLine() {   // はじめる前：前の「次どうする」
     var nx = prevNext(prevRec()); if (!nx) return '';
@@ -506,11 +537,11 @@
   }
   function pickTodo(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.todoOther); c.waiting = 'todo'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', o.k)); say(c, 'b', SAY.why); });
+    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; var dk = sameRecent('todo', c.todoText); if (dk && sameAsk(c, 'todo', c.todoText, dk)) return; say(c, 'b', react('todo', o.k)); say(c, 'b', SAY.why); });
   }
   function pickWhy(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.whyOther); c.waiting = 'why'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', o.k)); say(c, 'b', SAY.min); });
+    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; var dk = sameRecent('why', c.whyText); if (dk && sameAsk(c, 'why', c.whyText, dk)) return; say(c, 'b', react('why', o.k)); say(c, 'b', SAY.min); });
   }
   function pickMin(n) {   // READY_V1 分をえらんだら すぐ始めず「スタートしよか？」と聞く
     n = Math.max(1, Math.min(180, parseInt(n, 10) || 0));
@@ -526,7 +557,7 @@
   function schoolNow() { try { return !call('hsIsRestDay', dayKey()) && typeof window.hsIsSchoolTimeNow === 'function' && window.hsIsSchoolTimeNow() && !viewOnly(); } catch (e) { return false; } }
   // 🔁 HSSAME_V1（2026-11-12 先生の指示）前回と 同じ 答えを えらんだら、阪神マンが「今日は どうやった？」と もう一歩 聞く（毎日 同じに ならないように）
   // 🔎 HSVAGUE_V2 子どもが 書いた ことばに あわせて 聞きかえす（「がんばる」→ 何を がんばる？／「算数」→ 算数の 何を？／「たのしかった」→ 何が？）
-  var VAGUE_FIELDS = { todo: 'todo', reason: 'ref', deep: 'ref', next: 'next', nextMore: 'next' };
+  var VAGUE_FIELDS = { todo: 'todo', reason: 'ref', deep: 'ref', next: 'next', nextMore: 'next', todoMore: 'todo', refMore: 'ref' };
   var SUBJ = /算数|国語|社会|理科|英語|外国語|音楽|図工|体育|家庭科|書写|道徳/;
   var SUBJ_EX = { 算数: 'ドリル 12ページ・計算 10問', 国語: '漢字 10こ・音読 2回', 社会: 'ノートまとめ 1ページ・年表を かく', 理科: '教科書を 読んで まとめる 1ページ', 英語: '単語 5こを 3回ずつ', 外国語: '単語 5こを 3回ずつ' };
   var DETAIL = /[0-9０-９一二三四五六七八九十百]|ページ|問|分|回|個|行|ドリル|漢字|計算|音読|プリント|ノート|教科書|単語|まとめ|割合|分数|筆算|算|図|式|字|読み|書き|ワーク|テスト/;
@@ -600,9 +631,13 @@
         if (c.vq[w] && c.vq[w] !== 1) { v = buildText(c.vq[w], v); c.vq[w] = 1; }
         else if (!c.vq[w]) { var vqA = vagueAsk(w, v); if (vqA) { c.vq[w] = cut(v, 150); c.waiting = w; say(c, 'b', vqA); return; } }
       }
-      if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', 'other')); say(c, 'b', SAY.why); }
-      else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
-      else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
+      if (w === 'todo') { c.todoText = cut(v, 300); s.todo = c.todoText; c.step = 'why'; var dk1 = sameRecent('todo', c.todoText); if (dk1 && sameAsk(c, 'todo', c.todoText, dk1)) return; say(c, 'b', react('todo', 'other')); say(c, 'b', SAY.why); }
+      else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; var dk2 = sameRecent('why', c.whyText); if (dk2 && sameAsk(c, 'why', c.whyText, dk2)) return; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
+      else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; var dk3 = sameRecent('weatherReason', c.reason); if (dk3 && sameAsk(c, 'ref', c.reason, dk3)) return; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
+      // HSSAME_V2 「まったく 同じ」の あとの 今日だけの ひとこと（つなげて のこす）
+      else if (w === 'todoMore') { c.todoText = buildText(c.todoText, cut(v, 200)); s.todo = c.todoText; c.step = 'why'; say(c, 'b', 'ええやん！ 今日の やることが はっきりしたな。'); say(c, 'b', SAY.why); }
+      else if (w === 'whyMore') { c.whyText = buildText(c.whyText, cut(v, 200)); s.why = c.whyText; c.step = 'min'; say(c, 'b', 'なるほどな！ 今日の わけが よう わかったで。'); say(c, 'b', SAY.min); }
+      else if (w === 'refMore') { s.weatherReason = buildText(s.weatherReason, cut(v, 200)); c.step = 'next'; say(c, 'b', 'それや！ そういう 今日だけの 気づきが 力に なるんや。'); say(c, 'b', nextAsk(c)); }
       else if (w === 'deep') { deepDone(s, c, v); }
       else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); afterNext(s, c); }
       else if (w === 'nextMore') { s.nextImprove = buildText(c.next, v); c.next = s.nextImprove; say(c, 'b', 'ええやん、具体的や！ それなら きっと できるで！'); afterNext(s, c); }
@@ -651,14 +686,18 @@
       c.sameR = !!(prevMain('weatherReason') && prevMain('weatherReason') === stripIcon(t).trim());
       if (c.sameR) { say(c, 'b', '前回も「' + stripIcon(t) + '」やったな！ 今日は どんなふうに？ 前と ちがう ところを 教えて'); if (!DEEP[t]) { c.step = 'deep'; c.waiting = 'deep'; return; } }
       if (DEEP[t]) { c.step = 'deep'; say(c, 'b', DEEP[t].q); return; }   // HSTALK_V1 もう一歩
-      c.step = 'next'; say(c, 'b', react('reason', t)); say(c, 'b', nextAsk(c));
+      c.step = 'next';
+      var dkr = sameRecent('weatherReason', t); if (dkr && sameAsk(c, 'ref', t, dkr)) return;   // HSSAME_V2
+      say(c, 'b', react('reason', t)); say(c, 'b', nextAsk(c));
     });
   }
   // 🗣 HSTALK_V1 もう一歩の答え（ボタン・自分で書く・とばす）→ 受け止め → 次どうする
   function deepDone(s, c, ans) {
     ans = cut(String(ans || '').trim(), 200);
     if (ans) { c.deep = ans; s.weatherReason = buildText(c.reason, ans); }
-    c.step = 'next'; say(c, 'b', react('reason', c.reason)); say(c, 'b', nextAsk(c));
+    c.step = 'next';
+    var dk = sameRecent('weatherReason', s.weatherReason || c.reason); if (dk && sameAsk(c, 'ref', s.weatherReason || c.reason, dk)) return;   // HSSAME_V2
+    say(c, 'b', react('reason', c.reason)); say(c, 'b', nextAsk(c));
   }
   function pickDeep(label, mode) {
     if (mode === 'other') { act(function (s, c) { say(c, 'm', DEEP_OTHER); say(c, 'b', SAY.reasonOther); c.waiting = 'deep'; }); return; }
@@ -676,6 +715,9 @@
     act(function (s, c) {
       say(c, 'm', label); c.next = stripIcon(label); s.nextImprove = c.next;
       var pn = prevMain('nextImprove');
+      // HSSAME_V2「このままでOK」が つづいたら、1つだけ レベルアップを 考えてもらう
+      if (stripIcon(label).trim() === 'このままでOK' && pn === 'このままでOK') { c.step = 'next'; c.waiting = 'nextMore'; say(c, 'b', '「このままでOK」が つづいとるな！ ええ調子なら、つぎは 1つだけ レベルアップしよか。何を どれだけ？（例：問題を 5問 ふやす・まちがえた 問題を もう1回・10分 早く はじめる）'); return; }
+      if (!pn || pn === 'このままでOK') { var dkn = sameRecent('nextImprove', label, true); if (dkn && stripIcon(label).trim() !== 'このままでOK') pn = stripIcon(label).trim(); }
       if (pn && pn !== 'このままでOK' && pn === stripIcon(label).trim()) { nextReact(c); c.step = 'next'; c.waiting = 'nextMore'; say(c, 'b', '今度は 具体的に どう する？（例：10分 ふやす・2ページ やる）'); return; }   // HSSAME_V1
       nextReact(c); afterNext(s, c);
     });
@@ -943,12 +985,13 @@
     if (logEl._n !== c.log.length || logEl._h !== html.length) { logEl.innerHTML = html; logEl._n = c.log.length; logEl._h = html.length; logEl.scrollTop = logEl.scrollHeight; }
     var step = c.step;
     if (c.waiting) {
-      foot.innerHTML = inputRow(c.waiting === 'min' ? '例：25' : 'ここに書いてな', c.waiting === 'min')
-        + btns([{ label: 'もどる（ボタンでえらぶ）', cls: 'sub' }], 'one');
+      var noBack = /More$/.test(String(c.waiting));   // HSSAME_V2 同じ 答えの あとは 書いて すすむ（もどって とばせない）
+      foot.innerHTML = inputRow(c.waiting === 'min' ? '例：25' : (noBack ? '今日だけの ことを 書いてな' : 'ここに書いてな'), c.waiting === 'min')
+        + (noBack ? '' : btns([{ label: 'もどる（ボタンでえらぶ）', cls: 'sub' }], 'one'));
       var inp = document.getElementById('hsChatIn');
       document.getElementById('hsChatSend').onclick = function () { typed(inp.value); };
       inp.onkeydown = function (e) { if (e.key === 'Enter') typed(inp.value); };
-      bind(foot.querySelector('.hc-ch'), [function () { act(function (s2, c2) { c2.waiting = ''; }); }]);
+      if (!noBack) bind(foot.querySelector('.hc-ch'), [function () { act(function (s2, c2) { c2.waiting = ''; }); }]);
       setTimeout(function () { try { inp.focus(); } catch (e) {} }, 50);
       return;
     }
