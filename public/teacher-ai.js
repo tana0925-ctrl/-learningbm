@@ -662,7 +662,11 @@ out.push('【目印の種類】');
       out.push('      ・具体的でない（何を どこまで やったか わからない。例：「勉強した」「がんばった」だけ）');
       out.push('      ・やったこと・時間・ふりかえりが かみ合わない（例：5分で 漢字ドリル10ページ、習い事を 家庭学習に）');
       out.push('      ・「⚠ 機械チェック」が ついている');
-      out.push('      あてはまらなければ 書かない。【ずる？】の 行は 子どもには 届かない（先生が たしかめてから 返す）。');
+      out.push('      あてはまらなければ 書かない。【ずる？】の 行は 子どもには 届かない。');
+      out.push('      【ずる？】を つけた ときの 2行目からの コメントは「再チャレンジ」の おねがいに する（この 家庭学習は 差し戻しに なる）:');
+      out.push('        ・せめない／「ずる」「うそ」とは 書かない。「もう一回 やってみよう」と 前向きに。');
+      out.push('        ・その子の 中身に あわせて、何を 足せば よいかを 1つだけ 具体的に（例：「何を・どこまで・何分」「自分の ことばで 気づいたこと」「タイマーを つかって」）。');
+      out.push('        ・60字以内。');
     }
     if (want.karte)   out.push('・=== [KARTE:...] === … 阪神マンから本人へのひとこと。子ども向け。');
     if (want.karte) {
@@ -2363,14 +2367,14 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
     }
     // --- 家庭学習コメント（既存の返却APIをそのまま使う＝コイン付与は既存のまま） ---
     if (byKind.DAILY) {
-      var n = 0;
-      var _held = [];
+      var n = 0, nRej = 0;
+      var _held = [], _rej = [];
       try { var _sq2 = await getJson('/api/teacher/homework/suspect?classId=' + encodeURIComponent(cid)); window.__ZURU = (_sq2 && _sq2.suspects) || window.__ZURU || {}; } catch (_e) {}
       for (var i = 0; i < byKind.DAILY.length; i++) {
         var it = byKind.DAILY[i];
         // ZURU_CHECK_V1 ずるかも（AIの【ずる？】／機械チェック）は まとめて 返さない。先生が ひらいて たしかめてから 返す
         var _zr = /^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || '')) || ((window.__ZURU || {})[String(it.refKey)] || []).length > 0;
-        if (_zr) { _held.push(it.targetName || it.refKey); continue; }
+        if (_zr) { _rej.push(it); continue; }   // ZURU_REJECT_V1 あとで まとめて 差し戻す
         sayPub('家庭学習コメントを返しています... (' + (i + 1) + '/' + byKind.DAILY.length + ')');
         try {
           var rr = await fetch('/api/teacher/homework/' + encodeURIComponent(it.refKey) + '/return', {
@@ -2382,7 +2386,35 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
           if (jj && jj.ok) { okIds.push(it.id); n++; }
         } catch (e) {}
       }
+      // ↩ ZURU_REJECT_V1（2026-11-13 先生の指示）ずるかもの 子は、みんなの 返却と いっしょに「再チャレンジ」の コメントを つけて 差し戻す。
+      //   差し戻し＝出していない のと 同じ（ごほうびなし・先生PJの 練習試合も ひらかない）。子どもには メッセージが とどく。
+      //   まちがって 差し戻さないよう、名前と わけを 1回だけ 見せて たしかめる（キャンセルなら 返さずに のこす）。
+      if (_rej.length) {
+        var _lines = _rej.map(function (x) {
+          var why = []; try { var m = String(x.body || '').match(/^\s*[【\[]\s*(?:ずる|ZURU)[^】\]]*[】\]]\s*(.*)$/im); if (m && m[1]) why.push('AI：' + m[1]); } catch (_e) {}
+          try { (window.__ZURU || {})[String(x.refKey)] && why.push.apply(why, window.__ZURU[String(x.refKey)]); } catch (_e) {}
+          return '・' + (x.targetName || x.refKey) + '（' + (why.join('／') || 'ずるかも') + '）';
+        });
+        var _go = false; try { _go = window.confirm('ずるかもの ' + _rej.length + '人を、再チャレンジの コメントを つけて 差し戻します。\n（ごほうびなし・先生PJの 練習試合も ひらかない）\n\n' + _lines.join('\n') + '\n\nOK＝差し戻す ／ キャンセル＝返さずに のこす（あとで 📋振り返り一覧で）'); } catch (_e) { _go = false; }
+        if (_go) {
+          for (var k2 = 0; k2 < _rej.length; k2++) {
+            var it2 = _rej[k2];
+            sayPub('差し戻しています... (' + (k2 + 1) + '/' + _rej.length + ')');
+            var cm = String(it2.body || '').split('\n').filter(function (l) { return !/^\s*[【\[]\s*(ずる|ZURU)/i.test(l); }).join('\n').trim();
+            if (!cm) cm = 'もう一回 チャレンジしよう！ 何を・どこまで・何分 やったか、自分の ことばで 書いてね。';
+            try {
+              var rr2 = await fetch('/api/teacher/homework/' + encodeURIComponent(it2.refKey) + '/return', {
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comment: cm, reject: true })
+              });
+              var jj2 = await rr2.json().catch(function () { return null; });
+              if (jj2 && jj2.ok) { okIds.push(it2.id); nRej++; } else _held.push(it2.targetName || it2.refKey);
+            } catch (e) { _held.push(it2.targetName || it2.refKey); }
+          }
+        } else _rej.forEach(function (x) { _held.push(x.targetName || x.refKey); });
+      }
       if (n) msgs.push('家庭学習コメント' + n + '人');
+      if (nRej) msgs.push('↩ 再チャレンジで 差し戻し ' + nRej + '人');
       if (_held.length) msgs.push('⚠ ずるかもで 返さなかった ' + _held.length + '人（' + _held.join('、') + '）→ 📋振り返り一覧で ひらいて たしかめてね');
     }
 
