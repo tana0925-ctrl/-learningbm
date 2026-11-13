@@ -336,14 +336,42 @@
     why: '同じ わけでも ええけど、今日だけの わけを 足してみよ（例：どの テスト？ 何が 不安？ 前に まちがえたから？）',
     ref: '今日 ほんまに あったことを 1つ 書いてみて。コツは「どこで・どうなった・なんで」や。（例：15分に 決めたら、さいごまで ゲームを 気にせず できた）'
   };
+  // 同じだったら 深掘り：1回目＝「同じやで」＋コツ、2回目＝ちがう 角度の 質問（前と くらべる）。それでも 同じなら そのまま 出す（先生の ずるチェックに かかる）
+  var SAME_DEEP = {
+    todo: '前と 同じ ところを もう一回 やるんやな？ それなら、前の ときと くらべて 今日は 何を ふやす・かえる？（例：まちがえた 3問だけ・時間を はかって）',
+    why: 'じゃあ 聞くで。それを やったら、何が できるように なりたい？（例：テストで 80点・漢字を 見ないで 書ける）',
+    ref: '前の 日と くらべて、今日 ちがった ことを 1つだけ さがしてみて。どんな 小さな ことでも ええで（例：はじめるのが 早かった・2問 多く とけた）'
+  };
   function sameAsk(c, field, val, dk) {
     c.sm = c.sm || {};
-    if (c.sm[field]) return false;   // 1回だけ
-    c.sm[field] = 1;
-    say(c, 'b', '「' + cut(stripIcon(val), 30) + '」は ' + mdOf(dk) + ' と まったく 同じ やで！ 毎日 同じ ことばだと、何が できるように なったか 見えへんのや。');
-    say(c, 'b', SAME_TIP[field]);
+    var n = Number(c.sm[field]) || 0;
+    if (n >= 2) return false;
+    c.sm[field] = n + 1;
+    if (n === 0) {
+      say(c, 'b', '「' + cut(stripIcon(val), 30) + '」は ' + mdOf(dk) + ' と まったく 同じ やで！ 毎日 同じ ことばだと、何が できるように なったか 見えへんのや。');
+      say(c, 'b', SAME_TIP[field]);
+    } else {
+      say(c, 'b', 'うーん、まだ ' + mdOf(dk) + ' と 同じやな。');
+      say(c, 'b', SAME_DEEP[field]);
+    }
     c.waiting = field + 'More';
     return true;
+  }
+  // ✍️ HSWRITE_V1（2026-11-13 先生の指示）ボタンを えらんだ あとは かならず ひとこと 書く（えらぶだけだと 毎日 同じに なる）
+  var MORE_Q = {
+    todo: { _: '今日は どこまで やる？ 何を・どこまで 書いてな（例：ドリル 12〜13ページ・漢字 5こを 3回ずつ）', app: 'アプリで 何の 修行を どこまで やる？（例：分数の わり算を 20問）' },
+    why: { test: '何の テスト？ どこが 不安？（例：漢字テストの 5〜8番が まだ 書けない）', nigate: 'どこが 苦手？（例：わり算の ひっ算で くり下がりを まちがえる）', plan: '計画の どこ？ 今日は どこまで？（例：計画の 算数プリント 2まい目）', fun: 'どんな ところが 楽しい？（例：問題が とけた ときの すっきり感）', _: 'もう少し くわしく 教えて！' },
+    ref: { _: 'その ときの ようすを 1つ 書いてな。「どこで・どうなった」が わかると ええで（例：15分に 決めたら さいごまで ゲームを 気にせず できた）' }
+  };
+  var MORE_ACK = {
+    todo: ['ええやん！ 今日の やることが はっきりしたな。', 'よっしゃ、そこまで いこか！', 'ゴールが 見えたな！'],
+    why: ['なるほどな！ 今日の わけが よう わかったで。', 'それなら やる気も 出るな！', 'ええ わけや！'],
+    ref: ['それや！ そういう 今日だけの 気づきが 力に なるんや。', 'よう 見とるな！ その 気づき、大事にしよ。', 'ええ ふりかえりや！']
+  };
+  function askMore(c, field, k) {
+    var q = MORE_Q[field] || {}; var t = q[k] || (field === 'todo' && /修行|アプリ/.test(String(c.todoText || '')) ? q.app : '') || q._;
+    c.mb = c.mb || {}; c.mb[field] = field === 'todo' ? (c.todoText || '') : field === 'why' ? (c.whyText || '') : (c.deep || '');   // 書く 前の 中身（書きなおしは ここに つなぎなおす）
+    c.waiting = field + 'More'; say(c, 'b', t);
   }
   function prevNext(p) { return cut(stripIcon(String((p && p.nextImprove) || '').replace(/[\r\n]+/g, ' ')), 24); }
   function startLine() {   // はじめる前：前の「次どうする」
@@ -537,11 +565,11 @@
   }
   function pickTodo(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.todoOther); c.waiting = 'todo'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; var dk = sameRecent('todo', c.todoText); if (dk && sameAsk(c, 'todo', c.todoText, dk)) return; say(c, 'b', react('todo', o.k)); say(c, 'b', SAY.why); });
+    act(function (s, c) { say(c, 'm', o.label); c.todoText = o.text || stripIcon(o.label); s.todo = c.todoText; c.step = 'why'; say(c, 'b', react('todo', o.k)); askMore(c, 'todo', o.k); });   // HSWRITE_V1
   }
   function pickWhy(o) {
     if (o.other) { act(function (s, c) { say(c, 'm', o.label); say(c, 'b', SAY.whyOther); c.waiting = 'why'; }); return; }
-    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; var dk = sameRecent('why', c.whyText); if (dk && sameAsk(c, 'why', c.whyText, dk)) return; say(c, 'b', react('why', o.k)); say(c, 'b', SAY.min); });
+    act(function (s, c) { say(c, 'm', o.label); c.whyText = o.text; s.why = c.whyText; c.step = 'min'; say(c, 'b', react('why', o.k)); askMore(c, 'why', o.k); });   // HSWRITE_V1
   }
   function pickMin(n) {   // READY_V1 分をえらんだら すぐ始めず「スタートしよか？」と聞く
     n = Math.max(1, Math.min(180, parseInt(n, 10) || 0));
@@ -635,12 +663,23 @@
       else if (w === 'why') { c.whyText = cut(v, 300); s.why = c.whyText; c.step = 'min'; var dk2 = sameRecent('why', c.whyText); if (dk2 && sameAsk(c, 'why', c.whyText, dk2)) return; say(c, 'b', react('why', 'other')); say(c, 'b', SAY.min); }
       else if (w === 'reason') { c.reason = cut(v, 300); s.weatherReason = c.reason; c.step = 'next'; var dk3 = sameRecent('weatherReason', c.reason); if (dk3 && sameAsk(c, 'ref', c.reason, dk3)) return; say(c, 'b', react('reason', 'other')); say(c, 'b', nextAsk(c)); }
       // HSSAME_V2 「まったく 同じ」の あとの 今日だけの ひとこと（つなげて のこす）
-      else if (w === 'todoMore') { c.todoText = buildText(c.todoText, cut(v, 200)); s.todo = c.todoText; c.step = 'why'; say(c, 'b', 'ええやん！ 今日の やることが はっきりしたな。'); say(c, 'b', SAY.why); }
-      else if (w === 'whyMore') { c.whyText = buildText(c.whyText, cut(v, 200)); s.why = c.whyText; c.step = 'min'; say(c, 'b', 'なるほどな！ 今日の わけが よう わかったで。'); say(c, 'b', SAY.min); }
-      else if (w === 'refMore') { s.weatherReason = buildText(s.weatherReason, cut(v, 200)); c.step = 'next'; say(c, 'b', 'それや！ そういう 今日だけの 気づきが 力に なるんや。'); say(c, 'b', nextAsk(c)); }
+      // HSWRITE_V1 ボタンの あとの 記述（みじかすぎたら もう1回）→ つなげて のこす → 2週間の 自分と まったく 同じなら 深掘り（HSSAME_V2）
+      else if (w === 'todoMore' || w === 'whyMore' || w === 'refMore') {
+        var f = w.replace('More', '');
+        if (Array.from(stripIcon(v).replace(/\s/g, '')).length < 4) { c.waiting = w; say(c, 'b', 'もうちょっとだけ くわしく 書いてな！'); return; }
+        var mb = (c.mb && c.mb[f] != null) ? c.mb[f] : null;
+        if (f === 'todo') { c.todoText = buildText(mb != null ? mb : c.todoText, cut(v, 200)); s.todo = c.todoText; }
+        else if (f === 'why') { c.whyText = buildText(mb != null ? mb : c.whyText, cut(v, 200)); s.why = c.whyText; }
+        else { c.deep = buildText(mb != null ? mb : c.deep, cut(v, 200)); s.weatherReason = buildText(c.reason, c.deep); }   // 提出の ときに c.reason＋c.deep で 組みなおすので deep に 足す
+        var full = f === 'todo' ? s.todo : f === 'why' ? s.why : s.weatherReason;
+        var dkS = sameRecent(f === 'ref' ? 'weatherReason' : f, full);
+        if (dkS && sameAsk(c, f, full, dkS)) return;
+        say(c, 'b', vary(MORE_ACK[f], f + 'ack'));
+        if (f === 'todo') say(c, 'b', SAY.why); else if (f === 'why') say(c, 'b', SAY.min); else say(c, 'b', nextAsk(c));
+      }
       else if (w === 'deep') { deepDone(s, c, v); }
       else if (w === 'next') { c.next = cut(v, 300); s.nextImprove = c.next; nextReact(c); afterNext(s, c); }
-      else if (w === 'nextMore') { s.nextImprove = buildText(c.next, v); c.next = s.nextImprove; say(c, 'b', 'ええやん、具体的や！ それなら きっと できるで！'); afterNext(s, c); }
+      else if (w === 'nextMore') { if (Array.from(stripIcon(v).replace(/\s/g, '')).length < 4) { c.waiting = w; say(c, 'b', 'もうちょっとだけ くわしく 書いてな！'); return; } s.nextImprove = buildText(c.next, v); c.next = s.nextImprove; say(c, 'b', 'ええやん、具体的や！ それなら きっと できるで！'); afterNext(s, c); }
       else if (w === 'wplan') { s.weeklyPlan = cut(v, 300); c.step = 'wplan2'; say(c, 'b', SAY.wplan2); }
       else if (w === 'wplan2') { s.weeklyPlan = cut(String(s.weeklyPlan || '') + (s.weeklyPlan ? '、' : '') + cut(v, 100), 300); say(c, 'b', fill(SAY.wplanDone, { plan: cut(s.weeklyPlan || '', 80) })); c.step = 'todo'; say(c, 'b', SAY.todo); }
       else if (w === 'wref') { c.wrGood = cut(v, 140); c.step = 'wref2'; say(c, 'b', SAY.wref2); }
@@ -686,23 +725,22 @@
       c.sameR = !!(prevMain('weatherReason') && prevMain('weatherReason') === stripIcon(t).trim());
       if (c.sameR) { say(c, 'b', '前回も「' + stripIcon(t) + '」やったな！ 今日は どんなふうに？ 前と ちがう ところを 教えて'); if (!DEEP[t]) { c.step = 'deep'; c.waiting = 'deep'; return; } }
       if (DEEP[t]) { c.step = 'deep'; say(c, 'b', DEEP[t].q); return; }   // HSTALK_V1 もう一歩
-      c.step = 'next';
-      var dkr = sameRecent('weatherReason', t); if (dkr && sameAsk(c, 'ref', t, dkr)) return;   // HSSAME_V2
-      say(c, 'b', react('reason', t)); say(c, 'b', nextAsk(c));
+      c.step = 'next'; say(c, 'b', react('reason', t)); askMore(c, 'ref', t);   // HSWRITE_V1
     });
   }
   // 🗣 HSTALK_V1 もう一歩の答え（ボタン・自分で書く・とばす）→ 受け止め → 次どうする
-  function deepDone(s, c, ans) {
+  function deepDone(s, c, ans, picked) {
     ans = cut(String(ans || '').trim(), 200);
     if (ans) { c.deep = ans; s.weatherReason = buildText(c.reason, ans); }
     c.step = 'next';
+    if (picked) { say(c, 'b', react('reason', c.reason)); askMore(c, 'ref', c.deep || c.reason); return; }   // HSWRITE_V1 ボタンで えらんだら、今日の ようすを 書いてもらう
     var dk = sameRecent('weatherReason', s.weatherReason || c.reason); if (dk && sameAsk(c, 'ref', s.weatherReason || c.reason, dk)) return;   // HSSAME_V2
     say(c, 'b', react('reason', c.reason)); say(c, 'b', nextAsk(c));
   }
   function pickDeep(label, mode) {
     if (mode === 'other') { act(function (s, c) { say(c, 'm', DEEP_OTHER); say(c, 'b', SAY.reasonOther); c.waiting = 'deep'; }); return; }
-    if (mode === 'skip') { act(function (s, c) { say(c, 'm', DEEP_SKIP); deepDone(s, c, ''); }); return; }
-    act(function (s, c) { say(c, 'm', label); deepDone(s, c, label); });
+    if (mode === 'skip') { act(function (s, c) { say(c, 'm', DEEP_SKIP); deepDone(s, c, '', true); }); return; }
+    act(function (s, c) { say(c, 'm', label); deepDone(s, c, label, true); });
   }
   function nextReact(c) {
     var nx = stripIcon(c.next), pn = prevNext(prevRec());
@@ -719,7 +757,9 @@
       if (stripIcon(label).trim() === 'このままでOK' && pn === 'このままでOK') { c.step = 'next'; c.waiting = 'nextMore'; say(c, 'b', '「このままでOK」が つづいとるな！ ええ調子なら、つぎは 1つだけ レベルアップしよか。何を どれだけ？（例：問題を 5問 ふやす・まちがえた 問題を もう1回・10分 早く はじめる）'); return; }
       if (!pn || pn === 'このままでOK') { var dkn = sameRecent('nextImprove', label, true); if (dkn && stripIcon(label).trim() !== 'このままでOK') pn = stripIcon(label).trim(); }
       if (pn && pn !== 'このままでOK' && pn === stripIcon(label).trim()) { nextReact(c); c.step = 'next'; c.waiting = 'nextMore'; say(c, 'b', '今度は 具体的に どう する？（例：10分 ふやす・2ページ やる）'); return; }   // HSSAME_V1
-      nextReact(c); afterNext(s, c);
+      // HSWRITE_V1 えらんだ 作戦も かならず 具体的に 書く
+      nextReact(c); c.step = 'next'; c.waiting = 'nextMore';
+      say(c, 'b', stripIcon(label).trim() === 'このままでOK' ? 'つぎも つづけたい、今日 うまく いった やり方を 1つ 書いてな（例：帰って すぐ はじめた・15分 タイマー）' : '具体的に 何を どれだけ する？（例：10分 ふやす・まちがえた 3問を もう1回）');
     });
   }
   // ───────── 📋🌟 WEEKCHAT_V1（2026-11-10）月曜の「週の計画」・金曜の「週の振り返り」も 対話で ─────────

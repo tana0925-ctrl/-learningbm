@@ -67,6 +67,7 @@ async function device({ store = null, ls = null, viewAs = false, submitFail = fa
   const s2 = w.document.createElement('script'); s2.textContent = chatJs; w.document.head.appendChild(s2)
   if (w.__bootErr) throw w.__bootErr
   await sleep(1300)   // 起動（1秒ごと）を1回まわす
+  const AUTO = { todoMore: '12ページまで', whyMore: '5ばんが ふあん', refMore: '3問めで 図を かいたら とけた', nextMore: '10分 ふやす' }
   const api = {
     w,
     P: () => w.eval('player'),
@@ -78,9 +79,12 @@ async function device({ store = null, ls = null, viewAs = false, submitFail = fa
       let b = bs.find((x) => x.textContent.indexOf(text) >= 0)
       // MINNA_CHAT_V1 「みんなのふりかえりに のせても ええ？」が はさまったら、ほかの テストでは とばす
       if (!b && text.indexOf('今回は いい') < 0 && bs.some((x) => x.textContent.indexOf('今回は いい') >= 0)) { bs.find((x) => x.textContent.indexOf('今回は いい') >= 0).click(); await sleep(30); return api.click(text) }
+      // HSWRITE_V1 ボタンの あとの「かならず 書く」は、ほかの テストでは きまった ことばで 書いて すすむ
+      if (!b && !api.noAuto) { const wt = (w.eval('player.homeStudy.sheetSession') || {})._chat; const wk = wt && wt.waiting; if (wk && /More$/.test(wk) && AUTO[wk]) { await api.type(AUTO[wk]); return api.click(text) } }
       if (!b) throw new Error('ボタンがない: ' + text + ' / ある: ' + bs.map((x) => x.textContent).join(' | '))
       b.click(); await sleep(30)
     },
+    async flush() { const wt = (w.eval('player.homeStudy.sheetSession') || {})._chat; const wk = wt && wt.waiting; if (wk && /More$/.test(wk) && AUTO[wk]) await api.type(AUTO[wk]) },
     async type(v) { const i = w.document.getElementById('hsChatIn'); if (!i) throw new Error('入力欄がない'); i.value = v; w.document.getElementById('hsChatSend').click(); await sleep(30) },
     pass(min) { const s = w.eval('player.homeStudy.sheetSession'); s.startTs -= min * 60000 },   // 開始時刻を前にずらす＝時間がたった
     tick() { w.HSCHAT._t.tick() },
@@ -100,7 +104,7 @@ await t('1 はじめる前：今日なにやる→なんで→何分→タイマ
   await d.click('15分'); await d.click('スタート')
   const s = d.sess()
   eq(s.started, true, 'タイマー開始'); ok(s.startTs > 0, '開始時刻')
-  ok(s.todo.indexOf('分数のかけ算') >= 0, 'todo'); eq(s.why, 'テストがあるから', 'why'); eq(s.aim, '15分 がんばる', 'aim（めあて＝分）')
+  ok(s.todo.indexOf('分数のかけ算') >= 0, 'todo'); eq(s.why, 'テストがあるから：5ばんが ふあん', 'why（えらんだ あとに 書いた ことばも）'); eq(s.aim, '15分 がんばる', 'aim（めあて＝分）')
   ok(d.log().some((x) => x.indexOf('よっしゃ、がんばってな！') >= 0), 'はげまし')
   ok(d.w.document.getElementById('hsChatT'), 'タイマー表示')
 })
@@ -122,7 +126,7 @@ await t('2 時間になったら 音と画面でお知らせ → もう少し（
   await d.click('おわる')
   eq(d.sess().paused, true, 'おわったら タイマーを止める')
   ok(d.log().some((x) => x.indexOf('今の 気もちは？') >= 0), '気もち')
-  await d.click('はれ'); await d.click('集中できた'); await d.click('とばす'); await d.click('このままでOK')
+  await d.click('はれ'); await d.click('集中できた'); await d.click('とばす'); await d.click('このままでOK'); await d.flush()
   ok(d.log().some((x) => x.indexOf('おうちの人に見せて、サインもらってきてな！') >= 0), 'HSSIGN サインの声かけ（提出の前）')
   await d.click('おうちの人に 見せる'); await sleep(20)
   d.w.document.getElementById('hsSignTa').value = 'よくがんばりました'
@@ -134,8 +138,8 @@ await t('2 時間になったら 音と画面でお知らせ → もう少し（
   await d.click('先生に 提出'); await sleep(80)
   eq(d.w.__calls.length, 1, '/api/homework/submit は1回')
   const b = d.w.__calls[0].body
-  eq(b.why, '苦手をなくしたい', 'why'); eq(b.aim, '15分 がんばる', 'aim'); eq(b.minutes, 20, 'やった時間＝タイマー')
-  eq(b.endWeather, 'sun', '天気'); eq(b.weatherReason, '集中できた', '天気の理由'); eq(b.nextImprove, 'このままでOK', '次にするには')
+  eq(b.why, '苦手をなくしたい：5ばんが ふあん', 'why'); eq(b.aim, '15分 がんばる', 'aim'); eq(b.minutes, 20, 'やった時間＝タイマー')
+  eq(b.endWeather, 'sun', '天気'); eq(b.weatherReason, '集中できた：3問めで 図を かいたら とけた', '天気の理由'); eq(b.nextImprove, 'このままでOK：10分 ふやす', '次にするには')
   eq(b.parentComment, '👍 見たよ　よくがんばりました', 'サインは いつもの「サポーターから」に入る')
   ok(b.todo.indexOf('学校の宿題') >= 0 && b.selfStudyPlan === b.todo, 'todo（自主学習の計画も同じ）')
   const got = d.P().coins - coins0
@@ -158,7 +162,7 @@ await t('3 時間より前に「おわる」→ ほかにやれること さが�
   ok(d.log().some((x) => x.indexOf('これなんか どうや？') >= 0), '候補')
   ok(d.foot().textContent.indexOf('アプリの修行') < 0, 'えらんだものは候補に出さない')
   await d.click('分数のわり算')
-  ok(d.sess().todo.indexOf('アプリの修行＋') === 0 && d.sess().todo.indexOf('分数のわり算') > 0, 'todo に足す')
+  ok(/^アプリの修行：12ページまで＋/.test(d.sess().todo) && d.sess().todo.indexOf('分数のわり算') > 0, 'todo に足す')
   eq(d.sess()._chat.step, 'run', 'タイマーは つづく'); eq(d.sess().paused, false, '止めていない')
   await d.click('おわる'); await d.click('今日はここまで')
   eq(d.sess()._chat.step, 'weather', '振り返りへ'); eq(d.sess().minutesManual, '5', 'やった時間は5分')
@@ -274,15 +278,15 @@ await t('11 すぐ おわっても（0分）シートの「0分のままだよ�
   d.w.HSCHAT.open(); await sleep(50)
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('10分'); await d.click('スタート')
   await d.click('おわる'); await d.click('今日はここまで')
-  await d.click('くもり'); await d.click('半分くらいわかった'); await d.click('とばす'); await d.click('時間を変える')
+  await d.click('くもり'); await d.click('半分くらいわかった'); await d.click('とばす'); await d.click('時間を変える'); await d.flush()
   await d.click('あとで もらう')
   await d.click('先生に 提出'); await sleep(80)
   eq(d.w.__confirmed, undefined, '確認は出さない'); eq(d.w.__calls.length, 1, '出せた'); eq(d.w.__calls[0].body.minutes, 0, 'タイマーの時間のまま')
-  eq(d.w.__calls[0].body.nextImprove, '時間を変える', '次'); eq(d.w.__calls[0].body.endWeather, 'cloud', 'くもり')
+  eq(d.w.__calls[0].body.nextImprove, '時間を変える：10分 ふやす', '次'); eq(d.w.__calls[0].body.endWeather, 'cloud', 'くもり')
   const v = await device({ viewAs: true })
   v.w.HSCHAT.open(); await sleep(50)
   await v.click('アプリの修行'); await v.click('楽しいから'); await v.click('10分'); await v.click('スタート'); await v.click('おわる'); await v.click('今日はここまで')
-  await v.click('はれ'); await v.click('わかった'); await v.click('とばす'); await v.click('このままでOK'); await v.click('あとで もらう'); await v.click('先生に 提出'); await sleep(50)
+  await v.click('はれ'); await v.click('わかった'); await v.click('とばす'); await v.click('このままでOK'); await v.flush(); await v.click('あとで もらう'); await v.click('先生に 提出'); await sleep(50)
   eq(v.w.__calls.length, 0, '見るだけモードでは送らない'); ok(v.log().some((x) => x.indexOf('見るだけモード') >= 0), 'ひとこと')
 })
 
@@ -303,7 +307,7 @@ async function toSign(d, w = 'はれ', r = '集中できた', n = 'このまま�
   d.w.HSCHAT.open(); await sleep(50)
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('15分'); await d.click('スタート')
   d.pass(16); d.tick(); await d.click('おわる')
-  await d.click(w); await d.click(r); await d.click('とばす'); await d.click(n)
+  await d.click(w); await d.click(r); await d.click('とばす'); await d.click(n); await d.flush()
 }
 
 await t('12 HSSIGN 提出の前：おうちの方むけの画面（大きい文字・今日やったこと・時間・天気の要約）→ 👍見たよ（ひとことなし）→ 提出（コインはいつもどおり1回）', async () => {
@@ -364,7 +368,7 @@ await t('14 HSSIGN シートで先に「サポーターから」を書いても�
   d.w.HSCHAT.open(); await sleep(50)
   await d.click('アプリの修行'); await d.click('楽しいから'); await d.click('10分'); await d.click('スタート')
   const s = d.sess(); s.parentComment = 'シートに書きました'; d.w.eval('hsSetSession')(s)
-  d.pass(10); d.tick(); await d.click('おわる'); await d.click('はれ'); await d.click('わかった'); await d.click('とばす'); await d.click('このままでOK')
+  d.pass(10); d.tick(); await d.click('おわる'); await d.click('はれ'); await d.click('わかった'); await d.click('とばす'); await d.click('このままでOK'); await d.flush()
   eq(d.sess()._chat.step, 'minna', 'サインの段はとばす（のせてもいい？を 聞く）')
   await d.click('先生に 提出'); await sleep(80)
   eq(d.w.__calls[0].body.parentComment, 'シートに書きました', 'シートの文のまま')
@@ -395,14 +399,15 @@ await t('15 HSTALK 受け止め：やること・なんで・理由・次どう�
   const d = await device()
   d.w.HSCHAT.open(); await sleep(50)
   await d.click('分数のかけ算'); ok(has(d, R(d, 'todo', 'ka')), 'やること（カルテのおすすめ）への返し')
-  const lg = d.log(); ok(lg.indexOf('なんで それにしたん？') === lg.length - 1, '返しのあとに 次の問い')
+  ok(d.log()[d.log().length - 1].indexOf('どこまで やる') >= 0, 'えらんだら かならず 書く（HSWRITE_V1）'); await d.type('ドリル 3ページ')
+  const lg = d.log(); ok(lg.indexOf('なんで それにしたん？') === lg.length - 1, '書いたら 次の問い')
   await d.click('苦手をなくしたい'); ok(has(d, R(d, 'why', 'nigate')), 'なんで への返し')
   await d.click('15分'); await d.click('スタート'); d.pass(15); d.tick(); await sleep(20); await d.click('おわる')
   await d.click('あめ'); await d.click('むずかしかった'); await d.click('とばす')
   ok(has(d, R(d, 'reason', 'むずかしかった')), '理由への返し（とばしても返す）')
-  await d.click('やり方を変える'); ok(has(d, R(d, 'next', 'やり方を変える')), '次どうする への返し')
-  eq(d.sess().nextImprove, 'やり方を変える', '次どうする は いつもの欄')
-  eq(d.sess().weatherReason, 'むずかしかった', 'とばしたら 理由は そのまま')
+  await d.click('やり方を変える'); await d.flush(); ok(has(d, R(d, 'next', 'やり方を変える')), '次どうする への返し')
+  eq(d.sess().nextImprove, 'やり方を変える：10分 ふやす', '次どうする は いつもの欄（書いた ことばも）')
+  eq(d.sess().weatherReason, 'むずかしかった：3問めで 図を かいたら とけた', 'とばしても ようすを 書く')
   // 自分で書いた答えにも 返す
   const e = await device(); e.w.HSCHAT.open(); await sleep(50)
   await e.click('その他（自分で書く）'); await e.type('リコーダーの練習'); ok(has(e, R(e, 'todo', 'other')), '自分で書いた やること')
@@ -422,9 +427,10 @@ await t('16 HSTALK もう一歩：理由をえらぶと1問だけ → ボタン�
   ok(d.foot().textContent.indexOf('とばす') >= 0 && d.foot().textContent.indexOf('自分で書く') >= 0, 'とばす・自分で書く')
   await d.click('音が 気になった')
   eq(d.sess().weatherReason, 'ちょっと集中が切れた：音が 気になった', '理由：答え')
-  ok(has(d, R(d, 'reason', 'ちょっと集中が切れた')), '受け止め'); ok(d.log().some((x) => x.indexOf('次 もっといい天気に するには？') >= 0), '次どうする へ')
-  await d.click('場所を変える'); await d.click('あとで もらう'); await d.click('先生に 提出'); await sleep(60)
-  eq(d.w.__calls.length, 1, '提出1回'); eq(d.w.__calls[0].body.weatherReason, 'ちょっと集中が切れた：音が 気になった', '提出の天気の理由')
+  ok(has(d, R(d, 'reason', 'ちょっと集中が切れた')), '受け止め'); ok(d.log()[d.log().length - 1].indexOf('その ときの ようす') >= 0, 'ボタンの あとは ようすを 書く')
+  await d.type('となりの 部屋の テレビの 音が 気になった'); ok(d.log().some((x) => x.indexOf('次 もっといい天気に するには？') >= 0), '次どうする へ')
+  await d.click('場所を変える'); await d.flush(); await d.click('あとで もらう'); await d.click('先生に 提出'); await sleep(60)
+  eq(d.w.__calls.length, 1, '提出1回'); eq(d.w.__calls[0].body.weatherReason, 'ちょっと集中が切れた：音が 気になった：となりの 部屋の テレビの 音が 気になった', '提出の天気の理由')
   // 自分で書く → もどる → もう一度 えらべる
   const e = await device(); e.w.HSCHAT.open(); await sleep(50)
   await e.click('学校の宿題'); await e.click('テストがあるから'); await e.click('15分'); await e.click('スタート'); e.pass(15); e.tick(); await sleep(20); await e.click('おわる')
@@ -456,7 +462,7 @@ await t('17 HSTALK 前の自分：前の「次どうする」から はじめる
   await d.click('はれ')
   ok(d.log().some((x) => x === '前は ☁️ やったけど、今日は ☀️ や！「場所を変える」作戦が きいたかもな。'), 'よくなった・作戦とつなぐ')
   ok(d.log()[d.log().length - 1] === '何が よかったと思う？', 'なんで？ のかわりに')
-  await d.click('集中できた'); await d.click('しずかな場所やった'); await d.click('場所を変える')
+  await d.click('集中できた'); await d.click('しずかな場所やった'); await d.click('場所を変える'); await d.flush()
   ok(has(d, R(d, 'next', 'same')), '同じ作戦を つづける への返し')
   // 天気が わるくなったときは くらべない
   const e = await device({ store: storeWithPrev(2, { endWeather: 'sun', nextImprove: 'このままでOK' }) })
@@ -478,18 +484,26 @@ await t('17 HSTALK 前の自分：前の「次どうする」から はじめる
   r.w.HSCHAT.open(); await sleep(50); ok(!r.log().some((x) => x.indexOf('前は「') >= 0), '休みの日は 使わない')
 })
 
-await t('17b HSSAME_V2 前と まったく 同じ（なぜ・ふりかえり）は「◯/◯と まったく 同じ」と 教えて 今日だけの ことを 書かせる／このままでOKが つづくと レベルアップを 聞く', async () => {
-  const d = await device({ store: storeWithPrev(2, { why: 'テストがあるから', endWeather: 'sun', weatherReason: '集中できた：時間を決めた', nextImprove: 'このままでOK' }) })
+await t('17b HSWRITE/HSSAME_V2 えらんだら かならず 書く → 書いた 中身が 2週間の 自分と まったく 同じなら「◯/◯と 同じ」→ まだ 同じなら ちがう 角度で 深掘り／このままでOKが つづくと レベルアップ', async () => {
+  const d = await device({ store: storeWithPrev(2, { why: 'テストがあるから：漢字の 5〜8番が 不安', endWeather: 'sun', weatherReason: '集中できた：時間を決めた：15分に 決めたら できた', nextImprove: 'このままでOK：帰って すぐ はじめた' }) })
+  d.noAuto = true
   d.w.HSCHAT.open(); await sleep(50)
-  await d.click('学校の宿題'); await d.click('テストがあるから')
-  ok(d.log().some((x) => /^「テストがあるから」は \d+\/\d+ と まったく 同じ やで/.test(x)), 'なぜ が 同じ と 教える')
+  await d.click('学校の宿題'); ok(d.log()[d.log().length - 1].indexOf('どこまで やる') >= 0, 'やること → どこまで？'); await d.type('漢字ドリル 16まで')
+  await d.click('テストがあるから'); ok(d.log()[d.log().length - 1].indexOf('何の テスト？') >= 0, 'テスト → 何の テスト？')
   ok(d.foot().textContent.indexOf('もどる') < 0, 'とばせない')
-  await d.type('漢字の 5〜8番が まだ 不安だから'); eq(d.sess().why, 'テストがあるから：漢字の 5〜8番が まだ 不安だから', 'つなげて のこす')
+  await d.type('あ'); ok(d.log()[d.log().length - 1].indexOf('もうちょっとだけ') >= 0, 'みじかすぎ')
+  await d.type('漢字の 5〜8番が 不安')
+  ok(d.log().some((x) => /^「テストがあるから：漢字の 5〜8番が 不安」は \d+\/\d+ と まったく 同じ やで/.test(x)), '書いた 中身が 同じ と 教える')
+  await d.type('漢字の 5〜8番が 不安')
+  ok(d.log().some((x) => x.indexOf('うーん、まだ') === 0) && d.log()[d.log().length - 1].indexOf('何が できるように なりたい') >= 0, 'まだ 同じなら ちがう 角度で 深掘り')
+  await d.type('テストで 90点 とりたい'); eq(d.sess().why, 'テストがあるから：テストで 90点 とりたい', '書きなおした 中身で のこす')
   await d.click('15分'); await d.click('スタート'); d.pass(15); d.tick(); await sleep(20); await d.click('おわる')
   await d.click('はれ'); await d.click('集中できた'); await d.click('時間を決めた')
-  ok(d.log().some((x) => x.indexOf('「集中できた：時間を決めた」は') === 0), 'ふりかえりが 同じ と 教える')
-  await d.type('15分に 決めたら さいごまで ゲームを 気にせず できた')
-  eq(d.sess().weatherReason, '集中できた：時間を決めた：15分に 決めたら さいごまで ゲームを 気にせず できた', 'ふりかえりに 足す')
+  ok(d.log()[d.log().length - 1].indexOf('その ときの ようす') >= 0, 'ふりかえりも 書く')
+  await d.type('15分に 決めたら できた')
+  ok(d.log().some((x) => x.indexOf('「集中できた：時間を決めた：15分に 決めたら できた」は') === 0), 'ふりかえりが 同じ と 教える')
+  await d.type('前より 5分 早く はじめられた')
+  eq(d.sess().weatherReason, '集中できた：時間を決めた：前より 5分 早く はじめられた', 'ふりかえりに 足す')
   await d.click('このままでOK')
   ok(d.log()[d.log().length - 1].indexOf('「このままでOK」が つづいとるな') === 0, 'このままでOK が つづいたら レベルアップ')
 })

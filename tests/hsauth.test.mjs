@@ -82,6 +82,8 @@ async function device({ store = null, ls = null, viewAs = false, role = 'student
     async click(text) {
       const bs = Array.from(w.document.querySelectorAll('#hsChatFoot button, #hsChatFoot label'))
       const b = bs.find((x) => x.textContent.indexOf(text) >= 0)
+      // HSWRITE_V1 ボタンの あとの「かならず 書く」は きまった ことばで 書いて すすむ
+      if (!b) { const AUTO = { todoMore: '12ページまで', whyMore: '5ばんが ふあん', refMore: '3問めで 図を かいたら とけた', nextMore: '10分 ふやす' }; const ch = (w.eval('player.homeStudy.sheetSession') || {})._chat; const wk = ch && ch.waiting; if (wk && AUTO[wk]) { const i = w.document.getElementById('hsChatIn'); i.value = AUTO[wk]; w.document.getElementById('hsChatSend').click(); await sleep(30); return this.click(text) } }
       if (!b) throw new Error('ボタンがない: ' + text + ' / ある: ' + bs.map((x) => x.textContent).join(' | '))
       b.click(); await sleep(30)
     },
@@ -161,11 +163,11 @@ await t('4 ほんとうの期限切れ（401）→ 書いたものを控えて �
   eq(d.P().homeStudy.logs.length, 0, '記録しない'); eq(d.P().coins, 1000, 'コインは動かない')
   const raw = d.w.localStorage.getItem('hsResumeV1'); ok(raw, '端末に控える')
   const st = JSON.parse(raw)
-  eq(st.uid, 'stu-1', 'だれの控えか'); eq(st.chat, true, '対話から'); eq(st.sess.todo, before.todo, '書いたこと'); eq(st.sess.weatherReason, '集中できた', 'ふりかえり')
+  eq(st.uid, 'stu-1', 'だれの控えか'); eq(st.chat, true, '対話から'); eq(st.sess.todo, before.todo, '書いたこと'); eq(st.sess.weatherReason, '集中できた：3問めで 図を かいたら とけた', 'ふりかえり')
   // ログインしなおし：サーバの保存は古い（切れていたので 下書きが とどいていない）＝ sheetSession なし
   const d2 = await device({ ls: { hsResumeV1: raw }, store: { userId: 'stu-1', coins: 1000, homeStudy: { logs: [] } } })
   await sleep(200)
-  ok(d2.sess() && d2.sess().todo === before.todo && d2.sess().weatherReason === '集中できた', '下書きが もどる')
+  ok(d2.sess() && d2.sess().todo === before.todo && d2.sess().weatherReason === '集中できた：3問めで 図を かいたら とけた', '下書きが もどる')
   ok(d2.chatOpen(), '対話の画面が ひらく')
   eq(d2.sess()._chat.step, 'photo', '提出の直前')
   ok(d2.log().some((x) => x.indexOf('おかえり！ 書いたことは のこってるで') >= 0), 'おかえり')
