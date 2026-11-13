@@ -3585,6 +3585,64 @@ app.get('/api/teacher/check-log', async (c) => {
   return c.json({ ok: true, rows })
 })
 
+// 📊 USAGE_V1（2026-11-13 先生の指示）機能ごとの つかわれ方（だれが・何日・何回）。この期間と その前の 期間を くらべる
+const USAGE_FEATS: { key: string, label: string, sql: string }[] = [
+  { key: 'open', label: '📱 アプリを ひらいた', sql: "SELECT user_id AS u, day_key AS d, 1 AS n FROM app_open_days WHERE day_key>=? AND day_key<?" },
+  { key: 'train', label: '⚔️ 修行（問題を といた）', sql: "SELECT user_id AS u, date(answered_at,'+9 hours') AS d, COUNT(*) AS n FROM learning_results WHERE answered_at>=? AND answered_at<? GROUP BY 1,2", },
+  { key: 'hw', label: '📝 家庭学習を 出した', sql: "SELECT user_id AS u, day_key AS d, 1 AS n FROM homework_submissions WHERE day_key>=? AND day_key<?" },
+  { key: 'check', label: '🔍 理解度チェック', sql: "SELECT user_id AS u, date(at/1000,'unixepoch','+9 hours') AS d, COUNT(*) AS n FROM hscheck_log WHERE at>=? AND at<? GROUP BY 1,2" },
+  { key: 'def', label: '🏰 防衛戦（自分で 出陣）', sql: "SELECT user_id AS u, substr(event_key,1,10) AS d, 1 AS n FROM defense_entries WHERE event_key>=? AND event_key<? AND IFNULL(json_extract(monster_json,'$.auto'),0)<>1" },
+  { key: 'minna', label: '🌟 みんなのふりかえりに 出した', sql: "SELECT user_id AS u, date(created_at,'+9 hours') AS d, 1 AS n FROM minna_posts WHERE created_at>=? AND created_at<?" },
+  { key: 'hanshin', label: '🐯 阪神マンの 質問に 答えた', sql: "SELECT user_id AS u, date(created_at,'+9 hours') AS d, 1 AS n FROM hanshin_answers WHERE created_at>=? AND created_at<?" },
+  { key: 'drill', label: '🎢 ドリルパーク', sql: "SELECT user_id AS u, done_on AS d, COUNT(*) AS n FROM drill_sessions WHERE done_on>=? AND done_on<? GROUP BY 1,2" },
+  { key: 'qr', label: '🔎 QRハント', sql: "SELECT user_id AS u, date(found_at,'+9 hours') AS d, COUNT(*) AS n FROM qr_finds WHERE found_at>=? AND found_at<? GROUP BY 1,2" },
+  { key: 'battle', label: '🆚 クラス対戦', sql: "SELECT user_id AS u, date(answered_at,'+9 hours') AS d, COUNT(*) AS n FROM battle_answers WHERE answered_at>=? AND answered_at<? GROUP BY 1,2" },
+  { key: 'pj', label: '⚾ 先生PJ（さいごに ひらいた日）', sql: "SELECT user_id AS u, date(updated_at,'+9 hours') AS d, 1 AS n FROM pj_user WHERE updated_at>=? AND updated_at<?" },
+  { key: 'chitosele', label: '🗓 チトセレの 計画（さいごに なおした日）', sql: "SELECT user_id AS u, date(updated_at,'+9 hours') AS d, 1 AS n FROM chitosele_plan WHERE updated_at>=? AND updated_at<?" },
+]
+app.get('/api/teacher/usage', async (c) => {
+  const t = requireTeacher(c); if (!t) return jsonError(c, 401, 'unauthorized')
+  const classId = String(c.req.query('classId') || '')
+  const own: any = await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=?').bind(classId, (t as any).id).first()
+  if (!own && (t as any).role !== 'admin') return jsonError(c, 404, 'class_not_found')
+  const days = Math.max(3, Math.min(31, Number(c.req.query('days')) || 7))
+  const jst = (ms: number) => new Date(ms + 9 * 3600000).toISOString().slice(0, 10)
+  const now = Date.now()
+  const end = jst(now + 86400000)                     // あした（この日は ふくまない）
+  const start = jst(now - (days - 1) * 86400000)       // この 期間の はじめ
+  const pstart = jst(now - (2 * days - 1) * 86400000)  // 前の 期間の はじめ
+  const dayList: string[] = []; for (let i = days - 1; i >= 0; i--) dayList.push(jst(now - i * 86400000))
+  const mem: any = await c.env.DB.prepare('SELECT u.id AS id, u.name AS name, u.login_id AS lid FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? AND u.role = ?').bind(classId, 'student').all()
+  let rn: any = {}
+  try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
+  const members = ((mem && mem.results) || []).map((m: any) => ({ id: m.id, name: String(rn[m.lid] || m.name || m.lid || '') }))
+  const inCls: any = {}; members.forEach((m: any) => { inCls[m.id] = 1 })
+  // ことばの 日付（JST）を、列の 型ごとの はんいに なおす
+  const toUtcText = (d: string) => new Date(Date.parse(d + 'T00:00:00+09:00')).toISOString().replace('T', ' ').slice(0, 19)
+  const toUtcIso = (d: string) => new Date(Date.parse(d + 'T00:00:00+09:00')).toISOString()
+  const toMs = (d: string) => Date.parse(d + 'T00:00:00+09:00')
+  const feats: any[] = []
+  for (const f of USAGE_FEATS) {
+    let a: any = pstart, b: any = end
+    if (/answered_at>=\?/.test(f.sql) && f.key === 'train') { a = toUtcIso(pstart); b = toUtcIso(end) }
+    else if (/(created_at|found_at|updated_at|answered_at)>=\?/.test(f.sql)) { a = toUtcText(pstart); b = toUtcText(end) }
+    else if (/\bat>=\?/.test(f.sql)) { a = toMs(pstart); b = toMs(end) }
+    let rows: any[] = [], okq = true
+    try { const r: any = await c.env.DB.prepare(f.sql).bind(a, b).all(); rows = (r && r.results) || [] } catch (_e) { okq = false }
+    const users: any = {}, byDay: any = {}, prevU: any = {}
+    let total = 0
+    rows.forEach((x: any) => {
+      if (!inCls[x.u]) return
+      const d = String(x.d || ''), n = Number(x.n) || 1
+      if (d >= start && d < end) { users[x.u] = (users[x.u] || 0) + n; total += n; (byDay[d] = byDay[d] || {})[x.u] = 1 }
+      else if (d >= pstart && d < start) prevU[x.u] = 1
+    })
+    const days2: any = {}; Object.keys(byDay).forEach((d) => { days2[d] = Object.keys(byDay[d]).length })
+    feats.push({ key: f.key, label: f.label, ok: okq, users, total, days: days2, nUsers: Object.keys(users).length, nPrev: Object.keys(prevU).length })
+  }
+  return c.json({ ok: true, days, start, dayList, members, feats })
+})
+
 app.get('/api/student/check-now', async (c) => {
   const u = c.get('user')
   if (!u) return jsonError(c, 401, 'unauthorized')
@@ -14652,6 +14710,53 @@ app.get('/teacher', (c) => {
             } catch (e) { ov.innerHTML = '<div style="background:#fff;border-radius:16px;padding:16px">読みこめませんでした</div>'; }
           };
           btnGroup.appendChild(skBtn);
+          // 📊 USAGE_V1 機能ごとの つかわれ方
+          const usBtn = document.createElement('button');
+          usBtn.className = 'text-xs px-2 py-1 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100';
+          usBtn.textContent = '📊 つかわれ方';
+          usBtn.title = 'どの機能を、何人が、何日 つかっているか（前の期間と くらべる）';
+          usBtn.onclick = async ()=>{
+            const esc3 = (x)=>String(x==null?'':x).replace(/[&<>"]/g, (ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+            let ov = document.getElementById('usageOv');
+            if (!ov) { ov = document.createElement('div'); ov.id = 'usageOv'; ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.5);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto'; ov.onclick = (e)=>{ if (e.target === ov) ov.remove(); }; document.body.appendChild(ov); }
+            const draw = async (days)=>{
+              ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:1100px;width:100%;padding:16px">よみこみ中…</div>';
+              let d = null; try { d = await api('/api/teacher/usage?classId=' + encodeURIComponent(cls.id) + '&days=' + days); } catch (e) {}
+              if (!d || !d.ok) { ov.innerHTML = '<div style="background:#fff;border-radius:16px;padding:16px">読みこめませんでした</div>'; return; }
+              const N = d.members.length || 1;
+              const wd = (dk)=>{ const t = new Date(dk + 'T00:00:00+09:00'); return ['日','月','火','水','木','金','土'][t.getUTCDay()===undefined?0:new Date(t.getTime()+9*3600000).getUTCDay()]; };
+              let h = '<div style="background:#fff;border-radius:16px;max-width:1100px;width:100%;padding:16px">'
+                + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div style="font-size:18px;font-weight:900">📊 つかわれ方</div>'
+                + [7,14,30].map((n)=>'<button data-days="' + n + '" style="border:1px solid ' + (n===d.days?'#059669':'#cbd5e1') + ';background:' + (n===d.days?'#ecfdf5':'#fff') + ';border-radius:8px;padding:3px 10px;font-weight:800;cursor:pointer">' + n + '日</button>').join('')
+                + '<button id="usX" style="margin-left:auto;background:#f1f5f9;border:none;border-radius:10px;padding:6px 12px;font-weight:800;cursor:pointer">とじる</button></div>'
+                + '<div style="font-size:12px;color:#64748b;margin:4px 0 10px">' + esc3(d.start) + ' 〜 きょう（' + d.days + '日）。「前」は その前の ' + d.days + '日。人数は クラス ' + N + '人の うち 1回でも つかった人。</div>'
+                + '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f8fafc"><th style="text-align:left;padding:5px">機能</th><th style="padding:5px;min-width:150px">つかった人</th><th style="padding:5px">前</th><th style="padding:5px">回数</th>'
+                + d.dayList.map((dk)=>'<th style="padding:2px;font-size:10.5px;color:#64748b;font-weight:600">' + Number(dk.slice(8)) + '<br>' + wd(dk) + '</th>').join('') + '</tr>';
+              d.feats.forEach((f)=>{
+                const pct = Math.round(f.nUsers * 100 / N), diff = f.nUsers - f.nPrev;
+                h += '<tr style="border-top:1px solid #e2e8f0"><td style="padding:5px;font-weight:800;white-space:nowrap">' + esc3(f.label) + (f.ok ? '' : ' <span style="color:#94a3b8;font-weight:400">（よめない）</span>') + '</td>'
+                  + '<td style="padding:5px"><div style="display:flex;align-items:center;gap:6px"><div style="flex:1;height:10px;background:#f1f5f9;border-radius:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (pct >= 70 ? '#10b981' : pct >= 30 ? '#f59e0b' : '#ef4444') + '"></div></div><b>' + f.nUsers + '</b>人</div></td>'
+                  + '<td style="padding:5px;text-align:center;color:' + (diff > 0 ? '#047857' : diff < 0 ? '#b91c1c' : '#64748b') + '">' + f.nPrev + (diff ? (diff > 0 ? ' ↑' : ' ↓') : '') + '</td>'
+                  + '<td style="padding:5px;text-align:right">' + f.total + '</td>'
+                  + d.dayList.map((dk)=>{ const n = f.days[dk] || 0; const a = n ? Math.min(1, .15 + n / N) : 0; return '<td style="padding:1px;text-align:center"><div title="' + dk + '：' + n + '人" style="margin:auto;width:22px;height:18px;border-radius:4px;font-size:10px;line-height:18px;background:rgba(16,185,129,' + a + ');color:' + (a > .55 ? '#fff' : '#334155') + '">' + (n || '') + '</div></td>'; }).join('')
+                  + '</tr>';
+              });
+              h += '</table>';
+              // 子ども × 機能（だれが つかっていないか）
+              h += '<div style="font-weight:900;margin:14px 0 4px">👥 子どもごと（この ' + d.days + '日の 回数・日数）</div><div style="overflow:auto"><table style="border-collapse:collapse;font-size:12px"><tr style="background:#f8fafc"><th style="text-align:left;padding:4px;position:sticky;left:0;background:#f8fafc">名前</th>'
+                + d.feats.map((f)=>'<th style="padding:4px;font-size:11px;max-width:70px">' + esc3(f.label.replace(/（.*）/, '')) + '</th>').join('') + '</tr>';
+              d.members.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ja')).forEach((m)=>{
+                h += '<tr style="border-top:1px solid #f1f5f9"><td style="padding:4px;font-weight:700;white-space:nowrap;position:sticky;left:0;background:#fff">' + esc3(m.name) + '</td>'
+                  + d.feats.map((f)=>{ const n = f.users[m.id] || 0; return '<td style="padding:2px 4px;text-align:center;background:' + (n ? 'rgba(16,185,129,.18)' : (f.key==='hw'||f.key==='train'||f.key==='open' ? '#fef2f2' : '')) + '">' + (n || '・') + '</td>'; }).join('') + '</tr>';
+              });
+              h += '</table></div><div style="font-size:11px;color:#94a3b8;margin-top:6px">赤い ・ は、アプリ・修行・家庭学習を この期間に 1回も つかっていない ところ。先生PJ・チトセレは「さいごに さわった日」だけ わかる。</div></div>';
+              ov.innerHTML = h;
+              const xb = document.getElementById('usX'); if (xb) xb.onclick = ()=> ov.remove();
+              ov.querySelectorAll('button[data-days]').forEach((b)=>{ b.onclick = ()=> draw(Number(b.getAttribute('data-days'))); });
+            };
+            draw(7);
+          };
+          btnGroup.appendChild(usBtn);
 
           // ══════ KAHOOT_TICKET_V1 / KAHOOT_PRICE_V2 🎫 カフート券 ══════
           //   ここに出すのは「人数」まで。名前は押したときだけ別の道で取りに行く。
