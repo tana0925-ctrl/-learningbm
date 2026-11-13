@@ -6283,6 +6283,44 @@ function genHwId() {
 }
 
 // 生徒：シートをDBに提出（報酬はまだ付与しない）
+// 🔁 HW_REDO_V1（2026-11-13 先生の指示）差し戻された 家庭学習を、つぎの日いこうに やり直せる
+//   ・1週間いない・1回だけ。学校の 時間（平日 8:30〜15:15）は だめ。タイマーで 5分いじょう はかる。
+//   ・やり直すと「未返却」に もどる（先生が 返却すれば 先生PJの 練習試合も ひらく）。提出の コインは 2回目は なし。
+//   ・前の 中身と 先生の コメントは redo_json に のこす（先生が くらべられる）
+function hwSchoolTimeNow(): boolean {
+  const d = new Date(Date.now() + 9 * 3600000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes()
+  return wd >= 1 && wd <= 5 && m >= 510 && m <= 915
+}
+app.get('/api/homework/rejected-mine', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'login_required')
+  if (u.role !== 'student') return c.json({ ok: true, items: [] })
+  const since = new Date(Date.now() + 9 * 3600000 - 8 * 86400000).toISOString().slice(0, 10)
+  let r: any = null
+  try {
+    r = await c.env.DB.prepare('SELECT id, day_key, teacher_comment, todo, weather_reason, next_improve, minutes, rejected_at FROM homework_submissions WHERE user_id=? AND rejected_at IS NOT NULL AND redo_at IS NULL AND day_key>=? ORDER BY day_key DESC LIMIT 5').bind(u.id, since).all()
+  } catch (_e) { return c.json({ ok: true, items: [] }) }
+  const items = ((r && r.results) || []).map((x: any) => ({ id: x.id, dayKey: x.day_key, comment: x.teacher_comment || '', todo: x.todo || '', reflect: x.weather_reason || '', next: x.next_improve || '', minutes: Number(x.minutes) || 0 }))
+  return c.json({ ok: true, items, schoolTime: hwSchoolTimeNow() })
+})
+app.post('/api/homework/redo', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'login_required')
+  if (u.role !== 'student') return jsonError(c, 403, 'student_only')
+  const b: any = await c.req.json().catch(() => null); if (!b) return jsonError(c, 400, 'invalid_json')
+  const row: any = await c.env.DB.prepare('SELECT * FROM homework_submissions WHERE id=? AND user_id=? LIMIT 1').bind(String(b.id || ''), u.id).first()
+  if (!row) return jsonError(c, 404, 'not_found')
+  if (!row.rejected_at || row.redo_at) return jsonError(c, 409, 'not_rejected')
+  if (hwSchoolTimeNow()) return jsonError(c, 409, 'school_time')
+  const el = Number(b.elapsedMs) || 0
+  if (el < 5 * 60000) return jsonError(c, 400, 'too_short')
+  const todo = String(b.todo || '').trim().slice(0, 500), refl = String(b.reflect || '').trim().slice(0, 500), nx = String(b.next || '').trim().slice(0, 500)
+  if (Array.from(todo).length < 8 || Array.from(refl).length < 8) return jsonError(c, 400, 'too_vague')
+  const minutes = Math.max(5, Math.min(120, Math.round(el / 60000)))
+  const old = { todo: row.todo, why: row.why, reflect: row.weather_reason, next: row.next_improve, minutes: row.minutes, comment: row.teacher_comment, submittedAt: row.submitted_at, rejectedAt: row.rejected_at }
+  await c.env.DB.prepare('UPDATE homework_submissions SET todo=?, weather_reason=?, next_improve=?, minutes=?, submitted_at=?, returned_at=NULL, rejected_at=NULL, teacher_comment=NULL, redo_at=?, redo_json=? WHERE id=? AND user_id=? AND redo_at IS NULL')
+    .bind(todo, refl, nx, minutes, Date.now(), Date.now(), JSON.stringify(old), row.id, u.id).run()
+  return c.json({ ok: true })
+})
+
 app.post('/api/homework/submit', async (c) => {
   const u = c.get('user')
   // HSAUTH_V1 ログインなし（ほんとうに切れた）＝401、先生・管理者のアカウント＝403 student_only を分けて返す。
@@ -6976,7 +7014,7 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
       if (cm?.class_id) {
         const md = String(cur.day_key || '').slice(5).replace('-', '/').replace(/^0/, '').replace('/0', '/')
         await c.env.DB.prepare('INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)')
-          .bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher', cur.user_id, '↩ ' + md + ' の 家庭学習は 先生が 差し戻しました（ごほうび・先生PJの 練習試合は なし）。\nおうちで タイマーを つかって、自分の ことばで もう一度 ていねいに やってみよう。' + (comment ? '\n\n先生から：' + comment : '')).run()
+          .bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher', cur.user_id, '↩ ' + md + ' の 家庭学習は 先生が 差し戻しました（このままだと ごほうび・先生PJの 練習試合は なし）。\n家庭学習の 画面の「↩ やり直す」から、おうちで タイマーを つかって、自分の ことばで もう一度 やり直せるよ（1週間 いない）。' + (comment ? '\n\n先生から：' + comment : '')).run()
       }
     } catch (e) { console.error('reject notify failed:', e) }
     return c.json({ ok: true, rejected: true })
@@ -11070,6 +11108,7 @@ app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(n
 app.get('/hsadvice.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsadvice.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSADVICE_CHAT_V1
 app.get('/hscheck.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hscheck.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHECK_V1
 app.get('/sakanobori.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/sakanobori.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // SAKANOBORI_V1
+app.get('/hsredo.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsredo.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HW_REDO_V1
 app.get('/hsextra.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsextra.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/pjgift.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pjgift.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
@@ -11316,7 +11355,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=12"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=12"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18302,7 +18341,7 @@ function _faKarteGraphs(d){
     </script>
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=27"></script>
-    <script src="/teibako.js?v=8"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/teibako.js?v=9"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
