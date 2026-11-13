@@ -20,6 +20,16 @@ jobs:
         run: python3 scripts/inject-rt.py
       - name: Build
         run: npm run build
+      # 🧪 SMOKE_V1 本物の ブラウザで「ひらく→家庭学習→修行→防衛戦→ほかのページ」を とおす。エラーが 出たら 出さない（デプロイしない）
+      - name: Smoke test (real browser)
+        run: |
+          if npm i --no-save playwright@1.63.0 && npx playwright install --with-deps chromium; then
+            node tests/smoke_browser.mjs
+          else
+            echo "::warning::playwright を 入れられなかったので スモークテストを とばしました"
+          fi
+        env:
+          SMOKE_VERBOSE: '1'
       - name: Push GEMINI_API_KEY to Pages secretsh
         run: echo -n "$GEMINI_API_KEY" | npx wrangler pages secret put GEMINI_API_KEY --project-name=learning-bm
         env:

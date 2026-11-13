@@ -11106,6 +11106,7 @@ app.get('/minnafuri.js', async (c) => { try { const a = await c.env.ASSETS?.fetc
 app.get('/weekref2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/weekref2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // WEEKREF2_V1
 app.get('/hschat.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hschat.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHAT_V1
 app.get('/hsadvice.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsadvice.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSADVICE_CHAT_V1
+app.get('/emoji-pack.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/emoji-pack.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=2592000, immutable' } }); } catch (e) {} return c.text('not found', 404) })   // LIGHT_V1 ?v= を かえない かぎり 30日 キャッシュ
 app.get('/hscheck.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hscheck.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHECK_V1
 app.get('/sakanobori.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/sakanobori.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // SAKANOBORI_V1
 app.get('/hsredo.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsredo.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HW_REDO_V1
@@ -11171,6 +11172,27 @@ app.get('/api/teacher/curriculum-units', async (c) => {
 })
 
 let _rootHtmlCache: string | null = null
+// ⚡ LIGHT_V1（2026-11-13 先生の指示）ページを 軽くする。
+//   いちばん上の ページ（/）は 毎回 3MB いじょうの HTML を 送っていた（5分しか キャッシュされない）。
+//   パッチを あてた あとの HTML から 大きい <script>…</script>（2万字いじょう）を 切り出して
+//   /_s/<番号>.js?h=<中身の ハッシュ> に する。中身が かわらない かぎり ブラウザが 30日 キャッシュするので、
+//   2回目からは 小さい HTML だけで 開ける。ふつうの <script src> なので 実行の 順番・グローバルの あつかいは 同じ。
+let _rootSplit: { html: string, parts: string[], hashes: string[] } | null = null
+function lightHash(t: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 }
+  return (h >>> 0).toString(36) + t.length.toString(36)
+}
+function lightSplit(html: string) {
+  const parts: string[] = [], hashes: string[] = []
+  const out = html.replace(/<script>([\s\S]*?)<\/script>/g, (all: string, body: string) => {
+    if (body.length < 20000) return all
+    const i = parts.length, h = lightHash(body)
+    parts.push(body); hashes.push(h)
+    return '<script src="/_s/' + i + '.js?h=' + h + '"></script>'
+  })
+  return { html: out, parts, hashes }
+}
 
 // QRHUNT_V1 撤去する死んだコード（public/index.html の実物と一字一句同じ）
 const QRHUNT_DEAD_INIT2 = "            // Secret coin QR (shop)\n                if (typeof setupQrFileUpload === 'function') {\n                    setupQrFileUpload('shop-qr-file-input','shop-qr-canvas');\n                }\n                // Character restore QR\n                if (typeof setupCharRestoreQrFileUpload === 'function') {\n                    setupCharRestoreQrFileUpload('char-restore-qr-file-input','char-restore-qr-canvas');\n                }\n"
@@ -11606,6 +11628,8 @@ app.get('/', async (c) => {
 
     _rootHtmlCache = t
     }
+    if (!_rootSplit) { try { _rootSplit = lightSplit(_rootHtmlCache) } catch (_e) { _rootSplit = null } }
+    if (_rootSplit && c.req.query('nosplit') !== '1') return c.html(_rootSplit.html)
     return c.html(_rootHtmlCache)
   } catch (e) {
     // @ts-ignore - Cloudflare Pages provides a static assets binding.
@@ -11625,6 +11649,19 @@ app.get('/logout', async (c) => {
   deleteCookie(c, 'session', { ...base, path: '/' })
   deleteCookie(c, 'session', { ...base, path: '/api' })
   return c.redirect('/login')
+})
+
+// ⚡ LIGHT_V1 切り出した <script> を くばる（h が いまの 中身と 同じなら 30日 キャッシュ、ちがえば キャッシュしない）
+app.get('/_s/:name', async (c) => {
+  const m = /^(\d+)\.js$/.exec(String(c.req.param('name') || ''))
+  if (!m) return c.text('not found', 404)
+  if (!_rootSplit) {
+    try { const u = new URL(c.req.url); u.pathname = '/'; u.search = ''; await app.fetch(new Request(u.toString(), { headers: c.req.raw.headers }), c.env, c.executionCtx) } catch (_e) {}
+  }
+  const i = Number(m[1])
+  if (!_rootSplit || !_rootSplit.parts[i]) return c.text('not found', 404)
+  const same = c.req.query('h') === _rootSplit.hashes[i]
+  return new Response(_rootSplit.parts[i], { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': same ? 'public, max-age=2592000, immutable' : 'no-store' } })
 })
 
 app.get('/login', (c) => {
