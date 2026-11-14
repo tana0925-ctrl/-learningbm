@@ -6908,7 +6908,7 @@ app.get('/api/teacher/homework/suspect', async (c) => {
   //   なぜ・ふりかえりも、ボタンを えらぶだけで できる みじかい 文（15字くらい）は 同じに なりやすいので、20字いじょうの ときだけ くらべる
   const FIELDS: Array<[string, string]> = [['why', 'なぜ'], ['wr', 'ふりかえり']]
   let fails: any[] = []
-  try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND (reason LIKE 'not_started_manual%' OR reason LIKE 'minutes_cap%')").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
+  try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND reason LIKE 'not_started_manual%'").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
   for (const h of all) {
     if (h.ret || h.rest || String(h.dk) < from) continue
     const id = String(h.id)
@@ -18484,7 +18484,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=30"></script>
+    <script src="/teacher-ai.js?v=31"></script>
     <script src="/teibako.js?v=10"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
