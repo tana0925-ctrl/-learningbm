@@ -45710,7 +45710,7 @@ async function hsSubmitAndExport(){
 // HSHONEST_V1：学校の 時間（平日 8:30〜15:15・日本時間）
 function hsIsSchoolTimeNow(){
   if (window.__HS_NOSCHOOL__) return false;   // テスト用
-  try { var d = new Date(Date.now() + 9 * 3600000), w = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes(); return w >= 1 && w <= 5 && m >= 510 && m < 915; } catch (e) { return false; }
+  try { var d = new Date(Date.now() + 9 * 3600000), w = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes(); return w >= 1 && w <= 5 && m >= 510 && m < (w === 2 || w === 5 ? 915 : 850); } catch (e) { return false; }   /* SCHOOL_END_V1 月・水・木は 14:10、火・金は 15:15 まで */
 }
 window.hsIsSchoolTimeNow = hsIsSchoolTimeNow;
 // HSFAIL_V1（2026-11-10）：提出できなかった わけを サーバに 書きのこす（原因を あとで たしかめるため）。ログインが 切れていても 送る。

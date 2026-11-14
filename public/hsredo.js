@@ -9,7 +9,7 @@
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function md(dk) { var p = String(dk || '').split('-'); return p.length === 3 ? (Number(p[1]) + '/' + Number(p[2])) : dk; }
-  function school() { var d = new Date(Date.now() + 9 * 3600000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes(); return wd >= 1 && wd <= 5 && m >= 510 && m <= 915; }
+  function school() { var d = new Date(Date.now() + 9 * 3600000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes(); return wd >= 1 && wd <= 5 && m >= 510 && m < (wd === 2 || wd === 5 ? 915 : 850); }   // SCHOOL_END_V1
   function face() { var f = '🐯'; try { if (typeof window.monSpriteHtml === 'function') f = window.monSpriteHtml(154, '🐯'); } catch (e) {} return f; }
   var ITEMS = [], R = null, T = null;   // R: いま やり直している もの、T: タイマー
   var MIN_MS = 5 * 60000;

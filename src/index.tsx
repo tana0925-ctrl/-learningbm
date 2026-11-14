@@ -6347,7 +6347,7 @@ function genHwId() {
 //   ・前の 中身と 先生の コメントは redo_json に のこす（先生が くらべられる）
 function hwSchoolTimeNow(): boolean {
   const d = new Date(Date.now() + 9 * 3600000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes()
-  return wd >= 1 && wd <= 5 && m >= 510 && m <= 915
+  return wd >= 1 && wd <= 5 && m >= 510 && m < (wd === 2 || wd === 5 ? 915 : 850)   // SCHOOL_END_V1 月・水・木は 14:10、火・金は 15:15 まで
 }
 app.get('/api/homework/rejected-mine', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'login_required')
@@ -6908,13 +6908,13 @@ app.get('/api/teacher/homework/suspect', async (c) => {
   //   なぜ・ふりかえりも、ボタンを えらぶだけで できる みじかい 文（15字くらい）は 同じに なりやすいので、20字いじょうの ときだけ くらべる
   const FIELDS: Array<[string, string]> = [['why', 'なぜ'], ['wr', 'ふりかえり']]
   let fails: any[] = []
-  try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND reason LIKE 'not_started_manual%'").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
+  try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND 0   /* ZURU_TELL_V1 タイマーまわりは ずるに 入れない（先生の 指示） */").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
   for (const h of all) {
     if (h.ret || h.rest || String(h.dk) < from) continue
     const id = String(h.id)
     // ① 学校の 時間
     const t = new Date(Number(h.at) + 9 * 3600000), w = t.getUTCDay(), m = t.getUTCHours() * 60 + t.getUTCMinutes()
-    if (w >= 1 && w <= 5 && m >= 510 && m < 915) add(id, '学校の時間に提出（' + t.getUTCHours() + ':' + String(t.getUTCMinutes()).padStart(2, '0') + '）')
+    if (w >= 1 && w <= 5 && m >= 510 && m < (w === 2 || w === 5 ? 915 : 850)) add(id, '学校の時間に提出（' + t.getUTCHours() + ':' + String(t.getUTCMinutes()).padStart(2, '0') + '）')
     // ②⑥ タイマー
     for (const f of fails) if (String(f.uid) === String(h.uid) && String(f.dk) === String(h.dk)) add(id, String(f.reason).indexOf('minutes_cap') === 0 ? 'はかった時間より長く書こうとした' : 'タイマーなしで時間を入力')
     // ③ 前の 自分と 同じ 文 ④ ほかの子と 同じ 文
@@ -11437,7 +11437,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=2"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18484,7 +18484,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=31"></script>
+    <script src="/teacher-ai.js?v=32"></script>
     <script src="/teibako.js?v=10"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
