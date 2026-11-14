@@ -662,7 +662,9 @@ out.push('【目印の種類】');
       out.push('      ・前の日の 自分と 同じ 内容（言いかえただけ）／ほかの子と 同じ 内容');
       out.push('      ・具体的でない（何を どこまで やったか わからない。例：「勉強した」「がんばった」だけ）');
       out.push('      ・やったこと・時間・ふりかえりが かみ合わない（例：5分で 漢字ドリル10ページ、習い事を 家庭学習に）');
-      out.push('      ・「⚠ 機械チェック」が ついている');
+      out.push('      ※ ZURU_SOFT_V1 きびしく しすぎない：【ずる？】は「中身が ほとんど ない・うつしただけ・時間と 中身が あわない」ときだけ。まよったら つけない。');
+      out.push('      ・「⚠ 機械チェック」は 参考。それだけで つけない（宿題の 名前が 毎日 同じなのは ふつう）。');
+      out.push('      ・ふりかえりが 具体的で 自分の ことば（何が できた・できなかった・なぜ）なら、ほかが 同じでも つけない。');
       out.push('      あてはまらなければ 書かない。【ずる？】の 行は 子どもには 届かない。');
       out.push('      【ずる？】を つけた ときの 2行目からの コメントは「再チャレンジ」の おねがいに する（この 家庭学習は 差し戻しに なる）:');
       out.push('        ・せめない／「ずる」「うそ」とは 書かない。「もう一回 やってみよう」と 前向きに。');
@@ -2376,7 +2378,9 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
         var it = byKind.DAILY[i];
         // ZURU_CHECK_V1 ずるかも（AIの【ずる？】／機械チェック）は まとめて 返さない。先生が ひらいて たしかめてから 返す
         var _zr = /^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || '')) || ((window.__ZURU || {})[String(it.refKey)] || []).length > 0;
-        if (_zr) { _rej.push(it); continue; }   // ZURU_REJECT_V1 あとで まとめて 差し戻す
+        // ZURU_SOFT_V1 差し戻すのは AIが【ずる？】と 書いた ものだけ。機械チェックだけの ものは 返さずに のこす（先生が 見て きめる）
+        if (/^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || ''))) { _rej.push(it); continue; }
+        if (_zr) { _held.push(it.targetName || it.refKey); continue; }
         sayPub('家庭学習コメントを返しています... (' + (i + 1) + '/' + byKind.DAILY.length + ')');
         try {
           var rr = await fetch('/api/teacher/homework/' + encodeURIComponent(it.refKey) + '/return', {

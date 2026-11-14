@@ -6904,7 +6904,9 @@ app.get('/api/teacher/homework/suspect', async (c) => {
   const norm = (x: any) => String(x || '').replace(/[\s　、。！？!?.,・]/g, '')
   const out: any = {}
   const add = (id: string, why: string) => { (out[id] = out[id] || []).indexOf(why) < 0 && out[id].push(why) }
-  const FIELDS: Array<[string, string]> = [['why', 'なぜ'], ['wr', 'ふりかえり'], ['todo', 'やったこと']]
+  // ZURU_SOFT_V1（2026-11-14 先生「きびしくない？」）「やったこと」は 毎日の 宿題名（漢字ドリル 計算スキル など）が 同じに なるのが ふつうなので くらべない。
+  //   なぜ・ふりかえりも、ボタンを えらぶだけで できる みじかい 文（15字くらい）は 同じに なりやすいので、20字いじょうの ときだけ くらべる
+  const FIELDS: Array<[string, string]> = [['why', 'なぜ'], ['wr', 'ふりかえり']]
   let fails: any[] = []
   try { const f = await c.env.DB.prepare("SELECT user_id AS uid, day_key AS dk, reason FROM hw_fail_log WHERE day_key >= ? AND (reason LIKE 'not_started_manual%' OR reason LIKE 'minutes_cap%')").bind(from).all<any>(); fails = ((f && f.results) || []) as any[] } catch (_e) {}
   for (const h of all) {
@@ -6917,11 +6919,11 @@ app.get('/api/teacher/homework/suspect', async (c) => {
     for (const f of fails) if (String(f.uid) === String(h.uid) && String(f.dk) === String(h.dk)) add(id, String(f.reason).indexOf('minutes_cap') === 0 ? 'はかった時間より長く書こうとした' : 'タイマーなしで時間を入力')
     // ③ 前の 自分と 同じ 文 ④ ほかの子と 同じ 文
     for (const [k, lab] of FIELDS) {
-      const v = norm(h[k]); if (v.length < 6) continue
+      const v = norm(h[k]); if (v.length < 20) continue
       const mine = all.find((o: any) => String(o.uid) === String(h.uid) && String(o.dk) < String(h.dk) && norm(o[k]) === v)
       if (mine) add(id, '「' + lab + '」が ' + mine.dk.slice(5).replace('-', '/') + ' と まったく同じ')
       const other = all.find((o: any) => String(o.uid) !== String(h.uid) && String(o.dk) === String(h.dk) && norm(o[k]) === v)
-      if (other && v.length >= 10) add(id, '「' + lab + '」が ほかの子と まったく同じ')
+      if (other) add(id, '「' + lab + '」が ほかの子と まったく同じ')
     }
   }
   // ⑤ 同じ 写真（大きさが 同じ もの だけ 中身を くらべる）
@@ -18482,7 +18484,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=28"></script>
+    <script src="/teacher-ai.js?v=29"></script>
     <script src="/teibako.js?v=9"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
