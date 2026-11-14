@@ -16,7 +16,7 @@
 
   function load() {
     return fetch('/api/homework/rejected-mine', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { ITEMS = (d && d.items) || []; card(); }).catch(function () {});
+      .then(function (d) { ITEMS = (d && d.items) || []; if (d && d.missed && d.missed.dayKey) ITEMS.push({ late: true, id: 'late:' + d.missed.dayKey, dayKey: d.missed.dayKey }); card(); }).catch(function () {});   // HW_LATE_V1 出しわすれ
   }
   function card() {
     var c = $('hsRedoCard');
@@ -29,6 +29,14 @@
       anchor.parentNode.insertBefore(c, anchor);
     }
     var it = ITEMS[0];
+    if (it.late) {   // 📮 HW_LATE_V1
+      c.style.borderColor = '#818cf8'; c.style.background = 'linear-gradient(135deg,#eef2ff,#f5f3ff)';
+      c.innerHTML = '<span style="font-size:28px">📮</span><span style="flex:1"><span style="display:block;font-weight:900;color:#3730a3;font-size:16px">' + esc(md(it.dayKey)) + ' の 家庭学習、出しわすれてない？</span>'
+        + '<span style="display:block;font-size:12.5px;color:#312e81">おうちで いまから やって 出せるよ（きょうの 分とは べつ・1回だけ）。先生が 返してくれたら 先生PJの 練習試合も ひらく。</span></span>'
+        + '<span style="background:#6366f1;color:#fff;border-radius:12px;padding:8px 12px;font-weight:900">出す</span>';
+      return;
+    }
+    c.style.borderColor = '#f87171'; c.style.background = 'linear-gradient(135deg,#fff1f2,#fff7ed)';
     c.innerHTML = '<span style="font-size:28px">↩</span><span style="flex:1"><span style="display:block;font-weight:900;color:#b91c1c;font-size:16px">' + esc(md(it.dayKey)) + ' の 家庭学習が 差し戻されたよ</span>'
       + '<span style="display:block;font-size:12.5px;color:#7c2d12">おうちで やり直すと、先生が 見て 返してくれるよ（先生PJの 練習試合も ひらく）。1週間いない・1回だけ。</span></span>'
       + '<span style="background:#ef4444;color:#fff;border-radius:12px;padding:8px 12px;font-weight:900">やり直す</span>';
@@ -57,17 +65,18 @@
     var o = $('hsRedo'); if (!o) { o = document.createElement('div'); o.id = 'hsRedo'; document.body.appendChild(o); }
     o.style.display = 'flex';
     var sch = school();
-    o.innerHTML = '<div class="rb"><div class="rh"><span>↩ ' + esc(md(it.dayKey)) + ' の 家庭学習を やり直す</span><button type="button" class="rx" id="hrX">とじる</button></div><div class="rc">'
+    o.innerHTML = '<div class="rb"><div class="rh"' + (it.late ? ' style="background:#c7d2fe"' : '') + '><span>' + (it.late ? '📮 ' + esc(md(it.dayKey)) + ' の 家庭学習を 出す（出しわすれ）' : '↩ ' + esc(md(it.dayKey)) + ' の 家庭学習を やり直す') + '</span><button type="button" class="rx" id="hrX">とじる</button></div><div class="rc">'
       + '<div style="display:flex;gap:8px;align-items:flex-start"><span class="face">' + face() + '</span><div class="say">'
+      + (it.late ? '出しわすれに 気づいて えらいで！ いまから やって 出そか。タイマーを スタートして、やったことを「何を・どこまで」、ふりかえりは「自分の ことば」で 書いてな。' : '')
       + (it.comment ? '先生から：' + esc(it.comment) + '\n\n' : '')
-      + 'もう一回 チャレンジや！ タイマーを スタートして、やったことを「何を・どこまで」、ふりかえりは「自分の ことば」で 書いてな。</div></div>'
+      + (it.late ? '' : 'もう一回 チャレンジや！ タイマーを スタートして、やったことを「何を・どこまで」、ふりかえりは「自分の ことば」で 書いてな。') + '</div></div>'
       + (sch ? '<div style="margin-top:12px;background:#fee2e2;border-radius:12px;padding:10px;font-weight:900;color:#991b1b">🏫 いまは 学校の 時間だよ。やり直しは おうちに 帰ってから してね。</div>' : '')
       + '<div class="tm"><span style="font-size:26px">⏱</span><span style="flex:1"><span id="hrTime" style="display:block;font-size:22px;font-weight:900;color:#1e3a8a">0分00秒</span><span style="font-size:12px;color:#475569">5分いじょう はかると 出せるよ</span></span><button type="button" class="btn" id="hrStart"' + (sch ? ' disabled' : '') + '>▶ スタート</button></div>'
       + '<label>📝 やったこと（何を・どこまで）</label><textarea id="hrTodo" placeholder="れい：算数ドリル 12〜13ページ、まちがえた 3問を やり直した"></textarea>'
       + '<label>💭 ふりかえり（わかったこと・むずかしかったこと）</label><textarea id="hrRef" placeholder="れい：分数の わり算は ひっくり返して かけると わかった。帯分数を 直すのを わすれた"></textarea>'
       + '<label>➡ つぎは どうする？</label><textarea id="hrNext" style="min-height:56px" placeholder="れい：帯分数を 先に 仮分数に してから とく"></textarea>'
-      + '<button type="button" class="btn go" id="hrGo" disabled>📮 やり直しを 出す</button><div id="hrMsg" style="margin-top:8px;font-weight:800;color:#b91c1c;font-size:14px"></div>'
-      + '<div class="old"><b>前に 出した 中身</b>\nやったこと：' + esc(it.todo || '（なし）') + '\nふりかえり：' + esc(it.reflect || '（なし）') + '</div>'
+      + '<button type="button" class="btn go" id="hrGo" disabled>📮 出す</button><div id="hrMsg" style="margin-top:8px;font-weight:800;color:#b91c1c;font-size:14px"></div>'
+      + (it.late ? '' : '<div class="old"><b>前に 出した 中身</b>\nやったこと：' + esc(it.todo || '（なし）') + '\nふりかえり：' + esc(it.reflect || '（なし）') + '</div>')
       + '</div></div>';
     $('hrX').onclick = closeIt;
     $('hrStart').onclick = start;
@@ -95,24 +104,24 @@
     var g = $('hrGo'); if (!g) return;
     var okT = elapsed() >= MIN_MS, okW = len('hrTodo') >= 8 && len('hrRef') >= 8;
     g.disabled = !(okT && okW);
-    g.textContent = !okT ? '📮 やり直しを 出す（あと ' + Math.max(0, Math.ceil((MIN_MS - elapsed()) / 60000)) + '分）' : (!okW ? '📮 やったこと・ふりかえりを 書いてね' : '📮 やり直しを 出す');
+    g.textContent = !okT ? '📮 出す（あと ' + Math.max(0, Math.ceil((MIN_MS - elapsed()) / 60000)) + '分）' : (!okW ? '📮 やったこと・ふりかえりを 書いてね' : '📮 出す');
   }
   function msg(t) { var m = $('hrMsg'); if (m) m.textContent = t; }
   function send() {
     var g = $('hrGo'); if (g) g.disabled = true; msg('');
-    fetch('/api/homework/redo', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: R.id, todo: $('hrTodo').value, reflect: $('hrRef').value, next: $('hrNext').value, elapsedMs: elapsed() }) })
+    fetch(R.late ? '/api/homework/late' : '/api/homework/redo', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: R.id, dayKey: R.dayKey, todo: $('hrTodo').value, reflect: $('hrRef').value, next: $('hrNext').value, elapsedMs: elapsed() }) })
       .then(function (r) { return r.json().catch(function () { return null; }); })
       .then(function (j) {
         if (j && j.ok) {
           var c = document.querySelector('#hsRedo .rc');
-          if (c) c.innerHTML = '<div style="display:flex;gap:8px;align-items:flex-start"><span class="face">' + face() + '</span><div class="say">よっしゃ！ やり直し、ちゃんと 出せたで！ 👏\n先生が 見て 返してくれたら、先生PJの 練習試合も できるように なるで。</div></div><button type="button" class="btn go" id="hrDone">とじる</button>';
+          if (c) c.innerHTML = '<div style="display:flex;gap:8px;align-items:flex-start"><span class="face">' + face() + '</span><div class="say">' + (R.late ? 'よっしゃ！ 出しわすれの 分、ちゃんと 出せたで！ 👏' : 'よっしゃ！ やり直し、ちゃんと 出せたで！ 👏') + '\n先生が 見て 返してくれたら、先生PJの 練習試合も できるように なるで。</div></div><button type="button" class="btn go" id="hrDone">とじる</button>';
           var d = $('hrDone'); if (d) d.onclick = closeIt;
           T = null; ITEMS = ITEMS.filter(function (x) { return x.id !== R.id; }); card();
           return;
         }
         var e = (j && j.error) || '';
-        msg(e === 'school_time' ? '🏫 いまは 学校の 時間だよ。おうちで してね。' : e === 'too_short' ? '⏱ タイマーで 5分いじょう はかってね。' : e === 'too_vague' ? '📝 やったこと・ふりかえりを もう少し くわしく 書いてね。' : e === 'not_rejected' ? 'もう やり直しは 出してあるよ。' : '出せませんでした。もう一回 おしてね。');
+        msg(e === 'school_time' ? '🏫 いまは 学校の 時間だよ。おうちで してね。' : e === 'too_short' ? '⏱ タイマーで 5分いじょう はかってね。' : e === 'too_vague' ? '📝 やったこと・ふりかえりを もう少し くわしく 書いてね。' : e === 'not_rejected' ? 'もう やり直しは 出してあるよ。' : e === 'not_missed' ? 'この 日の 分は もう 出してあるよ。' : '出せませんでした。もう一回 おしてね。');
         if (g) g.disabled = false;
       }).catch(function () { msg('出せませんでした。もう一回 おしてね。'); if (g) g.disabled = false; });
   }

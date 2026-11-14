@@ -405,7 +405,8 @@
       var chips = '';
       if (it.consent) chips += '<span class="tbChip" style="background:#ecfdf5;color:#047857;border:1px solid #6ee7b7">のせてもいいよ（' + (it.consent.mode === 'named' ? '名前あり' : '名前なし') + '）</span>';
       if (it.post && it.post.on) chips += '<span class="tbChip" style="background:#dbeafe;color:#1d4ed8">📖のせた</span>';
-      if (it.redoAt) chips += '<span class="tbChip" style="background:#dcfce7;color:#166534">🔁 やり直し</span>';
+      if (it.late) chips += '<span class="tbChip" style="background:#e0e7ff;color:#3730a3">📮 出しわすれ（つぎの日に出した）</span>';
+      else if (it.redoAt) chips += '<span class="tbChip" style="background:#dcfce7;color:#166534">🔁 やり直し</span>';
       if (it.rejectedAt) chips += '<span class="tbChip" style="background:#fee2e2;color:#991b1b">↩ 差し戻し</span>';
       else if (it.returnedAt) chips += '<span class="tbChip" style="background:#f1f5f9;color:#475569">返却ずみ</span>';
       if (chips) h += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:auto">' + chips + '</div>';
