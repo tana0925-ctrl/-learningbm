@@ -21,7 +21,8 @@
   var TAI_NG_PATTERNS = [{ re: /まだ[^。、！？!?\n]{0,14}(ない|ません|へん|てない)/, label: 'まだ〜ない' },
     { re: /[0-9０-９]+(?:[.．][0-9０-９]+)?[\s　]*(点|％|%|パーセント|位)/, label: '点数・%・順位（数字＋点/%/位）' }];   /* TEISHUTSU_V1 テストの点数・順位は子どもに届く文に書かない */
   function taiNgHits(text) {
-    var t = String(text || ''), hits = [];
+    // ZURU_NOTE_V1【ずる？】の 行は 先生だけの メモ（子どもには とどかない）なので しらべない
+    var t = String(text || '').split('\n').filter(function (l) { return !/^\s*[【\[]\s*(ずる|ZURU)/i.test(l); }).join('\n'), hits = [];
     TAI_NG_WORDS.forEach(function (w) { if (w && t.indexOf(w) >= 0 && hits.indexOf(w) < 0) hits.push(w); });
     TAI_NG_PATTERNS.forEach(function (p) { if (p.re.test(t) && hits.indexOf(p.label) < 0) hits.push(p.label); });
     return hits;
@@ -2216,6 +2217,7 @@ var KIND_JA = {
       } else if (w.weak.length) {
         h += '<div class="text-[11px] font-bold text-amber-700 mb-1">△ 念のため確認：「' + esc(w.weak.join('」「')) + '」という言葉が入っています</div>';
       }
+      if (/^\s*[【\[]\s*(ずる|ZURU)/im.test(String(x.body || ''))) h += '<div class="text-[11px] font-black text-rose-800 mb-1 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5">🔒「【ずる？】」の 行は 先生だけの メモ。子どもには とどきません。公開すると この子は「再チャレンジ」で 差し戻し（公開の 前に 1回 たしかめます）。</div>';   // ZURU_NOTE_V1
       h += '<div class="tai-ng text-[11px] font-black text-yellow-800 mb-1 bg-yellow-100 rounded px-1.5 py-0.5" data-id="' + esc(x.id) + '"' + (ng.length ? '' : ' style="display:none"') + '>🟡 子どもには きつく聞こえることば：「' + esc(ng.join('」「')) + '」<div class="font-bold">自動では消していません。前向きな言い方に直してから、チェックを入れて公開してください。</div></div>';
       h += '<textarea class="tai-body w-full border ' + (danger ? 'border-red-300' : 'border-slate-200') + ' rounded p-1.5 text-xs" rows="' +
         Math.min(8, Math.max(2, String(x.body || '').split(NL).length)) + '" data-id="' + esc(x.id) + '">' +
