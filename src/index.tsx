@@ -18485,7 +18485,7 @@ function _faKarteGraphs(d){
     </script>
     <script src="/drillpark.js?v=1"></script>
     <script src="/teacher-ai.js?v=30"></script>
-    <script src="/teibako.js?v=9"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
+    <script src="/teibako.js?v=10"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->

@@ -127,7 +127,9 @@
     var nm = otherNames(o.r.id).filter(function (n) { return flat.indexOf(n) >= 0; });
     var stale = !!(it.draft.createdAt && Number(it.submittedAt) > Number(it.draft.createdAt) + 60000);
     var zr = zuruOf(it);
-    return { ng: ng, names: nm, stale: stale, zuru: zr, ok: !ng.length && !nm.length && !stale && !zr.length };
+    // ZURU_TELL_V1 まとめて返却から 外すのは AIが【ずる？】と 書いた ときだけ（機械チェックだけなら、コメントで 伝えて 返す）
+    var zrAI = /^\s*[【\[]\s*(ずる|ZURU)/im.test(String((it.draft && it.draft.body) || ''));
+    return { ng: ng, names: nm, stale: stale, zuru: zr, ok: !ng.length && !nm.length && !stale && !zrAI };
   }
   // ZURU_CHECK_V1 その 提出の「ずるかも」の わけ（機械チェック＋AIの【ずる？】）
   function zuruOf(it) {
