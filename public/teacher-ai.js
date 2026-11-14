@@ -670,6 +670,14 @@ out.push('【目印の種類】');
       out.push('        ・せめない／「ずる」「うそ」とは 書かない。「もう一回 やってみよう」と 前向きに。');
       out.push('        ・その子の 中身に あわせて、何を 足せば よいかを 1つだけ 具体的に（例：「何を・どこまで・何分」「自分の ことばで 気づいたこと」「タイマーを つかって」）。');
       out.push('        ・60字以内。');
+      // ZURU_TELL_V1（2026-11-14 先生の指示）気になる ところは、差し戻さずに コメントで やさしく 伝える
+      out.push('      ※【気になる ところを 伝える】「⚠ 機械チェック」が ついているが【ずる？】ほどでは ない ときは、【ずる？】を つけずに、');
+      out.push('        いつもの コメントの さいごに「気になった ところ ＋ どうすれば いいか」を 1文だけ やさしく 入れる（ふつうに 返却される）。れい:');
+      out.push('        ・学校の 時間に 提出 →「家庭学習は 家で やって、家で 出そうな！」');
+      out.push('        ・タイマーなし／はかった 時間より 長く →「つぎは タイマーで はかって やってみよう！」');
+      out.push('        ・前と 同じ 文 →「前と 同じ ことばに なってたで。今日だけの 気づきを 1つ 書いてな！」');
+      out.push('        ・写真が 前と 同じ →「今日 やった ノートの 写真を とってな！」');
+      out.push('        せめない・「ずる」「うそ」と 書かない。全体で 60字以内。');
     }
     if (want.karte)   out.push('・=== [KARTE:...] === … 阪神マンから本人へのひとこと。子ども向け。');
     if (want.karte) {
@@ -2380,7 +2388,7 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
         var _zr = /^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || '')) || ((window.__ZURU || {})[String(it.refKey)] || []).length > 0;
         // ZURU_SOFT_V1 差し戻すのは AIが【ずる？】と 書いた ものだけ。機械チェックだけの ものは 返さずに のこす（先生が 見て きめる）
         if (/^\s*[【\[]\s*(ずる|ZURU)/im.test(String(it.body || ''))) { _rej.push(it); continue; }
-        if (_zr) { _held.push(it.targetName || it.refKey); continue; }
+        // ZURU_TELL_V1 機械チェックだけの 子は、気になる ところを 書いた コメントで ふつうに 返す（とめない）
         sayPub('家庭学習コメントを返しています... (' + (i + 1) + '/' + byKind.DAILY.length + ')');
         try {
           var rr = await fetch('/api/teacher/homework/' + encodeURIComponent(it.refKey) + '/return', {
