@@ -35,9 +35,24 @@
     b.innerHTML = h;
     var btn = document.getElementById('cmTopBtn'); if (btn) btn.onclick = claim;
   }
+  function jst(x) { try { var d = new Date(Date.parse(String(x).replace(' ', 'T') + 'Z') + 9 * 3600000); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + '（' + '日月火水木金土'[d.getUTCDay()] + '）' + d.getUTCHours() + ':' + String(d.getUTCMinutes()).padStart(2, '0'); } catch (e) { return ''; } }
+  // ⏰ MISSION_RESERVE_V1 予約された ミッションの「予告」
+  function renderUp(r) {
+    var old = document.getElementById('cmUpBox'); var card = document.getElementById('classMissionCard'); if (!card) return;
+    var up = r && r.upcoming;
+    if (!up) { if (old) old.remove(); if (card.__mtUpOnly) { card.classList.add('hidden'); card.__mtUpOnly = 0; } return; }
+    var txt = '⏰ つぎの ミッション「' + esc(up.title) + '」は <b>' + esc(jst(up.startAt)) + '</b> から スタート！（目標 ' + up.goalCorrect + '問・ごほうび ' + up.rewardCoins + 'コイン）';
+    if (card.classList.contains('hidden')) {
+      // いま 進行中が ない ときは カードを 予告だけで 見せる
+      card.classList.remove('hidden'); card.__mtUpOnly = 1;
+      Array.prototype.forEach.call(card.children, function (ch) { if (ch.id !== 'cmUpBox') ch.style.display = 'none'; });
+    }
+    if (!old) { old = document.createElement('div'); old.id = 'cmUpBox'; old.style.cssText = 'margin-top:8px;background:#e0f2fe;border:2px solid #7dd3fc;border-radius:12px;padding:6px 10px;font-size:13px;color:#075985;font-weight:700'; card.appendChild(old); }
+    old.style.display = ''; old.innerHTML = txt;
+  }
   function load() {
     var id = ''; try { id = window.__classMissionId || ''; } catch (e) {}
-    return api('/api/student/class-mission/top' + (id ? '?id=' + encodeURIComponent(id) : ''), { method: 'GET' }).then(function (r) { if (r && r.ok && r.missionId) { cur = r; render(r); } else { var b = document.getElementById('cmTopBox'); if (b) b.style.display = 'none'; } }).catch(function () {});
+    return api('/api/student/class-mission/top' + (id ? '?id=' + encodeURIComponent(id) : ''), { method: 'GET' }).then(function (r) { try { renderUp(r); } catch (e) {} if (r && r.ok && r.missionId) { cur = r; render(r); } else { var b = document.getElementById('cmTopBox'); if (b) b.style.display = 'none'; } }).catch(function () {});
   }
   function claim() {
     if (!cur || !cur.missionId) return;
@@ -57,9 +72,10 @@
   function wrap() {
     var f = window.updateClassMissionUI;
     if (typeof f !== 'function' || f.__mt) return !!(f && f.__mt);
-    var g = function () { var p = f.apply(this, arguments); Promise.resolve(p).then(function () { var card = document.getElementById('classMissionCard'); if (card && !card.classList.contains('hidden')) load(); }); return p; };
+    var g = function () { var card0 = document.getElementById('classMissionCard'); if (card0 && card0.__mtUpOnly) { card0.__mtUpOnly = 0; card0.classList.add('hidden'); Array.prototype.forEach.call(card0.children, function (ch) { ch.style.display = ''; }); }
+      var p = f.apply(this, arguments); Promise.resolve(p).then(function () { load(); }); return p; };
     g.__mt = 1; window.updateClassMissionUI = g;
-    try { var card = document.getElementById('classMissionCard'); if (card && !card.classList.contains('hidden')) load(); } catch (e) {}
+    try { load(); } catch (e) {}
     return true;
   }
   var tries = 0; (function t() { if (wrap() || ++tries > 40) return; setTimeout(t, 500); })();

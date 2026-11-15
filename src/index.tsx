@@ -10809,10 +10809,25 @@ app.post('/api/teacher/class-mission', async (c) => {
   const rewardCoins = Math.max(0, Number(body.rewardCoins) || 0)
   const rewardShards = Math.max(0, Number(body.rewardShards) || 0)
   const endAt = body.endAt ? (String(body.endAt).slice(0, 10) + ' 23:59:59') : null
-  await c.env.DB.prepare(
-    `INSERT INTO class_missions (id, class_id, title, goal_correct, reward_coins, reward_shards, end_at, created_by) VALUES (?,?,?,?,?,?,?,?)`
-  ).bind(id, body.classId, title, goalCorrect, rewardCoins, rewardShards, endAt, u.id).run()
-  return c.json({ ok: true, id })
+  // ⏰ MISSION_RESERVE_V1（2026-11-15）開始の 予約。startAt は 日本時間 'YYYY-MM-DDTHH:MM'（なければ いますぐ）→ UTC で しまう
+  let startAt: string | null = null
+  if (body.startAt) {
+    const mm = String(body.startAt).match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/)
+    if (!mm) return jsonError(c, 400, 'bad_startAt')
+    const t = Date.UTC(+mm[1], +mm[2] - 1, +mm[3], +(mm[4] || 0) - 9, +(mm[5] || 0))
+    if (t > Date.now() + 60000) startAt = new Date(t).toISOString().slice(0, 19).replace('T', ' ')
+    if (endAt && startAt && Date.parse(endAt.replace(' ', 'T') + 'Z') - 9 * 3600000 < t) return jsonError(c, 400, '締切が 開始より 前です')
+  }
+  if (startAt) {
+    await c.env.DB.prepare(
+      `INSERT INTO class_missions (id, class_id, title, goal_correct, reward_coins, reward_shards, start_at, end_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(id, body.classId, title, goalCorrect, rewardCoins, rewardShards, startAt, endAt, u.id).run()
+  } else {
+    await c.env.DB.prepare(
+      `INSERT INTO class_missions (id, class_id, title, goal_correct, reward_coins, reward_shards, end_at, created_by) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(id, body.classId, title, goalCorrect, rewardCoins, rewardShards, endAt, u.id).run()
+  }
+  return c.json({ ok: true, id, reserved: !!startAt, startAt })
 })
 
 // 教師: クラスミッション一覧（進捗つき）
@@ -10872,7 +10887,7 @@ app.get('/api/student/class-mission', async (c) => {
   let m = await c.env.DB.prepare(
     `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
             start_at AS startAt, end_at AS endAt
-     FROM class_missions WHERE class_id=? AND (end_at IS NULL OR end_at >= datetime('now'))
+     FROM class_missions WHERE class_id=? AND (end_at IS NULL OR end_at >= datetime('now')) AND start_at <= datetime('now')
      ORDER BY created_at DESC LIMIT 1`
   ).bind(cm.class_id).first<any>()
 
@@ -10881,7 +10896,7 @@ app.get('/api/student/class-mission', async (c) => {
     const latest = await c.env.DB.prepare(
       `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
               start_at AS startAt, end_at AS endAt
-       FROM class_missions WHERE class_id=?
+       FROM class_missions WHERE class_id=? AND start_at <= datetime('now')
        ORDER BY created_at DESC LIMIT 1`
     ).bind(cm.class_id).first<any>()
     if (latest) {
@@ -10920,6 +10935,7 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
     member = await c.env.DB.prepare(`SELECT 1 FROM classes WHERE id=? AND teacher_id=? LIMIT 1`).bind(m.class_id, u.id).first<any>()
   }
   if (!member) return jsonError(c, 403, 'not_class_member')
+  if (Date.parse(String(m.start_at).replace(' ', 'T') + 'Z') > Date.now()) return jsonError(c, 400, 'not_started')
   const progress = await countMissionProgress(c, m.class_id, m.start_at, m.end_at)
   if (progress < m.goal_correct) return jsonError(c, 400, 'not_achieved')
   const rewardCoins = Number(m.reward_coins) || 0
@@ -11003,18 +11019,20 @@ async function missionTopOf(c: any, m: any) {
 }
 async function missionForClass(c: any, classId: string, id?: string) {
   const q = id ? 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE id=? AND class_id=? LIMIT 1'
-    : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? ORDER BY created_at DESC LIMIT 1'
+    : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1'
   return id ? await c.env.DB.prepare(q).bind(id, classId).first<any>() : await c.env.DB.prepare(q).bind(classId).first<any>()
 }
 app.get('/api/student/class-mission/top', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   const cm: any = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(u.id).first()
   if (!cm) return c.json({ ok: true, mission: null })
+  let upcoming: any = null
+  try { const up: any = await c.env.DB.prepare("SELECT title, start_at AS startAt, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards FROM class_missions WHERE class_id=? AND start_at > datetime('now') ORDER BY start_at ASC LIMIT 1").bind(cm.class_id).first(); if (up) upcoming = up } catch (_e) {}   // MISSION_RESERVE_V1
   const m = await missionForClass(c, cm.class_id, c.req.query('id') || undefined)
-  if (!m) return c.json({ ok: true, mission: null })
+  if (!m) return c.json({ ok: true, mission: null, upcoming })
   const t: any = await missionTopOf(c, m)
   const meT = (t.top || []).find((x: any) => x.uid === u.id)
-  return c.json({ ok: true, missionId: m.id, final: !!t.final, preview: t.preview || null,
+  return c.json({ ok: true, missionId: m.id, upcoming, final: !!t.final, preview: t.preview || null,
     top: (t.top || []).map((x: any) => ({ rank: x.rank, name: x.name, n: x.n, me: x.uid === u.id })),
     bonus: (t.final && meT) ? { rank: meT.rank, coins: meT.coins || 0, shards: meT.shards || 0, claimed: !!meT.claimed } : null })
 })
@@ -13563,11 +13581,12 @@ app.get('/teacher', (c) => {
               <div class="flex-1"><label class="text-xs font-bold text-gray-600">目標正解数</label><input id="cmGoal" type="number" value="1000" min="1" class="w-full border p-2 rounded text-sm"/></div>
               <div class="flex-1"><label class="text-xs font-bold text-gray-600">締切（任意）</label><input id="cmEnd" type="date" class="w-full border p-2 rounded text-sm"/></div>
             </div>
+            <div><label class="text-xs font-bold text-gray-600">⏰ 開始の予約（任意・空ならすぐ開始）</label><input id="cmStart" type="datetime-local" class="w-full border p-2 rounded text-sm"/></div>
             <div class="flex gap-2">
               <div class="flex-1"><label class="text-xs font-bold text-gray-600">ごほうび：コイン</label><input id="cmCoins" type="number" value="500" min="0" class="w-full border p-2 rounded text-sm"/></div>
               <div class="flex-1"><label class="text-xs font-bold text-gray-600">ごほうび：かけら</label><input id="cmShards" type="number" value="5" min="0" class="w-full border p-2 rounded text-sm"/></div>
             </div>
-            <button onclick="sendClassMission()" class="bg-purple-600 hover:bg-purple-700 text-white rounded px-4 py-2 font-bold text-sm">🎯 ミッション開始</button>
+            <button onclick="sendClassMission()" class="bg-purple-600 hover:bg-purple-700 text-white rounded px-4 py-2 font-bold text-sm">🎯 ミッション開始（予約）</button>
             <p id="cmMsg" class="text-sm"></p>
           </div>
         </div>
@@ -18132,7 +18151,7 @@ function _faKarteGraphs(d){
             var card = document.createElement('div');
             card.className = 'border rounded-lg p-3 mb-2 ' + (m.achieved ? 'bg-green-50 border-green-300' : 'bg-purple-50 border-purple-200');
             card.innerHTML = '<div class="flex items-center justify-between mb-1">'
-              + '<div class="font-bold text-sm">'+escH(m.title)+(m.achieved?' <span class="text-green-600">✅達成！</span>':'')+'</div>'
+              + '<div class="font-bold text-sm">'+escH(m.title)+(m.achieved?' <span class="text-green-600">✅達成！</span>':'')+(cmFuture(m.startAt)?' <span class="text-xs bg-sky-100 text-sky-700 rounded px-1">⏰ 予約：'+escH(cmJst(m.startAt))+' から</span>':'')+'</div>'
               + '<button class="text-xs text-red-400 hover:text-red-600" onclick="deleteClassMission(&#39;'+escH(m.id)+'&#39;)">削除</button>'
               + '</div>'
               + '<div class="text-xs text-slate-600 mb-1">クラス全員で <b>'+m.progress+'</b> / '+m.goalCorrect+' 問正解（'+pct+'%）</div>'
@@ -18144,6 +18163,9 @@ function _faKarteGraphs(d){
         }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
       }
 
+      // ⏰ MISSION_RESERVE_V1
+      function cmFuture(s){ try{ return s && Date.parse(String(s).replace(' ','T')+'Z') > Date.now(); }catch(e){ return false; } }
+      function cmJst(s){ try{ var d=new Date(Date.parse(String(s).replace(' ','T')+'Z')+9*3600000); return (d.getUTCMonth()+1)+'/'+d.getUTCDate()+'（'+'日月火水木金土'[d.getUTCDay()]+'）'+d.getUTCHours()+':'+String(d.getUTCMinutes()).padStart(2,'0'); }catch(e){ return String(s); } }
       async function sendClassMission(){
         var msg = document.getElementById('cmMsg');
         msg.textContent=''; msg.className='text-sm';
@@ -18153,11 +18175,13 @@ function _faKarteGraphs(d){
         var coins = parseInt(document.getElementById('cmCoins').value) || 0;
         var shards = parseInt(document.getElementById('cmShards').value) || 0;
         var endAt = document.getElementById('cmEnd').value || null;
+        var startAt = (document.getElementById('cmStart')||{}).value || null;
         if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
         if(goal < 1){ msg.textContent='目標正解数を入力してください'; msg.className='text-sm text-red-600'; return; }
         try{
-          await api('/api/teacher/class-mission',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,title:title,goalCorrect:goal,rewardCoins:coins,rewardShards:shards,endAt:endAt})});
-          msg.textContent='ミッションを開始しました！'; msg.className='text-sm text-green-700';
+          await api('/api/teacher/class-mission',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,title:title,goalCorrect:goal,rewardCoins:coins,rewardShards:shards,endAt:endAt,startAt:startAt})});
+          msg.textContent= startAt && cmFuture(new Date(Date.parse(startAt+':00+09:00')).toISOString().slice(0,19).replace('T',' ')) ? '⏰ '+cmJst(new Date(Date.parse(startAt+':00+09:00')).toISOString().slice(0,19).replace('T',' '))+' に 始まるように 予約しました！' : 'ミッションを開始しました！';
+          var _cs=document.getElementById('cmStart'); if(_cs) _cs.value=''; msg.className='text-sm text-green-700';
           document.getElementById('cmTitle').value='';
           loadClassMissions();
         }catch(e){ msg.textContent='エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
@@ -19355,7 +19379,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
   const menuPrev = menuNow ? null : await _tspOne(c, 'SELECT kanji_page AS kanjiPage, keisan_page AS keisanPage, other_tasks AS otherTasks, tests, week_key AS menuWeekKey, active_days AS activeDays FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1', [classId, prevWeekKey])
 
   // --- クラスミッション ---
-  const mission = await _tspOne(c, 'SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? ORDER BY created_at DESC LIMIT 1', [classId])
+  const mission = await _tspOne(c, 'SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1', [classId])
   const missionClaim = mission ? await _tspOne(c, 'SELECT 1 AS c FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1', [mission.id, studentId]) : null
 
   // --- ごほうびの通知（先生発ではないが児童画面には出る） ---
