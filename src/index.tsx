@@ -10829,7 +10829,13 @@ app.get('/api/teacher/class-missions', async (c) => {
   const missions: any[] = []
   for (const m of (rows.results || [])) {
     const progress = await countMissionProgress(c, classId, m.startAt, m.endAt)
-    missions.push({ ...m, progress, achieved: progress >= m.goalCorrect })
+    let top: any = null
+    if (missions.length < 3) try {
+      let rn: any = {}; try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
+      const t: any = await missionTopOf(c, { ...m, classId })   // MISSION_TOP_V1
+      top = { final: !!t.final, list: (t.top || []).map((x: any) => ({ rank: x.rank, name: String(rn[x.lid] || x.name || ''), n: x.n, coins: x.coins || (t.preview && t.preview[x.rank - 1] ? t.preview[x.rank - 1].coins : 0), claimed: !!x.claimed })) }
+    } catch (_e) {}
+    missions.push({ ...m, progress, achieved: progress >= m.goalCorrect, top })
   }
   return c.json({ ok: true, missions })
 })
@@ -10954,6 +10960,90 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
     return jsonError(c, 500, 'reward_apply_failed')
   }
   return c.json({ ok: true, rewardCoins, rewardShards })
+})
+
+// 🏅 MISSION_TOP_V1（2026-11-15 先生の指示）クラス共同ミッションで 活やくした トップ3を 出して、ボーナスを あげる
+//   ・トップ3＝ミッションの 期間に 正解した 数が 多い 3人（同じ数なら 先に とどいた人）
+//   ・ボーナス（ミッションを 達成した ときだけ）：コイン 1位 50%・2位 30%・3位 20%（ミッションの ごほうびに たいして）／かけら 3・2・1（かけらの ごほうびが ある とき）
+//   ・きまるのは しめきり（なければ 達成した とき）。きまったら class_mission_top に のこして かわらない
+const MT_RATE = [0.5, 0.3, 0.2], MT_SHARD = [3, 2, 1]
+async function ensureMissionTop(env: any) {
+  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS class_mission_top (mission_id TEXT NOT NULL, user_id TEXT NOT NULL, rank INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0, shards INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, PRIMARY KEY (mission_id, user_id))').run() } catch (_e) {}
+}
+async function missionTopLive(c: any, classId: string, startAt: string, endAt: string | null) {
+  let sql = `SELECT lr.user_id AS uid, u.name AS name, u.login_id AS lid, COUNT(*) AS n, MIN(lr.answered_at) AS f FROM learning_results lr
+    JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? JOIN users u ON u.id = lr.user_id AND u.role = 'student'
+    WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
+  const binds: any[] = [classId, startAt]
+  if (endAt) { sql += ` AND lr.answered_at <= ?`; binds.push(endAt) }
+  sql += ` GROUP BY lr.user_id ORDER BY n DESC, f ASC LIMIT 3`
+  const r: any = await c.env.DB.prepare(sql).bind(...binds).all()
+  return ((r && r.results) || []).map((x: any, i: number) => ({ rank: i + 1, uid: String(x.uid), name: String(x.name || ''), lid: String(x.lid || ''), n: Number(x.n) || 0 }))
+}
+// きまって いれば のこした トップ3、まだなら いまの トップ3
+async function missionTopOf(c: any, m: any) {
+  await ensureMissionTop(c.env)
+  const saved: any = await c.env.DB.prepare('SELECT t.user_id AS uid, t.rank, t.n, t.coins, t.shards, t.claimed_at, u.name, u.login_id AS lid FROM class_mission_top t JOIN users u ON u.id = t.user_id WHERE t.mission_id=? ORDER BY t.rank').bind(m.id).all()
+  const sv = (saved && saved.results) || []
+  if (sv.length) return { final: true, top: sv.map((x: any) => ({ rank: Number(x.rank), uid: String(x.uid), name: String(x.name || ''), lid: String(x.lid || ''), n: Number(x.n) || 0, coins: Number(x.coins) || 0, shards: Number(x.shards) || 0, claimed: !!x.claimed_at })) }
+  const ended = !!(m.endAt && Date.parse(String(m.endAt).replace(' ', 'T') + 'Z') - 9 * 3600000 < Date.now())
+  const prog = await countMissionProgress(c, m.classId, m.startAt, m.endAt, m.id, m.goalCorrect)
+  const achieved = prog >= Number(m.goalCorrect)
+  const top = await missionTopLive(c, m.classId, m.startAt, m.endAt)
+  if (achieved && (ended || !m.endAt) && String(m.startAt || '') >= '2026-11-15') {   // まえの ミッションには さかのぼって 出さない
+    for (const t of top) {
+      const coins = Math.round((Number(m.rewardCoins) || 0) * (MT_RATE[t.rank - 1] || 0) / 10) * 10
+      const shards = (Number(m.rewardShards) || 0) > 0 ? (MT_SHARD[t.rank - 1] || 0) : 0
+      try { await c.env.DB.prepare('INSERT OR IGNORE INTO class_mission_top (mission_id, user_id, rank, n, coins, shards) VALUES (?,?,?,?,?,?)').bind(m.id, t.uid, t.rank, t.n, coins, shards).run() } catch (_e) {}
+      ;(t as any).coins = coins; (t as any).shards = shards; (t as any).claimed = false
+    }
+    return { final: true, top }
+  }
+  return { final: false, top, preview: top.map((t: any) => ({ rank: t.rank, coins: Math.round((Number(m.rewardCoins) || 0) * (MT_RATE[t.rank - 1] || 0) / 10) * 10, shards: (Number(m.rewardShards) || 0) > 0 ? (MT_SHARD[t.rank - 1] || 0) : 0 })) }
+}
+async function missionForClass(c: any, classId: string, id?: string) {
+  const q = id ? 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE id=? AND class_id=? LIMIT 1'
+    : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? ORDER BY created_at DESC LIMIT 1'
+  return id ? await c.env.DB.prepare(q).bind(id, classId).first<any>() : await c.env.DB.prepare(q).bind(classId).first<any>()
+}
+app.get('/api/student/class-mission/top', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  const cm: any = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(u.id).first()
+  if (!cm) return c.json({ ok: true, mission: null })
+  const m = await missionForClass(c, cm.class_id, c.req.query('id') || undefined)
+  if (!m) return c.json({ ok: true, mission: null })
+  const t: any = await missionTopOf(c, m)
+  const meT = (t.top || []).find((x: any) => x.uid === u.id)
+  return c.json({ ok: true, missionId: m.id, final: !!t.final, preview: t.preview || null,
+    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: x.name, n: x.n, me: x.uid === u.id })),
+    bonus: (t.final && meT) ? { rank: meT.rank, coins: meT.coins || 0, shards: meT.shards || 0, claimed: !!meT.claimed } : null })
+})
+app.post('/api/student/class-mission/:id/top-claim', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  const cm: any = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(u.id).first()
+  if (!cm) return jsonError(c, 403, 'not_class_member')
+  const m = await missionForClass(c, cm.class_id, c.req.param('id'))
+  if (!m) return jsonError(c, 404, 'mission_not_found')
+  const t: any = await missionTopOf(c, m)
+  if (!t.final) return jsonError(c, 400, 'not_final')
+  const row: any = await c.env.DB.prepare('SELECT coins, shards, claimed_at FROM class_mission_top WHERE mission_id=? AND user_id=?').bind(m.id, u.id).first()
+  if (!row) return jsonError(c, 403, 'not_top')
+  const lock = await c.env.DB.prepare("UPDATE class_mission_top SET claimed_at=datetime('now') WHERE mission_id=? AND user_id=? AND claimed_at IS NULL").bind(m.id, u.id).run()
+  if (!lock.meta || lock.meta.changes === 0) return c.json({ ok: true, alreadyClaimed: true, rewardCoins: 0, rewardShards: 0 })
+  const coins = Number(row.coins) || 0, shards = Number(row.shards) || 0
+  try {
+    const prog: any = await c.env.DB.prepare('SELECT state_json FROM progress WHERE user_id=?').bind(u.id).first()
+    if (prog?.state_json) {
+      const state = JSON.parse(prog.state_json)
+      state.coins = (Number(state.coins) || 0) + coins
+      if (shards > 0) { if (!state.lab || typeof state.lab !== 'object') state.lab = { shards: 0, use: {} }; state.lab.shards = (Number(state.lab.shards) || 0) + shards }
+      await c.env.DB.prepare("UPDATE progress SET state_json=?, updated_at=datetime('now') WHERE user_id=?").bind(JSON.stringify(state), u.id).run()
+    }
+  } catch (e: any) {
+    try { await c.env.DB.prepare('UPDATE class_mission_top SET claimed_at=NULL WHERE mission_id=? AND user_id=?').bind(m.id, u.id).run() } catch (_e) {}
+    return jsonError(c, 500, 'reward_apply_failed')
+  }
+  return c.json({ ok: true, rewardCoins: coins, rewardShards: shards, rank: Number(t.top.find((x: any) => x.uid === u.id)?.rank) || 0 })
 })
 
 // -------------------- Pages (simple HTML endpoints) --------------------
@@ -11205,6 +11295,7 @@ app.get('/emoji-pack.js', async (c) => { try { const a = await c.env.ASSETS?.fet
 app.get('/hscheck.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hscheck.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSCHECK_V1
 app.get('/sakanobori.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/sakanobori.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // SAKANOBORI_V1
 app.get('/hsredo.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsredo.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HW_REDO_V1
+app.get('/missiontop.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/missiontop.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // MISSION_TOP_V1
 app.get('/hsextra.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/hsextra.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/pjgift.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/pjgift.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // HSEXTRA_V1
 app.get('/teishutsu.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/teishutsu.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })   // TEISHUTSU_V1
@@ -11472,7 +11563,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=5"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=5"></script><script src="/missiontop.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18046,7 +18137,8 @@ function _faKarteGraphs(d){
               + '</div>'
               + '<div class="text-xs text-slate-600 mb-1">クラス全員で <b>'+m.progress+'</b> / '+m.goalCorrect+' 問正解（'+pct+'%）</div>'
               + '<div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden"><div class="h-3 '+(m.achieved?'bg-green-500':'bg-purple-500')+'" style="width:'+pct+'%"></div></div>'
-              + '<div class="text-xs text-slate-500 mt-1">ごほうび: 💰'+m.rewardCoins+'コイン / 🔹'+m.rewardShards+'かけら'+(m.endAt?' ・締切 '+escH(String(m.endAt).slice(0,10)):'')+'</div>';
+              + '<div class="text-xs text-slate-500 mt-1">ごほうび: 💰'+m.rewardCoins+'コイン / 🔹'+m.rewardShards+'かけら'+(m.endAt?' ・締切 '+escH(String(m.endAt).slice(0,10)):'')+'</div>'
+              + ((m.top && m.top.list && m.top.list.length) ? '<div class="text-xs mt-1 bg-amber-50 border border-amber-200 rounded px-2 py-1">🏅 活やく トップ3' + (m.top.final ? '（きまり）' : '（いま）') + '：' + m.top.list.map(function(t){ return ['🥇','🥈','🥉'][t.rank-1] + escH(t.name) + ' ' + t.n + '問' + (t.coins ? '（+' + t.coins + '）' : '') + (t.claimed ? '✅' : ''); }).join('　') + '</div>' : '');   // MISSION_TOP_V1
             wrap.appendChild(card);
           }
         }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
