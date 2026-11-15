@@ -68,7 +68,7 @@
     o.innerHTML = '<div class="rb"><div class="rh"' + (it.late ? ' style="background:#c7d2fe"' : '') + '><span>' + (it.late ? '📮 ' + esc(md(it.dayKey)) + ' の 家庭学習を 出す（出しわすれ）' : '↩ ' + esc(md(it.dayKey)) + ' の 家庭学習を やり直す') + '</span><button type="button" class="rx" id="hrX">とじる</button></div><div class="rc">'
       + '<div style="display:flex;gap:8px;align-items:flex-start"><span class="face">' + face() + '</span><div class="say">'
       + (it.late ? '出しわすれに 気づいて えらいで！ いまから やって 出そか。タイマーを スタートして、やったことを「何を・どこまで」、ふりかえりは「自分の ことば」で 書いてな。' : '')
-      + (it.comment ? '先生から：' + esc(it.comment) + '\n\n' : '')
+      + (it.comment ? esc(it.comment) + '\n\n' : '')
       + (it.late ? '' : 'もう一回 チャレンジや！ タイマーを スタートして、やったことを「何を・どこまで」、ふりかえりは「自分の ことば」で 書いてな。') + '</div></div>'
       + (sch ? '<div style="margin-top:12px;background:#fee2e2;border-radius:12px;padding:10px;font-weight:900;color:#991b1b">🏫 いまは 学校の 時間だよ。やり直しは おうちに 帰ってから してね。</div>' : '')
       + '<div class="tm"><span style="font-size:26px">⏱</span><span style="flex:1"><span id="hrTime" style="display:block;font-size:22px;font-weight:900;color:#1e3a8a">0分00秒</span><span style="font-size:12px;color:#475569">5分いじょう はかると 出せるよ</span></span><button type="button" class="btn" id="hrStart"' + (sch ? ' disabled' : '') + '>▶ スタート</button></div>'
