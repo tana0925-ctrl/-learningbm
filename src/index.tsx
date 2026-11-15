@@ -7109,7 +7109,7 @@ app.post('/api/teacher/homework/:id/return', async (c) => {
       if (cm?.class_id) {
         const md = String(cur.day_key || '').slice(5).replace('-', '/').replace(/^0/, '').replace('/0', '/')
         await c.env.DB.prepare('INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)')
-          .bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher', cur.user_id, '↩ ' + md + ' の 家庭学習は 先生が 差し戻しました（このままだと ごほうび・先生PJの 練習試合は なし）。\n家庭学習の 画面の「↩ やり直す」から、おうちで タイマーを つかって、自分の ことばで もう一度 やり直せるよ（1週間 いない）。' + (comment ? '\n\n先生から：' + comment : '')).run()
+          .bind(crypto.randomUUID(), cm.class_id, u.id, 'teacher', cur.user_id, '↩ ' + md + ' の 家庭学習、もう一回 チャレンジしてみよう！\n家庭学習の 画面の「↩ やり直す」から、おうちで やり直せるよ（1週間 いない）。'   /* RETRY_SOFT_V1 「差し戻しました（ごほうびなし）」は 言わない */ + (comment ? '\n\n先生から：' + comment : '')).run()
       }
     } catch (e) { console.error('reject notify failed:', e) }
     return c.json({ ok: true, rejected: true })
@@ -11472,7 +11472,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=3"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=3"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=4"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -18519,7 +18519,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=32"></script>
+    <script src="/teacher-ai.js?v=33"></script>
     <script src="/teibako.js?v=11"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=14"></script><!-- PORTFOLIO_V1 📸 成果物 -->

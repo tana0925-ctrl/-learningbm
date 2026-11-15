@@ -37,7 +37,7 @@
       return;
     }
     c.style.borderColor = '#f87171'; c.style.background = 'linear-gradient(135deg,#fff1f2,#fff7ed)';
-    c.innerHTML = '<span style="font-size:28px">↩</span><span style="flex:1"><span style="display:block;font-weight:900;color:#b91c1c;font-size:16px">' + esc(md(it.dayKey)) + ' の 家庭学習が 差し戻されたよ</span>'
+    c.innerHTML = '<span style="font-size:28px">↩</span><span style="flex:1"><span style="display:block;font-weight:900;color:#b91c1c;font-size:16px">' + esc(md(it.dayKey)) + ' の 家庭学習、もう一回 チャレンジしよう！</span>'
       + '<span style="display:block;font-size:12.5px;color:#7c2d12">おうちで やり直すと、先生が 見て 返してくれるよ（先生PJの 練習試合も ひらく）。1週間いない・1回だけ。</span></span>'
       + '<span style="background:#ef4444;color:#fff;border-radius:12px;padding:8px 12px;font-weight:900">やり直す</span>';
   }
