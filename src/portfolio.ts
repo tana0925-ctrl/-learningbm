@@ -181,9 +181,9 @@ const IMG_HEADERS = (mime: string) => {
 // ── 📓 SHINBUN_WORKS_V1 この号の 成果物（くわしくは /api/teacher/portfolio/issue-works の 説明）──
 function ymdAdd(ymd: string, n: number) { return new Date(Date.parse(ymd + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10) }
 const WORK_SUBJ: [string, RegExp][] = [
-  ['算数', /[0-9０-９]+\s*[:：]\s*[0-9０-９]+|mL|ｍＬ|わり算|かけ算|分数|小数|計算|式|理解チェック|比の|線分図|数直線|面積|体積|グラフ/g],
-  ['社会', /浮世絵|蘭学|国学|江戸|解体新書|寺子屋|幕府|鎖国|歌舞伎|伊能忠敬|歴史|政治|憲法|貿易|武士|天皇|大名/g],
-  ['国語', /落語|狂言|古典|物語|作文|俳句|短歌|漢字|音読|説明文|登場人物|セリフ|段落/g],
+  ['算数', /[0-9０-９]+\s*[:：]\s*[0-9０-９]+|[0-9０-９]+\s*[°度]|mL|ｍＬ|わり算|かけ算|分数|小数|計算|式を|式で|式が|立式|理解チェック|比の|線分図|数直線|面積|体積|角度|拡大|縮図|縮小|比例/g],
+  ['社会', /浮世絵|蘭学|国学|江戸|解体新書|寺子屋|幕府|鎖国|歌舞伎|伊能忠敬|歴史|政治|憲法|貿易|武士|天皇|大名|ペリー|明治|開国|条約|維新|大政奉還|五箇条|廃藩置県|徴兵|自由民権|板垣|西郷|木戸|大久保|薩摩|長州|文明開化|富国強兵|国会|倒幕|植民地/g],
+  ['国語', /落語|狂言|古典|物語|作文|俳句|短歌|漢字|音読|説明文|登場人物|セリフ|段落|筆者|鳥獣戯画|文章|表現|書き出し/g],
   ['理科', /実験|観察|電気|水溶液|てこ|燃焼|植物|地層|発電|月と太陽|ふりこ|メダカ/g],
   ['図工', /図工|絵の具|彫刻刀|工作|デザイン/g],
   ['家庭', /調理|ミシン|裁縫|献立|栄養/g],
@@ -280,7 +280,8 @@ export async function issueWorksOf(env: any, classId: string, ws: string) {
     out.batches.push({ id: b.id, at: b.at, subj, title, topic, label, n: done.length, classWide })
     done.forEach((u) => {
       const k = b.kids[u]
-      k.work.forEach((w: string, i: number) => { by(u).works.push({ b: b.id, subj, title, topic, label, at: String(b.at).slice(0, 10), text: w.slice(0, 600), memo: String(k.memo[i] || k.memo[0] || '').slice(0, 400) }) })
+      k.work.forEach((w: string, i: number) => { const g1 = guessWorkSubj(w + ' ' + String(k.memo[i] || '')); const sj = (g1 && g1 !== subj) ? g1 : subj; const tt = (g1 && g1 !== subj) ? '' : title; by(u).works.push({ b: b.id, subj: sj, title: tt, topic, label: (g1 && g1 !== subj) ? sj + 'の 成果物' : label,   // SUBJ_FIX_V1 取りこみの 教科と 中身が ちがったら 中身で きめる
+ at: String(b.at).slice(0, 10), text: w.slice(0, 600), memo: String(k.memo[i] || k.memo[0] || '').slice(0, 400) }) })
     })
     if (classWide) roster.forEach((u) => { if (blank[u] || !b.kids[u] || !b.kids[u].work.length) by(u).missing.push({ b: b.id, at: b.at, subj, title, topic, label, blank: !!blank[u] }) })
   }

@@ -1026,7 +1026,7 @@
   function worksHtml(iw) {
     var all = (iw && iw.works) || [], ms = (iw && iw.missing) || [], h = '';
     /* 1つの 課題から 1つ。のせきれないときは 教科が かたよらないように えらぶ（新しい 課題から） */
-    var seenB = {}, uniq = []; all.forEach(function (w) { if (!seenB[w.b]) { seenB[w.b] = 1; uniq.push(w); } });
+    var seenB = {}, uniq = []; all.forEach(function (w) { var kb = w.b + '|' + (w.subj || ''); if (!seenB[kb]) { seenB[kb] = 1; uniq.push(w); } });   /* SUBJ_FIX_V1 1つの 取りこみに 教科が まざっていたら 教科ごとに 1つ */
     var bySj = {}, sjs = []; uniq.slice().reverse().forEach(function (w) { var k = w.subj || '?'; if (!bySj[k]) { bySj[k] = []; sjs.push(k); } bySj[k].push(w); });
     var ws2 = [], more = 0; for (var r = 0; ws2.length < uniq.length; r++) { var got = false; sjs.forEach(function (k) { if (bySj[k][r]) { ws2.push(bySj[k][r]); got = true; } }); if (!got) break; }
     if (ws2.length > 3) { more = ws2.length - 3; ws2 = ws2.slice(0, 3); }
