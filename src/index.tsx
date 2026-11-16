@@ -4348,6 +4348,16 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
       })
     }
   } catch (e) { console.error('KARTE_ADD_V1 先週のアプリ学習が読めません', e) }
+  // MISSQ_V1（2026-11-16）号の 週から あとに まちがえた 問題（きみクイズ用）。こたえが のこっている ものだけ 使える
+  let missQ: any[] = []
+  try {
+    const _pr: any = await c.env.DB.prepare('SELECT state_json FROM progress WHERE user_id=?').bind(studentId).first()
+    const _bq = _pr && _pr.state_json ? ((JSON.parse(_pr.state_json).metrics || {}).learn || {}).byQuestion || {} : {}
+    const _from = Date.parse(_isFromUtc + 'Z')
+    missQ = Object.keys(_bq).map((k) => ({ q: k, ...(_bq[k] || {}) })).filter((x: any) => Number(x.wrong) > 0 && Number(x.last) >= _from)
+      .sort((a: any, b: any) => (Number(b.wrong) - Number(a.wrong)) || (Number(b.last) - Number(a.last))).slice(0, 15)
+      .map((x: any) => ({ q: String(x.q), a: x.a != null ? String(x.a) : '', op: Array.isArray(x.op) ? x.op.map(String) : null, unit: String(x.unitName || ''), wrong: Number(x.wrong) || 0 }))
+  } catch (e) {}
   // 先週の図鑑・タイプシュート・野生。該当者が週1〜2人しかいないので、あった子にだけ紙に出す。
   let lastWeekSpecial: any = null
   try {
@@ -4522,7 +4532,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     revisions: (revisions.results || []).slice(0, 30),
     recentSubmissions: subs.slice(0, 15),
     planSuggestion, mi: miInfo, aiComment: aiComment2, aiCommentMeta,
-    lastWeek, lastWeekSpecial, prevAsk,   // KARTE_ADD_V1
+    lastWeek, lastWeekSpecial, prevAsk, missQ,   // KARTE_ADD_V1 / MISSQ_V1
     rankPt,   // SHINBUN_RANK_V1
     karteHist, classId: michiClassId, hanshinAnswers,     // MICHI_V1 / HANSHIN_Q_V1
     neta,   // __SHINBUN_NETA_V1__
@@ -18639,7 +18649,7 @@ function _faKarteGraphs(d){
     <script src="/teibako.js?v=11"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=15"></script><!-- PORTFOLIO_V1 📸 成果物 -->
-    <script src="/karte-shinbun.js?v=11"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
+    <script src="/karte-shinbun.js?v=12"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=11"></script>
     <script src="/shinbun_nudge.js?v=3"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->

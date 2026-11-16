@@ -16003,6 +16003,9 @@ apiJson('/api/student/results', {
     M.learn.byUnit[mode].total++;
     if(isCorrect) M.learn.byUnit[mode].correct++;
 
+    // MISSQ_V1（2026-11-16）カルテ新聞の「きみクイズ」で まちがえた 問題を 出すため、こたえと 選択肢も のこす
+    var __qa = '', __qo = null;
+    try{ if(typeof trainingQ !== 'undefined' && trainingQ){ if(trainingQ.ans != null) __qa = String(trainingQ.ans).slice(0,40); if(Array.isArray(trainingQ.options)) __qo = trainingQ.options.slice(0,4).map(function(o){ return String(o && typeof o === 'object' ? (o.text || o.label || o.value || '') : o).slice(0,30); }).filter(Boolean); } }catch(e){}
     // mistakes byQuestion (only count wrong)
     if(!isCorrect && qText){
       if(!M.learn.byQuestion[qText]) M.learn.byQuestion[qText] = { wrong:0, total:0, last: now, mode, unitName: info.unitName };
@@ -16012,6 +16015,7 @@ apiJson('/api/student/results', {
       q.last = now;
       q.mode = mode;
       q.unitName = info.unitName;
+      if(__qa){ q.a = __qa; if(__qo && __qo.length >= 2) q.op = __qo; }
 
       // cap unique questions to 200 (evict oldest)
       const keys = Object.keys(M.learn.byQuestion);
@@ -16024,6 +16028,7 @@ apiJson('/api/student/results', {
       if(!M.learn.byQuestion[qText]) M.learn.byQuestion[qText] = { wrong:0, total:0, last: now, mode, unitName: info.unitName };
       M.learn.byQuestion[qText].total++;
       M.learn.byQuestion[qText].last = now;
+      if(__qa){ M.learn.byQuestion[qText].a = __qa; if(__qo && __qo.length >= 2) M.learn.byQuestion[qText].op = __qo; }
     }
   }catch(e){}
 }

@@ -41,6 +41,18 @@
     }
     return t + '…';
   }
+  /* SHINBUN_HEAD_V1（2026-11-16）大見出しは「…」で 切らない。文や 句の きれめで 短い 1かたまりを えらぶ。
+     ・まるごと 入れば そのまま。入らなければ「。！？、」「けど・から・ので」の あとで 区切り、
+       うしろの ほう（しめくくり）から 5〜n 文字の かたまりを えらぶ。なければ ''（呼ぶ側で 事実の 見出しに する） */
+  function headPick(s, n) {
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[。、,.]+$/, '');
+    if (!s) return '';
+    if (s.length <= n && unbalancedAt(s) < 0) return s;
+    var parts = s.replace(/([。！？!?、])/g, '$1\n').replace(/(けれど|けど|から|ので|のに)(?=[^\n、。])/g, '$1\n').split('\n')
+      .map(function (x) { return x.trim().replace(/^[、。,\s]+/, '').replace(/[、。,]+$/, '').replace(/(けれど|けど|が)$/, ''); })
+      .filter(function (x) { return x.length >= 5 && x.length <= n && unbalancedAt(x) < 0 && !/[「」『』（）()]/.test(x.replace(/^「[^」]*」$/, '')); });
+    return parts.length ? parts[parts.length - 1] : '';
+  }
   function cutS(s, n) {   // 文の きれめ（。）で 切る。なければ cut
     s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
     if (s.length <= n) return s;
@@ -151,12 +163,14 @@
     var ai = noAi ? null : c.ai, d = c.d, q = bestQuote(rows);
     if (ai && ai.head && ai.top) {
       var paras = String(ai.top).split(/\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
-      return { head: cut(ai.head, 24), sub: cut(ai.sub, 40), body: paras.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '文・阪神マン記者（本人の 記録と ふりかえりから）', ai: true, len: String(ai.top).length };
+      var _ah = headPick(ai.head, 24) || headPick(ai.sub, 24) || ('今週は ' + facts.days + '日 とりくんだ');
+      return { head: _ah, sub: cut(ai.sub, 40), body: paras.map(function (p) { return '<p>' + esc(p) + '</p>'; }).join(''), by: '文・阪神マン記者（本人の 記録と ふりかえりから）', ai: true, len: String(ai.top).length };
     }
     // AIの記事が無い週：記録の事実だけで作る
     var P = [], head = '', sub = '';
     if (facts.days > 0) {
-      head = q ? qq(cut(q.q, 18)) : ('今週は ' + facts.days + '日 とりくんだ');
+      var _qh = q ? headPick(q.q, 18) : '';
+      head = _qh ? qq(_qh) : ('今週は ' + facts.days + '日 とりくんだ');
       sub = (q ? q.r.wd + '曜日の ふりかえりより ／ ' : '') + '5日のうち ' + facts.days + '日・合わせて ' + facts.minutes + '分';
       P.push('先週は 5日のうち ' + facts.days + '日、合わせて ' + facts.minutes + '分 家庭学習に とりくんだ。' + (facts.longest ? 'いちばん 長かったのは ' + facts.longest.wd + '曜日の ' + facts.longest.m + '分。' : ''));
       var vs = rows.filter(function (r) { return r.s && quoteOf(r.s); }).map(function (r) { return r.wd + '曜日は' + qq(cut(quoteOf(r.s), 34)); });
@@ -663,15 +677,27 @@
     if (facts.days >= 2 && wc[wk[0]] > wc[wk[1]]) Q.push(['wx', '先週の きもちの 天気で、いちばん 多かったのは？', WXJ[wk[0]], ['sun', 'cloud', 'rain'].map(function (k) { return WXJ[k]; })]);
     var fn = global._subjectArea, st = {}, SN = { math: '算数', jp: '国語', soc: '社会', sci: '理科', eng: '英語' };
     if (typeof fn === 'function') { (d.subjects || []).forEach(function (x) { var k = fn(x.unit); if (k && SN[k]) st[k] = (st[k] || 0) + (Number(x.total) || 0); }); var sk = Object.keys(st).sort(function (a, b) { return st[b] - st[a]; }); if (sk.length >= 2 && st[sk[0]] > st[sk[1]]) { var ch = sk.slice(0, 3).map(function (k) { return SN[k]; }); if (ch.length < 3) ch.push(['算数', '国語', '社会', '理科'].filter(function (x) { return ch.indexOf(x) < 0; })[0]); Q.push(['sbj', '4月から アプリで いちばん たくさん 修行した 教科は？', SN[sk[0]], ch]); } }
-    var qs = shuf(Q.filter(function (q) { return !old('quiz:' + q[0] + ':' + nk(q[2])); }), seed).slice(0, 3);
+    /* MISSQ_V1（2026-11-16 先生の指示）まちがえた 問題を 先に 出す（こたえが のこっている ものだけ）。足りない ぶんは 記録クイズ */
+    var MQ = [];
+    (d.missQ || []).forEach(function (m) {
+      var qt = String(m.q || '').replace(/\s*\n\s*/g, ' ').trim(), a = String(m.a || '').trim();
+      if (!qt || !a || qt.length > 90 || /…$/.test(qt)) return;
+      var op = Array.isArray(m.op) ? m.op.map(function (x) { return String(x).trim(); }).filter(Boolean) : [];
+      if (op.length >= 2 && op.indexOf(a) < 0) op = [];
+      if (op.length > 4) op = [a].concat(shuf(op.filter(function (x) { return x !== a; }), seed).slice(0, 3));
+      MQ.push(['miss', qt + (m.unit ? '（' + m.unit + '）' : ''), a, op, 1]);
+    });
+    MQ = MQ.filter(function (q) { return !old('quiz:miss:' + nk(q[1])); }).slice(0, 3);
+    var qs = MQ.concat(shuf(Q.filter(function (q) { return !old('quiz:' + q[0] + ':' + nk(q[2])); }), seed).slice(0, 3 - MQ.length));
     if (!qs.length) return '';
-    var MK = ['ア', 'イ', 'ウ'], ans = [];
+    var MK = ['ア', 'イ', 'ウ', 'エ'], ans = [];
     var h = qs.map(function (q, i) {
-      var cs = shuf(q[3], seed + i * 7);
-      ans.push((i + 1) + '…' + MK[cs.indexOf(q[2])]);
-      return '<div class="qz"><b>Q' + (i + 1) + '</b> ' + esc(q[1]) + '<div class="ch">' + cs.map(function (x, j) { return '<span>' + MK[j] + ' ' + esc(x) + '</span>'; }).join('') + '</div></div>';
+      var hasCh = q[3] && q[3].length >= 2;
+      var cs = hasCh ? shuf(q[3], seed + i * 7) : [];
+      ans.push((i + 1) + '…' + (hasCh ? MK[cs.indexOf(q[2])] : q[2]));
+      return '<div class="qz"><b>Q' + (i + 1) + '</b> ' + (q[4] ? '<span class="mute">🔁まちがえた問題</span> ' : '') + esc(q[1]) + (hasCh ? '<div class="ch">' + cs.map(function (x, j) { return '<span>' + MK[j] + ' ' + esc(x) + '</span>'; }).join('') + '</div>' : '<div class="ch"><span>こたえ：（　　　　　）</span></div>') + '</div>';
     }).join('') + '<div class="ans">こたえ　' + ans.join('　') + '</div>';
-    return tag(sec('きみクイズ', h, 2, 'quiz', '自分の 記録から 出題'), qs.map(function (q) { return use('quiz:' + q[0] + ':' + nk(q[2])); }));
+    return tag(sec('きみクイズ', h, 2, 'quiz', MQ.length ? 'まちがえた 問題に もう一回 チャレンジ' : '自分の 記録から 出題'), qs.map(function (q) { return use(q[4] ? 'quiz:miss:' + nk(q[1]) : 'quiz:' + q[0] + ':' + nk(q[2])); }));
   }
 
   // ───────── 見た目 ─────────
@@ -889,6 +915,55 @@
     var B = shuf([interviewSec(c, ws), compareSec(c, facts, rows), '<!--PF_WORK-->', backSec(c), yokokuSec(c), classSec(c), leagueSec(c), rewardSec(c), trainSec(c), monthSec(c), moodSec(c), subjSec(c), unitsSec(c), specialSec(c), wisdomSec(c), cando(c), ayumiSec(c), teacherSec(c)], seed + 2).concat([tipsSec(ws), switchSec(ws)]).join('');
     var afk = c.ai && c.ai.after ? 'after:' + nk(c.ai.after) : '';
     var after = afk && !old(afk) ? '<div class="after" data-nk="' + esc(use(afk)) + '"><b>編集後記</b>　' + esc(cut(c.ai.after, 90)) + '（阪神マン）</div>' : '';
+    /* JOGEN_V1（2026-11-16 先生の指示）さいごに 阪神マンからの 声かけ。「何のために やるのか」を 自分で 考えられる ように。
+       号ごとに ちがう ことば（前の号までに 出した ものは 出さない）。その子の 1週間に あわせて えらぶ */
+    var JG = {
+      any: [
+        '家庭学習は、先生に 出すために やるんや ない。「できるように なりたい 自分」のために やるんや。今週は 何が できるように なりたい？',
+        'やり方は 1つや ない。時間・場所・順番、自分に 合う やり方を えらんで ええ。うまく いかんかったら 変えたら ええんや。',
+        'まちがいは「ここを 直せば もっと できる」って 教えてくれる 地図や。まちがえた ところこそ、宝物やで。',
+        '人と くらべんで ええ。くらべるのは「先週の 自分」と「今週の 自分」だけや。',
+        'こまったら「助けて」って 言える人は 強い。わからんことを 聞くのも、りっぱな 学びやで。',
+        '「なんのために やるんやろ？」って 考えてみてな。目的が わかると、やることが 自分で 決められるように なるで。',
+        '決められた ことを やるより、自分で 決めた ことを やる方が 力に なる。来週の 作戦、自分で 決めてみよ。',
+        '計画どおりに いかん 日も ある。それで ええ。大事なのは「なんで うまく いかんかったか」を 考えて、次に 生かすことや。',
+        '勉強は、だれかに ほめられる ためや なくて、未来の 自分が こまらん ためにやる。未来の 自分に プレゼントを おくろう。',
+        '「やらされる 勉強」より「やりたい 勉強」。好きな ことと つなげられたら、もっと おもしろく なるで。',
+        'うまく いった ことを 1つ 見つけよう。そこから 次の 一歩が 見えてくる。',
+        'わからんかったら、ちがう やり方で ためして ええ。図に かく、声に 出す、だれかに 説明する…手は いっぱい あるで。',
+        '時間の 長さより、「何が できるように なったか」が 大事や。10分でも、目的が はっきりしてたら 大成功や。',
+        '友だちが こまってたら、教えてあげるのも 学びや。人に 説明できたら、ほんまに わかった ってことやで。',
+        'まわりの 人と ちがう やり方でも ええ。みんな ちがって、みんな ええ。自分に 合う 道を さがそう。',
+        '失敗しても やりなおせる。やりなおした 経験は、つぎに こまったときの 力に なるで。',
+        '「宿題だから」やなくて「自分が のびたいから」。そう 思えた日は、ぐんと 伸びる日や。',
+        'がんばれん 日が あっても ええ。休むのも 作戦の 1つや。でも「なぜ 休むか」は 自分で 決めよな。',
+        '今週の ふりかえり、自分の ことばで 書けてたかな？ 自分の ことばで 書けたら、それが 自分の 学びに なるで。',
+        '先生や 阪神マンが いなくても 学べる人に なろう。それが ほんまの「自分で 学ぶ 力」や。'
+      ],
+      few: [
+        '思うように すすまない 週が あっても だいじょうぶ。「どうしたら できそうか」を 1つ 考えたら、それが スタートや。',
+        '毎日 やることが 目的や ない。「できるように なる」ための 作戦を、自分で 立てなおしてみよ。',
+        '5分だけでも ええ。小さく はじめて、「できた」を 1つ つくろう。そこから 道が ひらけるで。'
+      ],
+      many: [
+        'よう つづけたな！ つづけられた わけを 自分で 説明できたら、それは 一生 使える 力やで。',
+        'たくさん やれたな。次は「何が できるように なったか」に 目を 向けてみよ。量の つぎは 中身や。',
+        'つづける 力が ついてきたな。次は「なんのために」を 意識すると、もっと 伸びるで。'
+      ],
+      miss: [
+        'クイズの まちがえた 問題、もう一回 といてみてな。2回目に できたら、それが ほんまの「わかった」や。',
+        'まちがえた 問題は「のびしろ」や。どこで まちがえたか 分かったら、もう 半分 できてるで。'
+      ]
+    };
+    var _pool = [];
+    if (facts.days <= 2) _pool = _pool.concat(JG.few.map(function (x) { return x; }));
+    if (facts.days >= 5) _pool = _pool.concat(JG.many);
+    if ((d.missQ || []).some(function (m) { return m && m.a; })) _pool = _pool.concat(JG.miss);
+    _pool = _pool.concat(shuf(JG.any, seed + 11));
+    var _jg = '';
+    for (var ji = 0; ji < _pool.length; ji++) { if (!old('jogen:' + nk(_pool[ji]))) { _jg = _pool[ji]; break; } }
+    if (!_jg) _jg = JG.any[(seed >>> 0) % JG.any.length];
+    var jogen = '<div class="after" data-nk="' + esc(use('jogen:' + nk(_jg))) + '" style="border:2px solid var(--acc,#7c3aed);border-radius:10px;padding:8px 12px;margin-top:8px;font-size:15px;line-height:1.7"><b>🐯 阪神マンから ひとこと</b><br>' + esc(_jg) + '</div>';
     var foot = function (n) { return '<div class="foot"><span>LearningBM ／ 道しるべ新聞（学びの道しるべ）</span><span>' + n + '面</span></div>'; };
 
     checkNums(c, d, facts, ta, nm);   /* SHINBUN_ISSUE_V1 数の 食いちがいを 先生に 知らせる */
@@ -898,7 +973,7 @@
     return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>道しるべ新聞</title><style>' + CSS + '</style></head><body>' +
       '<div class="pg np" data-uid="' + esc(uid) + '" style="--acc:' + acc + '">' + mast + top + '<div class="flow">' + F + '</div>' + memo + foot(1) + '</div>' +
       '<div class="pg np last" data-uid="' + esc(uid) + '" style="--acc:' + acc + '"><div class="mast"><div class="mc" style="font-size:19px;font-weight:800;flex:1">道しるべ新聞　2面</div><div class="no">今週の 主役　' + esc(nm) + ' さん<br>' + esc(ja(days[0])) + '〜' + esc(ja(days[4])) + '号</div></div>' +
-      '<div class="flow">' + B + '</div>' + after + foot(2) + '</div>' + FIT +
+      '<div class="flow">' + B + '</div>' + after + jogen + foot(2) + '</div>' + FIT +
       (WARN.length ? '<script type="application/json" class="shinbun-warn">' + JSON.stringify({ name: nm, warn: WARN }).replace(/</g, '\\u003c') + '<\/script>' : '') +
       (uid ? '<script type="application/json" class="neta-v" data-head="' + esc(ta.head) + '" data-uid="' + esc(uid) + '" data-ws="' + esc(ws) + '">' + JSON.stringify(NT.used).replace(/</g, '\\u003c') + '<\/script>' + SAVE : '') + '</body></html>';
   }
