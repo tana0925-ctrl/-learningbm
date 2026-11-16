@@ -45,11 +45,11 @@
      ・まるごと 入れば そのまま。入らなければ「。！？、」「けど・から・ので」の あとで 区切り、
        うしろの ほう（しめくくり）から 5〜n 文字の かたまりを えらぶ。なければ ''（呼ぶ側で 事実の 見出しに する） */
   function headPick(s, n) {
-    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[。、,.]+$/, '');
+    s = String(s == null ? '' : s).replace(/\s*\n\s*/g, '。').replace(/\s+/g, ' ').trim().replace(/[。、,.]+$/, '');
     if (!s) return '';
     if (s.length <= n && unbalancedAt(s) < 0) return s;
-    var parts = s.replace(/([。！？!?、])/g, '$1\n').replace(/(けれど|けど|から|ので|のに)(?=[^\n、。])/g, '$1\n').split('\n')
-      .map(function (x) { return x.trim().replace(/^[、。,\s]+/, '').replace(/[、。,]+$/, '').replace(/(けれど|けど|が)$/, ''); })
+    var parts = s.replace(/([。！？!?、])/g, '$1\n').replace(/(けれど|けど|から|ので|のに|たし|だし)(?=[^\n、。])/g, '$1\n').split('\n')
+      .map(function (x) { return x.trim().replace(/^[、。,\s]+/, '').replace(/[、。,]+$/, '').replace(/(けれど|けど|が)$/, '').replace(/(た|だ)し$/, '$1').replace(/(から|ので|のに)$/, ''); })
       .filter(function (x) { return x.length >= 5 && x.length <= n && unbalancedAt(x) < 0 && !/[「」『』（）()]/.test(x.replace(/^「[^」]*」$/, '')); });
     return parts.length ? parts[parts.length - 1] : '';
   }
@@ -170,10 +170,11 @@
     var P = [], head = '', sub = '';
     if (facts.days > 0) {
       var _qh = q ? headPick(q.q, 18) : '';
+      if (!_qh) { rows.filter(function (r) { return r.s && quoteOf(r.s); }).some(function (r) { var h0 = headPick(quoteOf(r.s), 18); if (h0) { _qh = h0; q = { q: quoteOf(r.s), r: r }; return true; } return false; }); }
       head = _qh ? qq(_qh) : ('今週は ' + facts.days + '日 とりくんだ');
       sub = (q ? q.r.wd + '曜日の ふりかえりより ／ ' : '') + '5日のうち ' + facts.days + '日・合わせて ' + facts.minutes + '分';
       P.push('先週は 5日のうち ' + facts.days + '日、合わせて ' + facts.minutes + '分 家庭学習に とりくんだ。' + (facts.longest ? 'いちばん 長かったのは ' + facts.longest.wd + '曜日の ' + facts.longest.m + '分。' : ''));
-      var vs = rows.filter(function (r) { return r.s && quoteOf(r.s); }).map(function (r) { return r.wd + '曜日は' + qq(cut(quoteOf(r.s), 34)); });
+      var vs = rows.filter(function (r) { return r.s && quoteOf(r.s); }).map(function (r) { var h1 = headPick(quoteOf(r.s), 34); return h1 ? r.wd + '曜日は' + qq(h1) : ''; }).filter(Boolean);   /* SHINBUN_HEAD_V2 本文の 引用も「…」で 切らない */
       if (vs.length) P.push('ふりかえりには、' + vs.slice(0, 3).join('、') + 'と 書いている。');
     }
     var lw = d.lastWeek || {};
