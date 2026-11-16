@@ -44013,7 +44013,7 @@ function hsGetFirstDayOfWeek830(weekKeyStr){
   var dayOfWeek = jan4.getDay() || 7;
   var mon = new Date(jan4);
   mon.setDate(jan4.getDate() - dayOfWeek + 1 + (w - 1) * 7);
-  return hsGetDayKey830(mon);
+  return hsFormatYMD(mon);   /* FBWEEK_FIX_V1 2026-11-16 月曜0:00を 8:30ルールで 日曜にして、1週 前の 日付に ずれていた */
 }
 
 async function hsFetchWeeklyMenu(dayKey){
