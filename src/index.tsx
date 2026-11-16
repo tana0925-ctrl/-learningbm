@@ -4119,6 +4119,7 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
 
   // ストリーク計算
   const dayKeys = [...new Set(subs.map((s: any) => s.day_key).filter(Boolean))].sort()
+  const _skKeys = [...new Set(subs.filter((s: any) => s.day_key).map(hwSK))]   // PLANREST_V1
   let currentStreak = 0
   let maxStreak = 0
   const streaksList: { start: string, end: string, length: number }[] = []
@@ -4143,8 +4144,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
   //   土日・祝日・学校独自の休みはとばす／その日に出していたら数える／今日はまだ数えない。
   //   上にある『これまでの連続の一覧』は今までどおりのまま残してある。
   const _hwRest = await hwClassRestOfUser(c.env, String(studentId))   // __HW_CLASSREST_V1__
-  currentStreak = hwStreakCurrent(dayKeys, khtTodayKey(Date.now()), _hwRest)
-  maxStreak = hwStreakMax(dayKeys, _hwRest)
+  currentStreak = hwStreakCurrent(_skKeys, khtTodayKey(Date.now()), _hwRest)
+  maxStreak = hwStreakMax(_skKeys, _hwRest)
 
   // 月別トレンド
   const mMap: Record<string, { count: number, totalMin: number, sun: number, weatherTotal: number }> = {}
@@ -4475,8 +4476,8 @@ app.get('/api/teacher/student-full-analysis', async (c) => {
     ws: _lwFrom, we: _lwTo,
     after: _lwAfter,   // 号の あとに といた 問題（単元ごと）
     totalSubmissions: _asofSub.length,   // 数え方は overview・月ごとの グラフと 同じ
-    curStreak: hwStreakCurrent([...new Set(_asofSub.map((x: any) => x.day_key).filter(Boolean))], khtAddDay(_lwTo, 1), _hwRest),
-    maxStreak: hwStreakMax([...new Set(_asofSub.map((x: any) => x.day_key).filter(Boolean))], _hwRest),
+    curStreak: hwStreakCurrent([...new Set(_asofSub.filter((x: any) => x.day_key).map(hwSK))], khtAddDay(_lwTo, 1), _hwRest),
+    maxStreak: hwStreakMax([...new Set(_asofSub.filter((x: any) => x.day_key).map(hwSK))], _hwRest),
   }
   /* 📰 PJ_LG_NEWS_V1（2026-11-12）この号の 週の 先生PJ リーグ戦（チームの 名前と 勝ち負けだけ。子どもの 名前は のせない） */
   const league: any[] = []
@@ -6015,7 +6016,7 @@ app.get('/api/teacher/factor-analysis', async (c) => {
   } catch {}
   const subsByStu: Record<string, any[]> = {}
   try {
-    const rows = (((await c.env.DB.prepare("SELECT user_id, day_key, minutes, end_weather, weather_reason, next_improve FROM homework_submissions WHERE user_id IN " + memQ + " AND day_key >= ?").bind(classId, fyStart).all<any>()).results) || [])
+    const rows = (((await c.env.DB.prepare("SELECT user_id, day_key, minutes, end_weather, weather_reason, next_improve, rest_day FROM homework_submissions WHERE user_id IN " + memQ + " AND day_key >= ?").bind(classId, fyStart).all<any>()).results) || [])
     for (const r of rows) (subsByStu[r.user_id] = subsByStu[r.user_id] || []).push(r)
   } catch {}
   const DAY = 86400000
@@ -6035,7 +6036,7 @@ app.get('/api/teacher/factor-analysis', async (c) => {
       f.subRate = exp > 0 ? Math.min(100, Math.round(days.length / exp * 100)) : null
       let maxStreak = 0, run = 0, prev = ''
       for (const dk of days) { if (prev && Math.round((dms(dk) - dms(prev)) / DAY) === 1) run++; else run = 1; if (run > maxStreak) maxStreak = run; prev = dk }
-      f.streak = hwStreakMax(days, _hwRestC2)   // __HW_CLASSREST_V1__
+      f.streak = hwStreakMax([...new Set(subs.filter((s: any) => s.day_key).map(hwSK))], _hwRestC2)   // PLANREST_V1   // __HW_CLASSREST_V1__
       const totMin = subs.reduce((a: number, s: any) => a + Number(s.minutes || 0), 0)
       f.totMin = totMin; f.avgMin = subs.length ? Math.round(totMin / subs.length) : null
       let sun = 0, wt = 0; for (const s of subs) { if (s.end_weather) { wt++; if (s.end_weather === 'sun') sun++ } }
@@ -6099,7 +6100,7 @@ app.get('/api/teacher/learning-analytics', async (c) => {
   const members = (((await c.env.DB.prepare('SELECT u.id, u.login_id as loginId, u.name FROM class_members cm JOIN users u ON u.id=cm.user_id WHERE cm.class_id=? AND u.role=?').bind(classId, 'student').all<any>()).results) || [])
   const total = members.length
   const memQ = '(SELECT user_id FROM class_members WHERE class_id=?)'
-  const subs = (((await c.env.DB.prepare('SELECT user_id, day_key, minutes, end_weather, weather_reason, submitted_at FROM homework_submissions WHERE user_id IN ' + memQ + ' ORDER BY day_key').bind(classId).all<any>()).results) || [])
+  const subs = (((await c.env.DB.prepare('SELECT user_id, day_key, minutes, end_weather, weather_reason, submitted_at, rest_day FROM homework_submissions WHERE user_id IN ' + memQ + ' ORDER BY day_key').bind(classId).all<any>()).results) || [])
   const _laFy = fyStartYMD()
   const [unitAgg, perStuLR, hourAgg] = await Promise.all([
     c.env.DB.prepare("SELECT unit, COUNT(*) as t, SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) as cc FROM learning_results WHERE user_id IN " + memQ + " AND answered_at >= ? GROUP BY unit").bind(classId, _laFy).all<any>().catch(() => ({ results: [] })),
@@ -6113,6 +6114,8 @@ app.get('/api/teacher/learning-analytics', async (c) => {
   // Area1 continuity
   const byStu: Record<string, string[]> = {}
   for (const s of subs) { if (!s.day_key) continue; (byStu[s.user_id] = byStu[s.user_id] || []).push(s.day_key) }
+  const byStuSK: Record<string, string[]> = {}   // PLANREST_V1
+  for (const s of subs) { if (!s.day_key) continue; (byStuSK[s.user_id] = byStuSK[s.user_id] || []).push(hwSK(s)) }
   const _hwRestC = await hwClassRest(c.env, String(classId))   // __HW_CLASSREST_V1__
   const perStudent = members.map((m: any) => {
     const days = Array.from(new Set(byStu[m.id] || [])).sort()
@@ -6124,8 +6127,9 @@ app.get('/api/teacher/learning-analytics', async (c) => {
     const prev7 = days.filter(dk => { const a = todayMs - dkMs(dk); return a > 7 * dayMs && a <= 14 * dayMs }).length
     const dropping = (prev7 >= 2 && recent7 <= Math.floor(prev7 / 2)) || (prev7 >= 3 && recent7 === 0)
     // 2026-09-30: 連続日数の数え方を1本に統一した（カルテと同じ）。
-    currentStreak = hwStreakCurrent(days, khtTodayKey(Date.now()), _hwRestC)   // __HW_CLASSREST_V1__
-    maxStreak = hwStreakMax(days, _hwRestC)
+    const _skd = Array.from(new Set(byStuSK[m.id] || []))   // PLANREST_V1
+    currentStreak = hwStreakCurrent(_skd, khtTodayKey(Date.now()), _hwRestC)   // __HW_CLASSREST_V1__
+    maxStreak = hwStreakMax(_skd, _hwRestC)
     return { userId: m.id, name: m.name, loginId: m.loginId, submissions: days.length, currentStreak, maxStreak, recent7, prev7, dropping }
   })
   const droppingStudents = perStudent.filter((p: any) => p.dropping).map((p: any) => ({ userId: p.userId, name: p.name, loginId: p.loginId, recent7: p.recent7, prev7: p.prev7 }))
@@ -6467,7 +6471,7 @@ app.post('/api/homework/submit', async (c) => {
     String(body.endWeather || 'sun'),
     String(body.weatherReason || '').slice(0, 500),
     String(body.nextImprove || '').slice(0, 500),
-    body.restDay ? 1 : 0,
+    body.restDay ? 1 : await hwPlanRestCode(c.env, u.id, dayKey, body),   // PLANREST_V1 2=休みの日（作戦） 3=週2日を こえた 休み
     Number(body.streakAfter || 0),
     String(body.rewardKind || 'coin'),
     Number(body.rewardCoins || 0),
@@ -9849,8 +9853,8 @@ function khtIsRest(k: string, extra: any): boolean {
 async function khtDays(env: any, userId: string, fromKey: string, toKey: string): Promise<any> {
   const m: any = {}
   try {
-    const rows = await env.DB.prepare('SELECT DISTINCT day_key FROM homework_submissions WHERE user_id = ? AND day_key >= ? AND day_key <= ? LIMIT 400').bind(String(userId), fromKey, toKey).all<any>()
-    for (const r of ((rows && rows.results) || [])) { if (r && r.day_key) m[String(r.day_key)] = 1 }
+    const rows = await env.DB.prepare('SELECT day_key, rest_day FROM homework_submissions WHERE user_id = ? AND day_key >= ? AND day_key <= ? LIMIT 400').bind(String(userId), fromKey, toKey).all<any>()
+    for (const r of ((rows && rows.results) || [])) { if (r && r.day_key) m[hwSK(r)] = 1 }   // PLANREST_V1
   } catch (_e) { return {} }
   return m
 }
@@ -9895,6 +9899,25 @@ function hwHolidayNotice(): string {
   return s
 }
 
+// PLANREST_V1（2026-11-16 先生の指示）計画が「休み」で 0〜4分の 日は 休みの日（作戦）。rest_day=2（週2日まで）／3（こえた ぶん）
+//   ・連続：2 は 数えないが 切らない（休みの日と 同じ）。3 は 出していない日と 同じ（切れる）
+//   ・回数・新聞の 集計は rest_day が 0 の ものだけ（もとから その 数え方）
+async function hwPlanRestCode(env: any, uid: string, dayKey: string, body: any): Promise<number> {
+  try {
+    if (!/^\s*休み/.test(String(body.todo || '')) || (Number(body.minutes) || 0) >= 5) return 0
+    const d = new Date(dayKey + 'T00:00:00Z'), wd = (d.getUTCDay() + 6) % 7
+    const mon = new Date(d.getTime() - wd * 86400000).toISOString().slice(0, 10), fri = new Date(d.getTime() + (4 - wd) * 86400000).toISOString().slice(0, 10)
+    const r: any = await env.DB.prepare('SELECT COUNT(*) AS n FROM homework_submissions WHERE user_id=? AND day_key>=? AND day_key<=? AND day_key<>? AND rest_day=2').bind(uid, mon, fri, dayKey).first()
+    return Number(r && r.n) < 2 ? 2 : 3
+  } catch (_e) { return 0 }
+}
+// 連続を 数える ための キー（PLANREST_V1）：休みの日（作戦）は '~日付'、こえた 休みは '!日付'
+function hwSK(r: any): string { const dk = String((r && r.day_key) || ''); const rd = Number(r && r.rest_day) || 0; return rd === 2 ? '~' + dk : rd === 3 ? '!' + dk : dk }
+function hwPrep(dayKeys: any, extra: any): [string[], any] {
+  const ex: any = Object.assign({}, extra || {}), ks: string[] = []
+  for (const k0 of (Array.isArray(dayKeys) ? dayKeys : [])) { const k = String(k0 || ''); if (!k) continue; if (k[0] === '~') ex[k.slice(1)] = 1; else if (k[0] !== '!') ks.push(k) }
+  return [ks, ex]
+}
 function hwDayMap(dayKeys: any): any {
   const m: any = {}
   if (Array.isArray(dayKeys)) {
@@ -9906,7 +9929,8 @@ function hwDayMap(dayKeys: any): any {
   return m
 }
 
-function hwStreakCurrent(dayKeys: any, todayKey: string, extra: any): number {
+function hwStreakCurrent(dayKeys0: any, todayKey: string, extra0: any): number {
+  const [dayKeys, extra] = hwPrep(dayKeys0, extra0)
   const days = hwDayMap(dayKeys)
   let k = String(todayKey)
   let s = 0
@@ -9919,7 +9943,8 @@ function hwStreakCurrent(dayKeys: any, todayKey: string, extra: any): number {
   return s
 }
 
-function hwStreakMax(dayKeys: any, extra: any): number {
+function hwStreakMax(dayKeys0: any, extra0: any): number {
+  const [dayKeys, extra] = hwPrep(dayKeys0, extra0)
   const ds = (Array.isArray(dayKeys) ? dayKeys : []).filter(Boolean).map(String).sort()
   let best = 0
   let run = 0

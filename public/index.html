@@ -43642,7 +43642,7 @@ function hwRenderHistory(){
   el.innerHTML = logs.slice(0, 100).map(e=>{
     const w = hsWeatherIcon(e.endWeather || e.weather);
     const wColor = (e.endWeather||e.weather)==='sun' ? 'text-amber-500' : (e.endWeather||e.weather)==='cloud' ? 'text-slate-400' : 'text-blue-400';
-    const restBadge = e.restDay ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold">休日</span>' : '';
+    const restBadge = e.restDay ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold">休日</span>' : (Number(e.planRest) === 1 ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[9px] font-bold">🛌 休みの日（作戦どおり）</span>' : '');   /* PLANREST_V1 */
 
     const baseCoins = (e.reward && e.reward.coins) ? e.reward.coins : 0;
     const baseShards = (e.reward && e.reward.shards) ? e.reward.shards : 0;
@@ -43786,6 +43786,14 @@ function hsNormalizeDayKey(k){
 function hsGetEntryForDay(logs, dayKey){
   return (logs || []).find(e=>e && e.dayKey === dayKey) || null;
 }
+// PLANREST_V1（2026-11-16 先生の指示）計画が「休み」で 0〜4分の 日＝休みの日（作戦）。0=ちがう 1=休み（週2日まで） 2=週2日を こえた 休み
+function hsPlanRestOf(logs, dayKey){
+  try{ var e = hsGetEntryForDay(logs, dayKey); return e ? (Number(e.planRest) || 0) : 0; }catch(_e){ return 0; }
+}
+function hsIsPlanRestText(todo, minutes){ return /^\s*休み/.test(String(todo || '')) && (Number(minutes) || 0) < 5; }
+function hsPlanRestCountWeek(logs, dayKey){
+  try{ var ds = hwGetWeekDays(dayKey), n = 0; ds.forEach(function(d){ if (d !== dayKey && hsPlanRestOf(logs, d) === 1) n++; }); return n; }catch(_e){ return 0; }
+}
 function hsHasLogForDay(logs, dayKey){
   return !!hsGetEntryForDay(logs, dayKey);
 }
@@ -43817,6 +43825,9 @@ function hsCalcRequiredStreak(logs, upToDayKey){
       key = hsAddDays(key, -1);
       continue;
     }
+    var __pr = hsPlanRestOf(logs, key);   /* PLANREST_V1 休みの日（作戦）は 数えないが 切らない。週2日を こえた 休みは 切れる */
+    if (__pr === 1){ key = hsAddDays(key, -1); continue; }
+    if (__pr === 2) break;
     if (hsHasLogForDay(logs, key)){
       streak += 1;
       key = hsAddDays(key, -1);
@@ -43837,6 +43848,9 @@ function hsCalcStreakShown(logs, todayKey){
   if (!hsHasLogForDay(logs, key) && !hsIsRestDay(key)) key = hsAddDays(key, -1);
   var streak = 0;
   for (var i = 0; i < 400; i++){
+    var __pr2 = hsPlanRestOf(logs, key);   /* PLANREST_V1 */
+    if (__pr2 === 1){ key = hsAddDays(key, -1); continue; }
+    if (__pr2 === 2) break;
     if (hsHasLogForDay(logs, key)){ streak += 1; key = hsAddDays(key, -1); continue; }
     if (hsIsRestDay(key)){ key = hsAddDays(key, -1); continue; }
     break;
@@ -44678,7 +44692,7 @@ function hsRender(light){
       const rows = logs.slice(0, 100).map(e=>{
         const w = hsWeatherIcon(e.endWeather || e.weather);
         const wColor = (e.endWeather||e.weather)==='sun' ? 'text-amber-500' : (e.endWeather||e.weather)==='cloud' ? 'text-slate-400' : 'text-blue-400';
-        const restBadge = e.restDay ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold">休日</span>' : '';
+        const restBadge = e.restDay ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold">休日</span>' : (Number(e.planRest) === 1 ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[9px] font-bold">🛌 休みの日（作戦どおり）</span>' : '');   /* PLANREST_V1 */
 
         const baseCoins = (e.reward && e.reward.coins) ? e.reward.coins : 0;
         const baseShards = (e.reward && e.reward.shards) ? e.reward.shards : 0;
@@ -45538,11 +45552,18 @@ async function hsSubmitAndExport(){
 
     const rest = hsIsRestDay(dayKey);
 
-    const reward = hsRollReward();
+    let reward = hsRollReward();
     let streakAfter = hsCalcRequiredStreak(logs, dayKey);
     let bonus = { coins: 0, shards: 0 };
+    /* PLANREST_V1 計画が「休み」で 0〜4分 → 休みの日（作戦）。連続は 切れないが ふえない。コインは 10枚（週2日を こえたら 0枚で 連続も 切れる） */
+    const planRest = (!rest && hsIsPlanRestText(todo, minutes)) ? (hsPlanRestCountWeek(logs, dayKey) < 2 ? 1 : 2) : 0;
+    if (planRest){
+      reward = { kind: 'coin', coins: planRest === 1 ? 10 : 0, shards: 0 };
+      const tmpR = [{ dayKey, restDay:false, planRest }, ...logs];
+      streakAfter = hsCalcRequiredStreak(tmpR, dayKey);
+    }
 
-    if (!rest){
+    if (!rest && !planRest){
       const tmp = [{ dayKey, restDay:false }, ...logs];
       streakAfter = hsCalcRequiredStreak(tmp, dayKey);
       // 段階的ストリークボーナス
@@ -45558,12 +45579,12 @@ async function hsSubmitAndExport(){
       }
     }
 
-    try { if (!rest && player && !player.shardBanned && player.reflectShardDate !== dayKey) { var _refb = 1; if (streakAfter >= 6) _refb = 3; else if (streakAfter >= 3) _refb = 2; bonus.shards = (Number(bonus.shards) || 0) + _refb; player.reflectShardDate = dayKey; window.__reflectBonusShards = _refb; } else { window.__reflectBonusShards = 0; } } catch(e) { window.__reflectBonusShards = 0; }
+    try { if (!rest && !planRest && player && !player.shardBanned && player.reflectShardDate !== dayKey) { var _refb = 1; if (streakAfter >= 6) _refb = 3; else if (streakAfter >= 3) _refb = 2; bonus.shards = (Number(bonus.shards) || 0) + _refb; player.reflectShardDate = dayKey; window.__reflectBonusShards = _refb; } else { window.__reflectBonusShards = 0; } } catch(e) { window.__reflectBonusShards = 0; }
     // 連続提出ごほうび：オチャ（Lv60でオチャ大魔王）（記録日カウント）
     let unlockedOcha = false;
     try{
       ensureSecretState();
-      if (!rest && !player.secret.ochaGot && (streakAfter >= 10)){
+      if (!rest && !planRest && !player.secret.ochaGot && (streakAfter >= 10)){
         grantOcha();
         player.secret.ochaGot = true;
         player.secret.ochaDaimaoGot = true;
@@ -45591,6 +45612,7 @@ async function hsSubmitAndExport(){
       nextImprove,
       parentComment,
       restDay: !!rest,
+      planRest: planRest,
       reward: { kind: reward.kind, coins: reward.coins || 0, shards: reward.shards || 0 },
       bonus,
       streakAfter,
@@ -45605,7 +45627,7 @@ async function hsSubmitAndExport(){
         minutes: entry.minutes, endWeather: entry.endWeather,
         weatherReason: entry.weatherReason, nextImprove: entry.nextImprove,
         selfStudyPlan: entry.todo, weeklyPlan: entry.weeklyPlan, weeklyReflection: entry.weeklyReflection,
-        restDay: entry.restDay, streakAfter: entry.streakAfter,
+        restDay: entry.restDay, planRest: entry.planRest || 0, streakAfter: entry.streakAfter,
         rewardKind: reward.kind, rewardCoins: reward.coins || 0, rewardShards: reward.shards || 0,
         bonusCoins: bonus.coins || 0, bonusShards: bonus.shards || 0,
         workPhotoAnalysis: _hsPhotoAnalysisResult || '',
@@ -45791,7 +45813,8 @@ function hsResyncFromServer(subs) {
       todo: s.todo || '',
       weatherReason: s.weatherReason || '',
       nextImprove: s.nextImprove || '',
-      restDay: !!s.restDay,
+      restDay: Number(s.restDay) === 1,
+      planRest: Number(s.restDay) === 2 ? 1 : Number(s.restDay) === 3 ? 2 : 0,   /* PLANREST_V1 */
       teacherComment: s.teacherComment || '',
       dbSubmitted: true,
       _restored: true
