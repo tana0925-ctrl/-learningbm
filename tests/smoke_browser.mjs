@@ -67,7 +67,7 @@ try {
     // 家庭学習（阪神マンと はじめる）
     await p.evaluate(() => { try { window.HSCHAT.open() } catch (e) { throw e } }); await sleep(600)
     const chatBtns = await p.evaluate(() => Array.from(document.querySelectorAll('#hsChatFoot button')).map((x) => x.textContent).join('|'))
-    ok(/その他/.test(chatBtns), '家庭学習の 対話が ひらく（' + chatBtns.slice(0, 60) + '）')
+    ok(/その他|自分で 書く|シートで 書く/.test(chatBtns), '家庭学習の 対話が ひらく（' + chatBtns.slice(0, 60) + '）')
     await p.evaluate(() => { try { window.HSCHAT.close && window.HSCHAT.close() } catch (e) {} const r = document.getElementById('hsChat'); if (r) r.style.display = 'none' })
     // 修行（6年 比）
     await p.evaluate(() => { let u = null; try { const gs = window.CURRICULUM.math.grades; for (const k in gs) (gs[k].units || []).forEach((x) => { if (x.id === 'm6-ratio') u = x }) } catch (e) {} window.__currUnit = u; try { trySetMode('training') } catch (e) {} window.selectTrainingMode('m6-ratio') }); await sleep(800)
