@@ -8,6 +8,44 @@
   if (window.__MISSION_TOP_V1__) return; window.__MISSION_TOP_V1__ = 1;
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   var MED = ['🥇', '🥈', '🥉'];
+  var SUF = { correct: '問', catch: 'ひき', wildwin: '勝', streak: '連勝' };
+  /* 🎯 MISSION_KIND_V1 ミッションの しゅるいに あわせて カードの ことばを かえる＋野生バトルの できごとを サーバーへ */
+  var curKind = '';
+  function kindText(r) {
+    try {
+      var el = document.getElementById('cmProgressText'); if (!el || !r || !r.kind) return;
+      var par = el.parentNode; if (!par || par.__mtk === r.kind + (r.unitWord || '')) return;
+      var v = el.textContent;
+      if (r.kind === 'streak') par.innerHTML = '🔥 クラスの いちばん 連勝 <span class="font-black" id="cmProgressText">' + v + '</span> 連勝';
+      else if (r.kind === 'correct' && !/の 正解数$/.test(r.unitWord || '')) par.innerHTML = 'クラス全員で <span class="font-black" id="cmProgressText">' + v + '</span> 問正解';
+      else par.innerHTML = 'クラス全員の ' + esc(r.unitWord || '') + '：<span class="font-black" id="cmProgressText">' + v + '</span>';
+      par.__mtk = r.kind + (r.unitWord || '');
+    } catch (e) {}
+  }
+  function sendEv(o) { try { if (!(curKind === 'catch' || curKind === 'wildwin' || curKind === 'streak')) return; fetch('/api/student/mission-event', { method: 'POST', credentials: 'include', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(o) }).catch(function () {}); } catch (e) {} }
+  // 野生で つかまえた／勝った を 見はる（index.html の 中の 関数は 外から さわれないので、player の きろくを 2びょうごとに 見る）
+  var base = null;
+  function pl() { try { return (typeof player !== 'undefined' && player) ? player : null; } catch (e) { return null; } }
+  function pollEv() {
+    var P = pl(); if (!P) return;
+    var log = Array.isArray(P.acquireLog) ? P.acquireLog : [], top = log.length ? Number(log[0].ts) || 0 : 0;
+    var won = 0; try { won = Number(P.metrics.battles.pve.won) || 0; } catch (e) {}
+    if (!base) { base = { ts: top, won: won }; return; }
+    if (top > base.ts) {
+      log.filter(function (x) { return Number(x.ts) > base.ts && /野生/.test(String(x.source || '')); }).slice(0, 10).forEach(function (x) {
+        var mo = null; try { mo = (typeof getMonster === 'function') ? getMonster(Number(x.id)) : null; } catch (e) {}
+        try { if (!mo) mo = ((typeof MONSTERS !== 'undefined' ? MONSTERS : window.MONSTERS) || []).find(function (m) { return m.id === Number(x.id); }); } catch (e) {}
+        sendEv({ kind: 'catch', mid: Number(x.id), mname: x.name || (mo && mo.name) || '', mtype: (mo && mo.elementType) || '' });
+      });
+      base.ts = top;
+    }
+    if (won > base.won) {
+      var st = 1; try { st = (typeof battle !== 'undefined' && battle && battle.winStreak) ? battle.winStreak : 1; } catch (e) {}
+      for (var i = 0; i < Math.min(5, won - base.won); i++) sendEv({ kind: 'wildwin', val: st });
+      base.won = won;
+    }
+  }
+  setInterval(function () { try { pollEv(); } catch (e) {} }, 2000);
   var cur = null;
   function api(u, o) { if (typeof window.apiJson === 'function') return window.apiJson(u, o || { method: 'GET' }); return fetch(u, Object.assign({ credentials: 'include' }, o || {})).then(function (r) { return r.json(); }); }
   function box() {
@@ -24,7 +62,7 @@
     var h = '<div style="font-weight:900">🏅 活やく トップ3 ' + (r.final ? '（きまり！）' : '（いま）') + '</div>';
     h += top.map(function (t) {
       var bc = Number(t.coins) || 0, bs = Number(t.shards) || 0;   // MISSION_TOP_V4 ボーナスも 見せる
-      return '<div style="display:flex;justify-content:space-between;gap:6px;' + (t.me ? 'font-weight:900;color:#b45309' : '') + '"><span>' + MED[t.rank - 1] + ' ' + esc(t.name) + (t.me ? '（あなた）' : '') + '</span><span>' + t.n + '問' + (bc ? ' ・🎁 +' + bc + 'コイン' + (bs ? '＋' + bs + 'かけら' : '') : '') + '</span></div>';
+      return '<div style="display:flex;justify-content:space-between;gap:6px;' + (t.me ? 'font-weight:900;color:#b45309' : '') + '"><span>' + MED[t.rank - 1] + ' ' + esc(t.name) + (t.me ? '（あなた）' : '') + '</span><span>' + t.n + (SUF[r.kind] || '問') + (bc ? ' ・🎁 +' + bc + 'コイン' + (bs ? '＋' + bs + 'かけら' : '') : '') + '</span></div>';
     }).join('');
     if (!r.final) h += '<div style="font-size:11px;color:#92400e;margin-top:2px">ミッションを 達成した しゅんかんの トップ3に ボーナス！</div>';
     var bo = r.bonus;
@@ -52,7 +90,7 @@
   }
   function load() {
     var id = ''; try { id = window.__classMissionId || ''; } catch (e) {}
-    return api('/api/student/class-mission/top' + (id ? '?id=' + encodeURIComponent(id) : ''), { method: 'GET' }).then(function (r) { try { renderUp(r); } catch (e) {} if (r && r.ok && r.missionId) { cur = r; render(r); } else { var b = document.getElementById('cmTopBox'); if (b) b.style.display = 'none'; } }).catch(function () {});
+    return api('/api/student/class-mission/top' + (id ? '?id=' + encodeURIComponent(id) : ''), { method: 'GET' }).then(function (r) { try { renderUp(r); } catch (e) {} if (r && r.ok && r.missionId) { cur = r; curKind = r.kind || 'correct'; kindText(r); render(r); } else { var b = document.getElementById('cmTopBox'); if (b) b.style.display = 'none'; } }).catch(function () {});
   }
   function claim() {
     if (!cur || !cur.missionId) return;

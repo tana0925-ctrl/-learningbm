@@ -10773,13 +10773,42 @@ async function ensureMissionCacheTable(env: any) {
   } catch (e) {}
 }
 
-async function countMissionProgressRaw(c: any, classId: string, startAt: string, endAt: string | null): Promise<number> {
-  let sql = `SELECT COUNT(*) AS cnt FROM learning_results lr
-    JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ?
-    WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
-  const binds: any[] = [classId, startAt]
-  if (endAt) { sql += ` AND lr.answered_at <= ?`; binds.push(endAt) }
-  const row = await c.env.DB.prepare(sql).bind(...binds).first<any>()
+// 🎯 MISSION_KIND_V1（2026-11-18 先生の指示）ミッションの しゅるい
+//   correct＝正解数（filt.subj 教科 / filt.unit 単元 で しぼれる）
+//   catch＝野生で つかまえた 数（filt.mname キャラ名 / filt.mtype タイプ で しぼれる）
+//   wildwin＝野生バトルの 勝ち数（クラス合計）／ streak＝クラスの だれかが 野生バトルで ○連勝
+//   catch・wildwin・streak は 子どもの アプリが mission_events に 送る（POST /api/student/mission-event）
+const _missionSpecMem = new Map<string, any>()
+async function missionSpec(c: any, missionId?: string): Promise<{ kind: string, filt: any }> {
+  if (!missionId) return { kind: 'correct', filt: {} }
+  const h = _missionSpecMem.get(missionId); if (h) return h
+  let sp: any = { kind: 'correct', filt: {} }
+  try { const r: any = await c.env.DB.prepare('SELECT kind, filt FROM class_missions WHERE id=?').bind(missionId).first(); if (r) sp = { kind: String(r.kind || 'correct'), filt: r.filt ? JSON.parse(String(r.filt)) : {} } } catch (_e) {}
+  if (_missionSpecMem.size > 300) _missionSpecMem.clear()
+  _missionSpecMem.set(missionId, sp); return sp
+}
+// その ミッションで 数える「できごと」の SQL（FROM と WHERE、だれ・いつ・あたいの 列）
+function missionSrc(sp: any, classId: string, startAt: string, endAt: string | null) {
+  const f = sp.filt || {}
+  if (sp.kind === 'catch' || sp.kind === 'wildwin' || sp.kind === 'streak') {
+    let w = `FROM mission_events e JOIN class_members cm ON cm.user_id = e.user_id AND cm.class_id = ? JOIN users uu ON uu.id = e.user_id AND uu.role = 'student' WHERE e.kind = ? AND e.at >= ?`
+    const b: any[] = [classId, sp.kind === 'catch' ? 'catch' : 'wildwin', startAt]
+    if (endAt) { w += ` AND e.at <= ?`; b.push(endAt) }
+    if (sp.kind === 'catch' && f.mname) { w += ` AND e.mname = ?`; b.push(String(f.mname)) }
+    if (sp.kind === 'catch' && f.mtype) { w += ` AND e.mtype = ?`; b.push(String(f.mtype)) }
+    return { w, b, uid: 'e.user_id', at: 'e.at', val: 'e.val', max: sp.kind === 'streak' }
+  }
+  let w = `FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
+  const b: any[] = [classId, startAt]
+  if (endAt) { w += ` AND lr.answered_at <= ?`; b.push(endAt) }
+  if (f.subj) { w += ` AND json_extract(lr.meta_json, '$.subject') = ?`; b.push(String(f.subj)) }
+  if (f.unit) { w += ` AND lr.unit = ?`; b.push(String(f.unit)) }
+  return { w, b, uid: 'lr.user_id', at: 'lr.answered_at', val: '1', max: false }
+}
+async function countMissionProgressRaw(c: any, classId: string, startAt: string, endAt: string | null, missionId?: string): Promise<number> {
+  const sp = await missionSpec(c, missionId)
+  const q = missionSrc(sp, classId, startAt, endAt)
+  const row = await c.env.DB.prepare(`SELECT ${q.max ? 'MAX(' + q.val + ')' : 'COUNT(*)'} AS cnt ` + q.w).bind(...q.b).first<any>()
   return Number(row?.cnt || 0)
 }
 
@@ -10788,6 +10817,7 @@ async function countMissionProgressRaw(c: any, classId: string, startAt: string,
 async function countMissionProgress(c: any, classId: string, startAt: string, endAt: string | null,
                                     missionId?: string, goal?: number): Promise<number> {
   if (!missionId) return await countMissionProgressRaw(c, classId, startAt, endAt)
+  if (missionId && !(await missionSpec(c, missionId)).kind) return 0
 
   const memKey = missionId
   const hit = _missionMem.get(memKey)
@@ -10815,7 +10845,7 @@ async function countMissionProgress(c: any, classId: string, startAt: string, en
     }
   }
 
-  const cnt = await countMissionProgressRaw(c, classId, startAt, endAt)
+  const cnt = await countMissionProgressRaw(c, classId, startAt, endAt, missionId)
   const done = (typeof goal === 'number' && goal > 0 && cnt >= goal) ? 1 : 0
   try {
     await c.env.DB.prepare(
@@ -10844,6 +10874,13 @@ app.post('/api/teacher/class-mission', async (c) => {
   const rewardCoins = Math.max(0, Number(body.rewardCoins) || 0)
   const rewardShards = Math.max(0, Number(body.rewardShards) || 0)
   const endAt = body.endAt ? (String(body.endAt).slice(0, 10) + ' 23:59:59') : null
+  const kind = ['correct', 'catch', 'wildwin', 'streak'].indexOf(String(body.kind || 'correct')) >= 0 ? String(body.kind || 'correct') : 'correct'   // MISSION_KIND_V1
+  const fi: any = {}; const bf = body.filt || {}
+  if (kind === 'correct' && bf.subj) fi.subj = String(bf.subj).slice(0, 12)
+  if (kind === 'correct' && bf.unit) { fi.unit = String(bf.unit).slice(0, 40); if (bf.unitName) fi.unitName = String(bf.unitName).slice(0, 40) }
+  if (kind === 'catch' && bf.mname) fi.mname = String(bf.mname).slice(0, 30)
+  if (kind === 'catch' && bf.mtype) fi.mtype = String(bf.mtype).slice(0, 16)
+  const filtJ = Object.keys(fi).length ? JSON.stringify(fi) : null
   // ⏰ MISSION_RESERVE_V1（2026-11-15）開始の 予約。startAt は 日本時間 'YYYY-MM-DDTHH:MM'（なければ いますぐ）→ UTC で しまう
   let startAt: string | null = null
   if (body.startAt) {
@@ -10862,6 +10899,7 @@ app.post('/api/teacher/class-mission', async (c) => {
       `INSERT INTO class_missions (id, class_id, title, goal_correct, reward_coins, reward_shards, end_at, created_by) VALUES (?,?,?,?,?,?,?,?)`
     ).bind(id, body.classId, title, goalCorrect, rewardCoins, rewardShards, endAt, u.id).run()
   }
+  try { await c.env.DB.prepare('UPDATE class_missions SET kind=?, filt=? WHERE id=?').bind(kind, filtJ, id).run() } catch (_e) {}
   return c.json({ ok: true, id, reserved: !!startAt, startAt })
 })
 
@@ -10873,12 +10911,12 @@ app.get('/api/teacher/class-missions', async (c) => {
   if (!classId) return jsonError(c, 400, 'classId required')
   const rows = await c.env.DB.prepare(
     `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
-            start_at AS startAt, end_at AS endAt, auto_generated AS autoGenerated, created_at AS createdAt
+            start_at AS startAt, end_at AS endAt, auto_generated AS autoGenerated, created_at AS createdAt, kind, filt
      FROM class_missions WHERE class_id=? ORDER BY created_at DESC LIMIT 30`
   ).bind(classId).all<any>()
   const missions: any[] = []
   for (const m of (rows.results || [])) {
-    const progress = await countMissionProgress(c, classId, m.startAt, m.endAt)
+    const progress = await countMissionProgress(c, classId, m.startAt, m.endAt, m.id, m.goalCorrect)
     let top: any = null
     if (missions.length < 3) try {
       let rn: any = {}; try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
@@ -10921,7 +10959,7 @@ app.get('/api/student/class-mission', async (c) => {
   // まず進行中のミッションを探す
   let m = await c.env.DB.prepare(
     `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
-            start_at AS startAt, end_at AS endAt
+            start_at AS startAt, end_at AS endAt, kind, filt
      FROM class_missions WHERE class_id=? AND (end_at IS NULL OR end_at >= datetime('now')) AND start_at <= datetime('now')
      ORDER BY created_at DESC LIMIT 1`
   ).bind(cm.class_id).first<any>()
@@ -10930,7 +10968,7 @@ app.get('/api/student/class-mission', async (c) => {
   if (!m) {
     const latest = await c.env.DB.prepare(
       `SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards,
-              start_at AS startAt, end_at AS endAt
+              start_at AS startAt, end_at AS endAt, kind, filt
        FROM class_missions WHERE class_id=? AND start_at <= datetime('now')
        ORDER BY created_at DESC LIMIT 1`
     ).bind(cm.class_id).first<any>()
@@ -10950,7 +10988,7 @@ app.get('/api/student/class-mission', async (c) => {
   const progress = (_preProgress != null) ? _preProgress
     : await countMissionProgress(c, cm.class_id, m.startAt, m.endAt, m.id, m.goalCorrect)
   const claimed = await c.env.DB.prepare(`SELECT 1 FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1`).bind(m.id, u.id).first<any>()
-  return c.json({ ok: true, mission: { ...m, progress, achieved: progress >= m.goalCorrect, claimed: !!claimed }, qrHunt: _qrCard })
+  return c.json({ ok: true, mission: { ...m, filt: m.filt ? JSON.parse(String(m.filt)) : null, unitWord: missionUnitWord(m.kind, m.filt), progress, achieved: progress >= m.goalCorrect, claimed: !!claimed }, qrHunt: _qrCard })
 })
 
 // 児童: ミッション達成報酬を受け取る（コイン＋かけらをサーバー側で加算）
@@ -10971,7 +11009,7 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
   }
   if (!member) return jsonError(c, 403, 'not_class_member')
   if (Date.parse(String(m.start_at).replace(' ', 'T') + 'Z') > Date.now()) return jsonError(c, 400, 'not_started')
-  const progress = await countMissionProgress(c, m.class_id, m.start_at, m.end_at)
+  const progress = await countMissionProgress(c, m.class_id, m.start_at, m.end_at, m.id, m.goal_correct)
   if (progress < m.goal_correct) return jsonError(c, 400, 'not_achieved')
   const rewardCoins = Number(m.reward_coins) || 0
   const rewardShards = Number(m.reward_shards) || 0
@@ -11018,17 +11056,41 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
 //   ・ボーナス（ミッションを 達成した ときだけ）：コイン 1位 50%・2位 30%・3位 20%（ミッションの ごほうびに たいして）／かけら 3・2・1（かけらの ごほうびが ある とき）
 //   ・きまるのは 達成した しゅんかん（V2）。きまったら class_mission_top に のこして かわらない
 const MT_RATE = [0.5, 0.3, 0.2], MT_SHARD = [3, 2, 1]
+const MK_SUBJ: any = { math: '算数', jp: '国語', soc: '社会', science: '理科', eng: '英語' }
+const MK_TYPE: any = { fire: 'ほのお', water: 'みず', grass: 'くさ', electric: 'でんき', ice: 'こおり', fighting: 'かくとう', poison: 'どく', ground: 'じめん', flying: 'ひこう', psychic: 'エスパー', bug: 'むし', rock: 'いわ', ghost: 'ゴースト', dragon: 'ドラゴン', dark: 'あく', steel: 'はがね', fairy: 'フェアリー', normal: 'ノーマル' }
+// 子どもに 見せる「何を あつめるか」（MISSION_KIND_V1）
+function missionUnitWord(kind: any, filt: any): string {
+  let f: any = {}; try { f = typeof filt === 'string' ? JSON.parse(filt) : (filt || {}) } catch (_e) {}
+  if (kind === 'catch') return (f.mname ? '「' + f.mname + '」を ' : f.mtype ? (MK_TYPE[f.mtype] || f.mtype) + 'タイプを ' : 'キャラを ') + 'つかまえた 数'
+  if (kind === 'wildwin') return '野生バトルで 勝った 数'
+  if (kind === 'streak') return 'クラスの だれかの 野生バトル 連勝数（いちばん 多い 人）'
+  return (f.unitName ? '「' + f.unitName + '」の ' : f.subj ? (MK_SUBJ[f.subj] || f.subj) + 'の ' : '') + '正解数'
+}
+app.post('/api/student/mission-event', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  const b: any = await c.req.json().catch(() => ({}))
+  const kind = String(b.kind || '')
+  if (kind !== 'catch' && kind !== 'wildwin') return jsonError(c, 400, 'bad_kind')
+  const n: any = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM mission_events WHERE user_id=? AND kind=? AND at >= datetime('now','-1 day')").bind(u.id, kind).first()
+  if (Number(n && n.n) >= (kind === 'catch' ? 200 : 600)) return c.json({ ok: true, capped: true })
+  await c.env.DB.prepare('INSERT INTO mission_events (user_id, kind, mid, mname, mtype, val) VALUES (?,?,?,?,?,?)')
+    .bind(u.id, kind, Number(b.mid) || null, String(b.mname || '').slice(0, 30) || null, String(b.mtype || '').slice(0, 16) || null, Math.max(1, Math.min(999, Number(b.val) || 1))).run()
+  return c.json({ ok: true })
+})
+app.get('/api/teacher/mission-units', async (c) => {   // 単元を えらぶ ための 一覧（この クラスで 最近 といた 単元）
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  const r: any = await c.env.DB.prepare(`SELECT lr.unit AS unit, json_extract(lr.meta_json,'$.unitName') AS name, json_extract(lr.meta_json,'$.subject') AS subj, COUNT(*) AS n FROM learning_results lr JOIN class_members cm ON cm.user_id=lr.user_id AND cm.class_id=? WHERE lr.answered_at >= datetime('now','-60 days') GROUP BY lr.unit ORDER BY n DESC LIMIT 80`).bind(classId).all()
+  return c.json({ ok: true, units: (r && r.results) || [] })
+})
 async function ensureMissionTop(env: any) {
   try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS class_mission_top (mission_id TEXT NOT NULL, user_id TEXT NOT NULL, rank INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0, shards INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, PRIMARY KEY (mission_id, user_id))').run() } catch (_e) {}
 }
-async function missionTopLive(c: any, classId: string, startAt: string, endAt: string | null) {
-  let sql = `SELECT lr.user_id AS uid, u.name AS name, u.login_id AS lid, COUNT(*) AS n, MIN(lr.answered_at) AS f FROM learning_results lr
-    JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? JOIN users u ON u.id = lr.user_id AND u.role = 'student'
-    WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
-  const binds: any[] = [classId, startAt]
-  if (endAt) { sql += ` AND lr.answered_at <= ?`; binds.push(endAt) }
-  sql += ` GROUP BY lr.user_id ORDER BY n DESC, f ASC LIMIT 3`
-  const r: any = await c.env.DB.prepare(sql).bind(...binds).all()
+async function missionTopLive(c: any, classId: string, startAt: string, endAt: string | null, missionId?: string) {
+  const q = missionSrc(await missionSpec(c, missionId), classId, startAt, endAt)
+  const w = q.w.replace('WHERE', `JOIN users u ON u.id = ${q.uid} AND u.role = 'student' WHERE`)
+  const sql = `SELECT ${q.uid} AS uid, u.name AS name, u.login_id AS lid, ${q.max ? 'MAX(' + q.val + ')' : 'COUNT(*)'} AS n, MIN(${q.at}) AS f ` + w + ` GROUP BY ${q.uid} ORDER BY n DESC, f ASC LIMIT 3`
+  const r: any = await c.env.DB.prepare(sql).bind(...q.b).all()
   return ((r && r.results) || []).map((x: any, i: number) => ({ rank: i + 1, uid: String(x.uid), name: String(x.name || ''), lid: String(x.lid || ''), n: Number(x.n) || 0 }))
 }
 // きまって いれば のこした トップ3、まだなら いまの トップ3
@@ -11044,15 +11106,15 @@ async function missionTopOf(c: any, m: any) {
   let clearAt: string | null = null
   if (achieved) {
     try {
-      let q = `SELECT lr.answered_at AS t FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
-      const bs: any[] = [m.classId, m.startAt]
-      if (m.endAt) { q += ` AND lr.answered_at <= ?`; bs.push(m.endAt) }
-      q += ` ORDER BY lr.answered_at ASC LIMIT 1 OFFSET ?`; bs.push(Math.max(0, Number(m.goalCorrect) - 1))
-      const r: any = await c.env.DB.prepare(q).bind(...bs).first()
+      const sp = await missionSpec(c, m.id)
+      const q = missionSrc(sp, m.classId, m.startAt, m.endAt)
+      const r: any = q.max
+        ? await c.env.DB.prepare(`SELECT ${q.at} AS t ` + q.w + ` AND ${q.val} >= ? ORDER BY ${q.at} ASC LIMIT 1`).bind(...q.b, Number(m.goalCorrect)).first()
+        : await c.env.DB.prepare(`SELECT ${q.at} AS t ` + q.w + ` ORDER BY ${q.at} ASC LIMIT 1 OFFSET ?`).bind(...q.b, Math.max(0, Number(m.goalCorrect) - 1)).first()
       if (r && r.t) clearAt = String(r.t)
     } catch (_e) {}
   }
-  const top = await missionTopLive(c, m.classId, m.startAt, clearAt || m.endAt)
+  const top = await missionTopLive(c, m.classId, m.startAt, clearAt || m.endAt, m.id)
   void ended
   if (achieved && String(m.startAt || '') >= '2026-11-15') {   // まえの ミッションには さかのぼって 出さない
     for (const t of top) {
@@ -11075,8 +11137,8 @@ async function missionTopOf(c: any, m: any) {
   return { final: false, top, preview: top.map((t: any) => ({ rank: t.rank, coins: Math.round((Number(m.rewardCoins) || 0) * (MT_RATE[t.rank - 1] || 0) / 10) * 10, shards: (Number(m.rewardShards) || 0) > 0 ? (MT_SHARD[t.rank - 1] || 0) : 0 })) }
 }
 async function missionForClass(c: any, classId: string, id?: string) {
-  const q = id ? 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE id=? AND class_id=? LIMIT 1'
-    : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1'
+  const q = id ? 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt, kind, filt FROM class_missions WHERE id=? AND class_id=? LIMIT 1'
+    : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt, kind, filt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1'
   return id ? await c.env.DB.prepare(q).bind(id, classId).first<any>() : await c.env.DB.prepare(q).bind(classId).first<any>()
 }
 // アプリの 名前が 本名と 同じ（または 名字・名前が 入っている）ときは 子どもの 画面に 出さない（MISSION_TOP_V1）
@@ -11107,7 +11169,7 @@ app.get('/api/student/class-mission/top', async (c) => {
     }
   } catch (_e) {}
   const meT = (t.top || []).find((x: any) => x.uid === u.id)
-  return c.json({ ok: true, missionId: m.id, upcoming, final: !!t.final, preview: t.preview || null,
+  return c.json({ ok: true, missionId: m.id, upcoming, kind: m.kind || 'correct', unitWord: missionUnitWord(m.kind, m.filt), final: !!t.final, preview: t.preview || null,
     top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(pn[x.uid] || '', rn[x.lid], x.lid), n: x.n, me: x.uid === u.id,
       coins: t.final ? (Number(x.coins) || 0) : ((t.preview && t.preview[x.rank - 1]) ? t.preview[x.rank - 1].coins : 0),
       shards: t.final ? (Number(x.shards) || 0) : ((t.preview && t.preview[x.rank - 1]) ? t.preview[x.rank - 1].shards : 0) })),   // MISSION_TOP_V4 だれに いくら
@@ -11713,7 +11775,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=3"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=4"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -13710,8 +13772,19 @@ app.get('/teacher', (c) => {
           <div class="space-y-2">
             <select id="cmClassFilter" class="border p-2 rounded text-sm bg-white w-full" onchange="loadClassMissions()"></select>
             <input id="cmTitle" type="text" placeholder="ミッション名（例：みんなで1000問正解！）" class="w-full border p-2 rounded text-sm"/>
+            <div><label class="text-xs font-bold text-gray-600">🎯 ミッションの しゅるい</label>
+              <select id="cmKind" class="w-full border p-2 rounded text-sm bg-white" onchange="cmKindChange()">
+                <option value="correct">📝 正解数（ぜんぶの 教科）</option>
+                <option value="correct_subj">📝 正解数（教科を しぼる）</option>
+                <option value="correct_unit">📝 正解数（単元を しぼる）</option>
+                <option value="catch">🔴 野生で キャラを つかまえる</option>
+                <option value="wildwin">⚔️ 野生バトルで 勝つ（クラスの 合計）</option>
+                <option value="streak">🔥 だれかが 野生バトルで ○連勝</option>
+              </select>
+              <div id="cmKindSub" class="mt-1 flex gap-2 flex-wrap"></div>
+            </div>
             <div class="flex gap-2">
-              <div class="flex-1"><label class="text-xs font-bold text-gray-600">目標正解数</label><input id="cmGoal" type="number" value="1000" min="1" class="w-full border p-2 rounded text-sm"/></div>
+              <div class="flex-1"><label id="cmGoalLabel" class="text-xs font-bold text-gray-600">目標正解数</label><input id="cmGoal" type="number" value="1000" min="1" class="w-full border p-2 rounded text-sm"/></div>
               <div class="flex-1"><label class="text-xs font-bold text-gray-600">締切（任意）</label><input id="cmEnd" type="date" class="w-full border p-2 rounded text-sm"/></div>
             </div>
             <div><label class="text-xs font-bold text-gray-600">⏰ 開始の予約（任意・空ならすぐ開始）</label><input id="cmStart" type="datetime-local" class="w-full border p-2 rounded text-sm"/></div>
@@ -18327,7 +18400,7 @@ function _faKarteGraphs(d){
               + '<div class="font-bold text-sm">'+escH(m.title)+(m.achieved?' <span class="text-green-600">✅達成！</span>':'')+(cmFuture(m.startAt)?' <span class="text-xs bg-sky-100 text-sky-700 rounded px-1">⏰ 予約：'+escH(cmJst(m.startAt))+' から</span>':'')+'</div>'
               + '<button class="text-xs text-red-400 hover:text-red-600" onclick="deleteClassMission(&#39;'+escH(m.id)+'&#39;)">削除</button>'
               + '</div>'
-              + '<div class="text-xs text-slate-600 mb-1">クラス全員で <b>'+m.progress+'</b> / '+m.goalCorrect+' 問正解（'+pct+'%）</div>'
+              + '<div class="text-xs text-slate-600 mb-1">'+cmKindText(m)+'：<b>'+m.progress+'</b> / '+m.goalCorrect+'（'+pct+'%）</div>'
               + '<div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden"><div class="h-3 '+(m.achieved?'bg-green-500':'bg-purple-500')+'" style="width:'+pct+'%"></div></div>'
               + '<div class="text-xs text-slate-500 mt-1">ごほうび: 💰'+m.rewardCoins+'コイン / 🔹'+m.rewardShards+'かけら'+(m.endAt?' ・締切 '+escH(String(m.endAt).slice(0,10)):'')+'</div>'
               + ((m.top && m.top.list && m.top.list.length) ? '<div class="text-xs mt-1 bg-amber-50 border border-amber-200 rounded px-2 py-1">🏅 活やく トップ3' + (m.top.final ? '（きまり）' : '（いま）') + '：' + m.top.list.map(function(t){ return ['🥇','🥈','🥉'][t.rank-1] + escH(t.name) + ' ' + t.n + '問' + (t.coins ? '（+' + t.coins + '）' : '') + (t.claimed ? '✅' : ''); }).join('　') + '</div>' : '');   // MISSION_TOP_V1
@@ -18336,9 +18409,29 @@ function _faKarteGraphs(d){
         }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
       }
 
+      function cmKindText(m){ var f = {}; try { f = m.filt ? JSON.parse(m.filt) : {}; } catch(e){} var sj = { math:'算数', jp:'国語', soc:'社会', science:'理科', eng:'英語' }; var ty = {}; CM_TYPES.forEach(function(t){ ty[t[0]] = t[1]; });
+        if (m.kind === 'catch') return '🔴 ' + (f.mname ? '「' + f.mname + '」' : f.mtype ? (ty[f.mtype] || f.mtype) + 'タイプ' : 'キャラ') + 'を つかまえた 数';
+        if (m.kind === 'wildwin') return '⚔️ 野生バトルの 勝ち数';
+        if (m.kind === 'streak') return '🔥 いちばん 多い 連勝';
+        return '📝 ' + (f.unitName ? '「' + f.unitName + '」の ' : f.subj ? (sj[f.subj] || '') + 'の ' : 'クラス全員の ') + '正解数'; }
       // ⏰ MISSION_RESERVE_V1
       function cmFuture(s){ try{ return s && Date.parse(String(s).replace(' ','T')+'Z') > Date.now(); }catch(e){ return false; } }
       function cmJst(s){ try{ var d=new Date(Date.parse(String(s).replace(' ','T')+'Z')+9*3600000); return (d.getUTCMonth()+1)+'/'+d.getUTCDate()+'（'+'日月火水木金土'[d.getUTCDay()]+'）'+d.getUTCHours()+':'+String(d.getUTCMinutes()).padStart(2,'0'); }catch(e){ return String(s); } }
+      // 🎯 MISSION_KIND_V1 しゅるいごとの しぼりこみ
+      var CM_TYPES = [['fire','ほのお'],['water','みず'],['grass','くさ'],['electric','でんき'],['ice','こおり'],['fighting','かくとう'],['poison','どく'],['ground','じめん'],['flying','ひこう'],['psychic','エスパー'],['bug','むし'],['rock','いわ'],['ghost','ゴースト'],['dragon','ドラゴン'],['dark','あく'],['steel','はがね'],['fairy','フェアリー'],['normal','ノーマル']];
+      async function cmKindChange(){
+        var k = document.getElementById('cmKind').value, sub = document.getElementById('cmKindSub'), gl = document.getElementById('cmGoalLabel');
+        gl.textContent = { correct:'目標正解数', correct_subj:'目標正解数', correct_unit:'目標正解数', catch:'目標（つかまえる数）', wildwin:'目標（勝つ数）', streak:'目標（連勝数）' }[k] || '目標';
+        var g = document.getElementById('cmGoal'); if (k === 'streak' && Number(g.value) > 50) g.value = 10; if ((k === 'catch' || k === 'wildwin') && Number(g.value) > 500) g.value = 100;
+        if (k === 'correct_subj') sub.innerHTML = '<select id="cmSubj" class="border p-2 rounded text-sm bg-white"><option value="math">算数</option><option value="jp">国語</option><option value="soc">社会</option><option value="science">理科</option><option value="eng">英語</option></select>';
+        else if (k === 'correct_unit') {
+          sub.innerHTML = '<select id="cmUnit" class="border p-2 rounded text-sm bg-white flex-1"><option value="">よみこみ中…</option></select>';
+          try { var cid = document.getElementById('cmClassFilter').value; var r = await api('/api/teacher/mission-units?classId=' + encodeURIComponent(cid)); var subjJa = { math:'算数', jp:'国語', soc:'社会', science:'理科', eng:'英語' };
+            document.getElementById('cmUnit').innerHTML = (r.units || []).map(function(u){ return '<option value="' + escH(u.unit) + '" data-name="' + escH(u.name || u.unit) + '">' + escH((subjJa[u.subj] || '') + '：' + (u.name || u.unit)) + '（最近' + u.n + '問）</option>'; }).join('') || '<option value="">（最近 といた 単元が ありません）</option>'; } catch(e){}
+        }
+        else if (k === 'catch') sub.innerHTML = '<input id="cmMname" type="text" placeholder="キャラ名（任意・アプリの 名前の まま）" class="border p-2 rounded text-sm flex-1"/><select id="cmMtype" class="border p-2 rounded text-sm bg-white"><option value="">タイプ（任意）</option>' + CM_TYPES.map(function(t){ return '<option value="' + t[0] + '">' + t[1] + '</option>'; }).join('') + '</select>';
+        else sub.innerHTML = '';
+      }
       async function sendClassMission(){
         var msg = document.getElementById('cmMsg');
         msg.textContent=''; msg.className='text-sm';
@@ -18352,7 +18445,11 @@ function _faKarteGraphs(d){
         if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
         if(goal < 1){ msg.textContent='目標正解数を入力してください'; msg.className='text-sm text-red-600'; return; }
         try{
-          await api('/api/teacher/class-mission',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,title:title,goalCorrect:goal,rewardCoins:coins,rewardShards:shards,endAt:endAt,startAt:startAt})});
+          var _k = (document.getElementById('cmKind')||{}).value || 'correct', _f = {};
+          if (_k === 'correct_subj') { _f.subj = document.getElementById('cmSubj').value; _k = 'correct'; }
+          else if (_k === 'correct_unit') { var _us = document.getElementById('cmUnit'); _f.unit = _us.value; _f.unitName = _us.selectedOptions[0] ? _us.selectedOptions[0].getAttribute('data-name') : ''; _k = 'correct'; if (!_f.unit) { msg.textContent='単元を えらんでください'; msg.className='text-sm text-red-600'; return; } }
+          else if (_k === 'catch') { _f.mname = (document.getElementById('cmMname').value || '').trim(); _f.mtype = document.getElementById('cmMtype').value; }
+          await api('/api/teacher/class-mission',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:_k,filt:_f,classId:classId,title:title,goalCorrect:goal,rewardCoins:coins,rewardShards:shards,endAt:endAt,startAt:startAt})});
           msg.textContent= startAt && cmFuture(new Date(Date.parse(startAt+':00+09:00')).toISOString().slice(0,19).replace('T',' ')) ? '⏰ '+cmJst(new Date(Date.parse(startAt+':00+09:00')).toISOString().slice(0,19).replace('T',' '))+' に 始まるように 予約しました！' : 'ミッションを開始しました！';
           var _cs=document.getElementById('cmStart'); if(_cs) _cs.value=''; msg.className='text-sm text-green-700';
           document.getElementById('cmTitle').value='';
@@ -19552,7 +19649,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
   const menuPrev = menuNow ? null : await _tspOne(c, 'SELECT kanji_page AS kanjiPage, keisan_page AS keisanPage, other_tasks AS otherTasks, tests, week_key AS menuWeekKey, active_days AS activeDays FROM class_weekly_menu WHERE class_id = ? AND week_key = ? LIMIT 1', [classId, prevWeekKey])
 
   // --- クラスミッション ---
-  const mission = await _tspOne(c, 'SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1', [classId])
+  const mission = await _tspOne(c, 'SELECT id, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt, kind, filt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1', [classId])
   const missionClaim = mission ? await _tspOne(c, 'SELECT 1 AS c FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1', [mission.id, studentId]) : null
 
   // --- ごほうびの通知（先生発ではないが児童画面には出る） ---
