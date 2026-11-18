@@ -82,22 +82,31 @@
     $('hrStart').onclick = start;
     ['hrTodo', 'hrRef', 'hrNext'].forEach(function (id) { $(id).addEventListener('input', check); });
     $('hrGo').onclick = send;
-    if (T && T.id === it.id) tick();
-  }
-  function closeIt() { var o = $('hsRedo'); if (o) o.style.display = 'none'; }
-  function start() {
-    if (school()) { msg('🏫 いまは 学校の 時間だよ。おうちに 帰ってから してね。'); return; }
-    if (!T || T.id !== R.id) T = { id: R.id, at: Date.now() };
-    var b = $('hrStart'); if (b) { b.disabled = true; b.textContent = 'はかっています'; }
+    if (!T || T.id !== it.id) T = loadT(it.id);
     tick();
   }
-  function elapsed() { return T && R && T.id === R.id ? Date.now() - T.at : 0; }
+  function closeIt() { var o = $('hsRedo'); if (o) o.style.display = 'none'; }
+  /* HW_REDO_V2（2026-11-18 子どもの 報告）タイマーを 一時停止・つづきから できるように。
+     ページを 開きなおしても 時間が きえない（この 端末に のこす）。T = { id, acc:ためた ms, run:動かしはじめた 時刻 or 0 } */
+  function saveT() { try { if (T) localStorage.setItem('hwRedoT:' + T.id, JSON.stringify(T)); } catch (e) {} }
+  function loadT(id) { try { var o = JSON.parse(localStorage.getItem('hwRedoT:' + id) || 'null'); if (o && o.id === id && typeof o.acc === 'number') return o; } catch (e) {} return null; }
+  function clearT(id) { try { localStorage.removeItem('hwRedoT:' + id); } catch (e) {} }
+  function start() {
+    if (school()) { msg('🏫 いまは 学校の 時間だよ。おうちに 帰ってから してね。'); return; }
+    if (!T || T.id !== R.id) T = loadT(R.id) || { id: R.id, acc: 0, run: 0 };
+    if (T.run) { T.acc += Date.now() - T.run; T.run = 0; }   // ⏸ 一時停止
+    else T.run = Date.now();                                 // ▶ スタート／つづける
+    saveT(); msg(''); tick();
+  }
+  function elapsed() { return T && R && T.id === R.id ? (T.acc || 0) + (T.run ? Date.now() - T.run : 0) : 0; }
+  var ticking = false;
   function tick() {
     var el = elapsed(), t = $('hrTime');
-    if (t) { var s = Math.floor(el / 1000); t.textContent = Math.floor(s / 60) + '分' + ('0' + (s % 60)).slice(-2) + '秒'; }
-    var b = $('hrStart'); if (b && T && R && T.id === R.id) { b.disabled = true; b.textContent = 'はかっています'; }
+    if (t) { var s = Math.floor(el / 1000); t.textContent = Math.floor(s / 60) + '分' + ('0' + (s % 60)).slice(-2) + '秒' + (T && T.id === R.id && !T.run && el > 0 ? '（とめています）' : ''); }
+    var b = $('hrStart');
+    if (b) { var on = T && R && T.id === R.id; b.disabled = school(); b.textContent = !on || (!T.run && !el) ? '▶ スタート' : (T.run ? '⏸ 一時停止' : '▶ つづける'); }
     check();
-    if ($('hsRedo') && $('hsRedo').style.display !== 'none' && T) setTimeout(tick, 1000);
+    if (!ticking && $('hsRedo') && $('hsRedo').style.display !== 'none' && T && T.run) { ticking = true; setTimeout(function () { ticking = false; tick(); }, 1000); }
   }
   function len(id) { var e = $(id); return e ? Array.from(String(e.value || '').trim()).length : 0; }
   function check() {
@@ -109,6 +118,8 @@
   function msg(t) { var m = $('hrMsg'); if (m) m.textContent = t; }
   function send() {
     var g = $('hrGo'); if (g) g.disabled = true; msg('');
+    if (school()) { msg('🏫 いまは 学校の 時間だよ。おうちに 帰ってから 出してね（はかった 時間は のこっているよ）。'); if (g) g.disabled = false; return; }
+    if (T && T.run) { T.acc += Date.now() - T.run; T.run = 0; saveT(); }
     fetch(R.late ? '/api/homework/late' : '/api/homework/redo', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: R.id, dayKey: R.dayKey, todo: $('hrTodo').value, reflect: $('hrRef').value, next: $('hrNext').value, elapsedMs: elapsed() }) })
       .then(function (r) { return r.json().catch(function () { return null; }); })
@@ -117,11 +128,11 @@
           var c = document.querySelector('#hsRedo .rc');
           if (c) c.innerHTML = '<div style="display:flex;gap:8px;align-items:flex-start"><span class="face">' + face() + '</span><div class="say">' + (R.late ? 'よっしゃ！ 出しわすれの 分、ちゃんと 出せたで！ 👏' : 'よっしゃ！ やり直し、ちゃんと 出せたで！ 👏') + '\n先生が 見て 返してくれたら、先生PJの 練習試合も できるように なるで。</div></div><button type="button" class="btn go" id="hrDone">とじる</button>';
           var d = $('hrDone'); if (d) d.onclick = closeIt;
-          T = null; ITEMS = ITEMS.filter(function (x) { return x.id !== R.id; }); card();
+          if (T) clearT(T.id); T = null; ITEMS = ITEMS.filter(function (x) { return x.id !== R.id; }); card();
           return;
         }
         var e = (j && j.error) || '';
-        msg(e === 'school_time' ? '🏫 いまは 学校の 時間だよ。おうちで してね。' : e === 'too_short' ? '⏱ タイマーで 5分いじょう はかってね。' : e === 'too_vague' ? '📝 やったこと・ふりかえりを もう少し くわしく 書いてね。' : e === 'not_rejected' ? 'もう やり直しは 出してあるよ。' : e === 'not_missed' ? 'この 日の 分は もう 出してあるよ。' : '出せませんでした。もう一回 おしてね。');
+        msg(e === 'school_time' ? '🏫 いまは 学校の 時間だよ。おうちで してね。' : e === 'too_short' ? '⏱ タイマーで 5分いじょう はかってね。' : e === 'too_vague' ? '📝 やったこと・ふりかえりを もう少し くわしく 書いてね。' : e === 'not_rejected' ? 'もう やり直しは 出してあるよ。' : e === 'not_missed' ? 'この 日の 分は もう 出してあるよ。' : e === 'not_found' ? 'やり直しの 期限（1週間）が すぎているよ。' : (e === 'unauthorized' || e === 'login_required') ? 'ログインが 切れているよ。ログインしなおしてから もう一回 出してね（はかった 時間は のこっているよ）。' : '出せませんでした。もう一回 おしてね。（' + (e || 'つうしん') + '）');
         if (g) g.disabled = false;
       }).catch(function () { msg('出せませんでした。もう一回 おしてね。'); if (g) g.disabled = false; });
   }
