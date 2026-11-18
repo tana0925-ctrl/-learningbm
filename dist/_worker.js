@@ -9167,8 +9167,7 @@ function _faKarteGraphs(d){
         try {
           var _ls = await api('/api/teacher/class-missions?classId=' + encodeURIComponent(classId));
           var _run = (_ls.missions || []).filter(function(x){ return !x.achieved && (!x.endAt || Date.parse(String(x.endAt).replace(' ','T')+'Z') - 9*3600000 > Date.now()); });
-          if (_run.length && !confirm('すでに 進行中の ミッション「' + _run[0].title + '」が あります。
-新しく 作ると、子どもの 画面には 新しい ほうが 出ます。作りますか？')) return;
+          if (_run.length && !confirm('すでに 進行中の ミッション「' + _run[0].title + '」が あります。 新しく 作ると、子どもの 画面には 新しい ほうが 出ます。作りますか？')) return;
         } catch(_e) {}
         window.__cmSending = true;
         try{
