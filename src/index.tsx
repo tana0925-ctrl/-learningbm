@@ -4013,7 +4013,7 @@ app.get('/api/teacher/shinbun-material', async (c) => {
   const cids = ((cls && cls.results) || []).map((r: any) => String(r.id))
   if (!cids.length) return c.json({ ok: true, from, to, weekday: wd, rows: [] })
   const ph = cids.map(() => '?').join(',')
-  const mem = await c.env.DB.prepare('SELECT cm.user_id AS uid, cm.class_id AS cid, u.name AS name, u.login_id AS lid FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id IN (' + ph + ') LIMIT 300').bind(...cids).all<any>()
+  const mem = await c.env.DB.prepare('SELECT cm.user_id AS uid, cm.class_id AS cid, u.name AS name, u.login_id AS lid FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id IN (' + ph + ") AND COALESCE(u.role,'student')='student' LIMIT 300").bind(...cids).all<any>()   // ZAIRYO_V3 先生は 数えない
   const rows: any = {}
   for (const r of ((mem && mem.results) || [])) rows[String(r.uid)] = { userId: String(r.uid), classId: String(r.cid), name: String(r.name || ''), loginId: String(r.lid || ''), hw: 0, appDays: 0, app: 0, photos: 0, notes: 0 }
   const sub = 'SELECT user_id FROM class_members WHERE class_id IN (' + ph + ')'
@@ -18913,7 +18913,7 @@ function _faKarteGraphs(d){
     <script src="/portfolio.js?v=15"></script><!-- PORTFOLIO_V1 📸 成果物 -->
     <script src="/karte-shinbun.js?v=18"></script><!-- SHINBUN_V1 📰 道しるべ新聞（karte-michi より前に） -->
     <script src="/karte-michi.js?v=11"></script>
-    <script src="/shinbun_nudge.js?v=3"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
+    <script src="/shinbun_nudge.js?v=4"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
     <script src="/teacher-preview.js?v=1"></script>
     <script src="/viewas-teacher.js?v=1"></script>

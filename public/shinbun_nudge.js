@@ -18,12 +18,15 @@
   function nameOf(r) { try { if (typeof window.resolveStudentName === 'function') return window.resolveStudentName(r.loginId, r.name) || r.name; } catch (e) {} return r.name || r.loginId || ''; }
 
   // うすい：写真も メモも なく、家庭学習の日と アプリの日を あわせても 2日まで
-  function classify(rows) {
+  // ZAIRYO_V3（2026-11-18）週の とちゅうでは 日が 少ないのが あたりまえ。うすいの きじゅんを すぎた 日数に あわせる（水曜＝1日まで、木曜から＝2日まで）
+  function weekdaysBetween(f, t) { var a = Date.parse(String(f) + 'T00:00:00Z'), b = Date.parse(String(t) + 'T00:00:00Z'), n = 0; if (!isFinite(a) || !isFinite(b)) return 5; for (var x = a; x <= b; x += 86400000) { var w = new Date(x).getUTCDay(); if (w >= 1 && w <= 5) n++; } return n; }
+  function classify(rows, d) {
     var thin = [], noPm = [];
+    var el = weekdaysBetween(d && d.from, d && d.to), thr = Math.min(2, Math.max(0, el - 2));
     rows.forEach(function (r) {
       var pm = (r.photos || 0) + (r.notes || 0);
       if (pm > 0) return;
-      if ((r.hw || 0) + (r.appDays || 0) <= 2) thin.push(r); else noPm.push(r);
+      if ((r.hw || 0) + (r.appDays || 0) <= thr) thin.push(r); else noPm.push(r);
     });
     var key = function (r) { return (r.hw || 0) + (r.appDays || 0); };
     thin.sort(function (a, b) { return key(a) - key(b); });
@@ -37,7 +40,7 @@
 
   function render(d) {
     var old = document.getElementById(ID); if (old) old.parentNode.removeChild(old);
-    var c = classify(d.rows || []);
+    var c = classify(d.rows || [], d);
     if (!c.thin.length && !c.noPm.length) return;
     var el = document.createElement('div');
     el.id = ID;
