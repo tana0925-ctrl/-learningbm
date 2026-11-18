@@ -82,11 +82,13 @@ try {
   }
 
   // ② ほかの ページ
-  for (const [url, who, name] of [['/pj', STUDENT, '先生PJ'], ['/chitosele', STUDENT, 'チトセレ（子ども）'], ['/chitosele?teacher=1', TEACHER, 'チトセレ（先生）']]) {
+  for (const [url, who, name] of [['/pj', STUDENT, '先生PJ'], ['/chitosele', STUDENT, 'チトセレ（子ども）'], ['/chitosele?teacher=1', TEACHER, 'チトセレ（先生）'], ['/teacher', TEACHER, '先生ページ']]) {
     const { p, errs } = await page(b, who)
     const r = await p.goto(BASE + url, { waitUntil: 'load' }); await sleep(1500)
     ok(r && r.status() === 200, name + ' が ひらく')
-    ok(!errs.length, name + ' で エラーなし' + (errs.length ? '：' + errs.slice(0, 5).join(' / ') : ''))
+    // 先生ページは にせものの データだと 中身の エラーが 出るので、書きまちがい（文法の エラー）だけ 見る
+    const _e = url === '/teacher' ? errs.filter((x) => /SyntaxError|Unexpected|Invalid or unexpected|is not defined/.test(x)) : errs
+    ok(!_e.length, name + ' で エラーなし' + (_e.length ? '：' + _e.slice(0, 5).join(' / ') : ''))
     await p.close()
   }
   await b.close()
