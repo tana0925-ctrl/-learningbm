@@ -3857,12 +3857,12 @@ function genH6u11(){return _pickBank(_SS.h6u11);}`,`/*__H6BANK_LIVE_V1__*/var _H
       <!-- イベント管理 -->
       <details class="bg-white rounded-xl shadow px-4 py-3"><summary class="cursor-pointer font-bold text-slate-700 select-none">🎉 イベント管理<span class="text-xs font-normal text-slate-400 ml-2">ふだんは使いません（学校全体の設定です）</span></summary>
           <div class="mt-3"><div class="p-1">
-        <div class="flex flex-wrap gap-3" id="festToggles">
+        <div class="flex flex-wrap gap-3 hidden" id="festToggles">
           <button id="festFractionBtn" onclick="toggleFest('fraction')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">🍰 分数フェス OFF</button>
           <button id="festDecimalBtn" onclick="toggleFest('decimal')" class="px-4 py-2 rounded-lg font-bold text-sm border-2 transition bg-slate-100 text-slate-500 border-slate-300">💧 小数フェス OFF</button>
         </div>
-        <p class="text-xs text-slate-400 mt-2">ONにすると生徒の修行画面にフェス表示が出て、かけらがドロップするようになります。</p>
-        <div class="mt-3 pt-3 border-t border-slate-100">
+        <p id="festTogglesNote" class="text-xs text-slate-400 mt-2 hidden">むかしの 分数・小数フェスが ONのままです。OFFにしてください（これからは 下の 単元フェスを 使います）。</p>
+        <div class="mt-1">
           <div class="font-bold text-sm text-fuchsia-700 mb-1">🎉 単元フェス（好きな修行でフェス）</div>
           <p class="text-xs text-slate-400 mb-2">学年→単元を選んでONにすると、その単元の修行で「かけら・チケット・秘伝の書」がドロップします（「全単元」を選ぶと全部の修行が対象）。</p>
           <div class="flex flex-wrap gap-2 items-center">
@@ -4603,6 +4603,8 @@ function genH6u11(){return _pickBank(_SS.h6u11);}`,`/*__H6BANK_LIVE_V1__*/var _H
         try{ updateUnitFestUI(); setUnitFestSelectsFromState(); }catch(e){}
       }
       function updateFestButtons(){
+        /* FEST_TIDY_V1（2026-11-18）分数・小数フェスは 単元フェスで できるので かくす（ONの ままの ときだけ 出して OFFにできる） */
+        try { var _on = !!(_festState.fraction_fest_active || _festState.decimal_fest_active); document.getElementById('festToggles').classList.toggle('hidden', !_on); document.getElementById('festTogglesNote').classList.toggle('hidden', !_on); } catch(_e) {}
         var fb = document.getElementById('festFractionBtn');
         var db = document.getElementById('festDecimalBtn');
         if(fb){
