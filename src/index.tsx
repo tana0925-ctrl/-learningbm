@@ -6459,8 +6459,8 @@ app.post('/api/homework/submit', async (c) => {
       (id, user_id, day_key, submitted_at, todo, why, aim, minutes, end_weather,
        weather_reason, next_improve, rest_day, streak_after,
        reward_kind, reward_coins, reward_shards, bonus_coins, bonus_shards, teacher_id,
-       self_study_plan, weekly_plan, weekly_reflection, work_photo_analysis, parent_comment)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       self_study_plan, weekly_plan, weekly_reflection, work_photo_analysis, parent_comment, via)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).bind(
     id, u.id, dayKey, Date.now(),
     String(body.todo || '').slice(0, 500),
@@ -6482,7 +6482,8 @@ app.post('/api/homework/submit', async (c) => {
     String(body.weeklyPlan || '').slice(0, 1000),
     String(body.weeklyReflection || '').slice(0, 1000),
     String(body.workPhotoAnalysis || '').slice(0, 500),
-    String(body.parentComment || '').slice(0, 500)
+    String(body.parentComment || '').slice(0, 500),
+    body.via === 'hschat' ? 'hschat' : 'sheet'   // VIA_V1（2026-11-18）阪神マンの 対話で 出したか、シートで 出したか
   ).run()
 
   // ── 提出即コイン：クライアント側で即付与するため、サーバーはclaimed済みにマーク ──
@@ -11538,7 +11539,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=15"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -12137,10 +12138,11 @@ app.get('/admin', (c) => {
             <p id="adminPwMsg" class="text-sm"></p>
           </div>
         </div>
-        <div class="bg-white rounded-xl shadow p-6">
+        <div class="bg-white rounded-xl shadow p-6 md:col-span-2 order-first">
           <h2 class="font-bold mb-2">📝 報告・要望 <span id="rptBadge" style="font-size:12px;color:#dc2626;font-weight:bold;"></span></h2>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-            <select id="rptFilterStatus" onchange="rptAdminLoad()" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;font-size:13px;">
+            <select id="rptFilterStatus" onchange="rptAdminRender()" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;font-size:13px;">
+              <option value="todo" selected>まだ（未対応・対応中）</option>
               <option value="all">すべての状態</option>
               <option value="open">未対応</option>
               <option value="in_progress">対応中</option>
@@ -12157,7 +12159,7 @@ app.get('/admin', (c) => {
           </div>
           <div id="rptAdminList"><p style="color:#94a3b8;font-size:13px;">読み込み中...</p></div>
         </div>
-        <script src="/admin-reports.js?v=1"></script>
+        <script src="/admin-reports.js?v=2"></script>
 
 
         <div class="bg-white rounded-xl shadow p-6">
@@ -12983,7 +12985,7 @@ app.get('/teacher', (c) => {
           <button id="tabAnalytics" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('analytics')">④ 📊 分析・カルテ</button>
           <button id="tabMissions" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('missions')">⑤ 🎯 ミッション</button>
           <button id="tabClasses" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('classes')">⑥ 📚 クラス・名簿</button>
-          <button id="tabAnnouncements" style="display:none" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ</button>
+          <button id="tabAnnouncements" style="display:none" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100" onclick="switchTab('announcements')">📢 おしらせ<span class="text-[10px] font-normal opacity-70">（管理者）</span></button>
         </div>
       </div>
 

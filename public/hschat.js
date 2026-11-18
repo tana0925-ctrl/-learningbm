@@ -939,7 +939,9 @@
     });
     try { var me = document.getElementById('hsMinutes'); var s0 = getSess(); if (me && s0 && s0._chat) me.value = String(s0._chat.minutes || 0); } catch (e) {}
     var keep = null; try { keep = JSON.parse(JSON.stringify(getSess()._chat)); } catch (e) {}
+    window.__hsVia = 'hschat';   /* VIA_V1 */
     try { var f = fn('hsSubmitAndExport'); if (f) await f(); } catch (e) {}
+    window.__hsVia = '';
     _sending = false;
     if (submittedToday()) {
       var msg = ''; try { msg = String((document.getElementById('hsRewardMsg') || {}).textContent || '').replace(/^✅\s*/, '').trim(); } catch (e) {}
