@@ -254,6 +254,10 @@ const S=[
  gen:()=>{const x=ri(2,9),a=ri(2,9);if(Math.random()<.5)return {q:`x × ${a} = ${x*a}　x は？`,type:'num',ans:x};const y=ri(12,90),b=ri(11,60);return {q:`x + ${b} = ${y+b}　x は？`,type:'num',ans:y};}},
 {id:'g6_metric',g:6,name:'単位のしくみ（小数で単位をかえる）',pre:['g3_len_weight','g2_kasa','g4_dec_place'],tool:'unit',how:'k（キロ）は1000倍、c（センチ）は100分の1、m（ミリ）は1000分の1。大きい単位→小さい単位は かける、小さい→大きいは わる。',
  gen:()=>{let n=ri(101,999);if(n%10===0)n++;return pick([{q:`${fm(n/100)}m = □cm`,type:'num',ans:n},{q:`${n*10}g = □kg`,type:'num',ans:n/100},{q:`${fm(n/1000)}kg = □g`,type:'num',ans:n},{q:`${n}mL = □L`,type:'num',ans:n/1000},{q:`${fm(n/10)}cm = □mm`,type:'num',ans:n},{q:`${n*10}m = □km`,type:'num',ans:n/100}]);}},
+{id:'g6_scale',g:6,name:'拡大図と縮図（辺の長さ・縮尺）',pre:['g6_ratio_value','g4_dec_mul_int','g6_metric'],tool:'ratio',how:'拡大図は どの辺も 同じ 倍に、縮図は どの辺も 同じ 分の1に なる。縮尺 1:1000 なら、地図の 1cm は 本当は 1000cm（＝10m）。',
+ gen:()=>{const t=Math.random();if(t<.34){const a=ri(2,9),k=ri(2,4);return {q:`辺の長さが ${a}cm の三角形を ${k}倍に 拡大した図を かきます。その辺は 何cm？`,type:'num',ans:a*k};}if(t<.67){const a=ri(2,9),k=ri(2,4);return {q:`辺の長さが ${a*k}cm の四角形を 1/${k} に 縮小した図を かきます。その辺は 何cm？`,type:'num',ans:a};}const S=pick([1000,2000,5000,10000,25000]),c=ri(2,8);return {q:`縮尺 1:${S} の地図で ${c}cm の道は、本当は 何m？`,type:'num',ans:c*S/100};}},
+{id:'g6_prism_vol',g:6,name:'角柱・円柱の体積',pre:['g6_circle','g5_area_tri','g5_volume'],tool:'area',how:'角柱・円柱の体積 ＝ 底面積 × 高さ。三角柱なら 底面の三角形の面積（底辺×高さ÷2）を先に出す。円柱なら 底面の円の面積（半径×半径×3.14）を先に出す。',
+ gen:()=>{const t=Math.random(),h=ri(2,9);if(t<.34){const b=ri(3,20);return {q:`底面積が ${b}cm² で、高さが ${h}cm の 角柱の 体積は？（cm³）`,type:'num',ans:b*h};}if(t<.67){const a=ri(1,5)*2,u=ri(2,8);return {q:`底面が「底辺 ${a}cm・高さ ${u}cm の三角形」で、高さが ${h}cm の 三角柱の 体積は？（cm³）`,type:'num',ans:a*u/2*h};}const r=ri(1,5);return {q:`底面の半径が ${r}cm、高さが ${h}cm の 円柱の 体積は？（円周率は3.14、cm³）`,type:'num',ans:Math.round(r*r*314*h)/100};}},
 ];
 
 const S_by = {}; S.forEach(function (s) { S_by[s.id] = s; });
@@ -267,7 +271,7 @@ var UNIT2GOAL = {
   'rounding': 'g4_large_num', 'division': 'g3_div_rem', 'fraction-mixed': 'g4_frac_mixed', 'decimal': 'g4_dec_mul_int', 'long-division': 'g4_div_1digit', 'area': 'g4_area_rect', 'brackets': 'g4_order',
   'm5-frac-eq': 'g5_frac_eq', 'm5-percent': 'g5_percent', 'm5-volume': 'g5_volume', 'm5-avg': 'g5_avg', 'm5-dec-mul': 'g5_dec_mul', 'm5-dec-div': 'g5_dec_div', 'm5-speed': 'g5_speed', 'm5-unit-qty': 'g5_dec_div',
   'm6-frac-mul': 'g6_frac_mul', 'm6-frac-div': 'g6_frac_div', 'm6-frac-int': 'g6_frac_mul', 'm6-frac-mixed': 'g6_frac_div', 'm6-frac-triple': 'g6_frac_div', 'm6-frac-dec': 'g6_frac_div',
-  'm6-ratio': 'g6_ratio_value', 'm6-circle': 'g6_circle', 'm6-proportion': 'g6_prop', 'm6-expression': 'g6_letters', 'm6-scale': 'g6_ratio_value', 'm6-prism': 'g6_circle', 'm6-data': 'g5_avg'
+  'm6-ratio': 'g6_ratio_value', 'm6-circle': 'g6_circle', 'm6-proportion': 'g6_prop', 'm6-expression': 'g6_letters', 'm6-scale': 'g6_scale', 'm6-prism': 'g6_prism_vol', 'm6-data': 'g5_avg'
 };
 // 🛤 UNIT_PATH_V1（2026-11-13 先生の指示）単元ごとの「もどる道」。
 //   単元の技（goal）が ❌ のとき、その単元に 本当に 関係する 前の技だけを、近い順に 1本ずつ たどる。
@@ -297,7 +301,7 @@ var UNIT_PATHS = {
   'm6-frac-triple': [['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all']],
   'm6-frac-dec': [['g6_frac_mul', 'g5_frac_eq', 'g5_divisor', 'g3_div_basic'], ['g4_dec_place', 'g3_dec_place']],
   'm6-ratio': [['g6_ratio_simplify', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all']],
-  'm6-scale': [['g4_dec_mul_int', 'g3_mul_2x1', 'g2_kuku_all'], ['g6_metric', 'g3_len_weight']],
+  'm6-scale': [['g6_ratio_value', 'g6_ratio_simplify', 'g5_divisor', 'g3_div_basic', 'g2_kuku_all'], ['g6_metric', 'g4_dec_mul_int', 'g3_len_weight']],
   'm6-circle': [['g5_circum', 'g4_dec_mul_int', 'g3_mul_2x1', 'g2_kuku_all'], ['g4_area_rect']],
   'm6-prism': [['g6_circle', 'g5_circum', 'g4_dec_mul_int'], ['g5_volume', 'g4_area_rect', 'g3_mul_2x1']],
   'm6-proportion': [['g3_div_basic', 'g2_kuku_all'], ['g4_dec_div_int', 'g4_div_1digit']],
@@ -319,7 +323,7 @@ var SK2UNIT = {
   g4_frac_mixed: 'fraction-mixed', g4_frac_add: 'fraction-mixed', g4_area_rect: 'area', g4_area_unit: 'area', g4_angle: null, g4_linegraph: null, g4_order: 'brackets',
   g5_dec_mul: 'm5-dec-mul', g5_dec_div: 'm5-dec-div', g5_multiple: 'm5-frac-eq', g5_divisor: 'm5-frac-eq', g5_frac_eq: 'm5-frac-eq', g5_frac_common: 'm5-frac-eq', g5_frac_add: 'm5-frac-eq',
   g5_avg: 'm5-avg', g5_per: 'm5-percent', g5_percent: 'm5-percent', g5_area_tri: 'area', g5_area_trap: 'area', g5_circum: 'm6-circle', g5_volume: 'm5-volume', g5_vol_unit: 'm5-volume', g5_speed: 'm5-speed',
-  g6_frac_mul: 'm6-frac-mul', g6_frac_div: 'm6-frac-div', g6_ratio_simplify: 'm6-ratio', g6_ratio_dec_frac: 'm6-ratio', g6_ratio_value: 'm6-ratio', g6_circle: 'm6-circle', g6_prop: 'm6-proportion', g6_letters: 'm6-expression', g6_metric: null
+  g6_frac_mul: 'm6-frac-mul', g6_frac_div: 'm6-frac-div', g6_ratio_simplify: 'm6-ratio', g6_ratio_dec_frac: 'm6-ratio', g6_ratio_value: 'm6-ratio', g6_circle: 'm6-circle', g6_prop: 'm6-proportion', g6_letters: 'm6-expression', g6_metric: null, g6_scale: 'm6-scale', g6_prism_vol: 'm6-prism'
 };
 var MATH_PACE_MONTH = {
   1: { 4: 'm1-add-no', 5: 'm1-add-no', 6: 'm1-add-no', 7: 'm1-sub-no', 8: 'm1-sub-no', 9: 'm1-sub-no', 10: 'm1-3num', 11: 'm1-add-cy', 12: 'm1-sub-bo', 1: 'm1-sub-bo', 2: 'm1-sub-bo', 3: 'm1-sub-bo' },
