@@ -8364,9 +8364,9 @@ app.get('/api/teacher/class/:classId/submission-dashboard', async (c) => {
   // 児童一覧
   const members = await c.env.DB.prepare(`
     SELECT u.id, u.login_id as loginId, u.name
-    FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=?
+    FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id=? AND COALESCE(u.role,'student')='student'
     ORDER BY u.name
-  `).bind(classId).all<any>()
+  `).bind(classId).all<any>()   // MISSLIST_V1 先生（admin）は 数えない
 
   // 週の月曜日〜日曜日の日付範囲を計算
   const monday = getMondayFromWeekKey(weekKey)
@@ -15869,6 +15869,10 @@ app.get('/teacher', (c) => {
           const refCount = reflections.length;
           const refRate = members.length > 0 ? Math.round(refCount / members.length * 100) : 0;
           const refMissing = members.filter(function(m){ return !refByUser[m.id]; });
+          /* MISSLIST_V1（2026-11-18）週の振り返りは 金曜に 出すもの → 木曜までは 名前を 出さない。
+             計画が ない子は「家庭学習も まだ 0回」か「家庭学習は 出している（計画だけ 空）」かを わけて 見せる */
+          var _subCnt = {}; daily.forEach(function(d){ _subCnt[d.user_id] = (_subCnt[d.user_id]||0) + 1; });
+          var _refDue = (function(){ try{ var fri = weekDays.filter(function(d){ return d.dayName === 'fri' || /金/.test(d.label||''); })[0]; return !fri || todayKey >= fri.date; }catch(e){ return true; } })();
           // 先週比
           var prevTotal = 0; for(var uid in prevByUser) prevTotal += prevByUser[uid];
           var prevTotalVal = 0; for(var uid2 in prevByUser) prevTotalVal += prevByUser[uid2];
@@ -15932,16 +15936,25 @@ app.get('/teacher', (c) => {
             html += '</div></div>';
           }
           if(planMissing.length > 0){
+            var _pmZero = planMissing.filter(function(m){ return !_subCnt[m.id]; }), _pmDo = planMissing.filter(function(m){ return _subCnt[m.id]; });
             html += '<div class="bg-purple-50 border border-purple-200 rounded-xl p-3 mb-4">';
             html += '<div class="font-bold text-sm text-purple-700 mb-2">📋 計画未提出者（'+planMissing.length+'人）</div>';
-            html += '<div class="flex flex-wrap gap-1">';
-            for(var pi=0;pi<planMissing.length;pi++){
-              var pm = planMissing[pi];
-              html += '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(pm.loginId, pm.name))+'</span>';
+            if(_pmZero.length){
+              html += '<div class="text-[11px] font-bold text-purple-700 mb-1">今週 家庭学習も まだ 0回（'+_pmZero.length+'人）… 計画より 先に「どうしたの？」の 声かけを</div><div class="flex flex-wrap gap-1 mb-2">';
+              _pmZero.forEach(function(pm){ html += '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(pm.loginId, pm.name))+'</span>'; });
+              html += '</div>';
             }
-            html += '</div></div>';
+            if(_pmDo.length){
+              html += '<div class="text-[11px] font-bold text-purple-700 mb-1">家庭学習は 出している（計画だけ 空）（'+_pmDo.length+'人）</div><div class="flex flex-wrap gap-1">';
+              _pmDo.forEach(function(pm){ html += '<span class="bg-white border border-purple-200 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold">'+escH(resolveStudentName(pm.loginId, pm.name))+' <span class="font-normal">'+_subCnt[pm.id]+'回</span></span>'; });
+              html += '</div>';
+            }
+            html += '</div>';
           }
-          if(refMissing.length > 0){
+          if(refMissing.length > 0 && !_refDue){
+            html += '<div class="bg-orange-50 border border-orange-200 rounded-xl p-2 mb-4 text-xs text-orange-700">💭 週の振り返りは 金曜に 出すものなので、名前は 金曜から 出します（いま まだの子 '+refMissing.length+'人）</div>';
+          }
+          if(refMissing.length > 0 && _refDue){
             html += '<div class="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4">';
             html += '<div class="font-bold text-sm text-orange-700 mb-2">💭 週の振り返り未提出者（'+refMissing.length+'人）</div>';
             html += '<div class="flex flex-wrap gap-1">';
