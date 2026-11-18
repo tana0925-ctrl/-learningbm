@@ -11058,7 +11058,16 @@ async function missionTopOf(c: any, m: any) {
     for (const t of top) {
       const coins = Math.round((Number(m.rewardCoins) || 0) * (MT_RATE[t.rank - 1] || 0) / 10) * 10
       const shards = (Number(m.rewardShards) || 0) > 0 ? (MT_SHARD[t.rank - 1] || 0) : 0
-      try { await c.env.DB.prepare('INSERT OR IGNORE INTO class_mission_top (mission_id, user_id, rank, n, coins, shards) VALUES (?,?,?,?,?,?)').bind(m.id, t.uid, t.rank, t.n, coins, shards).run() } catch (_e) {}
+      let _ins = 0
+      try { const rr: any = await c.env.DB.prepare('INSERT OR IGNORE INTO class_mission_top (mission_id, user_id, rank, n, coins, shards) VALUES (?,?,?,?,?,?)').bind(m.id, t.uid, t.rank, t.n, coins, shards).run(); _ins = Number(rr && rr.meta && rr.meta.changes) || 0 } catch (_e) {}
+      // MISSION_TOP_V4 きまった ときに 1回だけ、本人へ メッセージ（🎁ごほうびから 受け取れる）
+      if (_ins) {
+        try {
+          const mm: any = await c.env.DB.prepare('SELECT created_by, title FROM class_missions WHERE id=?').bind(m.id).first()
+          if (mm && mm.created_by) await c.env.DB.prepare('INSERT INTO messages (id, class_id, sender_id, sender_role, recipient_id, body) VALUES (?,?,?,?,?,?)')
+            .bind(crypto.randomUUID(), m.classId, mm.created_by, 'teacher', t.uid, '🏅 クラスミッション「' + String(mm.title || '') + '」で 活やく トップ3の ' + t.rank + '位 に なったよ！\nボーナス +' + coins + 'コイン' + (shards ? '＋' + shards + 'かけら' : '') + ' を、上の「🎁 ごほうび」から 受け取ってね。').run()
+        } catch (_e) {}
+      }
       ;(t as any).coins = coins; (t as any).shards = shards; (t as any).claimed = false
     }
     return { final: true, top }
@@ -11099,7 +11108,9 @@ app.get('/api/student/class-mission/top', async (c) => {
   } catch (_e) {}
   const meT = (t.top || []).find((x: any) => x.uid === u.id)
   return c.json({ ok: true, missionId: m.id, upcoming, final: !!t.final, preview: t.preview || null,
-    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(pn[x.uid] || '', rn[x.lid], x.lid), n: x.n, me: x.uid === u.id })),
+    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(pn[x.uid] || '', rn[x.lid], x.lid), n: x.n, me: x.uid === u.id,
+      coins: t.final ? (Number(x.coins) || 0) : ((t.preview && t.preview[x.rank - 1]) ? t.preview[x.rank - 1].coins : 0),
+      shards: t.final ? (Number(x.shards) || 0) : ((t.preview && t.preview[x.rank - 1]) ? t.preview[x.rank - 1].shards : 0) })),   // MISSION_TOP_V4 だれに いくら
     bonus: (t.final && meT) ? { rank: meT.rank, coins: meT.coins || 0, shards: meT.shards || 0, claimed: !!meT.claimed } : null })
 })
 app.post('/api/student/class-mission/:id/top-claim', async (c) => {
@@ -11647,7 +11658,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=2"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=3"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====

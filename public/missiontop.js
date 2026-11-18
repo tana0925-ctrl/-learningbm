@@ -23,8 +23,8 @@
     b.style.display = '';
     var h = '<div style="font-weight:900">🏅 活やく トップ3 ' + (r.final ? '（きまり！）' : '（いま）') + '</div>';
     h += top.map(function (t) {
-      var pv = (!r.final && r.preview && r.preview[t.rank - 1]) ? r.preview[t.rank - 1] : null;
-      return '<div style="display:flex;justify-content:space-between;gap:6px;' + (t.me ? 'font-weight:900;color:#b45309' : '') + '"><span>' + MED[t.rank - 1] + ' ' + esc(t.name) + (t.me ? '（あなた）' : '') + '</span><span>' + t.n + '問' + (pv && pv.coins ? ' ・ボーナス +' + pv.coins : '') + '</span></div>';
+      var bc = Number(t.coins) || 0, bs = Number(t.shards) || 0;   // MISSION_TOP_V4 ボーナスも 見せる
+      return '<div style="display:flex;justify-content:space-between;gap:6px;' + (t.me ? 'font-weight:900;color:#b45309' : '') + '"><span>' + MED[t.rank - 1] + ' ' + esc(t.name) + (t.me ? '（あなた）' : '') + '</span><span>' + t.n + '問' + (bc ? ' ・🎁 +' + bc + 'コイン' + (bs ? '＋' + bs + 'かけら' : '') : '') + '</span></div>';
     }).join('');
     if (!r.final) h += '<div style="font-size:11px;color:#92400e;margin-top:2px">ミッションを 達成した しゅんかんの トップ3に ボーナス！</div>';
     var bo = r.bonus;
@@ -78,6 +78,27 @@
     try { load(); } catch (e) {}
     return true;
   }
+  /* MISSION_TOP_V4 🎁ごほうび（ヘッダーの ごほうびボックス）にも トップ3ボーナスを 出す */
+  function wrapBox() {
+    var f = window._rbRenderBox; if (typeof f !== 'function' || f.__mt) return !!(f && f.__mt);
+    var g = async function () {
+      var p = f.apply(this, arguments); try { await p; } catch (e) {}
+      try {
+        var id = window.__classMissionId || '';
+        var r = await api('/api/student/class-mission/top' + (id ? '?id=' + encodeURIComponent(id) : ''), { method: 'GET' });
+        var body = document.getElementById('rewardBoxBody'); if (!body || !r || !r.bonus) return;
+        var bo = r.bonus, d = document.createElement('div');
+        d.style.cssText = 'border:2px solid ' + (bo.claimed ? '#e5e7eb' : '#fcd34d') + ';border-radius:12px;padding:10px;margin-bottom:12px;background:' + (bo.claimed ? '#f9fafb' : '#fffbeb');
+        d.innerHTML = '<div style="font-weight:900;color:#b45309">🏅 クラスミッション 活やくトップ3 ボーナス</div><div style="font-size:13px;margin:2px 0">' + MED[bo.rank - 1] + ' ' + bo.rank + '位！ +' + bo.coins + 'コイン' + (bo.shards ? '＋' + bo.shards + 'かけら' : '') + '</div>'
+          + (bo.claimed ? '<div style="color:#16a34a;font-weight:900;font-size:13px">✅ 受け取り済み</div>' : '<button type="button" style="margin-top:4px;width:100%;background:#f59e0b;color:#fff;border:0;border-radius:10px;padding:9px;font-weight:900;cursor:pointer">🎉 受け取る</button>');
+        var b = d.querySelector('button'); if (b) b.onclick = function () { cur = r; b.disabled = true; b.textContent = '受け取り中...'; claim(); setTimeout(function () { try { window._rbRenderBox(); } catch (e) {} }, 1200); };
+        body.insertBefore(d, body.firstChild);
+      } catch (e) {}
+      return p;
+    };
+    g.__mt = 1; window._rbRenderBox = g; return true;
+  }
+  var tries2 = 0; (function t2() { if (wrapBox() || ++tries2 > 40) return; setTimeout(t2, 500); })();
   var tries = 0; (function t() { if (wrap() || ++tries > 40) return; setTimeout(t, 500); })();
   window.MISSIONTOP = { load: load, render: render };
 })();
