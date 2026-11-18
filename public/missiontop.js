@@ -1,6 +1,6 @@
 /* 🏅 MISSION_TOP_V1 クラス共同ミッションの「活やく トップ3」と ボーナス — 2026-11-15
  *  ・クラスミッションの カードの 下に トップ3（正解した 数）を 出す
- *  ・ミッション達成 ＆ しめきり（なければ 達成）で きまる。自分が トップ3なら「🏅 ボーナスを 受け取る」
+ *  ・ミッションを 達成した しゅんかんで きまる（MISSION_TOP_V2）。自分が トップ3なら「🏅 ボーナスを 受け取る」
  *  ・index.html の updateClassMissionUI を つつんで うごく（手で 編集しない）
  */
 (function () {
@@ -26,7 +26,7 @@
       var pv = (!r.final && r.preview && r.preview[t.rank - 1]) ? r.preview[t.rank - 1] : null;
       return '<div style="display:flex;justify-content:space-between;gap:6px;' + (t.me ? 'font-weight:900;color:#b45309' : '') + '"><span>' + MED[t.rank - 1] + ' ' + esc(t.name) + (t.me ? '（あなた）' : '') + '</span><span>' + t.n + '問' + (pv && pv.coins ? ' ・ボーナス +' + pv.coins : '') + '</span></div>';
     }).join('');
-    if (!r.final) h += '<div style="font-size:11px;color:#92400e;margin-top:2px">ミッションを 達成すると、トップ3に ボーナス！（しめきりで きまるよ）</div>';
+    if (!r.final) h += '<div style="font-size:11px;color:#92400e;margin-top:2px">ミッションを 達成した しゅんかんの トップ3に ボーナス！</div>';
     var bo = r.bonus;
     if (bo) {
       if (bo.claimed) h += '<div style="margin-top:4px;font-weight:900;color:#15803d">✅ トップ3ボーナス 受け取りずみ</div>';

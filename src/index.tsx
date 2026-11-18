@@ -11016,7 +11016,7 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
 // 🏅 MISSION_TOP_V1（2026-11-15 先生の指示）クラス共同ミッションで 活やくした トップ3を 出して、ボーナスを あげる
 //   ・トップ3＝ミッションの 期間に 正解した 数が 多い 3人（同じ数なら 先に とどいた人）
 //   ・ボーナス（ミッションを 達成した ときだけ）：コイン 1位 50%・2位 30%・3位 20%（ミッションの ごほうびに たいして）／かけら 3・2・1（かけらの ごほうびが ある とき）
-//   ・きまるのは しめきり（なければ 達成した とき）。きまったら class_mission_top に のこして かわらない
+//   ・きまるのは 達成した しゅんかん（V2）。きまったら class_mission_top に のこして かわらない
 const MT_RATE = [0.5, 0.3, 0.2], MT_SHARD = [3, 2, 1]
 async function ensureMissionTop(env: any) {
   try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS class_mission_top (mission_id TEXT NOT NULL, user_id TEXT NOT NULL, rank INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0, shards INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, PRIMARY KEY (mission_id, user_id))').run() } catch (_e) {}
@@ -11040,8 +11040,21 @@ async function missionTopOf(c: any, m: any) {
   const ended = !!(m.endAt && Date.parse(String(m.endAt).replace(' ', 'T') + 'Z') - 9 * 3600000 < Date.now())
   const prog = await countMissionProgress(c, m.classId, m.startAt, m.endAt, m.id, m.goalCorrect)
   const achieved = prog >= Number(m.goalCorrect)
-  const top = await missionTopLive(c, m.classId, m.startAt, m.endAt)
-  if (achieved && (ended || !m.endAt) && String(m.startAt || '') >= '2026-11-15') {   // まえの ミッションには さかのぼって 出さない
+  // MISSION_TOP_V2（2026-11-18 先生の指示）トップ3は クリアした 時点で きまる。クリアした 瞬間（goal 問めの 正解）までの 正解数で ならべる
+  let clearAt: string | null = null
+  if (achieved) {
+    try {
+      let q = `SELECT lr.answered_at AS t FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
+      const bs: any[] = [m.classId, m.startAt]
+      if (m.endAt) { q += ` AND lr.answered_at <= ?`; bs.push(m.endAt) }
+      q += ` ORDER BY lr.answered_at ASC LIMIT 1 OFFSET ?`; bs.push(Math.max(0, Number(m.goalCorrect) - 1))
+      const r: any = await c.env.DB.prepare(q).bind(...bs).first()
+      if (r && r.t) clearAt = String(r.t)
+    } catch (_e) {}
+  }
+  const top = await missionTopLive(c, m.classId, m.startAt, clearAt || m.endAt)
+  void ended
+  if (achieved && String(m.startAt || '') >= '2026-11-15') {   // まえの ミッションには さかのぼって 出さない
     for (const t of top) {
       const coins = Math.round((Number(m.rewardCoins) || 0) * (MT_RATE[t.rank - 1] || 0) / 10) * 10
       const shards = (Number(m.rewardShards) || 0) > 0 ? (MT_SHARD[t.rank - 1] || 0) : 0
@@ -11624,7 +11637,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=1"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=2"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
