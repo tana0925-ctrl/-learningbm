@@ -15496,6 +15496,8 @@ app.get('/teacher', (c) => {
           const dayLabels = ['月','火','水','木','金'];
           wrap.innerHTML = '';
           window._weeklyRefData = []; // 一括用データ
+          /* PLANLIST_GROUP_V1（2026-11-18 先生の指示）「チェック待ち」を いちばん上に。出していない子は 名前だけ。チェック済みは たたむ */
+          var _gWait = [], _gDone = [], _gNone = [];
           for(const p of plans){
             let parsed = {};
             try{ parsed = JSON.parse(p.plansJson || '{}'); }catch(_){}
@@ -15602,7 +15604,32 @@ app.get('/teacher', (c) => {
 
             (function(){ var _dl=['月','火','水','木','金']; var _pl=[]; for(var _di=0;_di<5;_di++){ var _kk=keys[_di]||''; var _vv=_kk?parsed[_kk]:''; var _tt=(typeof _vv==='object'&&_vv)?(_vv.free||''):(_vv||''); if(_tt&&String(_tt).trim()) _pl.push(_dl[_di]+'：'+_tt); } if(!window._planTextByUser) window._planTextByUser={}; window._planTextByUser[p.userId]={name:__pName, lines:_pl}; })();
             card.innerHTML = html;
-            wrap.appendChild(card);
+            (function(){
+              var _has = false;
+              Object.keys(parsed).forEach(function(k){ if(k === '_modified') return; var v = parsed[k]; var tx = (v && typeof v === 'object') ? (v.free || v.reflection || '') : (v || ''); if(String(tx).trim()) _has = true; });
+              if(!_has){ _gNone.push(__pName); return; }
+              var _need = [];
+              if(!p.planApproved) _need.push('承認');
+              if(!(p.planAiComment && String(p.planAiComment).trim())) _need.push('ひとこと');
+              if(reflection && !p.reflectionReturnedAt) _need.push('振り返りの返却');
+              if(_need.length){ card.className += ' border-amber-400 border-2'; card.insertAdjacentHTML('afterbegin', '<div class="text-[11px] font-bold text-amber-700">⏳ まだ：'+_need.join('・')+'</div>'); _gWait.push(card); }
+              else _gDone.push(card);
+            })();
+          }
+          var _hd = function(t, cls){ var d = document.createElement('div'); d.className = 'font-bold text-sm mt-2 mb-1 ' + cls; d.textContent = t; return d; };
+          wrap.appendChild(_hd('⏳ チェック待ち（' + _gWait.length + '人）' + (_gWait.length ? '' : ' … ぜんぶ チェックできています 🎉'), 'text-amber-700'));
+          _gWait.forEach(function(cd){ wrap.appendChild(cd); });
+          if(_gNone.length){
+            var _nb = document.createElement('div'); _nb.className = 'mt-2 p-2 rounded border border-slate-200 bg-slate-50 text-xs';
+            _nb.innerHTML = '<div class="font-bold text-slate-600 mb-1">📭 まだ 出していない（' + _gNone.length + '人）</div>' + _gNone.map(function(n){ return '<span class="inline-block bg-white border rounded-full px-2 py-0.5 mr-1 mb-1 font-bold">' + escH(n) + '</span>'; }).join('');
+            wrap.appendChild(_nb);
+          }
+          if(_gDone.length){
+            var _det = document.createElement('details'); _det.className = 'mt-2';
+            _det.innerHTML = '<summary class="cursor-pointer font-bold text-sm text-emerald-700">✅ チェック済み（' + _gDone.length + '人）… ひらいて 見る</summary>';
+            var _in = document.createElement('div'); _in.className = 'space-y-2 mt-1';
+            _gDone.forEach(function(cd){ _in.appendChild(cd); });
+            _det.appendChild(_in); wrap.appendChild(_det);
           }
           // 📌 2026-09-25 PLAN_LOOP_V1: 見出しに件数を出す（取ってあるデータを数えるだけ）
           try{
