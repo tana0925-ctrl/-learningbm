@@ -11071,9 +11071,10 @@ async function missionForClass(c: any, classId: string, id?: string) {
   return id ? await c.env.DB.prepare(q).bind(id, classId).first<any>() : await c.env.DB.prepare(q).bind(classId).first<any>()
 }
 // アプリの 名前が 本名と 同じ（または 名字・名前が 入っている）ときは 子どもの 画面に 出さない（MISSION_TOP_V1）
-function mtSafeName(name: string, real: any): string {
+function mtSafeName(name: string, real: any, lid?: any): string {
   const n = String(name || '').replace(/[\s　]/g, ''), r = String(real || '').replace(/[\s　]/g, '')
-  if (!n) return 'なかま'
+  if (!n || n === '勇者タマゴン') return 'なかま'
+  if (lid && n.toLowerCase() === String(lid).replace(/[\s　]/g, '').toLowerCase()) return 'なかま'   // ログインIDは 出さない
   if (r && (n === r || (r.length >= 2 && (n.indexOf(r.slice(0, 2)) >= 0 || n.indexOf(r.slice(-2)) >= 0)))) return '名前ひみつの なかま'
   return String(name)
 }
@@ -11087,9 +11088,18 @@ app.get('/api/student/class-mission/top', async (c) => {
   if (!m) return c.json({ ok: true, mission: null, upcoming })
   const t: any = await missionTopOf(c, m)
   let rn: any = {}; try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
+  // MISSION_TOP_V3（2026-11-18 子どもの 声）ログインIDが 見えると パスワードが ばれそう → ゲームの プレイヤー名を 出す
+  const pn: any = {}
+  try {
+    const ids = (t.top || []).map((x: any) => x.uid)
+    if (ids.length) {
+      const r: any = await c.env.DB.prepare('SELECT user_id, json_extract(state_json, \'$.name\') AS pname FROM progress WHERE user_id IN (' + ids.map(() => '?').join(',') + ')').bind(...ids).all()
+      for (const row of ((r && r.results) || [])) pn[String(row.user_id)] = String(row.pname || '')
+    }
+  } catch (_e) {}
   const meT = (t.top || []).find((x: any) => x.uid === u.id)
   return c.json({ ok: true, missionId: m.id, upcoming, final: !!t.final, preview: t.preview || null,
-    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(x.name, rn[x.lid]), n: x.n, me: x.uid === u.id })),
+    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(pn[x.uid] || '', rn[x.lid], x.lid), n: x.n, me: x.uid === u.id })),
     bonus: (t.final && meT) ? { rank: meT.rank, coins: meT.coins || 0, shards: meT.shards || 0, claimed: !!meT.claimed } : null })
 })
 app.post('/api/student/class-mission/:id/top-claim', async (c) => {
