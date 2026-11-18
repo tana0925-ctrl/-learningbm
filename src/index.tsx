@@ -10788,8 +10788,19 @@ async function missionSpec(c: any, missionId?: string): Promise<{ kind: string, 
   _missionSpecMem.set(missionId, sp); return sp
 }
 // その ミッションで 数える「できごと」の SQL（FROM と WHERE、だれ・いつ・あたいの 列）
-function missionSrc(sp: any, classId: string, startAt: string, endAt: string | null) {
+// MISSION_TIME_V1（2026-11-18）learning_results の answered_at は「2026-11-18T05:00:00.000Z」、start_at は「2026-11-18 06:45:00」。
+//   文字で くらべると「T」＞「 」なので、その日の ぶんが ぜんぶ 入っていた（はじめた しゅんかんに 193問）。くらべる 前に 形を そろえる。
+//   end_at（締切）は 日本時間の 23:59:59 として 入っているので、UTC に なおす。
+function mtIso(t: string): string { return String(t || '').replace(' ', 'T') }
+function mtEndUtc(t: string | null): string | null {
+  if (!t) return null
+  const s = String(t)
+  if (/ 23:59:59$/.test(s)) { const ms = Date.parse(s.replace(' ', 'T') + 'Z') - 9 * 3600000; return new Date(ms).toISOString().slice(0, 19).replace('T', ' ') }
+  return s
+}
+function missionSrc(sp: any, classId: string, startAt0: string, endAt0: string | null) {
   const f = sp.filt || {}
+  const startAt = startAt0, endAt = mtEndUtc(endAt0)
   if (sp.kind === 'catch' || sp.kind === 'wildwin' || sp.kind === 'streak') {
     let w = `FROM mission_events e JOIN class_members cm ON cm.user_id = e.user_id AND cm.class_id = ? JOIN users uu ON uu.id = e.user_id AND uu.role = 'student' WHERE e.kind = ? AND e.at >= ?`
     const b: any[] = [classId, sp.kind === 'catch' ? 'catch' : 'wildwin', startAt]
@@ -10799,8 +10810,8 @@ function missionSrc(sp: any, classId: string, startAt: string, endAt: string | n
     return { w, b, uid: 'e.user_id', at: 'e.at', val: 'e.val', max: sp.kind === 'streak' }
   }
   let w = `FROM learning_results lr JOIN class_members cm ON cm.user_id = lr.user_id AND cm.class_id = ? WHERE lr.is_correct = 1 AND lr.answered_at >= ?`
-  const b: any[] = [classId, startAt]
-  if (endAt) { w += ` AND lr.answered_at <= ?`; b.push(endAt) }
+  const b: any[] = [classId, mtIso(startAt)]
+  if (endAt) { w += ` AND lr.answered_at <= ?`; b.push(mtIso(endAt) + '.999Z') }
   if (f.subj) { w += ` AND json_extract(lr.meta_json, '$.subject') = ?`; b.push(String(f.subj)) }
   if (f.unit) { w += ` AND lr.unit = ?`; b.push(String(f.unit)) }
   return { w, b, uid: 'lr.user_id', at: 'lr.answered_at', val: '1', max: false }
