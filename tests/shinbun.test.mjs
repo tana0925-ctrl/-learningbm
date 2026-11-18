@@ -257,6 +257,15 @@ await t('14 先生PJ リーグ戦 ニュース（チーム名だけ・優勝）�
   ok(!/\d+\s*[%％]/.test(h.replace(/<style[\s\S]*?<\/style>/g, '').replace(/style="[^"]*"/g, '')), '％なし')
 })
 
+await t('15 阪神マンの 学びコラム：その子の ことばに 合う ものを えらび、えらんだ わけに 本人の ことばを 引く', async () => {
+  const h = (await make(rich())).html()
+  const m = /阪神マンの 学びコラム「([^」]+)」/.exec(h)
+  ok(m, 'コラムが ある')
+  ok(['時間の 使い方', 'インターネットと じょうずに つきあう', '手段と 目的', '「当たり前」を うたがう'].indexOf(m[1]) >= 0, '合う コラム: ' + (m && m[1]))
+  ok(/✏️ [^<]*「[^」]+」と 書いていたね/.test(h), 'えらんだ わけに 本人の ことば')
+  ok(h.indexOf('AIの なかま') < 0, '阪神マンを AIと 言わない')
+})
+
 const pass = results.filter((r) => r.ok).length
 console.log('\n=== shinbun ===')
 for (const r of results) console.log((r.ok ? 'PASS' : 'FAIL') + ' | ' + r.name + (r.note ? ' | ' + r.note : ''))

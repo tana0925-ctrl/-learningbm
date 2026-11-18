@@ -944,11 +944,50 @@
       ['全員が OKの 答えを さがす', 'みんなで 何かを 決める とき、だれか 一人が がまんする 答えより、全員が「それなら ええよ」と 言える 答えを さがしてみよ。かんたんや ないけど、それが できる クラスは ほんまに 強い。大人の 社会でも、いちばん 大事に されてる 力やで。'],
       ['学びに 終わりは ない', '大人に なっても、学びは ずっと 続く。先生も 毎日 学んでるし、阪神マンも まだまだ 勉強中や。卒業しても、学校が なくなっても、自分で 学び続けられる人で いてほしい。今の 家庭学習は、そのための いちばんの 練習なんや。']
     ];
-    var _col = null;
+    /* JOGEN_V4（2026-11-18 先生の指示）その子の 1週間の ことばに 合う コラムを えらぶ。前の号までに 出した ものは 出さない。
+       合う ものが ないときは まだ 出していない ものから（世の中の 話も まざる）。えらんだ わけを 1行 そえる（その子の ことばを 引く） */
+    var JR = [
+      { re: /計画(に|を)?書いたから|計画(通|どお)り/, f: ['why', 'weather_reason'], c: [1, 0, 12], br: '「{q}」と 書いていたね。計画の その先に ある「なんのために」も 考えてみよう。' },
+      { re: /テスト/, f: ['todo', 'why'], c: [0, 1], br: 'テストに 向けて 取り組んだ 週やったな。テストの その先の 目的を 考えてみよう。' },
+      { re: /音|うるさ|テレビ|スマホ|ゲーム|動画|ユーチューブ|YouTube/i, f: ['weather_reason', 'next_improve'], c: [11, 13], br: '「{q}」と 書いていたね。時間と 場所の 作戦を 立てるヒントに してな。' },
+      { re: /つかれ|疲れ|ねむ|眠/, f: ['weather_reason'], c: [14], br: '「{q}」と 書いていたね。休み方も 自分で 決められる 力や。' },
+      { re: /わから|むずかし|難し|まちが|間違/, f: ['weather_reason', 'next_improve'], c: [6, 18, 2], br: '「{q}」と 書いていたね。そこが 伸びる ところや。' },
+      { re: /友だち|友達|教え|教わ|聞い/, f: ['weather_reason', 'next_improve', 'todo'], c: [16, 10], br: '「{q}」と 書いていたね。人と 学ぶ 力の 話や。' },
+      { re: /野球|サッカー|好き|楽し|おもしろ|面白/, f: ['weather_reason', 'todo'], c: [15], br: '「{q}」と 書いていたね。その 気持ちを 学びに つなげよう。' },
+      { re: /やり方を変|場所を変|変えてみ|ためし|試し/, f: ['next_improve', 'weather_reason'], c: [1, 21], br: '「{q}」と 書いていたね。やり方を 変えられる 人は 強いで。' }
+    ];
+    var _sc = {}, _br = '';
+    var _add = function (ix, w) { _sc[ix] = (_sc[ix] || 0) + w; };
+    rows.forEach(function (r) {
+      if (!r.s) return;
+      JR.forEach(function (rule, ri) {
+        rule.f.some(function (fld) {
+          var t = String(r.s[fld] || ''); if (!rule.re.test(t)) return false;
+          rule.c.forEach(function (ix, k) { _add(ix, 3 - k); });
+          if (!_br && rule.br) { var q0 = headPick(t, 20); if (q0 || rule.br.indexOf('{q}') < 0) rule._q = q0; }
+          return true;
+        });
+      });
+    });
+    var _okN = rows.filter(function (r) { return r.s && /このままでOK|このままで ok/i.test(String(r.s.next_improve || '')); }).length;
+    if (_okN >= 3) { _add(21, 3); _add(20, 2); }
+    var _refs = rows.filter(function (r) { return r.s; }).map(function (r) { return String(r.s.weather_reason || '').replace(/\s/g, '').length; });
+    if (_refs.length && _refs.reduce(function (a, b) { return a + b; }, 0) / _refs.length < 10) _add(20, 3);
+    if ((d.missQ || []).length >= 3) _add(2, 2);
+    if (facts.days > 0 && facts.days <= 2) { _add(12, 2); _add(14, 1); }
+    if (facts.days >= 5) { _add(23, 2); _add(17, 1); }
+    var _col = null, _ci = -1;
     var _cs = shuf(COL.map(function (x, i) { return i; }), seed + 11);
-    for (var ji = 0; ji < _cs.length; ji++) { if (!old('jcol:' + _cs[ji])) { _col = COL[_cs[ji]]; use('jcol:' + _cs[ji]); break; } }
-    if (!_col) { _col = COL[_cs[0]]; use('jcol:' + _cs[0]); }
-    var _tail = facts.days >= 5 ? 'よう つづけたな。つぎは「何が できるように なったか」にも 目を 向けてみよ。'
+    var _rank = _cs.slice().sort(function (a, b) { return (_sc[b] || 0) - (_sc[a] || 0); });   // 合う ものが 先（同点は ばらばら）
+    for (var ji = 0; ji < _rank.length; ji++) { if (!old('jcol:' + _rank[ji])) { _ci = _rank[ji]; break; } }
+    if (_ci < 0) _ci = _rank[0];
+    _col = COL[_ci]; use('jcol:' + _ci);
+    if (_sc[_ci]) {   // えらんだ わけ（その子の ことば）
+      JR.some(function (rule) { if (rule.c.indexOf(_ci) >= 0 && rule._q !== undefined) { _br = rule.br.replace('{q}', rule._q || ''); return !!(rule._q || rule.br.indexOf('{q}') < 0); } return false; });
+      if (/「」/.test(_br)) _br = '';
+    }
+    JR.forEach(function (rule) { delete rule._q; });
+    var _tail = _br ? _br : facts.days >= 5 ? 'よう つづけたな。つぎは「何が できるように なったか」にも 目を 向けてみよ。'
       : (facts.days > 0 && facts.days <= 2) ? '思うように すすまない 週も ある。どうしたら できそうか、1つ 考えてみよな。'
       : ((d.missQ || []).some(function (m) { return m && m.a; }) ? 'きみクイズの まちがえた 問題、もう一回 といてみてな。2回目に できたら ほんまの「わかった」や。' : '');
     var jogen = '<div class="after" style="border:2px solid var(--acc,#7c3aed);border-radius:10px;padding:8px 12px;margin-top:8px;font-size:15px;line-height:1.7"><b>🐯 阪神マンの 学びコラム「' + esc(_col[0]) + '」</b><br>' + esc(_col[1]) + (_tail ? '<div style="margin-top:4px;font-size:14px;color:#555">✏️ ' + esc(_tail) + '</div>' : '') + '</div>';
