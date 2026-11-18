@@ -11057,6 +11057,13 @@ async function missionForClass(c: any, classId: string, id?: string) {
     : 'SELECT id, class_id AS classId, title, goal_correct AS goalCorrect, reward_coins AS rewardCoins, reward_shards AS rewardShards, start_at AS startAt, end_at AS endAt FROM class_missions WHERE class_id=? AND start_at <= datetime(\'now\') ORDER BY created_at DESC LIMIT 1'
   return id ? await c.env.DB.prepare(q).bind(id, classId).first<any>() : await c.env.DB.prepare(q).bind(classId).first<any>()
 }
+// アプリの 名前が 本名と 同じ（または 名字・名前が 入っている）ときは 子どもの 画面に 出さない（MISSION_TOP_V1）
+function mtSafeName(name: string, real: any): string {
+  const n = String(name || '').replace(/[\s　]/g, ''), r = String(real || '').replace(/[\s　]/g, '')
+  if (!n) return 'なかま'
+  if (r && (n === r || (r.length >= 2 && (n.indexOf(r.slice(0, 2)) >= 0 || n.indexOf(r.slice(-2)) >= 0)))) return '名前ひみつの なかま'
+  return String(name)
+}
 app.get('/api/student/class-mission/top', async (c) => {
   const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
   const cm: any = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(u.id).first()
@@ -11066,9 +11073,10 @@ app.get('/api/student/class-mission/top', async (c) => {
   const m = await missionForClass(c, cm.class_id, c.req.query('id') || undefined)
   if (!m) return c.json({ ok: true, mission: null, upcoming })
   const t: any = await missionTopOf(c, m)
+  let rn: any = {}; try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
   const meT = (t.top || []).find((x: any) => x.uid === u.id)
   return c.json({ ok: true, missionId: m.id, upcoming, final: !!t.final, preview: t.preview || null,
-    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: x.name, n: x.n, me: x.uid === u.id })),
+    top: (t.top || []).map((x: any) => ({ rank: x.rank, name: mtSafeName(x.name, rn[x.lid]), n: x.n, me: x.uid === u.id })),
     bonus: (t.final && meT) ? { rank: meT.rank, coins: meT.coins || 0, shards: meT.shards || 0, claimed: !!meT.claimed } : null })
 })
 app.post('/api/student/class-mission/:id/top-claim', async (c) => {
