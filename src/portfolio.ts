@@ -164,7 +164,11 @@ export async function pfWorkNoteFor(env: any, userId: string): Promise<{ text: s
      ORDER BY published_at DESC LIMIT 1`
   ).bind(userId).first()
   if (!r || !String(r.body || '').trim()) return null
-  return { text: String(r.body).slice(0, 600), at: String(r.at || '').slice(0, 10) }
+  // WORKREC_CUT_V1 子どもには 評価（A・B・C）や 記録の 欄を 出さない。ほかの 目印から 先と、評価の 行は けす
+  let t = String(r.body).split(/\n[\s>#*`]*[=＝]{2,}\s*[\[［]/)[0]
+  t = t.split('\n').filter((l) => !/^(題|日付|教科|単元|本文|振り返り|先生の印|評価コメント|行き先|根拠)\s*[:：]/.test(l.trim()) && !/(知識・技能|思考・判断・表現|主体的に学習に取り組む態度)\s*[:：]/.test(l)).join('\n').trim()
+  if (!t) return null
+  return { text: t.slice(0, 600), at: String(r.at || '').slice(0, 10) }
 }
 
 const IMG_HEADERS = (mime: string) => {

@@ -1795,6 +1795,8 @@ function _taiParse(raw) {
       continue;
     }
     if (!cur) { pre.push(lines[i]); continue; }
+    // WORKREC_CUT_V1（2026-11-18）知らない 目印（=== [WORKREC:…] など）から 先は この子の 本文に 入れない（成果物の 記録・評価が 子どもの 画面に 出ていた）
+    if (!cur.cut.length && /^[\s　>#*`\\¥]*[=＝]{2,}[\s　]*[\[［][\s　]*[A-Za-z]/.test(lines[i])) { cur.cut.push(lines[i]); continue; }
     if (cur.cut.length || isDataLine(lines[i])) { cur.cut.push(lines[i]); continue; }
     cur.lines.push(lines[i]);
   }
