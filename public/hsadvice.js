@@ -172,7 +172,7 @@
     function askForm(node) {
       var v = ui();
       log.push({ w: 'm', t: '✏️ しつもんしたい' });
-      log.push({ w: 'b', t: vary(['よっしゃ、なんでも 書いてみ！「どの 問題の」「どこが」わからんかを 書いてくれると、先生と ちゃんと 答えられるで。', 'ええで！ わからん ところを 自分の ことばで 書いてみ。先生と いっしょに 読んで、あとで へんじするからな。'], 'ask') });
+      log.push({ w: 'b', t: vary(['よっしゃ、なんでも 書いてみ！「どの 問題の」「どこが」わからんかを 書いてくれると、阪神マンが ちゃんと 答えられるで。', 'ええで！ わからん ところを 自分の ことばで 書いてみ。阪神マンが じっくり 考えて、あとで へんじするからな。'], 'ask') });
       v.log.innerHTML = log.map(bubble).join(''); v.log.scrollTop = v.log.scrollHeight;
       v.foot.innerHTML = '<textarea id="hsqText" rows="3" maxlength="400" placeholder="れい：「5:2＝□:16」で、□の 出し方が わからない" style="width:100%;border:2px solid #f59e0b;border-radius:12px;padding:8px;font-size:16px;box-sizing:border-box"></textarea><div id="hsqMsg" style="font-size:13px;color:#b91c1c;min-height:18px"></div>';
       var send = btn('📮 おくる', 'main', function () {
@@ -182,7 +182,7 @@
         var ctx = log.slice(-10).map(function (x) { return (x.w === 'm' ? '子：' : '阪神マン：') + String(x.t).replace(/\n/g, ' ').slice(0, 120); }).join('\n');
         apiQ('/api/student/hs-question', { method: 'POST', body: JSON.stringify({ unit: mode(), unitName: (root && root.question) || '', ctx: ctx, text: t }) }).then(function (r) {
           if (r && r.ok) {
-            log.push({ w: 'm', t: t }); log.push({ w: 'b', t: 'しつもん、とどいたで！ 先生と 読んで、あとで へんじするからな。へんじは この 阪神マンの 画面を ひらくと 読めるで。それまで ほかの 問題で 修行しとこか！' });
+            log.push({ w: 'm', t: t }); log.push({ w: 'b', t: 'しつもん、とどいたで！ 阪神マンが じっくり 考えて、あとで へんじするからな。へんじは この 阪神マンの 画面を ひらくと 読めるで。それまで ほかの 問題で 修行しとこか！' });
             v.log.innerHTML = log.map(bubble).join(''); v.log.scrollTop = v.log.scrollHeight;
             v.foot.innerHTML = ''; v.foot.appendChild(row([btn('❓ ほかのことも 聞く', '', function () { H.goFirst(); }), btn('とじる', 'sub', function () { H.close(); })]));
           } else { send.disabled = false; document.getElementById('hsqMsg').textContent = (r && r.error === 'too_many') ? '今日は もう たくさん しつもんしたね。続きは あした 聞いてな。' : 'おくれませんでした。もう一回 おしてね。'; }
@@ -239,7 +239,7 @@
         }));
         if (canCheck()) main.push(btn('🔍 理解度チェックで たしかめる', '', function () { var m = mode(); self.close(); try { window.HSCHECK.open(m); } catch (e) {} }));
         var mr = row(main); v.foot.appendChild(mr);
-        if (node._f) v.foot.appendChild(row([btn('✏️ 阪神マンと 先生に しつもんする', 'sub', function () { askForm(node); })]));
+        if (node._f) v.foot.appendChild(row([btn('✏️ 阪神マンに しつもんする', 'sub', function () { askForm(node); })]));
         v.foot.appendChild(row([btn('❓ ほかのことも 聞く', 'sub', function () { self.goFirst(); }), btn('↩️ 前の 質問に もどる', 'sub', function () { self.goBack(); })]));
       }
     };
