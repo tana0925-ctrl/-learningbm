@@ -4840,7 +4840,7 @@ async function aiDraftOwnsClass(c: any, u: any, classId: string) {
     ? await c.env.DB.prepare('SELECT id FROM classes WHERE id=? LIMIT 1').bind(classId).first<any>()
     : await c.env.DB.prepare('SELECT id FROM classes WHERE id=? AND teacher_id=? LIMIT 1').bind(classId, u.id).first<any>()
 }
-const AI_DRAFT_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO']   // AIFLOW_V1 FLOW＝流れのメモ（先生だけ）／PORTFOLIO_AI_V1 WORK＝成果物へのひとこと（カルテ📓）・WORKMEMO＝成果物の分析メモ（先生だけ）
+const AI_DRAFT_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO', 'HSQ']   // HSQ＝阪神マンへの しつもんの へんじ（HSQ_V1）   // AIFLOW_V1 FLOW＝流れのメモ（先生だけ）／PORTFOLIO_AI_V1 WORK＝成果物へのひとこと（カルテ📓）・WORKMEMO＝成果物の分析メモ（先生だけ）
 
 app.post('/api/teacher/ai-drafts', async (c) => {
   const u = c.get('user')
@@ -11141,6 +11141,61 @@ app.post('/api/student/class-mission/:id/top-claim', async (c) => {
   return c.json({ ok: true, rewardCoins: coins, rewardShards: shards, rank: Number(t.top.find((x: any) => x.uid === u.id)?.rank) || 0 })
 })
 
+// 🐯 HSQ_V1（2026-11-18 先生の指示）阪神マンアドバイスで「それでも わからん」ときの 自由記述の しつもん
+//   ・子ども：POST /api/student/hs-question（1日 5こまで）→ 先生と 阪神マンが 読んで、あとで へんじ
+//   ・先生：GET /api/teacher/hs-questions で 一覧、POST /api/teacher/hs-questions/:id/answer で へんじ（AIの 一往復の 下書き HSQ からも）
+//   ・子ども：GET /api/student/hs-questions で へんじを 読む（見たら seen）
+async function ensureHsq(env: any) {
+  try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS hs_questions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT, unit TEXT, unit_name TEXT, ctx TEXT, text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), answer TEXT, answered_at TEXT, answered_by TEXT, seen_at TEXT)").run() } catch (_e) {}
+}
+app.post('/api/student/hs-question', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  const b: any = await c.req.json().catch(() => ({}))
+  const text = String(b.text || '').replace(/\s+$/, '').slice(0, 400)
+  if (text.replace(/\s/g, '').length < 4) return jsonError(c, 400, 'too_short')
+  await ensureHsq(c.env)
+  const n: any = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM hs_questions WHERE user_id=? AND created_at >= datetime('now','-1 day')").bind(u.id).first()
+  if (Number(n && n.n) >= 5) return jsonError(c, 429, 'too_many')
+  const cm: any = await c.env.DB.prepare('SELECT class_id FROM class_members WHERE user_id=? LIMIT 1').bind(u.id).first()
+  const id = crypto.randomUUID()
+  await c.env.DB.prepare('INSERT INTO hs_questions (id, user_id, class_id, unit, unit_name, ctx, text) VALUES (?,?,?,?,?,?,?)')
+    .bind(id, u.id, cm ? cm.class_id : null, String(b.unit || '').slice(0, 40), String(b.unitName || '').slice(0, 60), String(b.ctx || '').slice(0, 1200), text).run()
+  return c.json({ ok: true, id })
+})
+app.get('/api/student/hs-questions', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  await ensureHsq(c.env)
+  const r: any = await c.env.DB.prepare("SELECT id, unit, unit_name AS unitName, text, created_at AS createdAt, answer, answered_at AS answeredAt, seen_at AS seenAt FROM hs_questions WHERE user_id=? ORDER BY created_at DESC LIMIT 20").bind(u.id).all()
+  return c.json({ ok: true, items: (r && r.results) || [] })
+})
+app.post('/api/student/hs-questions/seen', async (c) => {
+  const u = c.get('user'); if (!u) return jsonError(c, 401, 'unauthorized')
+  await ensureHsq(c.env)
+  await c.env.DB.prepare("UPDATE hs_questions SET seen_at=datetime('now') WHERE user_id=? AND answer IS NOT NULL AND seen_at IS NULL").bind(u.id).run()
+  return c.json({ ok: true })
+})
+app.get('/api/teacher/hs-questions', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const classId = String(c.req.query('classId') || '')
+  if (!classId) return jsonError(c, 400, 'classId required')
+  if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
+  await ensureHsq(c.env)
+  const open = c.req.query('status') === 'open'
+  const r: any = await c.env.DB.prepare("SELECT q.id, q.user_id AS userId, u.login_id AS loginId, u.name, q.unit, q.unit_name AS unitName, q.ctx, q.text, q.created_at AS createdAt, q.answer, q.answered_at AS answeredAt, q.seen_at AS seenAt FROM hs_questions q JOIN users u ON u.id=q.user_id WHERE q.class_id=? " + (open ? 'AND q.answer IS NULL ' : '') + "ORDER BY q.created_at DESC LIMIT 200").bind(classId).all()
+  return c.json({ ok: true, items: (r && r.results) || [] })
+})
+app.post('/api/teacher/hs-questions/:id/answer', async (c) => {
+  const u = c.get('user'); if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return jsonError(c, 403, 'forbidden')
+  const b: any = await c.req.json().catch(() => ({}))
+  const ans = String(b.answer || '').trim().slice(0, 1200)
+  if (!ans) return jsonError(c, 400, 'empty')
+  await ensureHsq(c.env)
+  const q0: any = await c.env.DB.prepare('SELECT class_id FROM hs_questions WHERE id=?').bind(c.req.param('id')).first()
+  if (!q0 || !(await aiDraftOwnsClass(c, u, String(q0.class_id || '')))) return jsonError(c, 404, 'not_found')
+  const r = await c.env.DB.prepare("UPDATE hs_questions SET answer=?, answered_at=datetime('now'), answered_by=?, seen_at=NULL WHERE id=?").bind(ans, u.id, c.req.param('id')).run()
+  return c.json({ ok: true, changed: (r.meta && r.meta.changes) || 0 })
+})
+
 // -------------------- Pages (simple HTML endpoints) --------------------
 
 // Serve the game HTML (built into dist/index.html as an asset)
@@ -11658,7 +11713,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=3"></script><script src="/hsadvice.js?v=2"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=3"></script><script src="/hsadvice.js?v=3"></script><script src="/chitosele.js?v=1"></script><script src="/hschat.js?v=14"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -13223,6 +13278,7 @@ app.get('/teacher', (c) => {
             </div>
             <p class="text-xs text-rose-700 mb-2">公開ボタンを押すまで、子どもには何も届きません。</p>
             <div id="taiDraftList" class="space-y-2"><p class="text-xs text-slate-400">クラスを選んでください</p></div>
+            <div class="mt-3 border-t border-rose-200 pt-2"><button type="button" onclick="window.HSQ_T && window.HSQ_T.toggle()" class="text-sm font-bold bg-yellow-100 border border-yellow-400 text-yellow-900 rounded-lg px-3 py-1">🐯 阪神マンへの しつもん <span id="hsqTCount"></span></button><div id="hsqTBox" class="hidden mt-2 space-y-2"></div></div>
             <div class="flex items-center gap-2 flex-wrap mt-2">
               <button onclick="taiPublish()" class="bg-rose-600 text-white rounded-lg px-4 py-2 text-sm font-bold shadow hover:bg-rose-700">✅ チェックした分を公開</button>
               <button onclick="taiDiscard()" class="bg-slate-200 text-slate-700 rounded-lg px-3 py-2 text-xs font-bold hover:bg-slate-300">🗑 下書きを消す</button>
@@ -18725,7 +18781,7 @@ function _faKarteGraphs(d){
     })();
     </script>
     <script src="/drillpark.js?v=1"></script>
-    <script src="/teacher-ai.js?v=35"></script>
+    <script src="/teacher-ai.js?v=36"></script>
     <script src="/teibako.js?v=11"></script><!-- MINNA_FURI_V1 📋振り返り一覧 -->
     <script src="/ai-flow.js?v=1"></script><!-- AIFLOW_V1 🧵 先週までの流れ -->
     <script src="/portfolio.js?v=15"></script><!-- PORTFOLIO_V1 📸 成果物 -->

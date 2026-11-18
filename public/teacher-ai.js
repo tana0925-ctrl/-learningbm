@@ -656,6 +656,7 @@ out.push('  タイプ分けをしない、は変わりません。理由は前�
 out.push('');
 out.push('【目印の種類】');
     if (want.daily)   out.push('・=== [DAILY:...] === … その日の家庭学習への先生コメント。1〜2文、40字以内。子ども向け。');
+    if (want.daily)   out.push('・=== [HSQ:...] === … 子どもが アプリの 阪神マンに 自由記述で した しつもん（【阪神マンへのしつもん】）への へんじ。阪神マンの 関西弁で 3〜5文。答えを ぜんぶ 教えず、考え方の 手順と ヒントを 1つずつ。さいごに「ここまで やって わからんかったら 先生に 聞いてな」。学習と 関係ない 内容や 気になる 内容なら、いちばん上の 1行に「【先生へ】理由」と 書く（その行は 子どもに 出ない）。');   /* HSQ_V1 */
     if (want.daily)   out.push('    ※同じ子に DAILY の目印が2つ以上あることがあります。目印ごとに、その日の中身に合わせて別々に書く。1つも飛ばさない。');
     if (want.daily) {   // ZURU_CHECK_V1
       out.push('    ※【ずるかも チェック（先生だけ）】次のどれかに あてはまりそうなら、その DAILY の いちばん上の 1行に「【ずる？】理由（20字くらい）」と書き、2行目から いつものコメントを書く:');
@@ -1119,6 +1120,11 @@ out.push('   - 全部で4行以内・200字以内。紙に印刷して配るの�
       } catch (e) {}
     }
     var _dailyExp = [];
+    // HSQ_V1 まだ へんじしていない 阪神マンへの しつもん
+    var hsqByUser = {};
+    if (want.daily && !oneId) {
+      try { var _hq = await getJson('/api/teacher/hs-questions?classId=' + encodeURIComponent(cid) + '&status=open'); ((_hq && _hq.items) || []).forEach(function (q) { (hsqByUser[q.userId] = hsqByUser[q.userId] || []).push(q); }); } catch (e) {}
+    }
     // WEEKREF_V1 週の振り返り（まだ返していない直近の週）。家庭学習シートの🌟と二重に返さないためにも使う。
     var _refl = { byUser: {}, pick: {}, ok: false }, _reflExp = [];
     var onlyRefl = null;
@@ -1553,6 +1559,10 @@ try {
       }
 
       try { if (want.flowCtx) window.AI_FLOW.linesFor(st.userId, want).forEach(function (x) { out.push(x); }); } catch (e) {}   /* AIFLOW_V1 */
+      (hsqByUser[st.userId] || []).slice(0, 3).forEach(function (q) {   /* HSQ_V1 */
+        out.push('【阪神マンへのしつもん】' + (q.unitName ? '（' + String(q.unitName).slice(0, 30) + '）' : '') + String(q.text || '').replace(/\s+/g, ' ').slice(0, 300));
+        if (q.ctx) out.push('　（その前の やりとり）' + String(q.ctx).replace(/\s+/g, ' ').slice(-300));
+      });
       // ---- 書いてほしい欄（目印） ----
       out.push('');
       if (want.daily) {
@@ -1563,6 +1573,7 @@ try {
           _dailyExp.push({ id: String(h1.id), uid: String(st.userId), day: String(h1.dayKey || '') });
         });
       }
+      (hsqByUser[st.userId] || []).slice(0, 3).forEach(function (q) { out.push('=== [HSQ:' + q.id + '] ' + nm + ' ==='); out.push(''); });   /* HSQ_V1 */
       if (want.karte)   { out.push('=== [KARTE:' + sid + '] ' + nm + ' ==='); out.push(''); }
       if (want.plan && planLines.length)  { out.push('=== [PLAN:' + sid + '] ' + nm + ' ==='); out.push(''); }
       // WEEKREF_V1 まだ返していない直近の週の振り返りに返す。目印に週も書く（公開のときにその週へ返す）。
@@ -1697,7 +1708,7 @@ try {
 }
 
 // --- 目印として認めるもの ---
-var TAI_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO'];   /* AIFLOW_V1 ／ PORTFOLIO_AI_V1 */
+var TAI_KINDS = ['DAILY', 'KARTE', 'PLAN', 'REFLECT', 'SUGGEST', 'CLASS', 'WEEKREPORT', 'FLOW', 'WORK', 'WORKMEMO', 'HSQ'];   /* HSQ_V1 */   /* AIFLOW_V1 ／ PORTFOLIO_AI_V1 */
 
 function reEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -1999,6 +2010,11 @@ async function taiImport(opts) {
 
     var afterName = String(b.after || '').split(/[｜|]/)[0].replace(/^\s+|\s+$/g, '');
 
+    if (b.kind === 'HSQ') {   /* HSQ_V1 */
+      if (!b.idPart) { hold('阪神マンへのしつもんの 目印が 読み取れませんでした', label, ''); return; }
+      items.push({ kind: 'HSQ', targetId: '', targetName: afterName, refKey: b.idPart, body: b.body });
+      return;
+    }
     if (b.kind === 'DAILY') {
       if (!b.idPart) { hold('DAILY の提出が読み取れませんでした', label, ''); return; }
       if (!afterName) { hold('DAILY に氏名がなく、だれ宛てか確かめられません', label, ''); return; }
@@ -2172,7 +2188,8 @@ var KIND_JA = {
     WEEKREPORT:{ ja: '週報',             to: 'teacher', badge: '先生だけ' },
     FLOW:      { ja: '流れのメモ',       to: 'teacher', badge: '先生だけ（次のコピーの「先週までの流れ」に入る）' },   /* AIFLOW_V1 */
     WORK:      { ja: '📓 成果物へのひとこと', to: 'kid', badge: '子どもの画面と紙のカルテ（📓）に出る' },   /* PORTFOLIO_AI_V1 */
-    WORKMEMO:  { ja: '成果物の分析メモ', to: 'teacher', badge: '先生だけ（次のコピーの「先週までの流れ」に入る）' }   /* PORTFOLIO_AI_V1 */
+    WORKMEMO:  { ja: '成果物の分析メモ', to: 'teacher', badge: '先生だけ（次のコピーの「先週までの流れ」に入る）' },   /* PORTFOLIO_AI_V1 */
+    HSQ:       { ja: '🐯 阪神マンしつもんへのへんじ', to: 'kid', badge: '子どもの画面（阪神マン）に出る' }   /* HSQ_V1 */
   };
   var _drafts = [];
 
@@ -2437,6 +2454,17 @@ var kidCount = picks.filter(function (x) { return (KIND_JA[x.kind] || {}).to ===
       if (_held.length) msgs.push('⚠ ずるかもで 返さなかった ' + _held.length + '人（' + _held.join('、') + '）→ 📋振り返り一覧で ひらいて たしかめてね');
     }
 
+    // --- HSQ_V1 阪神マンへの しつもんの へんじ（【先生へ】の 行は 子どもに 出さない。ある ものは 返さずに のこす） ---
+    if (byKind.HSQ) {
+      var nq = 0, hq = 0;
+      for (var qi = 0; qi < byKind.HSQ.length; qi++) {
+        var qx = byKind.HSQ[qi];
+        if (/^\s*[【\[]\s*先生へ/m.test(String(qx.body || ''))) { hq++; continue; }
+        var qr = await postJson('/api/teacher/hs-questions/' + encodeURIComponent(qx.refKey) + '/answer', { answer: String(qx.body || '').trim() });
+        if (qr && qr.ok) { okIds.push(qx.id); nq++; }
+      }
+      msgs.push('阪神マンしつもん' + nq + '件' + (hq ? '（【先生へ】つき ' + hq + '件は のこしました）' : ''));
+    }
     // --- AIFLOW_V1 流れのメモ（先生だけ。公開すると次のコピーの「先週までの流れ」に入る） ---
     if (byKind.FLOW) { byKind.FLOW.forEach(function (x) { okIds.push(x.id); }); msgs.push('流れのメモ' + byKind.FLOW.length + '人'); }
     // --- PORTFOLIO_AI_V1 成果物の分析（📓ひとこと＝子どものカルテに出る／分析メモ＝先生だけ） ---
@@ -2670,4 +2698,39 @@ async function applyFriday() {
   }
   if (document.readyState !== 'loading') setTimeout(init, 600);
   else document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 600); });
+})();
+
+/* 🐯 HSQ_V1 先生の画面：阪神マンへの しつもん 一覧（AIを 使わずに 自分で へんじも できる） */
+(function () {
+  if (window.HSQ_T) return;
+  function e(x) { return String(x == null ? '' : x).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function cid() { var x = document.getElementById('analyticsClassFilter'); return x ? x.value : ''; }
+  function rn(lid, name) { try { if (typeof resolveStudentName === 'function') return resolveStudentName(lid, name); } catch (_e) {} return name || lid || ''; }
+  async function load() {
+    var box = document.getElementById('hsqTBox'), cnt = document.getElementById('hsqTCount'); if (!box || !cid()) return;
+    var r = null; try { r = await (await fetch('/api/teacher/hs-questions?classId=' + encodeURIComponent(cid()), { credentials: 'include' })).json(); } catch (_e) {}
+    var it = (r && r.items) || [], open = it.filter(function (x) { return !x.answer; });
+    if (cnt) cnt.textContent = open.length ? '（まだ ' + open.length + '件）' : (it.length ? '（ぜんぶ へんじ済み）' : '');
+    if (box.classList.contains('hidden')) return;
+    if (!it.length) { box.innerHTML = '<p class="text-xs text-slate-500">まだ しつもんは ありません。子どもが 阪神マンの アドバイスで「まだ わからん」→「しつもんする」を おすと ここに 来ます。家庭学習コメント（DAILY）を ふくめて コピーすると、AIの へんじの 下書きも いっしょに できます。</p>'; return; }
+    box.innerHTML = it.map(function (q) {
+      return '<div class="border rounded-lg p-2 ' + (q.answer ? 'bg-slate-50' : 'bg-yellow-50 border-yellow-300') + '">'
+        + '<div class="text-xs text-slate-500">' + e(String(q.createdAt || '').slice(5, 16)) + '　<b class="text-slate-800">' + e(rn(q.loginId, q.name)) + '</b>　' + e(q.unitName || q.unit || '') + (q.seenAt ? '　👀読んだ' : '') + '</div>'
+        + '<div class="text-sm font-bold my-1">' + e(q.text) + '</div>'
+        + (q.ctx ? '<details class="text-[11px] text-slate-500"><summary>その前の やりとり</summary><pre style="white-space:pre-wrap">' + e(q.ctx) + '</pre></details>' : '')
+        + (q.answer ? '<div class="text-sm bg-white border rounded p-1 mt-1">🐯 ' + e(q.answer) + '</div>' : '')
+        + '<div class="flex gap-1 mt-1"><textarea data-q="' + e(q.id) + '" rows="2" class="flex-1 border rounded p-1 text-sm" placeholder="' + (q.answer ? 'へんじを 書きなおす' : 'へんじを 書く（阪神マンとして 子どもに 出ます）') + '"></textarea><button type="button" data-send="' + e(q.id) + '" class="bg-emerald-600 text-white rounded px-2 text-sm font-bold">送る</button></div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-send]'), function (b) {
+      b.onclick = async function () {
+        var id = b.getAttribute('data-send'), ta = box.querySelector('textarea[data-q="' + id + '"]'), t = ta ? ta.value.trim() : '';
+        if (!t) return; b.disabled = true;
+        try { await fetch('/api/teacher/hs-questions/' + encodeURIComponent(id) + '/answer', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: t }) }); } catch (_e) {}
+        load();
+      };
+    });
+  }
+  window.HSQ_T = { load: load, toggle: function () { var b = document.getElementById('hsqTBox'); if (!b) return; b.classList.toggle('hidden'); load(); } };
+  setTimeout(load, 3000);
+  document.addEventListener('change', function (ev) { if (ev.target && ev.target.id === 'analyticsClassFilter') setTimeout(load, 300); });
 })();
