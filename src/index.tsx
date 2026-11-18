@@ -10805,6 +10805,13 @@ function missionSrc(sp: any, classId: string, startAt: string, endAt: string | n
   if (f.unit) { w += ` AND lr.unit = ?`; b.push(String(f.unit)) }
   return { w, b, uid: 'lr.user_id', at: 'lr.answered_at', val: '1', max: false }
 }
+async function missionNeed(c: any, missionId?: string): Promise<number> { const sp = await missionSpec(c, missionId); return sp.kind === 'correct' ? 10 : 1 }
+async function missionMine(c: any, classId: string, startAt: string, endAt: string | null, missionId: string | undefined, uid: string): Promise<number> {
+  const sp = await missionSpec(c, missionId)
+  const q = missionSrc(sp.kind === 'streak' ? { kind: 'wildwin', filt: {} } : sp, classId, startAt, endAt)
+  const r: any = await c.env.DB.prepare('SELECT COUNT(*) AS n ' + q.w + ` AND ${q.uid} = ?`).bind(...q.b, uid).first()
+  return Number(r && r.n) || 0
+}
 async function countMissionProgressRaw(c: any, classId: string, startAt: string, endAt: string | null, missionId?: string): Promise<number> {
   const sp = await missionSpec(c, missionId)
   const q = missionSrc(sp, classId, startAt, endAt)
@@ -10988,7 +10995,9 @@ app.get('/api/student/class-mission', async (c) => {
   const progress = (_preProgress != null) ? _preProgress
     : await countMissionProgress(c, cm.class_id, m.startAt, m.endAt, m.id, m.goalCorrect)
   const claimed = await c.env.DB.prepare(`SELECT 1 FROM class_mission_claims WHERE mission_id=? AND user_id=? LIMIT 1`).bind(m.id, u.id).first<any>()
-  return c.json({ ok: true, mission: { ...m, filt: m.filt ? JSON.parse(String(m.filt)) : null, unitWord: missionUnitWord(m.kind, m.filt), progress, achieved: progress >= m.goalCorrect, claimed: !!claimed }, qrHunt: _qrCard })
+  let _mine = 0, _need = 0
+  try { if (u.role === 'student') { _mine = await missionMine(c, cm.class_id, m.startAt, m.endAt, m.id, u.id); _need = await missionNeed(c, m.id) } } catch (_e) {}
+  return c.json({ ok: true, mission: { ...m, mine: _mine, need: _need, filt: m.filt ? JSON.parse(String(m.filt)) : null, unitWord: missionUnitWord(m.kind, m.filt), progress, achieved: progress >= m.goalCorrect, claimed: !!claimed }, qrHunt: _qrCard })
 })
 
 // 児童: ミッション達成報酬を受け取る（コイン＋かけらをサーバー側で加算）
@@ -11011,6 +11020,12 @@ app.post('/api/student/class-mission/:id/claim', async (c) => {
   if (Date.parse(String(m.start_at).replace(' ', 'T') + 'Z') > Date.now()) return jsonError(c, 400, 'not_started')
   const progress = await countMissionProgress(c, m.class_id, m.start_at, m.end_at, m.id, m.goal_correct)
   if (progress < m.goal_correct) return jsonError(c, 400, 'not_achieved')
+  // MISSION_NEED_V1（2026-11-18 先生の指示）1問も 参加していない子は もらえない（正解なら 10問、ほかは 1回）
+  if (u.role === 'student') {
+    const mine = await missionMine(c, m.class_id, m.start_at, m.end_at, missionId, u.id)
+    const need = await missionNeed(c, missionId)
+    if (mine < need) return c.json({ ok: false, error: 'need_more', mine, need }, 400)
+  }
   const rewardCoins = Number(m.reward_coins) || 0
   const rewardShards = Number(m.reward_shards) || 0
   // 🧾 2026-09: 順番を homework_rewards / mi_rewards に合わせた。
