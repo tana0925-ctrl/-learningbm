@@ -139,4 +139,28 @@
   var tries2 = 0; (function t2() { if (wrapBox() || ++tries2 > 40) return; setTimeout(t2, 500); })();
   var tries = 0; (function t() { if (wrap() || ++tries > 40) return; setTimeout(t, 500); })();
   window.MISSIONTOP = { load: load, render: render };
+
+  /* 📣 MISSION_START_NOTE_V1（2026-11-18 先生の指示）ミッションが はじまったら、子どもに 1回だけ おしらせ（カードは ステータス画面に しか ないので） */
+  function startNote() {
+    if (/teacher|pj|chitosele/.test(location.pathname)) return;
+    api('/api/student/class-mission', { method: 'GET' }).then(function (r) {
+      var m = r && r.mission; if (!m || m.achieved || m.claimed) return;
+      var k = 'cmSeen:' + m.id; try { if (localStorage.getItem(k)) return; } catch (e) {}
+      if (document.getElementById('cmStartNote')) return;
+      var d = document.createElement('div'); d.id = 'cmStartNote';
+      d.style.cssText = 'position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:9990;width:min(560px,calc(100vw - 24px));background:#faf5ff;border:3px solid #9333ea;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:12px 14px;font-size:16px;line-height:1.6;color:#3b0764';
+      var goalW = (m.kind === 'streak') ? ('だれかが ' + m.goalCorrect + '連勝') : ('みんなで ' + m.goalCorrect + (m.kind === 'catch' ? 'ひき' : m.kind === 'wildwin' ? '勝' : '問'));
+      d.innerHTML = '<div style="font-weight:900;font-size:18px">🎯 新しい クラスミッションが はじまったで！</div>'
+        + '<div style="font-weight:900;margin-top:4px">「' + esc(m.title || 'クラスミッション') + '」</div>'
+        + '<div>' + esc(m.unitWord || '正解数') + 'で ' + esc(goalW) + '！' + (m.endAt ? '（' + esc(jst(String(m.endAt).replace(' 23:59:59', ' 14:59:59')).replace(/ ?\d+:\d+$/, '')) + 'まで）' : '') + '</div>'
+        + '<div>ごほうび：💰' + (m.rewardCoins || 0) + 'コイン' + (m.rewardShards ? '＋' + m.rewardShards + 'かけら' : '') + '（自分も 参加した人）／ 🏅 活やく トップ3には ボーナス！</div>'
+        + '<div style="display:flex;gap:8px;margin-top:8px"><button type="button" id="cmSnGo" style="flex:1;background:#9333ea;color:#fff;border:0;border-radius:12px;padding:10px;font-weight:900;font-size:16px;cursor:pointer">📊 くわしく 見る</button><button type="button" id="cmSnX" style="background:#fff;border:2px solid #d8b4fe;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer">とじる</button></div>';
+      document.body.appendChild(d);
+      var done = function () { try { localStorage.setItem(k, '1'); } catch (e) {} d.remove(); };
+      document.getElementById('cmSnX').onclick = done;
+      document.getElementById('cmSnGo').onclick = function () { done(); try { if (typeof trySetMode === 'function') trySetMode('status'); } catch (e) {} };
+    }).catch(function () {});
+  }
+  setTimeout(startNote, 7000);
+  setInterval(startNote, 10 * 60 * 1000);   // 予約した ミッションが はじまった ときも
 })();
