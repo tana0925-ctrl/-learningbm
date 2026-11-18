@@ -18688,7 +18688,7 @@ function _faKarteGraphs(d){
     <script src="/karte-michi.js?v=11"></script>
     <script src="/shinbun_nudge.js?v=4"></script><!-- SHINBUN_ZAIRYO_V1 📰 水曜から：来週の新聞の材料がうすい子 -->
     <script src="/teishutsu-teacher.js?v=1"></script><!-- TEISHUTSU_V1 📮 提出物チェック・個人ページの提出のようす／テストの傾向 -->
-    <script src="/teacher-preview.js?v=1"></script>
+    <!-- TIDY 2026-11-18 「この子に いま 届いているもの」は「子どもの画面に入る」と かさなるので 出さない（teacher-preview.js） -->
     <script src="/viewas-teacher.js?v=1"></script>
     <!-- ===== CLASSSYNC_V1 (2026-09-25) =====
          クラスを選ぶ場所が3つ（上の「今日の学習状況」／分析タブの「クラス:」／分析①の中）
