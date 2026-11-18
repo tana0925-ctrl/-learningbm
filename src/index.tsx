@@ -18472,6 +18472,15 @@ function _faKarteGraphs(d){
         var startAt = (document.getElementById('cmStart')||{}).value || null;
         if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
         if(goal < 1){ msg.textContent='目標正解数を入力してください'; msg.className='text-sm text-red-600'; return; }
+        /* MISSION_DUP_V1（2026-11-18）2回 おして 同じ ミッションが 2つ できないように */
+        if (window.__cmSending) return;
+        if (!document.getElementById('cmTitle').value.trim() && !confirm('ミッション名が 空です。「クラスミッション」で 作りますか？')) return;
+        try {
+          var _ls = await api('/api/teacher/class-missions?classId=' + encodeURIComponent(classId));
+          var _run = (_ls.missions || []).filter(function(x){ return !x.achieved && (!x.endAt || Date.parse(String(x.endAt).replace(' ','T')+'Z') - 9*3600000 > Date.now()); });
+          if (_run.length && !confirm('すでに 進行中の ミッション「' + _run[0].title + '」が あります。\n新しく 作ると、子どもの 画面には 新しい ほうが 出ます。作りますか？')) return;
+        } catch(_e) {}
+        window.__cmSending = true;
         try{
           var _k = (document.getElementById('cmKind')||{}).value || 'correct', _f = {};
           if (_k === 'correct_subj') { _f.subj = document.getElementById('cmSubj').value; _k = 'correct'; }
@@ -18483,6 +18492,7 @@ function _faKarteGraphs(d){
           document.getElementById('cmTitle').value='';
           loadClassMissions();
         }catch(e){ msg.textContent='エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
+        window.__cmSending = false;
       }
 
       async function deleteClassMission(id){
