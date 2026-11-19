@@ -109,6 +109,7 @@ details.gl input{margin-top:6px}
 <header><h1>🗓 チトセレ計画</h1><small id="sub">チトセセレクトタイム</small><a id="back" href="/">← アプリへ</a></header>
 <main id="app"><div class="card">よみこみ中…</div></main>
 <div class="save" id="save">保存したよ ✓</div>
+<script src="/chito-hints.js?v=1"></script>
 <script>
 (function () {
 'use strict';
@@ -207,7 +208,7 @@ function renderKid() {
           // 計画を なおせるように：課題の 名前の ところが そのまま えらびなおしの ドロップダウン
           var others = v.items.map(function (o) { return o.task; }).filter(function (k) { return k !== it.task; });
           h += '<div class="chip" style="border-color:' + x.u.color + '"><div class="ct"><select class="chg" data-chg="' + ck + '#' + ii + '" style="border-color:' + x.u.color + ';color:' + x.u.color + '">' + taskOptions(others, '', false, it.task) + '</select><button class="cx" data-rm="' + ck + '#' + ii + '" title="けす">✕</button></div>'
-            + '<div class="cn">' + esc(x.t.t) + '</div>'
+            + '<div class="cn">' + esc(x.t.t) + ' ' + hintBtn(it.task) + '</div>'
             + '<div class="sbtn"><button data-ist="done" data-i="' + ck + '#' + ii + '" class="done' + (it.st === 'done' ? ' on' : '') + '">✅ できた</button><button data-ist="cont" data-i="' + ck + '#' + ii + '" class="cont' + (it.st === 'cont' ? ' on' : '') + '">➡ つづき</button></div></div>';
         });
         var showOth = !!v.other.trim() || !!(K.oth && K.oth[ck]);   // その他は ドロップダウンで えらんだら 書く欄が 出る
@@ -227,7 +228,7 @@ function renderKid() {
   h += '<details class="card gl2"><summary><b>📋 課題の くわしい 説明（教科書の ページ）</b></summary><div class="units" style="margin-top:8px">';
   cfg.units.forEach(function (u) {
     h += '<div class="unit" style="border-color:' + u.color + '"><h3 style="color:' + u.color + '">' + esc(u.subj) + '　' + esc(u.name) + '</h3>';
-    u.tasks.forEach(function (t) { h += '<div class="tk"><b class="key" style="background:' + u.color + '">' + esc(t.k) + '</b><div class="tt">' + esc(t.t) + '<small>' + esc(t.note || '') + (t.all ? '（みんなで）' : t.opt ? '（よゆうがあれば）' : '') + '</small></div></div>'; });
+    u.tasks.forEach(function (t) { h += '<div class="tk"><b class="key" style="background:' + u.color + '">' + esc(t.k) + '</b><div class="tt">' + esc(t.t) + '<small>' + esc(t.note || '') + (t.all ? '（みんなで）' : t.opt ? '（よゆうがあれば）' : '') + '</small></div>' + hintBtn(u.id + ':' + t.k) + '</div>'; });
     h += '</div>';
   });
   h += '</div></details>';
@@ -310,6 +311,7 @@ function bindKid() {
   });
   var g = $('goal'); if (g) g.oninput = function () { K.plan.goal = g.value; saveKid(); };
   app.querySelectorAll('.hmgo').forEach(function (b) { b.onclick = function () { hmStart(b.getAttribute('data-hm')); }; });
+  app.querySelectorAll('.hintgo').forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); openHint(b.getAttribute('data-hint'), 1); }; });   // CHITO_HINT_V1
   app.querySelectorAll('[data-aim]').forEach(function (b) { b.onclick = function () { var p = b.getAttribute('data-aim').split('|'); setAim(p[0], p[1]); renderKid(); }; });   // CHITO_AIM_V1
 }
 function saveKid() {
@@ -353,7 +355,7 @@ function goalCards() {
         h += '<div style="margin:6px 0;padding:8px;border-left:6px solid ' + x.u.color + ';background:#fff;border-radius:8px"><b style="color:' + x.u.color + '">' + esc(x.u.subj + ' ' + x.t.k + '　' + x.t.t) + '</b>' + (it.st === 'done' ? ' ✅' : '')
           + '<div style="font-size:13px;color:#475569">' + esc(x.t.note || '') + '</div>'
           + (x.t.mea ? '<div style="font-size:14px;margin-top:2px">🎯 めあて：<b>' + esc(x.t.mea) + '</b></div>' : '')
-          + (x.u.q ? '<div style="font-size:13px;color:#7c3aed">❓ つながる 学習問題：' + esc(x.u.q) + '</div>' : '') + '</div>';
+          + (x.u.q ? '<div style="font-size:13px;color:#7c3aed">❓ つながる 学習問題：' + esc(x.u.q) + '</div>' : '') + (hasHint(it.task) ? '<div style="margin-top:4px">' + hintBtn(it.task, 1) + '</div>' : '') + '</div>';
       });
       if (v.other.trim()) h += '<div style="margin:6px 0">✏️ ' + esc(v.other) + '</div>';
       h += '<div style="font-size:13px;color:#64748b">この 時間は、これ だけに 集中しよう。おわったら 下の 時間わりで「✅ できた」を おしてね。</div>';
@@ -405,6 +407,40 @@ function hmAim(u, then) {   // まだ 決めていなければ 決めてもら�
   ]);
 }
 
+// ════════ 💡 CHITO_HINT_V1（2026-11-19）課題ごとの ヒントカード（図・資料）════════
+function hasHint(key) { var x = taskOf(K.cfg, key); return !!(x && !x.t.all && window.chitoHintFor && window.chitoHintFor(key, x.t).length); }
+function hintBtn(key, big) { return hasHint(key) ? '<button class="btn hintgo" data-hint="' + key + '" style="' + (big ? 'font-size:15px;' : 'font-size:13px;padding:4px 10px;') + 'background:#fef3c7;border:2px solid #f59e0b;color:#92400e;font-weight:900">💡 ヒント</button>' : ''; }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s　、。）)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+function openHint(key, lv) {
+  var x = taskOf(K.cfg, key); if (!x) return;
+  var steps = window.chitoHintFor(key, x.t); if (!steps.length) return;
+  K.plan.chk = K.plan.chk || {};
+  var c = K.plan.chk[key] || { self: '', memo: '', at: Date.now() };
+  var seen = Math.max(1, Number(c.h) || 0);
+  lv = Math.min(steps.length, Math.max(lv || 1, 1));
+  if (lv > (Number(c.h) || 0)) { c.h = lv; K.plan.chk[key] = c; saveKid(); }
+  var r = $('hintBox');
+  if (!r) {
+    r = document.createElement('div'); r.id = 'hintBox'; document.body.appendChild(r);
+    var st = document.createElement('style');
+    st.textContent = '#hintBox{position:fixed;inset:0;z-index:9991;background:rgba(15,23,42,.5);display:flex;align-items:flex-end;justify-content:center}#hintBox .hi{background:#fffbeb;width:100%;max-width:640px;max-height:90vh;overflow:auto;border-radius:20px 20px 0 0;border:3px solid #f59e0b;padding:12px}#hintBox .hs{background:#fff;border:2px solid #fde68a;border-radius:14px;padding:10px 12px;margin:8px 0;white-space:pre-wrap;line-height:1.7;font-size:15px}#hintBox .hs h4{margin:0 0 4px;color:#b45309}#hintBox .hb{display:flex;gap:8px;flex-wrap:wrap}#hintBox .hb button{flex:1 1 40%;min-height:48px;border-radius:14px;border:2px solid #f59e0b;background:#fff;font-weight:900;font-size:15px;cursor:pointer;color:#78350f}#hintBox .hb button.main{background:#f59e0b;color:#fff}#hintBox .lock{color:#94a3b8;border-style:dashed}';
+    document.head.appendChild(st);
+  }
+  var h = '<div class="hi"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:17px;color:' + x.u.color + '">💡 ' + esc(x.u.subj + x.t.k + '「' + x.t.t + '」の ヒント') + '</b><button id="hintX" style="margin-left:auto;border:2px solid #a16207;background:#fff;border-radius:12px;padding:6px 12px;font-weight:900">とじる</button></div>'
+    + '<div style="font-size:13px;color:#92400e;margin-top:4px">まず 自分で 考えてから、1つずつ ひらこう。📖 ' + esc(x.t.note || '') + '</div>';
+  steps.forEach(function (s, i) {
+    if (i < lv) h += '<div class="hs"><h4>ヒント' + (i + 1) + '　' + esc(s.h) + '</h4>' + (s.memo ? linkify(s.t).split('／').join('\n') : esc(s.t || '')) + (s.fig ? '<div style="margin-top:6px;white-space:normal">' + s.fig + '</div>' : '') + (s.html ? '<div style="margin-top:6px;white-space:normal;overflow:auto">' + s.html + '</div>' : '') + '</div>';
+    else h += '<div class="hs lock">🔒 ヒント' + (i + 1) + '　' + esc(s.h) + '</div>';
+  });
+  h += '<div class="hb">' + (lv < steps.length ? '<button class="main" id="hintNext">🔓 ヒント' + (lv + 1) + 'を ひらく</button>' : '') + '<button id="hintTry">🔍 これで あってるか たしかめる</button><button id="hintClose">✍️ やってみる</button></div></div>';
+  r.innerHTML = h; r.style.display = 'flex';
+  var close = function () { r.style.display = 'none'; };
+  $('hintX').onclick = close; $('hintClose').onclick = close;
+  r.onclick = function (e) { if (e.target === r) close(); };
+  if ($('hintNext')) $('hintNext').onclick = function () { openHint(key, lv + 1); };
+  $('hintTry').onclick = function () { close(); HM.log = []; hmTry1(key, nowSlot()); };
+}
+
 // ── 阪神マンの 画面 ──
 var HM = { log: [] };
 function hmFace() { return '<img src="/mon/154.png" alt="" style="width:40px;height:40px;object-fit:contain" onerror="this.replaceWith(document.createTextNode(\'🐯\'))">'; }
@@ -431,6 +467,7 @@ function hmDraw(btns) {
   $('hmLog').scrollTop = 1e6;
   var f = $('hmFoot'); f.innerHTML = '';
   (btns || []).forEach(function (b) {
+    if (!b) return;
     if (b.area) { var ta = document.createElement('textarea'); ta.id = 'hmTa'; ta.rows = 2; ta.maxLength = 160; ta.placeholder = b.area; f.appendChild(ta); return; }
     var e = document.createElement('button'); e.type = 'button'; e.textContent = b.t; if (b.main) e.className = 'main'; e.onclick = b.go; f.appendChild(e);
   });
@@ -531,8 +568,10 @@ function hmLate() {
   ] : [bye(), back()]);
 }
 function hmStuck() {
-  say('どこで つまずいてる？ 作戦は いくつか あるで。\n① 教科書の その ページを もう一回 ゆっくり 読む（大事な ことばに 線）\n② 友だちに「ここ どう 考えた？」と 聞く\n③ 先生に 聞く\n④ いったん ほかの 課題を して、あとで もどる\n\nわからん ことを わからんと 言えるのは 強さやで。どれに する？');
+  var hk = (function () { var ns = nowSlot(), k = ''; if (ns) itemsOf(K.plan.s[ns.ck]).items.forEach(function (it) { if (!k && hasHint(it.task)) k = it.task; }); return k; })();   // CHITO_HINT_V1
+  say('どこで つまずいてる？ 作戦は いくつか あるで。' + (hk ? '\n💡 まずは ヒントカード（図や 資料つき）を 1つずつ ひらいてみるのも ええで。' : '') + '\n① 教科書の その ページを もう一回 ゆっくり 読む（大事な ことばに 線）\n② 友だちに「ここ どう 考えた？」と 聞く\n③ 先生に 聞く\n④ いったん ほかの 課題を して、あとで もどる\n\nわからん ことを わからんと 言えるのは 強さやで。どれに する？');
   hmDraw([
+    hk ? { t: '💡 ヒントカードを 見る', main: 1, go: function () { me('ヒントカードを 見る'); hmClose(); openHint(hk, 1); } } : null,
     { t: '① もう一回 読む', go: function () { me('もう一回 読む'); say('ええな！ めあてを 見ながら 読むと「どこを 読めば いいか」が わかるで。'); hmDraw([bye(), back()]); } },
     { t: '② 友だちに 聞く', go: function () { me('友だちに 聞く'); say('教えあうのは 両方の 学びに なる。聞く ときは「どこが わからないか」を はっきり 言うのが コツや。'); hmDraw([bye(), back()]); } },
     { t: '③ 先生に 聞く', go: function () { me('先生に 聞く'); say('よっしゃ。「〇〇の ここまでは わかったけど、ここから わからない」と 言えたら 最強や。'); hmDraw([bye(), back()]); } },
@@ -664,6 +703,7 @@ function tryEnd(R, qr) {
   if (qr === 'x' || qr === '~') todo.push('・学習問題「' + x.u.q + '」に「この 課題で わかったこと」を あてはめて、「〜だから、〜」と 1文で 言ってみる');
   say(h + 'ここまで できてるのは 自分の 力や。あと 少しで めあてに とどくで。\nつぎに やるのは これ👇\n' + todo.join('\n') + (al ? '\n\n' + al + '\n→ ここを なおすと、その 姿に 近づくで。' : '') + '\n\nどうやって なおす？ 自分で えらんでな。');
   hmDraw([
+    hasHint(R.key) ? { t: '💡 ヒントカードを 見る', go: function () { me('ヒントカードを 見る'); hmClose(); openHint(R.key, 1); } } : null,
     { t: '📖 自分で 見なおす', main: 1, go: function () { me('自分で 見なおす'); say('ええで！ ' + (x.t.note || '教科書') + 'を もう一回 見て、上の ' + todo.length + 'つを たしかめながら 書きたそう。できたら もう一回「🔍 たしかめる」で 見せてな。'); hmDraw([bye(), back()]); } },
     { t: '👫 友だちと 見せあう', go: function () { me('友だちと 見せあう'); say('同じ 課題を やってる 友だちに「ここ どう 書いた？」と 聞いてみ。答えを うつすんや なくて、考え方を 聞くのが コツやで。'); hmDraw([bye(), back()]); } },
     { t: '🙋 先生に 見てもらいたい', go: function () { me('先生に 見てもらいたい'); saveTry(R, 1); say('先生に 「見てほしい」と 伝えといたで。先生が 来るまでに、「どこまで できて、どこが 心配か」を 言えるように しとこな。そのあいだも、できる ところは 進めて ええで。'); hmDraw([bye(), back()]); } }
@@ -751,7 +791,7 @@ function kidsT() {
       + (function () {   // CHITO_GOAL_V1 めあての △ と 学習問題メモ
         var c = (k.plan && k.plan.chk) || {}, tri = [], memos = [];
         Object.keys(c).forEach(function (key) { var x = taskOf(cfg, key); if (!x) return; if (c[key].self === '△') tri.push(short(cfg, key)); if (c[key].memo) memos.push('<b>' + esc(short(cfg, key)) + '</b> ' + esc(c[key].memo)); });
-        return '<td class="x" style="color:#b91c1c;font-weight:900">' + esc(tri.join(' ')) + '</td><td class="x" style="max-width:320px;white-space:normal;text-align:left;font-size:12px">' + (memos.length ? '<details><summary>' + memos.length + 'こ</summary>' + memos.join('<br>') + '</details>' : '<span style="color:#94a3b8">0</span>') + '</td><td class="x">' + ((k.plan && k.plan.talk) || '') + '</td><td class="x">' + cfg.units.map(function (u) { var a = (k.plan && k.plan.aim && k.plan.aim[u.id]) || ''; return u.subj.slice(0, 1) + (a ? '<b style="color:' + (a === 'A' ? '#d97706' : '#16a34a') + '">' + a + '</b>' : '<span style="color:#cbd5e1">－</span>'); }).join(' ') + '</td>';   // CHITO_AIM_V1
+        return '<td class="x" style="color:#b91c1c;font-weight:900">' + esc(tri.join(' ')) + '</td><td class="x" style="max-width:320px;white-space:normal;text-align:left;font-size:12px">' + (memos.length ? '<details><summary>' + memos.length + 'こ</summary>' + memos.join('<br>') + '</details>' : '<span style="color:#94a3b8">0</span>') + '</td><td class="x">' + ((k.plan && k.plan.talk) || '') + (function () { var hs = Object.keys(c).filter(function (key) { return c[key].h; }).map(function (key) { return short(cfg, key) + c[key].h; }); return hs.length ? '<br><small title="ヒントを 見た 課題と 段階">💡' + esc(hs.join(' ')) + '</small>' : ''; })() + '</td><td class="x">' + cfg.units.map(function (u) { var a = (k.plan && k.plan.aim && k.plan.aim[u.id]) || ''; return u.subj.slice(0, 1) + (a ? '<b style="color:' + (a === 'A' ? '#d97706' : '#16a34a') + '">' + a + '</b>' : '<span style="color:#cbd5e1">－</span>'); }).join(' ') + '</td>';   // CHITO_AIM_V1
       })()
       + sc.map(function (ck) {
         var v = itemsOf(s[ck]); if (!slotUsed(s[ck])) return '<td class="x"></td>';
@@ -808,6 +848,7 @@ function unitsT() {
     u.tasks.forEach(function (t, ti) {
       h += '<div class="row"><input type="text" data-tf="' + ui + ':' + ti + ':k" value="' + esc(t.k) + '"><input type="text" data-tf="' + ui + ':' + ti + ':t" value="' + esc(t.t) + '"><input type="text" data-tf="' + ui + ':' + ti + ':note" value="' + esc(t.note || '') + '">'
         + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':mea" value="' + esc(t.mea || '') + '" placeholder="🎯 めあて（〜できる）" style="flex-basis:100%">')
+        + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':hint" value="' + esc(t.hint || '') + '" placeholder="💡 ヒントメモ（たす ヒント・資料の URL。／で 改行）" style="flex-basis:100%">')   // CHITO_HINT_V1
         + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':ok" value="' + esc(t.ok || '') + '" placeholder="🔍 たしかめポイント（／で 区切って 3つまで。空なら 教科ごとの ふつうの ポイント）" style="flex-basis:100%">')   // CHITO_CHECK_V1
         + '<span><label><input type="checkbox" data-tc="' + ui + ':' + ti + ':all"' + (t.all ? ' checked' : '') + '>みんなで</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':done"' + (t.done ? ' checked' : '') + '>おわり</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':opt"' + (t.opt ? ' checked' : '') + '>よゆう</label> <button data-td="' + ui + ':' + ti + '" style="min-height:28px">✕</button></span></div>';
     });

@@ -110,6 +110,7 @@ function cleanCfg(x: any): any {
         const o: any = { k: cleanStr(t && t.k, 4), t: cleanStr(t && t.t, 40), note: cleanStr(t && t.note, 80) }
         if (t && t.mea) o.mea = cleanStr(t.mea, 100)   // CHITO_GOAL_V1 めあて（できる？）
         if (t && t.ok) o.ok = cleanStr(t.ok, 240)   // CHITO_CHECK_V1 たしかめポイント（／で 区切る）
+        if (t && t.hint) o.hint = cleanStr(t.hint, 500)   // CHITO_HINT_V1 ヒントメモ（URLも 書ける）
         if (t && t.all) o.all = 1; if (t && t.done) o.done = 1; if (t && t.opt) o.opt = 1
         return o
       }).filter((t: any) => t.k && t.t)
@@ -150,9 +151,11 @@ function cleanPlan(x: any, cfg: any): any {
     // CHITO_CHECK_V1 阪神マンと「これで あってる？」たしかめ（r：o=できた ~=とちゅう x=まだ ／ w=ちがう課題を していた ／ help=先生に 見てほしい）
     let q: any = null
     if (v.q && typeof v.q === 'object') { q = { r: String(v.q.r || '').replace(/[^o~x]/g, '').slice(0, 6), at: Number(v.q.at) || Date.now() }; if (v.q.w) q.w = 1; if (v.q.help) q.help = 1 }
-    if (!self && !memo && !q) return
+    const hl = Math.max(0, Math.min(9, Number(v.h) || 0))   // CHITO_HINT_V1 ヒントを どこまで 見たか
+    if (!self && !memo && !q && !hl) return
     out.chk[k] = { self, memo, at: Number(v.at) || Date.now() }
     if (q) out.chk[k].q = q
+    if (hl) out.chk[k].h = hl
   })
   out.talk = Number(x && x.talk) || 0   // 阪神マンに 相談した 回数
   // CHITO_AIM_V1 単元ごとに 自分が めざす 姿（'A' か 'B'）
