@@ -123,5 +123,14 @@
     var w = function (bank) { var r = o.apply(this, arguments); try { if (r && r.q && !r.exp && E[r.q]) r.exp = E[r.q]; } catch (e) {} return r; };
     w.__xb = 1; window._pickBank = w;
   }
-  wrapPick(); setTimeout(wrapPick, 0); window.addEventListener("load", wrapPick);
+  function wrapFx() {   /* _pickBank を 通らない 単元でも、出題後に 問題文で かいせつを つける */
+    var f = window.__fxShow; if (f && f.__xb) return;
+    var w = function (prob) {
+      try { var t = window.trainingQ; if (t && !t.exp && prob && E[prob.q]) t.exp = E[prob.q]; } catch (e) {}
+      return f ? f.apply(this, arguments) : undefined;
+    };
+    w.__xb = 1; window.__fxShow = w;
+  }
+  function inst() { wrapPick(); wrapFx(); }
+  inst(); setTimeout(inst, 0); setTimeout(inst, 1600); window.addEventListener("load", inst);
 })();
