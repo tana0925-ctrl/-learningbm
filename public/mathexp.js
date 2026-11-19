@@ -352,4 +352,12 @@
   R.push(function (q) { q = String(q); if (q.indexOf('同じ大きさの分数をつくろう') < 0) return ''; var t = q.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '); var m = t.match(/（約分しない） (\d+) (\d+) = (\d+|\?) (\d+|\?)/); if (!m) return ''; var a = N(m[1]), b = N(m[2]);
     if (m[3] === '?') { var k = N(m[4]) / b; return '分母が ' + b + '→' + m[4] + 'で ' + r(k) + '倍。分子も 同じだけ：' + a + '×' + r(k) + '＝' + r(a * k) + '。分母と 分子に 同じ 数を かけても わっても 大きさは 同じ。'; }
     var k2 = N(m[3]) / a; return '分子が ' + a + '→' + m[3] + 'で ' + r(k2) + '倍。分母も 同じだけ：' + b + '×' + r(k2) + '＝' + r(b * k2) + '。'; });
+
+  /* ───────── 英語（アルファベット）───────── */
+  var AB = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var SIM = { b: 'b は たて線の 右下に まる（d は 左下）。', d: 'd は たて線の 左下に まる（b は 右下）。', p: 'p は たて線の 右上に まる（q は 左上）。', q: 'q は たて線の 左上に まる（p は 右上）。', m: 'm は 山が 2つ（n は 1つ）。', n: 'n は 山が 1つ（m は 2つ）。', h: 'h は たて線が 長い（n は 短い）。', u: 'u は 下が まるく 右に 線（n を さかさに した 形）。' };
+  add(/^「([A-Z])」の 次の アルファベット/, function (m) { var i = AB.indexOf(m[1]); return AB.slice(Math.max(0, i - 2), i + 2).split('').join(' ') + '… の 順。' + m[1] + 'の 次は ' + AB[i + 1] + '。ABCの 歌で 確かめよう。'; });
+  add(/^小文字「([a-z])」の 大文字/, function (m) { var u = m[1].toUpperCase(); return m[1] + ' の 大文字は ' + u + '。' + ('cosvwxz'.indexOf(m[1]) >= 0 ? '大きさが ちがうだけで 形は 同じ。' : '形が ちがうので ペアで 覚えよう。'); });
+  add(/^大文字「([A-Z])」の 小文字/, function (m) { var l = m[1].toLowerCase(); return m[1] + ' の 小文字は ' + l + '。' + (SIM[l] || ('CKOSUVWXZ'.indexOf(m[1]) >= 0 ? '大きさが ちがうだけで 形は 同じ。' : '形が ちがうので ペアで 覚えよう。')); });
+  add(/^小文字の「([a-z])」は どれ/, function (m) { return SIM[m[1]] || (m[1] + ' の 形を よく 見よう。'); });
 })();
