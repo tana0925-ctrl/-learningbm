@@ -118,7 +118,13 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function 
 function addDay(dk, n) { var d = new Date(dk + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function md(dk) { var p = dk.split('-'); return Number(p[1]) + '/' + Number(p[2]); }
 function dow(dk) { return DOW[new Date(dk + 'T00:00:00Z').getUTCDay()]; }
-function days(cfg) { var out = []; for (var w = 0; w < cfg.weeks; w++) { var wk = []; for (var d = 0; d < 5; d++) wk.push(addDay(cfg.start, w * 7 + d)); out.push(wk); } return out; }
+function weeksOf(cfg) {   // CHITO_WEEKS_V1 時間割に 🌟チトセレ・👥みんなで の コマが あれば、その週まで 見せる（2コマしか ないように 見えていた）
+  var w = Number(cfg.weeks) || 1, last = '';
+  Object.keys(cfg.cells || {}).forEach(function (ck) { var c = cfg.cells[ck]; if (c && (c.k === 's' || c.k === 'f') && ck > last) last = ck; });
+  if (last) { var need = Math.floor((Date.parse(last.split('|')[0] + 'T00:00:00Z') - Date.parse(cfg.start + 'T00:00:00Z')) / 86400000 / 7) + 1; if (need > w) w = Math.min(4, need); }
+  return w;
+}
+function days(cfg) { var out = []; for (var w = 0; w < weeksOf(cfg); w++) { var wk = []; for (var d = 0; d < 5; d++) wk.push(addDay(cfg.start, w * 7 + d)); out.push(wk); } return out; }
 function api(url, opt) {
   opt = opt || {}; opt.credentials = 'include';
   return fetch(url, opt).then(function (r) { return r.json().then(function (j) { j = j || {}; j.__s = r.status; return j; }).catch(function () { return { ok: false, __s: r.status }; }); });
