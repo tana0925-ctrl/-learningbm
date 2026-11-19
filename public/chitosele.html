@@ -375,6 +375,7 @@ function goalCards() {
       + (u.q ? '<div style="margin-top:2px">❓ <b>学習問題</b>：' + esc(u.q) + '</div>' : '')
       + '<div>🏁 <b>ゴール</b>：' + esc(u.goal || (gt ? '「' + gt.t + '」（みんなで）' : '')) + (gck ? '（<b>' + esc(slotName(gck)) + '</b>）' : '') + '</div>'
       + aimBox(u)   // CHITO_AIM_V1
+      + unitHintBtn(u)   // CHITO_UHINT_V1
       + '<div style="font-size:13px;color:#475569">ゴールまで 🌟チトセレ あと <b>' + leftBefore(gck) + '</b>コマ ／ できた 課題 <b>' + doneN + '/' + must.length + '</b> ／ 学習問題メモ <b>' + memoN + '/' + must.length + '</b>' + (tri ? ' ／ △ <b style="color:#b91c1c">' + tri + '</b>' : '') + '</div></div>';
   });
   return h + '</div>';
@@ -413,6 +414,17 @@ function hmAim(u, then) {   // まだ 決めていない 観点を 1つずつ
     { t: '🌟 A を めざす', main: 1, go: function () { me('A を めざす'); setAim(u.id, i, 'A'); say(aimUnset(u).length ? 'ええ 心意気や！ ほな つぎ。' : 'ええ 心意気や！ 高い 目標を 自分で 決めた 人は のびるで。'); hmAim(u, then); } },
     { t: '🌱 まず B を めざす', go: function () { me('まず B を めざす'); setAim(u.id, i, 'B'); say(aimUnset(u).length ? 'ええ 決め方や！ ほな つぎ。' : 'ええ 決め方や！ B が できたら、A にも チャレンジしよな。'); hmAim(u, then); } }
   ]);
+}
+
+// ════════ 💡 CHITO_UHINT_V1（2026-11-19）単元の ゴールの カードから、その 単元の「学習の ヒント」を ひらく ════════
+//   u.mt＝学習の ヒントの トピックid（先生が 課題メニューで 決める）。なければ 単元名から さがす／教科の 一覧へ。
+var UH_AUTO = { '鳥獣戯画': 'chojugiga', '明治の国づくり': 'meiji', '拡大と縮小': 'kakudai' };
+function unitHintBtn(u) {
+  var id = u.mt || '', nm = String(u.name || '').replace(/\s/g, '');
+  if (!id) Object.keys(UH_AUTO).forEach(function (k) { if (!id && nm.indexOf(k) >= 0) id = UH_AUTO[k]; });
+  var sk = { '国語': 'koku', '算数': 'san', '社会': 'sha', '理科': 'ri', '音楽': 'on', '図工': 'zu', '家庭': 'ka', '体育': 'tai', '外国語': 'gai' }[u.subj] || '';
+  var href = '/manabi?from=chitosele' + (sk ? '&s=' + sk : '') + (id ? '&t=' + encodeURIComponent(id) : '');
+  return '<a href="' + href + '" style="display:block;margin-top:8px;padding:10px 12px;border-radius:14px;background:#fef3c7;border:2px solid #f59e0b;color:#92400e;font-weight:900;text-decoration:none;text-align:center">💡 ' + esc(u.subj) + '「' + esc(u.name) + '」の ヒントを ひらく ›<div style="font-size:12px;font-weight:700">学びやすい コツ・たとえば こう 書くと いいよ・こまったときの ヒント</div></a>';
 }
 
 // ════════ 💡 CHITO_HINT_V1（2026-11-19）課題ごとの ヒントカード（図・資料）════════
@@ -853,6 +865,7 @@ function unitsT() {
     h += '<div class="unit" style="margin-top:10px;border-color:' + u.color + '"><div class="ed"><b style="color:' + u.color + '">' + esc(u.subj) + '</b><input type="text" data-un="' + ui + '" value="' + esc(u.name) + '" style="flex:1"></div>'
       + '<div class="ed"><b>❓学習問題</b><input type="text" data-uq="' + ui + ':q" value="' + esc(u.q || '') + '" placeholder="例：明治の 新しい 国づくりは、だれが、どのように 進めていったのだろう" style="flex:1"></div>'
       + '<div class="ed"><b>🏁ゴール</b><input type="text" data-uq="' + ui + ':goal" value="' + esc(u.goal || '') + '" placeholder="例：吉田松陰に、学習問題の 答えを 報告する" style="flex:1"></div>'   // CHITO_GOAL_V1
+      + '<div class="ed"><b>💡ヒントのid</b><input type="text" data-uq="' + ui + ':mt" value="' + esc(u.mt || '') + '" placeholder="学習の ヒントの トピック（空なら 単元名から 自動。れい：meiji）" style="flex:1"></div>'   // CHITO_UHINT_V1
       + '<div class="ed" style="align-items:flex-start"><b>📏学びのものさし</b><textarea data-zs="' + ui + '" rows="4" style="flex:1;font-size:13px" placeholder="1行に 1観点：観点｜B 目指す姿｜A さらに深めた姿&#10;例：知識・技能｜筆者の技を2つ見つけ、その効果を説明できる。｜技を3つ以上見つけ、…">' + esc(zsOf(u).map(function (r) { return [r.k, r.b, r.a].join('｜'); }).join('\n')) + '</textarea></div>';   // CHITO_AIM_V2
     u.tasks.forEach(function (t, ti) {
       h += '<div class="row"><input type="text" data-tf="' + ui + ':' + ti + ':k" value="' + esc(t.k) + '"><input type="text" data-tf="' + ui + ':' + ti + ':t" value="' + esc(t.t) + '"><input type="text" data-tf="' + ui + ':' + ti + ':note" value="' + esc(t.note || '') + '">'

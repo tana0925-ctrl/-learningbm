@@ -104,6 +104,7 @@ function cleanCfg(x: any): any {
     out.units.push({
       id, subj: cleanStr(u.subj, 10), name: cleanStr(u.name, 40),
       q: cleanStr(u.q, 120), goal: cleanStr(u.goal, 160),   // CHITO_GOAL_V1 学習問題 と ゴール
+      mt: cleanStr(u.mt, 30),   // CHITO_UHINT_V1 学習の ヒントの トピックid
       zb: cleanStr(u.zb, 160), za: cleanStr(u.za, 160),   // CHITO_AIM_V1 目指したい姿 B・A
       zs: (Array.isArray(u.zs) ? u.zs : []).slice(0, 5).map((r: any) => ({ k: cleanStr(r && r.k, 12), b: cleanStr(r && r.b, 120), a: cleanStr(r && r.a, 120) })).filter((r: any) => r.b || r.a),   // CHITO_AIM_V2 学びのものさし（観点ごと）
       color: /^#[0-9a-f]{6}$/i.test(String(u.color)) ? String(u.color) : '#64748b', hours: Math.max(0, Math.min(40, Number(u.hours) || 0)),
