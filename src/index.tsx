@@ -11296,6 +11296,7 @@ app.get('/chitosele', async (c) => { try { const a = await c.env.ASSETS?.fetch(n
 const manabiAsset = (name: string, type: string, cache: string) => async (c: any) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + name))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': type, 'cache-control': cache } }); } catch (e) {} return c.text('not found', 404) }
 app.get('/manabi', manabiAsset('manabi.html', 'text/html; charset=utf-8', 'no-store'))
 app.get('/manabi-data.js', manabiAsset('manabi-data.js', 'application/javascript; charset=utf-8', 'public, max-age=300'))
+app.get('/manabi-rei.js', manabiAsset('manabi-rei.js', 'application/javascript; charset=utf-8', 'public, max-age=300'))   // MANABI_REI_V1
 app.get('/manabi-nav.js', manabiAsset('manabi-nav.js', 'application/javascript; charset=utf-8', 'public, max-age=300'))
 app.get('/voicetest', manabiAsset('voicetest.html', 'text/html; charset=utf-8', 'no-store'))
 app.get('/chitosele.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/chitosele.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) })

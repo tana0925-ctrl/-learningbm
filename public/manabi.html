@@ -29,6 +29,7 @@ main{max-width:760px;margin:0 auto;padding:10px}
 .box{border-radius:14px;padding:10px 12px;margin:10px 0;line-height:1.75;white-space:pre-wrap}
 .box h3{margin:0 0 6px;font-size:16px}
 .kotsu{background:#ecfdf5;border:2px solid #6ee7b7}
+.rei{background:#eff6ff;border:2px solid #93c5fd}.rei h3{color:#1d4ed8}.rei .rx{background:#fff;border:1px dashed #93c5fd;border-radius:12px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;line-height:1.8}.rei .rx b{display:block;color:#1e40af;margin-bottom:2px}
 .kotsu h3{color:#047857}
 .kotsu ul{margin:0;padding-left:0;list-style:none;white-space:normal}
 .kotsu li{margin:4px 0}
@@ -51,6 +52,7 @@ main{max-width:760px;margin:0 auto;padding:10px}
 <header><h1>💡 学習の ヒント</h1><a id="back" href="/">← アプリへ</a></header>
 <main id="app"><div class="card">よみこみ中…</div></main>
 <script src="/manabi-data.js?v=2"></script>
+<script src="/manabi-rei.js?v=1"></script>
 <script>
 (function () {
 'use strict';
@@ -117,6 +119,9 @@ function topicView(id) {
   var s = x.s, t = x.t, lv = ST.open[id] || 0, h = '<div class="card"><button class="btn back" id="tBack">← ' + esc(s.n) + 'の 一覧</button>'
     + '<div style="font-size:19px;font-weight:900;color:' + s.c + '">' + s.e + ' ' + esc(t.t) + '</div>';
   if (t.kotsu && t.kotsu.length) h += '<div class="box kotsu"><h3>✨ こうすると 学びやすい</h3><ul>' + t.kotsu.map(function (k) { return '<li>' + esc(k) + '</li>'; }).join('') + '</ul></div>';
+  // 📝 MANABI_REI_V1 たとえば こう 書くと いいよ
+  var rei = (window.MANABI_REI || {})[id];
+  if (rei && rei.length) h += '<div class="box rei"><h3>📝 たとえば こう 書くと いいよ</h3>' + rei.map(function (r) { return '<div class="rx"><b>' + esc(r.h) + '</b>' + esc(r.t) + '</div>'; }).join('') + '<div class="note" style="white-space:normal">「〜」や「〇」の ところを、自分の ことばに かえて 使おう。そのまま うつすだけに しないでね。</div></div>';
   if (t.steps && t.steps.length) {
     h += '<div class="box hint"><h3>🙋 こまったときの ヒント</h3><div class="note" style="white-space:normal">こまっている ことを えらんで ひらこう。</div>';
     t.steps.forEach(function (st, i) {
