@@ -27341,7 +27341,7 @@ function generateTrainingQuestion() {
 
 function trainSubmit() {
             if (trainingMode === 'fraction-mixed') { fractionMixedNextOrJudge(); return; }
-            if (isAwaitingNextTrainingQuestion) return;
+            if (isAwaitingNextTrainingQuestion) { try { var _wb = document.getElementById('trainWrongNext'); if (window.__trainWrongNext && _wb && !_wb.disabled) window.__trainWrongNext(); } catch (e) {} return; }   // TRAIN_WRONG_V1
             try{ if(window.__bmTrainAutoTimer) clearTimeout(window.__bmTrainAutoTimer); }catch(e){}
             // MCQモード（既存4年生 + 新CURRICULUMのMCQ単元）は数値送信しない
             const _isNewCurrMCQ_submit = window.__currUnit && window.__currUnit.input === 'mcq';
@@ -28653,8 +28653,10 @@ function handleCorrectAnswer() {
             
             recordWrongProblem();
 updateTrainingInfo();
-            try{ var _fbEl=document.getElementById('trainingFeedback'); var _tq=(window.trainingQ||(typeof trainingQ!=='undefined'?trainingQ:null)); var _ansT=''; if(_tq){ if(_tq.options&&typeof _tq.ans==='number'&&_tq.options[_tq.ans]!=null) _ansT=String(_tq.options[_tq.ans]); else if(_tq.ans!=null&&_tq.ans!=='__FM_OK__') _ansT=String(_tq.ans); } var _hh=''; try{ _hh=_trainHint(trainingMode); }catch(e){} var _es=function(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }; if(_fbEl){ _fbEl.innerHTML='<span class="block" style="color:#dc2626">❌ おしい！</span>'+(_ansT!==''?'<span class="block" style="font-size:15px;color:#1e293b">正解は <b>'+_es(_ansT)+'</b></span>':'')+(_hh?'<span class="block" style="font-size:12px;font-weight:700;color:#475569">💡 '+_es(_hh)+'</span>':''); } else { document.getElementById('trainingFeedback').innerText='ちがうよ！'; } }catch(e){ try{ document.getElementById('trainingFeedback').innerText='ちがうよ！'; }catch(_e){} }
-            setTimeout(() => {
+            try{ var _fbEl=document.getElementById('trainingFeedback'); var _tq=(window.trainingQ||(typeof trainingQ!=='undefined'?trainingQ:null)); var _ansT=''; if(_tq){ if(_tq.options&&typeof _tq.ans==='number'&&_tq.options[_tq.ans]!=null) _ansT=String(_tq.options[_tq.ans]); else if(_tq.ans!=null&&_tq.ans!=='__FM_OK__') _ansT=String(_tq.ans); } var _hh=''; try{ _hh=_trainHint(trainingMode); }catch(e){} var _es=function(s){ return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }; if(_fbEl){ _fbEl.innerHTML='<span class="block" style="color:#dc2626">❌ おしい！</span>'+(_ansT!==''?'<span class="block" style="font-size:15px;color:#1e293b">正解は <b>'+_es(_ansT)+'</b></span>':'')+(_tq&&_tq.exp?'<span class="block" style="font-size:14px;font-weight:700;color:#1d4ed8;margin-top:2px">📝 '+_es(_tq.exp)+'</span>':'')+(_hh?'<span class="block" style="font-size:12px;font-weight:700;color:#475569">💡 '+_es(_hh)+'</span>':''); } else { document.getElementById('trainingFeedback').innerText='ちがうよ！'; } }catch(e){ try{ document.getElementById('trainingFeedback').innerText='ちがうよ！'; }catch(_e){} }
+            // TRAIN_WRONG_V1（2026-11-19）まちがえたら 1.5秒で 消さず、正解と かいせつを 読んでから「わかった → つぎへ」で すすむ
+            const __trainGoNext = () => {
+                window.__trainWrongNext = null;
                 document.getElementById('trainingFeedback').innerText = '';
                 // MCQモード（既存4年生 + 新CURRICULUMのMCQ単元）は次の問題を生成
                 // 新CURRICULUM数値入力モードも次の問題を生成（同じ問題が繰り返されないように）
@@ -28667,7 +28669,20 @@ updateTrainingInfo();
                     document.getElementById('trainingAnswer').innerText = '?';
                     isAwaitingNextTrainingQuestion = false;
                 }
-            }, 1500);
+            };
+            try {
+                var _fbw = document.getElementById('trainingFeedback');
+                if (!_fbw) throw 0;
+                window.__trainWrongNext = function () { if (!window.__trainWrongNext) return; __trainGoNext(); };
+                var _bw = document.createElement('button');
+                _bw.id = 'trainWrongNext'; _bw.type = 'button'; _bw.disabled = true;
+                _bw.textContent = 'わかった → つぎへ';
+                _bw.style.cssText = 'display:block;margin:8px auto 0;padding:10px 22px;border-radius:14px;border:0;background:#2563eb;color:#fff;font-weight:900;font-size:16px;opacity:.45;box-shadow:0 3px 0 #1e3a8a';
+                _bw.onclick = function () { window.__trainWrongNext && window.__trainWrongNext(); };
+                _fbw.style.height = 'auto';
+                _fbw.appendChild(_bw);
+                setTimeout(function () { _bw.disabled = false; _bw.style.opacity = '1'; }, 900);
+            } catch (_e) { setTimeout(__trainGoNext, 1500); }
         }
 
         // ===== 図鑑 検索/フィルタ/ソート（v13） =====
@@ -53546,7 +53561,7 @@ function _genTrainQ_curriculum() {
         btn.classList.add('hidden');
       }
     });
-    window.trainingQ = { q: prob.q, ans: correctIndex, options: opts };
+    window.trainingQ = { q: prob.q, ans: correctIndex, options: opts, exp: prob.exp || prob.explain || '' };   // TRAIN_WRONG_V1 exp＝その問題の かいせつ
   } else {
     // HTMLタグを含む問題(fraction-mixed, long-division, area等)はinnerHTMLで描画
     if (typeof prob.q === 'string' && /^\s*</.test(prob.q)) {
@@ -53556,7 +53571,7 @@ function _genTrainQ_curriculum() {
     }
     // ansが小数の場合はdecimalモードとして扱い、正しく比較できるようにする
     const isDecimalAns = (typeof prob.ans === 'number') && !Number.isInteger(prob.ans);
-    window.trainingQ = { q: prob.q, ans: prob.ans, isDecimal: isDecimalAns };
+    window.trainingQ = { q: prob.q, ans: prob.ans, isDecimal: isDecimalAns, exp: prob.exp || prob.explain || '' };
   }
   console.log('[DEBUG _genTrainQ] done. trainingQ=', window.trainingQ);
   } catch(e) { console.error('[DEBUG _genTrainQ] ERROR:', e); }
