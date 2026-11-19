@@ -460,6 +460,7 @@
         if (prob && !prob.fig && typeof prob.q === 'string' && !/^\s*</.test(prob.q)) {
           var mode = window.trainingMode || '';
           var f = FIG(String(mode), prob.q.replace(/\r/g, ''));
+          if (!f && window.__fmExtra) { try { f = window.__fmExtra(String(mode), prob.q.replace(/\r/g, ''), prob) || ''; } catch (e2) { f = ''; } }
           if (f) prob.fig = f;
         }
       } catch (e) {}
