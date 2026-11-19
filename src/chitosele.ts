@@ -104,6 +104,7 @@ function cleanCfg(x: any): any {
     out.units.push({
       id, subj: cleanStr(u.subj, 10), name: cleanStr(u.name, 40),
       q: cleanStr(u.q, 120), goal: cleanStr(u.goal, 160),   // CHITO_GOAL_V1 学習問題 と ゴール
+      zb: cleanStr(u.zb, 160), za: cleanStr(u.za, 160),   // CHITO_AIM_V1 目指したい姿 B・A
       color: /^#[0-9a-f]{6}$/i.test(String(u.color)) ? String(u.color) : '#64748b', hours: Math.max(0, Math.min(40, Number(u.hours) || 0)),
       tasks: (Array.isArray(u.tasks) ? u.tasks : []).slice(0, 16).map((t: any) => {
         const o: any = { k: cleanStr(t && t.k, 4), t: cleanStr(t && t.t, 40), note: cleanStr(t && t.note, 80) }
@@ -154,6 +155,10 @@ function cleanPlan(x: any, cfg: any): any {
     if (q) out.chk[k].q = q
   })
   out.talk = Number(x && x.talk) || 0   // 阪神マンに 相談した 回数
+  // CHITO_AIM_V1 単元ごとに 自分が めざす 姿（'A' か 'B'）
+  out.aim = {}
+  const am = (x && x.aim) || {}
+  ;(cfg.units || []).forEach((u: any) => { if (am[u.id] === 'A' || am[u.id] === 'B') out.aim[u.id] = am[u.id] })
   return out
 }
 

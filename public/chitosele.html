@@ -310,6 +310,7 @@ function bindKid() {
   });
   var g = $('goal'); if (g) g.oninput = function () { K.plan.goal = g.value; saveKid(); };
   app.querySelectorAll('.hmgo').forEach(function (b) { b.onclick = function () { hmStart(b.getAttribute('data-hm')); }; });
+  app.querySelectorAll('[data-aim]').forEach(function (b) { b.onclick = function () { var p = b.getAttribute('data-aim').split('|'); setAim(p[0], p[1]); renderKid(); }; });   // CHITO_AIM_V1
 }
 function saveKid() {
   clearTimeout(saveTimer);
@@ -371,9 +372,37 @@ function goalCards() {
       + '<b style="color:' + u.color + '">' + esc(u.subj + '　' + u.name) + '</b>'
       + (u.q ? '<div style="margin-top:2px">❓ <b>学習問題</b>：' + esc(u.q) + '</div>' : '')
       + '<div>🏁 <b>ゴール</b>：' + esc(u.goal || (gt ? '「' + gt.t + '」（みんなで）' : '')) + (gck ? '（<b>' + esc(slotName(gck)) + '</b>）' : '') + '</div>'
+      + aimBox(u)   // CHITO_AIM_V1
       + '<div style="font-size:13px;color:#475569">ゴールまで 🌟チトセレ あと <b>' + leftBefore(gck) + '</b>コマ ／ できた 課題 <b>' + doneN + '/' + must.length + '</b> ／ 学習問題メモ <b>' + memoN + '/' + must.length + '</b>' + (tri ? ' ／ △ <b style="color:#b91c1c">' + tri + '</b>' : '') + '</div></div>';
   });
   return h + '</div>';
+}
+
+// ════════ 🌟 CHITO_AIM_V1（2026-11-19）目指したい姿 B・A を いつも 意識する ════════
+//   ・ゴールの カードに B（ここまでは みんな）と A（さらに レベルアップ）を 出し、自分で どちらを めざすか えらぶ。
+//   ・阪神マンの「ゴールを たしかめる」「これで あってる？」「早く おわった」で、えらんだ 姿に 照らして 声を かける。
+//   ・これは 自分で 決める「めあての 高さ」。先生の 評価（成績）は 出さない。
+function aimOf(u) { K.plan.aim = K.plan.aim || {}; return K.plan.aim[u.id] || ''; }
+function setAim(uid, a) { K.plan.aim = K.plan.aim || {}; K.plan.aim[uid] = a; saveKid(); }
+function aimBox(u) {
+  if (!u.zb && !u.za) return '';
+  var a = aimOf(u), on = function (x) { return a === x ? 'background:' + (x === 'A' ? '#fde68a' : '#dcfce7') + ';border:3px solid ' + (x === 'A' ? '#d97706' : '#16a34a') + ';font-weight:900' : 'background:#fff;border:2px dashed #cbd5e1;color:#64748b'; };
+  return '<div style="margin-top:6px;font-size:14px"><b>🧭 目指したい姿</b>' + (a ? '　<span style="color:#7c3aed">← 自分は <b>姿' + a + '</b> を めざす！</span>' : '　<span style="color:#b91c1c;font-weight:900">← どっちを めざす？ タップして 決めよう</span>') + '</div>'
+    + (u.zb ? '<div data-aim="' + u.id + '|B" style="cursor:pointer;margin:4px 0;padding:6px 8px;border-radius:10px;' + on('B') + '">🌱 <b>姿B</b>：' + esc(u.zb) + '</div>' : '')
+    + (u.za ? '<div data-aim="' + u.id + '|A" style="cursor:pointer;margin:4px 0;padding:6px 8px;border-radius:10px;' + on('A') + '">🌟 <b>姿A</b>：' + esc(u.za) + '<div style="font-size:12px;color:#92400e">（姿B が できた うえで、さらに）</div></div>' : '');
+}
+function aimLine(u) {
+  var a = aimOf(u);
+  if (!a || (!u.zb && !u.za)) return '';
+  return a === 'A' ? '🌟 自分が めざすのは 姿A：' + (u.za || '') + '\n（姿B「' + (u.zb || '') + '」は その 土台やで）' : '🌱 自分が めざすのは 姿B：' + (u.zb || '');
+}
+function hmAim(u, then) {   // まだ 決めていなければ 決めてもらう
+  if (aimOf(u) || (!u.zb && !u.za)) return then();
+  say('ほな、' + u.subj + 'の ゴールで「どんな 自分に なりたいか」決めよか。\n\n🌱 姿B：' + (u.zb || '') + '\n🌟 姿A：' + (u.za || '') + '\n\n姿A は 姿B が できた うえで、もう一歩 先や。今の 自分で どっちを めざす？ あとで 変えても ええで。');
+  hmDraw([
+    { t: '🌟 姿A を めざす', main: 1, go: function () { me('姿A を めざす'); setAim(u.id, 'A'); say('ええ 心意気や！ 高い 目標を 自分で 決めた 人は のびるで。まず 姿B の 土台を かためて、そこから 上のせや。'); then(); } },
+    { t: '🌱 まず 姿B を めざす', go: function () { me('まず 姿B を めざす'); setAim(u.id, 'B'); say('ええ 決め方や！ 自分の 今を わかって 決めるのが いちばん 大事。姿B が できたら、姿A にも チャレンジしよな。'); then(); } }
+  ]);
 }
 
 // ── 阪神マンの 画面 ──
@@ -432,7 +461,11 @@ function hmGoal(i) {
   if (goalPassed(u)) return hmGoal(i + 1);
   var gck = goalDate(u), must = unitMust(u);
   var memo = must.filter(function (k) { var c = chk(k); return c && c.memo; });
-  say(u.subj + '「' + u.name + '」の ゴールは、' + (gck ? slotName(gck) + 'の ' : '') + '「' + (goalTask(u) ? goalTask(u).t : 'さいごの 時間') + '」や。\n\nそこで やるのは… ' + (u.goal || '学習問題に 答えること') + '。\n\nつまり、' + (u.q ? '学習問題「' + u.q + '」に 自分の ことばで 答えるんや。' : '今まで 学んだことを ぜんぶ 使うんや。') + '\n\nA〜の 課題は、ぜんぶ その 答えの 材料やで。今の 学習問題メモは ' + memo.length + '/' + must.length + 'こ。');
+  say(u.subj + '「' + u.name + '」の ゴールは、' + (gck ? slotName(gck) + 'の ' : '') + '「' + (goalTask(u) ? goalTask(u).t : 'さいごの 時間') + '」や。\n\nそこで やるのは… ' + (u.goal || '学習問題に 答えること') + '。\n\nつまり、' + (u.q ? '学習問題「' + u.q + '」に 自分の ことばで 答えるんや。' : '今まで 学んだことを ぜんぶ 使うんや。') + '\n\nチトセレの 課題は、ぜんぶ その 答えの 材料やで。今の 学習問題メモは ' + memo.length + '/' + must.length + 'こ。' + (aimLine(u) ? '\n\n' + aimLine(u) : ''));
+  if (!aimOf(u) && (u.zb || u.za)) return hmAim(u, function () { hmGoalBtns(i, u); });   // CHITO_AIM_V1
+  hmGoalBtns(i, u);
+}
+function hmGoalBtns(i, u) {
   var nx = i + 1 < K.cfg.units.length;
   hmDraw([
     { t: '📝 じゃあ、どの 課題から やる？', main: 1, go: function () { me('どの 課題から やる？'); hmWhat(false, u.id); } },
@@ -509,7 +542,8 @@ function hmStuck() {
 function hmFast() {
   var memoLack = [];
   K.cfg.units.forEach(function (u) { unitMust(u).forEach(function (k) { if (kidStatus(k).done && !(chk(k) && chk(k).memo)) memoLack.push(k); }); });
-  say('はやいな！ でも「おわり」や なくて「ゴールに 近づく」時間に しよか。\n① 学習問題の 答えを、メモを つなげて 3〜4文に まとめる' + (memoLack.length ? '（メモが まだの 課題が ' + memoLack.length + 'こ あるで）' : '') + '\n② よゆうの 課題（★・✓）に チャレンジ\n③ こまってる 友だちを 手伝う\nどれに する？');
+  var aimU = K.cfg.units.filter(function (u) { return !goalPassed(u) && aimOf(u) === 'A' && u.za; })[0];   // CHITO_AIM_V1
+  say('はやいな！ でも「おわり」や なくて「ゴールに 近づく」時間に しよか。' + (aimU ? '\n（' + aimU.subj + 'は 姿A を めざしてたな。🌟 姿A：' + aimU.za + '）' : '') + '\n① 学習問題の 答えを、メモを つなげて 3〜4文に まとめる' + (memoLack.length ? '（メモが まだの 課題が ' + memoLack.length + 'こ あるで）' : '') + '\n② よゆうの 課題（★・✓）に チャレンジ\n③ こまってる 友だちを 手伝う\nどれに する？');
   hmDraw([
     { t: '① 答えを まとめる', main: 1, go: function () { me('答えを まとめる'); say('ノートに「学習問題」を 書いて、その下に 課題ごとの メモを ならべてみ。「つまり〜」で つなげたら、それが 報告の 下書きや！'); hmDraw([bye(), back()]); } },
     { t: '② よゆうの 課題', go: function () { me('よゆうの 課題'); say('ええ チャレンジや！ 下の 時間わりで ★や ✓の 課題を 入れてな。'); hmDraw([bye(), back()]); } },
@@ -620,13 +654,15 @@ function tryEnd(R, qr) {
   var bad = R.pts.filter(function (p, i) { return R.r[i] !== 'o'; });
   var allOk = !bad.length && qr !== 'x' && qr !== '~';
   var h = 'まとめるで。\n' + lines.join('\n') + '\n\n';
+  var al = aimLine(x.u);   // CHITO_AIM_V1
   if (allOk) {
-    say(h + 'ばっちりや！ めあてに ちゃんと 合っとる。自信 もって ええで。\n' + (kidStatus(R.key).done ? '' : 'おわったら 時間わりで「✅ できた」を おして、学習問題メモを 書こな。'));
+    say(h + 'ばっちりや！ めあてに ちゃんと 合っとる。自信 もって ええで。\n' + (kidStatus(R.key).done ? '' : 'おわったら 時間わりで「✅ できた」を おして、学習問題メモを 書こな。')
+      + (al ? '\n\n' + al + '\n' + (aimOf(x.u) === 'A' ? '→ この 課題で、姿A に つながる「もう一歩」を ノートに 書きたせるか 考えてみ。' : '→ この 課題の 中身は、姿B の 大事な 材料や。姿A も ねらえそうなら、ゴールの カードで 姿A に 変えてもええで。') : ''));
     return hmDraw([bye(), { t: '👫 友だちと 見せあって もっと よくする', go: function () { me('友だちと 見せあう'); say('ええな！ 友だちの ノートと くらべて「自分に ないもの」を 1つ 見つけたら、それが レベルアップの たねや。'); hmDraw([bye(), back()]); } }]);
   }
   var todo = bad.map(function (p) { return '・' + p; });
   if (qr === 'x' || qr === '~') todo.push('・学習問題「' + x.u.q + '」に「この 課題で わかったこと」を あてはめて、「〜だから、〜」と 1文で 言ってみる');
-  say(h + 'ここまで できてるのは 自分の 力や。あと 少しで めあてに とどくで。\nつぎに やるのは これ👇\n' + todo.join('\n') + '\n\nどうやって なおす？ 自分で えらんでな。');
+  say(h + 'ここまで できてるのは 自分の 力や。あと 少しで めあてに とどくで。\nつぎに やるのは これ👇\n' + todo.join('\n') + (al ? '\n\n' + al + '\n→ ここを なおすと、その 姿に 近づくで。' : '') + '\n\nどうやって なおす？ 自分で えらんでな。');
   hmDraw([
     { t: '📖 自分で 見なおす', main: 1, go: function () { me('自分で 見なおす'); say('ええで！ ' + (x.t.note || '教科書') + 'を もう一回 見て、上の ' + todo.length + 'つを たしかめながら 書きたそう。できたら もう一回「🔍 たしかめる」で 見せてな。'); hmDraw([bye(), back()]); } },
     { t: '👫 友だちと 見せあう', go: function () { me('友だちと 見せあう'); say('同じ 課題を やってる 友だちに「ここ どう 書いた？」と 聞いてみ。答えを うつすんや なくて、考え方を 聞くのが コツやで。'); hmDraw([bye(), back()]); } },
@@ -704,7 +740,7 @@ function gridT() {
 function fixedAtT(key) { var cfg = T.cfg, out = []; Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(ck); }); return out.length; }
 function kidsT() {
   var cfg = T.cfg, sc = selCells(cfg), must = mustTasks(cfg);
-  var h = '<div class="card"><h2>👀 みんなの計画　<button class="btn" id="kidsReload">🔄 さいしん</button></h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th><th>△（自信ない）</th><th>学習問題メモ</th><th>相談</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
+  var h = '<div class="card"><h2>👀 みんなの計画　<button class="btn" id="kidsReload">🔄 さいしん</button></h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th><th>△（自信ない）</th><th>学習問題メモ</th><th>相談</th><th>めざす姿</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
   T.kids.forEach(function (k) {
     var s = (k.plan && k.plan.s) || {};
     var st = function (key) { var n = 0, dn = false; Object.keys(s).forEach(function (ck) { itemsOf(s[ck]).items.forEach(function (it) { if (it.task === key) { n++; if (it.st === 'done') dn = true; } }); }); return { n: n, done: dn }; };
@@ -715,7 +751,7 @@ function kidsT() {
       + (function () {   // CHITO_GOAL_V1 めあての △ と 学習問題メモ
         var c = (k.plan && k.plan.chk) || {}, tri = [], memos = [];
         Object.keys(c).forEach(function (key) { var x = taskOf(cfg, key); if (!x) return; if (c[key].self === '△') tri.push(short(cfg, key)); if (c[key].memo) memos.push('<b>' + esc(short(cfg, key)) + '</b> ' + esc(c[key].memo)); });
-        return '<td class="x" style="color:#b91c1c;font-weight:900">' + esc(tri.join(' ')) + '</td><td class="x" style="max-width:320px;white-space:normal;text-align:left;font-size:12px">' + (memos.length ? '<details><summary>' + memos.length + 'こ</summary>' + memos.join('<br>') + '</details>' : '<span style="color:#94a3b8">0</span>') + '</td><td class="x">' + ((k.plan && k.plan.talk) || '') + '</td>';
+        return '<td class="x" style="color:#b91c1c;font-weight:900">' + esc(tri.join(' ')) + '</td><td class="x" style="max-width:320px;white-space:normal;text-align:left;font-size:12px">' + (memos.length ? '<details><summary>' + memos.length + 'こ</summary>' + memos.join('<br>') + '</details>' : '<span style="color:#94a3b8">0</span>') + '</td><td class="x">' + ((k.plan && k.plan.talk) || '') + '</td><td class="x">' + cfg.units.map(function (u) { var a = (k.plan && k.plan.aim && k.plan.aim[u.id]) || ''; return u.subj.slice(0, 1) + (a ? '<b style="color:' + (a === 'A' ? '#d97706' : '#16a34a') + '">' + a + '</b>' : '<span style="color:#cbd5e1">－</span>'); }).join(' ') + '</td>';   // CHITO_AIM_V1
       })()
       + sc.map(function (ck) {
         var v = itemsOf(s[ck]); if (!slotUsed(s[ck])) return '<td class="x"></td>';
@@ -766,7 +802,9 @@ function unitsT() {
   cfg.units.forEach(function (u, ui) {
     h += '<div class="unit" style="margin-top:10px;border-color:' + u.color + '"><div class="ed"><b style="color:' + u.color + '">' + esc(u.subj) + '</b><input type="text" data-un="' + ui + '" value="' + esc(u.name) + '" style="flex:1"></div>'
       + '<div class="ed"><b>❓学習問題</b><input type="text" data-uq="' + ui + ':q" value="' + esc(u.q || '') + '" placeholder="例：明治の 新しい 国づくりは、だれが、どのように 進めていったのだろう" style="flex:1"></div>'
-      + '<div class="ed"><b>🏁ゴール</b><input type="text" data-uq="' + ui + ':goal" value="' + esc(u.goal || '') + '" placeholder="例：吉田松陰に、学習問題の 答えを 報告する" style="flex:1"></div>';   // CHITO_GOAL_V1
+      + '<div class="ed"><b>🏁ゴール</b><input type="text" data-uq="' + ui + ':goal" value="' + esc(u.goal || '') + '" placeholder="例：吉田松陰に、学習問題の 答えを 報告する" style="flex:1"></div>'   // CHITO_GOAL_V1
+      + '<div class="ed"><b>🌱目指したい姿 B</b><input type="text" data-uq="' + ui + ':zb" value="' + esc(u.zb || '') + '" placeholder="ここまでは みんなが できるように" style="flex:1"></div>'
+      + '<div class="ed"><b>🌟目指したい姿 A</b><input type="text" data-uq="' + ui + ':za" value="' + esc(u.za || '') + '" placeholder="B の うえで、さらに" style="flex:1"></div>';   // CHITO_AIM_V1
     u.tasks.forEach(function (t, ti) {
       h += '<div class="row"><input type="text" data-tf="' + ui + ':' + ti + ':k" value="' + esc(t.k) + '"><input type="text" data-tf="' + ui + ':' + ti + ':t" value="' + esc(t.t) + '"><input type="text" data-tf="' + ui + ':' + ti + ':note" value="' + esc(t.note || '') + '">'
         + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':mea" value="' + esc(t.mea || '') + '" placeholder="🎯 めあて（〜できる）" style="flex-basis:100%">')
