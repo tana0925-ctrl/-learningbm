@@ -203,6 +203,38 @@
     var mr = 0; c.r.forEach(function (v, i) { if (v > c.r[mr]) mr = i; }); var o2 = Q('この 雨温図で、降水量が いちばん 多い 月は？', (mr + 1) + '月', months(mr + 1), '青い 棒の いちばん 高い ところを 読む。' + c.d); o2.fig = figUonzu(c); return pickQ([o2]);
   };
 
+
+  /* ═════════ 社会：年表・世界の国・縮尺 ═════════ */
+  var EV = [['卑弥呼が 中国（魏）に 使いを 送る', 239], ['冠位十二階が 定められる', 603], ['大化の改新が 始まる', 645], ['平城京に 都が うつる', 710], ['東大寺の 大仏が 完成する', 752], ['平安京に 都が うつる', 794], ['源頼朝が 征夷大将軍に なる', 1192], ['元が 九州に せめてくる（文永の役）', 1274], ['応仁の乱が 始まる', 1467], ['鉄砲が 種子島に 伝わる', 1543], ['関ケ原の戦い', 1600], ['江戸幕府が 開かれる', 1603], ['ペリーが 浦賀に 来る', 1853], ['大政奉還', 1867], ['大日本帝国憲法が 発布される', 1889], ['日清戦争が 始まる', 1894], ['日露戦争が 始まる', 1904], ['太平洋戦争が 終わる', 1945], ['日本国憲法が 施行される', 1947], ['東京オリンピックが 開かれる', 1964]];
+  function figYears(list) {
+    var h = H(); if (!h) return ''; var mn = 200, mx = 2000, W = 330, x0 = 10, w = 310, b = h.ln(x0, 30, x0 + w, 30, '#475569', 2);
+    [300, 600, 900, 1200, 1500, 1800].forEach(function (y) { var x = x0 + w * (y - mn) / (mx - mn); b += h.ln(x, 26, x, 34, '#475569', 1) + h.tx(x, 48, y + '年', { fs: 9 }); });
+    list.forEach(function (it, i) { var x = x0 + w * (it.y - mn) / (mx - mn); b += h.dot(x, 30, 5, it.c || '#e11d48') + h.tx(x, 18 - (i % 2) * 0, it.t, { fs: 10, b: 1, c: it.c || '#e11d48' }); });
+    return h.svg(W, 56, b, 70);
+  }
+  window.genNenpyo6 = function () {
+    var p = R(0, 2), a = P(EV), b = P(EV); while (b === a) b = P(EV);
+    if (p === 0) { var first = a[1] < b[1] ? a : b, o = Q('どちらが 先に おきた できごと？\nア：' + a[0] + '\nイ：' + b[0], first === a ? 'ア' : 'イ', [first === a ? 'イ' : 'ア', '同じ年'], a[0] + '（' + a[1] + '年）、' + b[0] + '（' + b[1] + '年）'); var r = pickQ([o]); r.fig = figYears([{ y: a[1], t: 'ア', c: '#2563eb' }, { y: b[1], t: 'イ', c: '#d97706' }]); return r; }
+    if (p === 1) { var ws = EV.filter(function (e) { return e !== a && Math.abs(e[1] - a[1]) > 30; }).sort(function () { return Math.random() - 0.5; }).slice(0, 3).map(function (e) { return e[0]; }); return pickQ([Q(a[1] + '年に おきた できごとは？', a[0], ws, a[1] + '年：' + a[0])]); }
+    var c3 = [a, b, P(EV)].filter(function (e, i, arr) { return arr.indexOf(e) === i; }); if (c3.length < 3) return window.genNenpyo6(); var sorted = c3.slice().sort(function (x, y) { return x[1] - y[1]; }); var lab = ['ア', 'イ', 'ウ']; var order = sorted.map(function (e) { return lab[c3.indexOf(e)]; }).join('→');
+    var all = ['ア→イ→ウ', 'ア→ウ→イ', 'イ→ア→ウ', 'イ→ウ→ア', 'ウ→ア→イ', 'ウ→イ→ア'].filter(function (z) { return z !== order; }).sort(function () { return Math.random() - 0.5; }).slice(0, 3);
+    return pickQ([Q('古い じゅんに ならべると？\nア：' + c3[0][0] + '\nイ：' + c3[1][0] + '\nウ：' + c3[2][0], order, all, sorted.map(function (e) { return e[0] + '（' + e[1] + '）'; }).join(' → '))]);
+  };
+  var CAP = [['アメリカ合衆国', 'ワシントンD.C.', '北アメリカ州'], ['イギリス', 'ロンドン', 'ヨーロッパ州'], ['フランス', 'パリ', 'ヨーロッパ州'], ['ドイツ', 'ベルリン', 'ヨーロッパ州'], ['イタリア', 'ローマ', 'ヨーロッパ州'], ['スペイン', 'マドリード', 'ヨーロッパ州'], ['ロシア', 'モスクワ', 'ヨーロッパ州'], ['中国', 'ペキン', 'アジア州'], ['韓国', 'ソウル', 'アジア州'], ['インド', 'ニューデリー', 'アジア州'], ['タイ', 'バンコク', 'アジア州'], ['ベトナム', 'ハノイ', 'アジア州'], ['インドネシア', 'ジャカルタ', 'アジア州'], ['サウジアラビア', 'リヤド', 'アジア州'], ['トルコ', 'アンカラ', 'アジア州'], ['エジプト', 'カイロ', 'アフリカ州'], ['ケニア', 'ナイロビ', 'アフリカ州'], ['ブラジル', 'ブラジリア', '南アメリカ州'], ['アルゼンチン', 'ブエノスアイレス', '南アメリカ州'], ['カナダ', 'オタワ', '北アメリカ州'], ['メキシコ', 'メキシコシティ', '北アメリカ州'], ['オーストラリア', 'キャンベラ', 'オセアニア州']];
+  window.genKuni7 = function () {
+    var c = P(CAP), p = R(0, 2), others = CAP.filter(function (x) { return x !== c; }).sort(function () { return Math.random() - 0.5; });
+    if (p === 0) return pickQ([Q(c[0] + ' の 首都は？', c[1], others.slice(0, 3).map(function (x) { return x[1]; }), c[0] + ' の 首都は ' + c[1])]);
+    if (p === 1) return pickQ([Q(c[1] + ' が 首都の 国は？', c[0], others.slice(0, 3).map(function (x) { return x[0]; }), c[1] + ' は ' + c[0] + ' の 首都')]);
+    var sh = ['アジア州', 'ヨーロッパ州', 'アフリカ州', '北アメリカ州', '南アメリカ州', 'オセアニア州'].filter(function (z) { return z !== c[2]; }).sort(function () { return Math.random() - 0.5; }).slice(0, 3);
+    return pickQ([Q(c[0] + ' が ある 州は？', c[2], sh, '世界は 6つの 州に 分けられる。' + c[0] + ' は ' + c[2])]);
+  };
+  window.genShukushaku8 = function () {
+    var p = R(0, 3), S = P([25000, 50000]);
+    if (p === 0) { var cm = R(1, 8); return { q: (S === 25000 ? '2万5千' : '5万') + '分の1の 地図で ' + cm + 'cm の 長さは、\n実際には 何m？', ans: cm * S / 100, exp: cm + 'cm × ' + S + ' ＝ ' + (cm * S) + 'cm ＝ ' + (cm * S / 100) + 'm' }; }
+    if (p === 1) { var km = P([1, 2, 3, 5]); return { q: '実際の きょり ' + km + 'km は、' + (S === 25000 ? '2万5千' : '5万') + '分の1の 地図では\n何cm？', ans: km * 100000 / S, exp: km + 'km ＝ ' + (km * 100000) + 'cm。÷' + S + ' で ' + (km * 100000 / S) + 'cm' }; }
+    if (p === 2) return { q: (S === 25000 ? '2万5千' : '5万') + '分の1の 地形図で、主曲線（細い 等高線）は\n何m ごとに ひかれる？', ans: S === 25000 ? 10 : 20, exp: '2万5千分の1は 10mごと、5万分の1は 20mごと', fig: (function () { var h = H(); if (!h) return ''; var b = ''; for (var i = 0; i < 5; i++) b += '<ellipse cx="110" cy="60" rx="' + (100 - i * 18) + '" ry="' + (50 - i * 9) + '" fill="none" stroke="#a16207" stroke-width="' + (i === 0 ? 2 : 1) + '"/>'; return h.svg(220, 120, b, 110); })() };
+    var cm2 = R(2, 6), real = cm2 * S / 100; return { q: '地図上で ' + cm2 + 'cm の 道が、実際には ' + real + 'm でした。\nこの 地図の 縮尺は 何分の1？\n（分母の 数を 答えよう）', ans: S, exp: real + 'm ＝ ' + (real * 100) + 'cm。' + (real * 100) + '÷' + cm2 + '＝' + S };
+  };
   /* ═════════ CURRICULUM に 足す ═════════ */
   var ADD = {
     math: {
@@ -225,8 +257,11 @@
           { id: 'm6-circle2', name: '円の面積の応用', icon: '🍕', color: 'amber', gen: 'genCircle2_6', input: 'numpad', desc: '半円・おうぎ形・ドーナツ形' }]
     },
     social: {
-      7: [{ id: 's7-jisa', name: '時差の計算', icon: '🕐', color: 'blue', gen: 'genJisa7', input: 'numpad', desc: '経度15度で1時間' }],
-      8: [{ id: 's8-uonzu', name: '雨温図を読む', icon: '🌦️', color: 'teal', gen: 'genUonzu8', input: 'mcq', desc: '日本の気候区分' }]
+      6: [{ id: 's6-nenpyo', name: '年表（できごとの順番）', icon: '📜', color: 'amber', gen: 'genNenpyo6', input: 'mcq', desc: 'どちらが先？・何年のできごと？' }],
+      7: [{ id: 's7-jisa', name: '時差の計算', icon: '🕐', color: 'blue', gen: 'genJisa7', input: 'numpad', desc: '経度15度で1時間' },
+          { id: 's7-kuni', name: '世界の国と首都', icon: '🌐', color: 'green', gen: 'genKuni7', input: 'mcq', desc: '首都・6つの州' }],
+      8: [{ id: 's8-uonzu', name: '雨温図を読む', icon: '🌦️', color: 'teal', gen: 'genUonzu8', input: 'mcq', desc: '日本の気候区分' },
+          { id: 's8-shukushaku', name: '縮尺と等高線', icon: '🗺️', color: 'amber', gen: 'genShukushaku8', input: 'numpad', desc: '実際のきょり・等高線の間かく' }]
     }
   };
   /* mcq と numpad が まざる 単元は、numpad 単元の なかで 4択が 出たときも そのまま 出せる（_genTrainQ が options を 見る） */
@@ -237,7 +272,7 @@
     'm4-div2': { name: 'わり算の 塔', emoji: '🗼', desc: '2けたで わる' }, 'm4-mul3': { name: 'かけ算の 大陸', emoji: '🌏', desc: '3けたの かけ算' }, 'm4-gaisu2': { name: '見積もりの 港', emoji: '⚓', desc: 'がい数の 計算' }, 'm4-kimari': { name: 'きまりの 神殿', emoji: '🏛️', desc: '計算の きまり' },
     'm5-wariai2': { name: 'セールの 市場', emoji: '🏷️', desc: '割合の 文章題' },
     'm6-speed2': { name: '新幹線の 駅', emoji: '🚄', desc: '速さの 単位' }, 'm6-gyaku': { name: 'さかさまの 森', emoji: '🔄', desc: '逆数' }, 'm6-circle2': { name: 'ピザの 店', emoji: '🍕', desc: '円の 面積の 応用' },
-    's7-jisa': { name: '時差の 空港', emoji: '🛫', desc: '時差' }, 's8-uonzu': { name: '気候の 観測所', emoji: '🌦️', desc: '雨温図' }
+    's7-jisa': { name: '時差の 空港', emoji: '🛫', desc: '時差' }, 's6-nenpyo': { name: '年表の 回廊', emoji: '📜', desc: '年表' }, 's7-kuni': { name: '世界の 港町', emoji: '🌐', desc: '世界の国' }, 's8-shukushaku': { name: '地形図の 山', emoji: '🗺️', desc: '縮尺と等高線' }, 's8-uonzu': { name: '気候の 観測所', emoji: '🌦️', desc: '雨温図' }
   };
   var LABEL = { 1: '小1', 2: '小2', 3: '小3', 4: '小4', 5: '小5', 6: '小6', 7: '中1', 8: '中2', 9: '中3' };
   function addAll() {
