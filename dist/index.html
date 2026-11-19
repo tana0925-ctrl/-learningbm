@@ -10502,6 +10502,18 @@ MONSTERS.push({
     ],
     desc: '旗を ふると みんなが 元気になる。自分が つかれていることに 気づかない。'
 });
+// === ETERNAL_V1 エターナルドラゴン（ID 1708）入手: 算数3年「重さの遺跡」の野生 ===
+MONSTERS.push({
+    id: 1708, name: 'エターナルドラゴン', sprite: '🐉',
+    hp: 300, atk: 70, def: 58, spd: 54, buff: 'attack', elementType: 'dragon',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'ドラゴンクロー', type: 'normal', pow: 14, acc: 0.97, element: 'dragon', desc: '' },
+        { name: 'じゅうりょくプレス', type: 'heavy', pow: 32, acc: 0.72, element: 'dragon', desc: '' },
+        { name: 'エターナルフレイム', type: 'unique', pow: 18, acc: 0.9, effect: 'aoe', element: 'dragon', desc: '全体攻撃' }
+    ],
+    desc: '永遠の時を 生きる、重さの王者。体重は 9,999,999kg（9999t 999kg）。むらさきの ほのおは 重さを はかる はかりも こわしてしまう。'
+});
 // === /NEWCHARS_V1 ===
 
 // 野生出現テーブル（地方→エリア→深さ）
@@ -10510,6 +10522,7 @@ const WILD_AREA_POOLS = {
     // 算数地方
     rounding:   { 1: [NW(0), NW(3), NW(8), 1048],   2: [NW(1), NW(4), NW(9), 1049],      3: [NW(2), NW(10), NW(32), 1050] },
     kuku:       { 1: [NW(5), NW(6), 1051, 1701, 1702], 2: [NW(7), NW(7), NW(9), NW(9), 1052, 1052, 1701, 1701, 1702, 1702, 1704, 1705], 3: [NW(10), NW(10), NW(10), NW(10), NW(2), NW(2), NW(2), NW(2), 1053, 1053, 1053, 1053, 1701, 1701, 1701, 1701, 1702, 1702, 1702, 1702, 1704, 1704, 1705, 1705, 1706, 1707] }, // NEWCHARS_V1 くじの枚数で出やすさを調整（ふつう>レア>特別）
+    'm3-weight': { 1: [1708], 2: [1708], 3: [1708] }, // ETERNAL_V1
     division:   { 1: [NW(7), NW(8), 1069],        2: [NW(4), NW(9), 1070],          3: [NW(10), NW(32), 1071] },
     'long-division': { 1: [NW(7), NW(8), NW(27), 1054],  2: [NW(4), NW(9), NW(29), 1055],    3: [NW(10), NW(32), NW(2), 1056] },
     decimal:    { 1: [NW(27), NW(28), 1057],      2: [NW(29), NW(27), 1058],         3: [NW(30), NW(28), 1059] },
@@ -10593,6 +10606,7 @@ const WILD_AREA_POOLS = {
     's7-civ':      { 1: [NW(14), NW(16), 1132], 2: [NW(15), NW(33), 1133], 3: [NW(36), NW(13), 1134] },
     's7-asuka':    { 1: [NW(16), NW(33), 1132], 2: [NW(17), NW(34), 1133], 3: [NW(18), NW(35), 1134] },
 };
+try { WILD_AREA_POOLS['m2-kuku'] = WILD_AREA_POOLS.kuku; } catch (e) {} // NEWCHARS_V1 修行の「九九平原」からの 野生でも 新キャラが 出るように
 
 function pickWildMonsterId(areaId, depth) {
     try {
@@ -10618,7 +10632,7 @@ function pickWildMonsterId(areaId, depth) {
         if (t && t.length) {
             // エリア限定キャラは「たまに」出る（野生バトルは基本 1〜150 が中心）
             // 名古屋南部の港だけ少し出やすく（それでも大半は1〜150）
-            const rate = (areaId === 'social-nagoyasouth') ? 0.20 : (areaId === 'social-seto' ? 0.15 : 0.10); // 20% / 15% / 10%
+            const rate = (areaId === 'social-nagoyasouth') ? 0.20 : (areaId === 'social-seto' ? 0.15 : (areaId === 'kuku' || areaId === 'm2-kuku') ? 0.25 : areaId === 'm3-weight' ? 0.12 : 0.10); // 20% / 15% / 九九25%（NEWCHARS_V1 出やすく）/ 重さ12%（ETERNAL_V1）/ 10%
             if (!isFriend && Math.random() < rate) {
                 return t[Math.floor(Math.random() * t.length)];
             }
@@ -32226,7 +32240,7 @@ ${rewardText}`);
             'm3-divR': {
                 question: "わり算（あまりあり）やな！",
                 options: [
-                    { text: "あまりの求め方は？", answer: "14÷3 → 3×4=12が一番近い（3×5=15は超えちゃう）→ 14−12=2があまり。答えは4あまり2！入力は『42』って続けて入力するんやで！" },
+                    { text: "あまりの求め方は？", answer: "14÷3 → 3×4=12が一番近い（3×5=15は超えちゃう）→ 14−12=2があまり。答えは4あまり2！問題の□に入る数（4か2）を答えるんやで！" },
                     { text: "あまりが割る数より大きくなる…", answer: "あまりは必ず割る数より小さくないとアカン！14÷3で『3あまり5』は間違い（5>3やから）。もう1回分けられるってことやからな！" },
                     { text: "検算の方法", answer: "答え×割る数＋あまり＝元の数で確認！4×3+2=14 ✓ これで合ってるかバッチリ分かるで！" }
                 ]
