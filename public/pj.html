@@ -148,7 +148,7 @@
   #mkv .bar { flex:0 0 auto; min-height:52px; display:flex; align-items:center; gap:10px; padding:8px 12px; background:#065f46; color:#fff; }
   #mkv .bar b { flex:1; font-size:16px; }
   #mkv iframe { flex:1; width:100%; border:0; background:#fff; }
-  #mkv .load { position:absolute; inset:52px 0 0 0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:17px; text-align:center; line-height:1.9; padding:20px; }
+  #mkv .load { position:absolute; inset:52px 0 0 0; background:#0f172a; z-index:2; display:flex; align-items:center; justify-content:center; color:#fff; font-size:17px; text-align:center; line-height:1.9; padding:20px; }
   .msg { text-align:center; padding:40px 10px; font-size:16px; line-height:1.9; }
   @keyframes pop { 0% { transform:scale(.7) rotateY(80deg); opacity:0 } 100% { transform:none; opacity:1 } }
   .pop { animation: pop .45s ease-out; }
@@ -840,6 +840,10 @@
   }
   function hexB(h) { var a = new Uint8Array(h.length / 2); for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
   // 元の ページを 中で ひらく（名鑑・試合 どちらも）。onReady(w, info) で ページの 中を うごかす
+  // 🩺 PJ_ERRLOG_V1 エラーを サーバに のこす（同じ ものは 1回だけ）
+  var _pjLogged = {};
+  function pjLog(kind, msg) { try { var k = kind + msg; if (_pjLogged[k]) return; _pjLogged[k] = 1; fetch('/api/pj/log', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: kind, msg: String(msg || '').slice(0, 480) }) }).catch(function () {}); } catch (_e) {} }
+  window.addEventListener('error', function (ev) { pjLog('page_err', (ev && ev.message || '') + ' @' + (ev && ev.lineno || '')); });
   function openGame(f, title, onReady, onClose, withPause) {
     var v = document.createElement('div'); v.id = 'mkv';
     v.innerHTML = '<div class="bar"><button class="btn sub sm" id="mkX">← もどる</button><b>' + title + '</b></div><iframe id="mkF" title="' + esc(title) + '"></iframe><div class="load" id="mkL">ひらいています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span></div>';
@@ -851,23 +855,35 @@
       v.querySelector('.bar').appendChild(pb);
       pb.onclick = function () { var w = $('mkF') && $('mkF').contentWindow; if (!w || !w.__pjPause) return; var on = w.__pjPause(!pb.dataset.on); pb.dataset.on = on ? '1' : ''; pb.textContent = on ? '▶ つづける' : '⏸ 一時停止'; pb.style.background = on ? '#22c55e' : '#f59e0b'; };
     }
-    var info;
+    var info, t0 = Date.now();
+    // PJ_WHITE_V1 じゅんびの あいだは 白い 画面を 見せない（読みこみ中の 文字が 白い 背景に まぎれて「真っ白」に 見えていた）
+    var fail = function (why, detail) {
+      pjLog('open_' + why, title.replace(/<[^>]*>/g, '') + ' ' + String(detail || '').slice(0, 200) + ' ' + Math.round((Date.now() - t0) / 1000) + 's');
+      var l = $('mkL'); if (!l) { l = document.createElement('div'); l.className = 'load'; l.id = 'mkL'; v.appendChild(l); }
+      l.innerHTML = 'ひらけませんでした。<br><span style="font-size:13px;opacity:.85">' + (why === 'nods' ? 'この タブレットの ブラウザが 古いみたい。ブラウザ（Safari・Chrome）を さいしんに すると ひらけるよ。' : why === 'slow' ? '読みこみに 時間が かかりすぎました。ほかの アプリや タブを とじてから もう一度 ためしてね。' : 'もう一度 ためしてね。') + '</span><br><button class="btn" id="mkRe" style="margin-top:12px">もう一度</button>';
+      var re = $('mkRe'); if (re) re.onclick = function () { v.remove(); document.body.style.overflow = ''; openGame(f, title, onReady, onClose, withPause); };
+    };
+    if (!window.DecompressionStream || !window.crypto || !crypto.subtle) { fail('nods', navigator.userAgent); return; }
     api('/api/pj/meikan').then(function (d) {
       if (!d || !d.ok || !d.key) throw new Error((d && d.error) || 'info');
       info = d;
       return blobUrl(f, d);
     }).then(function (url) {
       var fr = $('mkF'); if (!fr) return;
+      var l0 = $('mkL'); if (l0) l0.innerHTML = 'じゅんびしています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span>';
       fr.onload = function () {
         var w = fr.contentWindow;
+        try { w.addEventListener('error', function (ev) { pjLog('game_err', (ev && ev.message || '') + ' @' + (ev && ev.lineno || '')); }); w.addEventListener('unhandledrejection', function (ev) { pjLog('game_rej', String(ev && ev.reason && (ev.reason.message || ev.reason) || '')); }); } catch (_e) {}
         var go = function (n) {
-          if (w.__pjStart && w.__pjEval) { try { onReady(w, info); var l = $('mkL'); if (l) l.remove(); } catch (e) { try { console.error('pj game', e); } catch (_e) {} var l2 = $('mkL'); if (l2) l2.innerHTML = 'ひらけませんでした。<br><span style="font-size:12px">' + esc(String(e && e.message || e)).slice(0, 120) + '</span>'; } }
-          else if (n < 40) setTimeout(function () { go(n + 1); }, 150);
+          if (!$('mkF')) return;
+          if (w.__pjStart && w.__pjEval) { try { onReady(w, info); var l = $('mkL'); if (l) l.remove(); } catch (e) { try { console.error('pj game', e); } catch (_e) {} fail('ready', e && e.message || e); } }
+          else if (n < 200) setTimeout(function () { go(n + 1); }, 150);
+          else fail('slow', 'no __pjStart');
         };
         go(0);
       };
       fr.src = url;
-    }).catch(function () { var l = $('mkL'); if (l) l.innerHTML = 'ひらけませんでした。<br>もう一度 ためしてね。'; });
+    }).catch(function (e) { fail('load', e && e.message || e); });
   }
   // 1人の 選手を 3Dの 名鑑で 見せる（ガチャの 結果・チームの 選手）
   function show3D(k, title) {

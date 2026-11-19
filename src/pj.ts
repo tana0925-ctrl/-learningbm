@@ -779,6 +779,18 @@ export function installPj(app: any, d: Deps) {
     if (!r || r.status !== 200) return err(c, 404, 'no_apt')
     return new Response(r.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, max-age=86400' } })
   })
+  // 🩺 PJ_ERRLOG_V1 子どもの 画面で おきた エラーを のこす（「真っ白に なった」の 原因さがし用。100件まで）
+  app.post('/api/pj/log', async (c: any) => {
+    const u = c.get('user'); if (!u) return err(c, 401, 'login')
+    const b: any = await c.req.json().catch(() => ({}))
+    try {
+      await c.env.DB.prepare('CREATE TABLE IF NOT EXISTS pj_err (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, at TEXT, kind TEXT, msg TEXT, ua TEXT)').run()
+      await c.env.DB.prepare("INSERT INTO pj_err (user_id, at, kind, msg, ua) VALUES (?, datetime('now'), ?, ?, ?)").bind(String(u.id), String(b.kind || '').slice(0, 30), String(b.msg || '').slice(0, 500), String(c.req.header('user-agent') || '').slice(0, 200)).run()
+      await c.env.DB.prepare('DELETE FROM pj_err WHERE id <= (SELECT MAX(id) - 100 FROM pj_err)').run()
+    } catch (_e) {}
+    return c.json({ ok: true })
+  })
+
   app.get('/api/pj/game/:f', async (c: any) => {
     const b = await begin(c); if (b.res) return b.res
     const f = c.req.param('f') === 'sc' ? 'sc' : 'bb'
