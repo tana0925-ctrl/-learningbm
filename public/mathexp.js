@@ -405,7 +405,7 @@
   add(/方程式 (\d+)x = (-?\d+) の解/, function (m) { return '両辺を ' + m[1] + 'で わる：x＝' + m[2] + '÷' + m[1] + '＝' + r(Z(m[2]) / Z(m[1])) + '。'; });
   add(/方程式 x\/(\d+) = (-?\d+) の解/, function (m) { return '両辺に ' + m[1] + 'を かける：x＝' + m[2] + '×' + m[1] + '＝' + Z(m[2]) * Z(m[1]) + '。'; });
   add(/方程式 (\d+)x([+\-]\d+) = (-?\d+) の解/, function (m) { var a = Z(m[1]), b = Z(m[2]), c = Z(m[3]); return '移項して ' + a + 'x＝' + c + (b >= 0 ? '−' + b : '＋' + (-b)) + '＝' + (c - b) + '。両辺を ' + a + 'で わって x＝' + r((c - b) / a) + '。'; });
-  add(/方程式 (\d+)x([+\-]\d+) = (\d*)x([+\-]\d+) の解/, function (m) { var a = Z(m[1]), b = Z(m[2]), c = Z(m[3] || 1), d = Z(m[4]); return 'x の 項を 左、数を 右へ 移項：(' + a + '−' + c + ')x＝' + d + '−(' + b + ') → ' + (a - c) + 'x＝' + (d - b) + ' → x＝' + r((d - b) / (a - c)) + '。'; });
+  add(/方程式 (\d+)x([+\-]\d+) = (\d*)x([+\-]\d+)? の解/, function (m) { var a = Z(m[1]), b = Z(m[2]), c = Z(m[3] || 1), d = Z(m[4] || 0); return 'x の 項を 左、数を 右へ 移項：(' + a + '−' + c + ')x＝' + d + '−(' + b + ') → ' + (a - c) + 'x＝' + (d - b) + ' → x＝' + r((d - b) / (a - c)) + '。'; });
   add(/方程式 (\d+)\(x \+ (\d+)\) = (-?\d+) の解/, function (m) { var k = Z(m[1]), b = Z(m[2]), c = Z(m[3]); return '両辺を ' + k + 'で わる：x＋' + b + '＝' + r(c / k) + '、x＝' + r(c / k - b) + '。'; });
   add(/方程式 x\/(\d+) \+ (\d+) = (\d+) の解/, function (m) { var k = Z(m[1]); return '移項して x/' + k + '＝' + (Z(m[3]) - Z(m[2])) + '、両辺に ' + k + 'を かけて x＝' + (Z(m[3]) - Z(m[2])) * k + '。'; });
   add(/比例式 (\d+) : (\d+) = x : (\d+)/, function (m) { return '比例式は 外側の 積＝内側の 積：' + m[1] + '×' + m[3] + '＝' + m[2] + '×x → x＝' + Z(m[1]) * Z(m[3]) / Z(m[2]) + '。'; });
@@ -625,4 +625,20 @@
   add(/P波が秒速(\d+)km、S波が秒速(\d+)kmで伝わる。震源から(\d+)kmの地点の初期微動継続時間/, function (m) { var d = N(m[3]), p = d / N(m[1]), q = d / N(m[2]); return 'P波が とどくまで ' + d + '÷' + m[1] + '＝' + r(p) + '秒、S波は ' + d + '÷' + m[2] + '＝' + r(q) + '秒。その 差 ' + r(q - p) + '秒が 初期微動継続時間。震源から 遠いほど 長い。'; });
 
   add(/東経135度の日本と東経(\d+)度の都市の時差/, function (m) { var d = 135 - N(m[1]); return '経度差 ' + d + '度 ÷ 15＝' + d / 15 + '時間。地球は 24時間で 360度 回るので、15度で 1時間。東に ある 日本の ほうが 時こくが 進んでいる。'; });
+
+  /* ───────── 中学 英語・国語（形が きまった 問題の 予備）───────── */
+  var BE = function (subj, past) { var t = subj.toLowerCase(); var pl = /\band\b|^(we|you|they|these|those)\b|s$/.test(t) && !/^(this|that|it|he|she)\b/.test(t); if (past) return t === 'i' ? 'was' : (pl || t === 'you') ? 'were' : 'was'; return t === 'i' ? 'am' : (pl || t === 'you') ? 'are' : 'is'; };
+  add(/（　）に入る語(?:句)?はどれ？\s*([A-Z][A-Za-z ]*?) （　） (.+)$/, function (m) {
+    var subj = m[1].trim(), rest = m[2];
+    if (/^(going to)/.test(rest)) return '未来は be going to＋原形。主語が ' + subj + ' なので be動詞は ' + BE(subj, false) + '。';
+    if (/yesterday|last |ago|then|at that time/.test(rest)) return '過去（yesterday など）の be動詞：I・単数→was、you・複数→were。主語 ' + subj + ' → ' + BE(subj, true) + '。';
+    if (/^[a-z]+ (the|up|to|at|a|my|his|her)\b|^[a-z]+\.$/.test(rest) && !/ing\b/.test(rest.split(' ')[0])) return '後ろが 動詞の 原形なので 助動詞（can・must・should・will）や have to を 入れる。意味から えらぶ。';
+    if (/^[a-z]+ing\b/.test(rest)) return '後ろが ing形なので 進行形の be動詞。主語 ' + subj + ' → ' + BE(subj, /then|at that time|yesterday/.test(rest)) + '。';
+    return '現在の be動詞は 主語で 決まる：I→am、単数→is、you・複数→are。主語 ' + subj + ' → ' + BE(subj, false) + '。';
+  });
+  add(/次の文の（　）の漢字の読み方はどれ/, function () { return '文の 意味に 合わせて 読む。送りがなが ある 言葉は 訓読み、熟語は 音読みが 多い。'; });
+  add(/「(.+?)」を正しく読んでいるもの/, function (m) { return '「' + m[1] + '」の 読みを 1字ずつ 確かめる。にた 字の 読みに 引きずられない ように。'; });
+  add(/同じ読みでも意味がちがいます。「(.+?)（(.+?)）」に合う漢字/, function (m) { return '（' + m[2] + '）の 意味に 合う 漢字を えらぶ。同音異義語は 漢字 1字ずつの 意味を 考えると 区別できる。'; });
+  add(/次のカタカナを正しい漢字にすると？\s*「(.+?)（(.+?)）」/, function (m) { return '（' + m[2] + '）の 意味に 合う 漢字を えらぶ。同じ 読みの 熟語は 1字ずつの 意味で 区別する。'; });
+  add(/次の文の（　）のカタカナを漢字/, function () { return '文の 意味に 合う 漢字を えらぶ。同じ 読みの 漢字に 注意。'; });
 })();
