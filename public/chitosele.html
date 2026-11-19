@@ -156,6 +156,7 @@ function renderKid() {
   var notYet = must.filter(function (k) { return !kidStatus(k).n; });
   var notDone = must.filter(function (k) { return !kidStatus(k).done; });
   var left = sc.filter(function (ck) { return ck.split('|')[0] >= K.today; }).length;
+  h += goalCards();   // CHITO_GOAL_V1
   // ① 進みぐあい（ひと目で わかる）
   h += '<div class="card prog"><h2>📊 わたしの 進みぐあい</h2>';
   cfg.units.forEach(function (u) {
@@ -278,6 +279,7 @@ function bindKid() {
           if (nx && confirm('つぎの チトセレ（' + slotName(nx) + '）に「' + nm + '」の つづきを 入れる？')) { cur(nx).items.push({ task: it.task, st: '' }); flash('📅 ' + slotName(nx) + ' に 入れたよ'); }
         }
       } else if (it.st === 'done') {
+        setTimeout(function () { try { hmCheck(it.task); } catch (e) {} }, 300);   // CHITO_GOAL_V1 めあて ◎○△ と 学習問題メモ
         // ✅ できた：あとの コマにも 同じ 課題が 入っていたら、はずして あける か きく
         var dup = later.filter(function (ck) { return itemsOf(K.plan.s[ck]).items.some(function (o) { return o.task === it.task && !o.st; }); });
         if (dup.length && confirm('「' + nm + '」が できたね！ あとの コマ（' + dup.map(slotName).join('・') + '）の「' + nm + '」を はずして、ほかの 課題を 入れられるように する？')) {
@@ -301,6 +303,7 @@ function bindKid() {
     b.onclick = function () { var v = cur(b.getAttribute('data-ck')), st = b.getAttribute('data-ost'); v.otherSt = v.otherSt === st ? '' : st; saveKid(); renderKid(); };
   });
   var g = $('goal'); if (g) g.oninput = function () { K.plan.goal = g.value; saveKid(); };
+  app.querySelectorAll('.hmgo').forEach(function (b) { b.onclick = function () { hmStart(b.getAttribute('data-hm')); }; });
 }
 function saveKid() {
   clearTimeout(saveTimer);
@@ -313,6 +316,233 @@ function saveKid() {
     });
   }, 500);
 }
+// ════════ 🎯 CHITO_GOAL_V1（2026-11-19 先生の指示）学習問題・ゴール・めあて と 阪神マンの 作戦相談 ════════
+//   ・いつも 単元の「❓学習問題」と「🎯ゴール」が 見える。いま（つぎ）の チトセレで やることと めあても いちばん上に。
+//   ・✅できた を おすと、阪神マンが「めあて ◎○△」と「学習問題への つながり（1行）」を きく。
+//   ・🐯 作戦相談：ゴールを たしかめる／何から やるか／間に合わない／わからない／早く おわった／やる気
+var PSTART = [0, 525, 580, 645, 700, 815, 870], PEND = [0, 570, 625, 690, 745, 860, 915];   // 1〜6時間目（分）だいたい
+function nowMin() { var d = new Date(Date.now() + 9 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); }
+function goalDate(u) { var cfg = K.cfg, last = ''; u.tasks.forEach(function (t) { if (t.all && !t.done) { Object.keys(cfg.cells).forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u === u.id && c.tk === t.k && ck > last) last = ck; }); } }); return last; }
+function goalPassed(u) { var g = goalDate(u); if (!g) return false; var p = g.split('|'); return p[0] < K.today || (p[0] === K.today && nowMin() > PEND[Number(p[1])]); }
+function goalTask(u) { var g = null; u.tasks.forEach(function (t) { if (t.all && !t.done && !g) g = t; }); return g; }
+function leftBefore(ck) { var m = nowMin(); return selCells(K.cfg).filter(function (x) { var p = x.split('|'); return (p[0] > K.today || (p[0] === K.today && m <= PEND[Number(p[1])])) && (!ck || x < ck); }).length; }
+function unitMust(u) { return u.tasks.filter(function (t) { return !t.all && !t.opt && !t.done; }).map(function (t) { return u.id + ':' + t.k; }); }
+function chk(key) { K.plan.chk = K.plan.chk || {}; return K.plan.chk[key] || null; }
+function nowSlot() {   // きょうの いま（または つぎ）の チトセレ
+  var m = nowMin(), out = null;
+  for (var p = 1; p <= 6; p++) { var ck = K.today + '|' + p, c = K.cfg.cells[ck]; if (c && c.k === 's' && m <= PEND[p]) { out = { ck: ck, p: p, now: m >= PSTART[p] - 5 }; break; } }
+  return out;
+}
+function goalCards() {
+  var cfg = K.cfg, h = '';
+  var ns = nowSlot();
+  if (ns) {
+    var v = itemsOf(K.plan.s[ns.ck]);
+    h += '<div class="card now" style="border:3px solid #f59e0b;background:#fffbeb"><h2>' + (ns.now ? '🔔 いまの チトセレ（' + ns.p + '時間目）' : '⏰ つぎの チトセレ（' + ns.p + '時間目）') + '</h2>';
+    if (!v.items.length && !v.other.trim()) h += '<div class="warn">まだ 何を やるか 決めていないよ！</div><button class="btn hmgo" data-hm="what" style="font-size:16px">🐯 阪神マンと 決める</button>';
+    else {
+      v.items.forEach(function (it) {
+        var x = taskOf(cfg, it.task); if (!x) return;
+        h += '<div style="margin:6px 0;padding:8px;border-left:6px solid ' + x.u.color + ';background:#fff;border-radius:8px"><b style="color:' + x.u.color + '">' + esc(x.u.subj + ' ' + x.t.k + '　' + x.t.t) + '</b>' + (it.st === 'done' ? ' ✅' : '')
+          + '<div style="font-size:13px;color:#475569">' + esc(x.t.note || '') + '</div>'
+          + (x.t.mea ? '<div style="font-size:14px;margin-top:2px">🎯 めあて：<b>' + esc(x.t.mea) + '</b></div>' : '')
+          + (x.u.q ? '<div style="font-size:13px;color:#7c3aed">❓ つながる 学習問題：' + esc(x.u.q) + '</div>' : '') + '</div>';
+      });
+      if (v.other.trim()) h += '<div style="margin:6px 0">✏️ ' + esc(v.other) + '</div>';
+      h += '<div style="font-size:13px;color:#64748b">この 時間は、これ だけに 集中しよう。おわったら 下の 時間わりで「✅ できた」を おしてね。</div>';
+    }
+    h += '</div>';
+  }
+  h += '<div class="card"><h2>🎯 単元の ゴール　<button class="btn hmgo" data-hm="menu" style="float:right">🐯 阪神マンに 作戦相談</button></h2>';
+  cfg.units.forEach(function (u) {
+    if (goalPassed(u)) { h += '<div style="margin:6px 0;padding:6px 10px;border:2px dashed ' + u.color + ';border-radius:12px;color:#64748b">🏁 ' + esc(u.subj + '　' + u.name) + ' … ゴールの 時間は おわったよ。おつかれさま！</div>'; return; }
+    var gck = goalDate(u), gt = goalTask(u), must = unitMust(u);
+    var doneN = must.filter(function (k) { return kidStatus(k).done; }).length;
+    var memoN = must.filter(function (k) { var c = chk(k); return c && c.memo; }).length;
+    var tri = must.filter(function (k) { var c = chk(k); return c && c.self === '△'; }).length;
+    h += '<div style="margin:8px 0;padding:8px 10px;border:2px solid ' + u.color + ';border-radius:12px">'
+      + '<b style="color:' + u.color + '">' + esc(u.subj + '　' + u.name) + '</b>'
+      + (u.q ? '<div style="margin-top:2px">❓ <b>学習問題</b>：' + esc(u.q) + '</div>' : '')
+      + '<div>🏁 <b>ゴール</b>：' + esc(u.goal || (gt ? '「' + gt.t + '」（みんなで）' : '')) + (gck ? '（<b>' + esc(slotName(gck)) + '</b>）' : '') + '</div>'
+      + '<div style="font-size:13px;color:#475569">ゴールまで 🌟チトセレ あと <b>' + leftBefore(gck) + '</b>コマ ／ できた 課題 <b>' + doneN + '/' + must.length + '</b> ／ 学習問題メモ <b>' + memoN + '/' + must.length + '</b>' + (tri ? ' ／ △ <b style="color:#b91c1c">' + tri + '</b>' : '') + '</div></div>';
+  });
+  return h + '</div>';
+}
+
+// ── 阪神マンの 画面 ──
+var HM = { log: [] };
+function hmFace() { return '<img src="/mon/154.png" alt="" style="width:40px;height:40px;object-fit:contain" onerror="this.replaceWith(document.createTextNode(\'🐯\'))">'; }
+function hmUI() {
+  var r = $('hmBox');
+  if (!r) {
+    r = document.createElement('div'); r.id = 'hmBox';
+    r.innerHTML = '<div class="hm-in"><div class="hm-h">' + hmFace() + '<b>阪神マンの 作戦相談</b><button id="hmX">とじる</button></div><div id="hmLog" class="hm-log"></div><div id="hmFoot" class="hm-foot"></div></div>';
+    document.body.appendChild(r);
+    var st = document.createElement('style');
+    st.textContent = '#hmBox{position:fixed;inset:0;z-index:9990;background:rgba(15,23,42,.45);display:flex;align-items:flex-end;justify-content:center}#hmBox .hm-in{background:#fef9f0;width:100%;max-width:640px;max-height:88vh;border-radius:20px 20px 0 0;display:flex;flex-direction:column;border:3px solid #facc15}#hmBox .hm-h{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#facc15;border-radius:16px 16px 0 0}#hmBox .hm-h button{margin-left:auto;border:2px solid #a16207;background:#fff;border-radius:12px;padding:6px 12px;font-weight:900;cursor:pointer}#hmBox .hm-log{flex:1;overflow:auto;padding:10px}#hmBox .b{background:#fff;border:2px solid #fde68a;border-radius:14px;padding:8px 12px;margin:6px 40px 6px 0;white-space:pre-wrap;line-height:1.6}#hmBox .m{background:#bbf7d0;border-radius:14px;padding:6px 12px;margin:6px 0 6px auto;width:fit-content;max-width:80%;font-weight:800}#hmBox .hm-foot{padding:8px;display:flex;flex-wrap:wrap;gap:6px;border-top:2px solid #fde68a}#hmBox .hm-foot button{flex:1 1 45%;min-height:48px;border-radius:14px;border:2px solid #f59e0b;background:#fff;font-weight:900;font-size:15px;cursor:pointer;color:#78350f}#hmBox .hm-foot button.main{background:#0ea5e9;border-color:#0369a1;color:#fff}#hmBox .hm-foot textarea{width:100%;font-size:16px;border:2px solid #f59e0b;border-radius:12px;padding:8px;box-sizing:border-box}';
+    document.head.appendChild(st);
+    $('hmX').onclick = hmClose;
+  }
+  r.style.display = 'flex';
+  return r;
+}
+function hmClose() { var r = $('hmBox'); if (r) r.style.display = 'none'; renderKid(); }
+function say(t) { HM.log.push({ w: 'b', t: t }); }
+function me(t) { HM.log.push({ w: 'm', t: t }); }
+function hmDraw(btns) {
+  hmUI();
+  $('hmLog').innerHTML = HM.log.map(function (x) { return '<div class="' + x.w + '">' + esc(x.t) + '</div>'; }).join('');
+  $('hmLog').scrollTop = 1e6;
+  var f = $('hmFoot'); f.innerHTML = '';
+  (btns || []).forEach(function (b) {
+    if (b.area) { var ta = document.createElement('textarea'); ta.id = 'hmTa'; ta.rows = 2; ta.maxLength = 160; ta.placeholder = b.area; f.appendChild(ta); return; }
+    var e = document.createElement('button'); e.type = 'button'; e.textContent = b.t; if (b.main) e.className = 'main'; e.onclick = b.go; f.appendChild(e);
+  });
+}
+function back() { return { t: '↩ ほかの ことを 相談', go: function () { me('ほかの ことを 相談'); hmMenu(); } }; }
+function bye() { return { t: '🙆 わかった！ やってみる', main: 1, go: function () { me('わかった！ やってみる'); say('よっしゃ！ 自分で 決めた 作戦が いちばん 強いで。がんばりや！'); hmDraw([]); setTimeout(hmClose, 1400); } }; }
+function hmStart(kind) {
+  HM.log = []; K.plan.talk = (K.plan.talk || 0) + 1; saveKid();
+  if (kind === 'what') return hmWhat(true);
+  hmMenu(true);
+}
+function hmMenu(first) {
+  say(first ? 'どうしたん？ なんでも 相談してや。' : 'ほかに 気になることは？');
+  hmDraw([
+    { t: '🎯 ゴールを たしかめる', go: function () { me('ゴールを たしかめたい'); hmGoal(0); } },
+    { t: '🤔 何から やれば いいか わからん', go: function () { me('何から やれば いいか わからん'); hmWhat(); } },
+    { t: '⏰ 間に合わへん', go: function () { me('間に合わへん'); hmLate(); } },
+    { t: '😵 わからなくて すすまない', go: function () { me('わからなくて すすまない'); hmStuck(); } },
+    { t: '🏃 早く おわった', go: function () { me('早く おわった'); hmFast(); } },
+    { t: '😪 やる気が でえへん', go: function () { me('やる気が でえへん'); hmLazy(); } }
+  ]);
+}
+// ゴールを たしかめる（単元ごと）：学習問題 → ゴール → どの 課題が いるか → メモの 数
+function hmGoal(i) {
+  var u = K.cfg.units[i]; if (!u) return hmMenu();
+  if (goalPassed(u)) return hmGoal(i + 1);
+  var gck = goalDate(u), must = unitMust(u);
+  var memo = must.filter(function (k) { var c = chk(k); return c && c.memo; });
+  say(u.subj + '「' + u.name + '」の ゴールは、' + (gck ? slotName(gck) + 'の ' : '') + '「' + (goalTask(u) ? goalTask(u).t : 'さいごの 時間') + '」や。\n\nそこで やるのは… ' + (u.goal || '学習問題に 答えること') + '。\n\nつまり、' + (u.q ? '学習問題「' + u.q + '」に 自分の ことばで 答えるんや。' : '今まで 学んだことを ぜんぶ 使うんや。') + '\n\nA〜の 課題は、ぜんぶ その 答えの 材料やで。今の 学習問題メモは ' + memo.length + '/' + must.length + 'こ。');
+  var nx = i + 1 < K.cfg.units.length;
+  hmDraw([
+    { t: '📝 じゃあ、どの 課題から やる？', main: 1, go: function () { me('どの 課題から やる？'); hmWhat(false, u.id); } },
+    nx ? { t: '➡ つぎの 教科（' + K.cfg.units[i + 1].subj + '）の ゴール', go: function () { me(K.cfg.units[i + 1].subj + 'の ゴールは？'); hmGoal(i + 1); } } : back(),
+    nx ? back() : bye()
+  ]);
+}
+// 何から やるか：候補を 理由つきで 3つ → 自分で えらぶ → あいている コマに 入れる
+function cands(onlyU) {
+  var out = [];
+  K.cfg.units.forEach(function (u) {
+    if (onlyU && u.id !== onlyU) return;
+    if (goalPassed(u)) return;
+    var gck = goalDate(u), left = leftBefore(gck), must = unitMust(u);
+    var notDone = must.filter(function (k) { return !kidStatus(k).done; });
+    must.forEach(function (k, idx) {
+      var st = kidStatus(k), c = chk(k), x = taskOf(K.cfg, k), why = '', sc = 0;
+      if (st.done && c && c.self === '△') { why = 'できたけど △ やった。ゴールの 前に もう一回 たしかめよう'; sc = 6; }
+      else if (st.done) return;
+      else if (Object.keys(K.plan.s).some(function (ck) { return itemsOf(K.plan.s[ck]).items.some(function (o) { return o.task === k && o.st === 'cont'; }); })) { why = 'この前 とちゅう やった。つづきから'; sc = 9; }
+      else if (!st.n) { why = 'まだ 予定に 入ってない 課題や'; sc = 7; }
+      else { why = '予定は 入ってる。じゅんばんどおり'; sc = 3; }
+      if (left <= notDone.length) { why += '（' + u.subj + 'の ゴールまで あと' + left + 'コマ、のこり' + notDone.length + 'こ。いそごう）'; sc += 3; }
+      sc += Math.max(0, 3 - idx) * 0.3;   // 前の 課題ほど 先
+      out.push({ k: k, x: x, why: why, sc: sc });
+    });
+  });
+  return out.sort(function (a, b) { return b.sc - a.sc; }).slice(0, 3);
+}
+function freeSlot() {
+  var ns = nowSlot(), list = selCells(K.cfg).filter(function (ck) { return ck.split('|')[0] >= K.today; });
+  if (ns && itemsOf(K.plan.s[ns.ck]).items.length < 4) return ns.ck;
+  return list.filter(function (ck) { var v = itemsOf(K.plan.s[ck]); return !v.items.length && !v.other.trim(); })[0] || list.filter(function (ck) { return itemsOf(K.plan.s[ck]).items.length < 4; })[0] || '';
+}
+function hmWhat(fromNow, onlyU) {
+  var cs = cands(onlyU);
+  if (!cs.length) { say('すごいな！ 必須の 課題は ぜんぶ できとる。よゆうの 課題か、学習問題の 答えを まとめる 時間に しよか。'); return hmDraw([{ t: '🏃 よゆうが ある ときの 作戦', go: function () { me('よゆうが ある ときは？'); hmFast(); } }, back()]); }
+  say((fromNow ? 'この 時間に やることを 決めよか。' : '') + 'ゴールから 考えると、おすすめは この 3つや。どれに する？ 決めるのは 自分やで。\n\n' + cs.map(function (c, i) { return (i + 1) + '. ' + c.x.u.subj + c.x.t.k + '「' + c.x.t.t + '」… ' + c.why; }).join('\n'));
+  var b = cs.map(function (c, i) {
+    return { t: (i + 1) + '. ' + c.x.u.subj + c.x.t.k + '　' + c.x.t.t, main: i === 0, go: function () {
+      me(c.x.u.subj + c.x.t.k + 'に する');
+      var ck = freeSlot(), already = kidStatus(c.k).at.filter(function (a) { return a.split('|')[0] >= K.today && !itemsOf(K.plan.s[a]).items.some(function (o) { return o.task === c.k && o.st === 'done'; }); })[0];
+      var msg = 'ええ えらび方や！\n🎯 めあて：' + (c.x.t.mea || c.x.t.t) + '\n' + (c.x.u.q ? '❓ これは 学習問題「' + c.x.u.q + '」の 答えの 材料に なるで。' : '');
+      if (already) say(msg + '\n\n' + slotName(already) + 'に もう 入っとるな。その 時間に やろう！');
+      else if (ck) {
+        say(msg + '\n\n' + slotName(ck) + 'に 入れて ええか？');
+        return hmDraw([{ t: '📅 ' + slotName(ck) + 'に 入れる', main: 1, go: function () { var v = itemsOf(K.plan.s[ck]); v.items.push({ task: c.k, st: '' }); K.plan.s[ck] = v; saveKid(); me('入れる'); say('入れといたで！ その 時間は、これに 集中や。'); hmDraw([bye(), back()]); } }, { t: '自分で 入れる', go: function () { me('自分で 入れる'); say('ええで！ 下の 時間わりの 🌟チトセレに 入れてな。'); hmDraw([bye(), back()]); } }]);
+      } else say(msg + '\n\nあいている チトセレが もう ないな。1コマに 2つ 入れるか、先生に 相談しよう。');
+      hmDraw([bye(), back()]);
+    } };
+  });
+  b.push({ t: 'ほかの 課題に する', go: function () { me('ほかの 課題に する'); say('ええで！ 下の 時間わりで、自分で えらんで 入れてな。えらぶ ときは「ゴールに 何が いるか」を 考えるんやで。'); hmDraw([bye(), back()]); } });
+  hmDraw(b);
+}
+function hmLate() {
+  var lines = [], tight = false;
+  K.cfg.units.forEach(function (u) { var gck = goalDate(u), left = leftBefore(gck), nd = unitMust(u).filter(function (k) { return !kidStatus(k).done; }).length; if (nd) { lines.push(u.subj + '：ゴールまで あと' + left + 'コマ・のこり' + nd + 'こ'); if (left < nd) tight = true; } });
+  say('いっしょに 数えてみよか。\n' + (lines.join('\n') || 'のこりの 課題は ない！') + '\n\n' + (tight ? 'コマより 課題が 多いところが あるな。作戦は 3つや。\n① 1コマで 2つ 進める（短い 課題と 組み合わせる）\n② 家庭学習で 少し 先に 進める\n③ 先生に「ここが 間に合わない」と 相談する\nどれに する？' : 'じつは 間に合う 計算や！ 1コマに 1つ ずつ、じゅんばんに やれば だいじょうぶ。'));
+  hmDraw(tight ? [
+    { t: '① 1コマで 2つ 進める', go: function () { me('1コマで 2つ'); say('ええで！ 予定の コマに「＋ もう1つ たす」で 入れられる。めあてが 短い 課題と 組み合わせるのが コツや。'); hmDraw([bye(), back()]); } },
+    { t: '② 家庭学習で 先に 進める', go: function () { me('家庭学習で 進める'); say('自分で 時間を 作れるのは すごい 力や！ 家庭学習の 計画に「チトセレの ○○の つづき」と 書いてな。'); hmDraw([bye(), back()]); } },
+    { t: '③ 先生に 相談する', go: function () { me('先生に 相談する'); say('それも りっぱな 作戦や。「どの 教科の どの 課題が 間に合わないか」を 言えると、先生も 助けやすいで。'); hmDraw([bye(), back()]); } }
+  ] : [bye(), back()]);
+}
+function hmStuck() {
+  say('どこで つまずいてる？ 作戦は いくつか あるで。\n① 教科書の その ページを もう一回 ゆっくり 読む（大事な ことばに 線）\n② 友だちに「ここ どう 考えた？」と 聞く\n③ 先生に 聞く\n④ いったん ほかの 課題を して、あとで もどる\n\nわからん ことを わからんと 言えるのは 強さやで。どれに する？');
+  hmDraw([
+    { t: '① もう一回 読む', go: function () { me('もう一回 読む'); say('ええな！ めあてを 見ながら 読むと「どこを 読めば いいか」が わかるで。'); hmDraw([bye(), back()]); } },
+    { t: '② 友だちに 聞く', go: function () { me('友だちに 聞く'); say('教えあうのは 両方の 学びに なる。聞く ときは「どこが わからないか」を はっきり 言うのが コツや。'); hmDraw([bye(), back()]); } },
+    { t: '③ 先生に 聞く', go: function () { me('先生に 聞く'); say('よっしゃ。「〇〇の ここまでは わかったけど、ここから わからない」と 言えたら 最強や。'); hmDraw([bye(), back()]); } },
+    { t: '④ ほかの 課題を 先に', go: function () { me('ほかの 課題を 先に'); hmWhat(); } }
+  ]);
+}
+function hmFast() {
+  var memoLack = [];
+  K.cfg.units.forEach(function (u) { unitMust(u).forEach(function (k) { if (kidStatus(k).done && !(chk(k) && chk(k).memo)) memoLack.push(k); }); });
+  say('はやいな！ でも「おわり」や なくて「ゴールに 近づく」時間に しよか。\n① 学習問題の 答えを、メモを つなげて 3〜4文に まとめる' + (memoLack.length ? '（メモが まだの 課題が ' + memoLack.length + 'こ あるで）' : '') + '\n② よゆうの 課題（★・✓）に チャレンジ\n③ こまってる 友だちを 手伝う\nどれに する？');
+  hmDraw([
+    { t: '① 答えを まとめる', main: 1, go: function () { me('答えを まとめる'); say('ノートに「学習問題」を 書いて、その下に 課題ごとの メモを ならべてみ。「つまり〜」で つなげたら、それが 報告の 下書きや！'); hmDraw([bye(), back()]); } },
+    { t: '② よゆうの 課題', go: function () { me('よゆうの 課題'); say('ええ チャレンジや！ 下の 時間わりで ★や ✓の 課題を 入れてな。'); hmDraw([bye(), back()]); } },
+    { t: '③ 友だちを 手伝う', go: function () { me('友だちを 手伝う'); say('人に 説明できたら、ほんまに わかった 証拠や。答えを 教えるんや なくて「どう 考えた？」と 聞くのが コツやで。'); hmDraw([bye(), back()]); } }
+  ]);
+}
+function hmLazy() {
+  say('そういう 日も あるな。気持ちは あとから ついてくるで。\nまず えらんでみ。\n① 好きな 教科から 先に やる\n② にがてを 先に かたづける\n③ 5分だけ やってみる');
+  hmDraw([
+    { t: '① 好きな 教科から', go: function () { me('好きな 教科から'); hmWhat(); } },
+    { t: '② にがてを 先に', go: function () { me('にがてを 先に'); hmWhat(); } },
+    { t: '③ 5分だけ', go: function () { me('5分だけ'); say('よし、5分だけや。タイマーを かけて、めあてを 1回 読んでから スタート！ 5分 たったら、つづけるか どうか 自分で 決めてな。'); hmDraw([bye(), back()]); } }
+  ]);
+}
+// ✅ できた の あと：めあて ◎○△ → 学習問題メモ
+function hmCheck(key) {
+  var x = taskOf(K.cfg, key); if (!x || x.t.all) return;
+  HM.log = [];
+  say(x.u.subj + x.t.k + '「' + x.t.t + '」 おつかれさん！\n\n🎯 めあては「' + (x.t.mea || x.t.t) + '」や。\n自分で ふりかえると、どうや？');
+  var c0 = chk(key) || {};
+  var pick = function (s) { return function () {
+    me(s === '◎' ? '◎ ばっちり' : s === '○' ? '○ だいたい' : '△ まだ 自信ない');
+    K.plan.chk = K.plan.chk || {}; K.plan.chk[key] = { self: s, memo: c0.memo || '', at: Date.now() }; saveKid();
+    if (s === '△') {
+      say('正直に 言えて えらいで。△の ままに せんように しよう。\n① 教科書の ' + (x.t.note || 'その ページ') + 'を もう一回\n② 友だちに 説明してもらう\n③ 先生に 聞く\nどれか 1つ、ゴールの 前に やろな。');
+      return hmDraw([{ t: '📝 それでも メモは 書いておく', main: 1, go: function () { me('メモは 書く'); memo(); } }, { t: 'あとで やる', go: function () { me('あとで'); say('ゴールの 前に、作戦相談の「何から やる？」で もう一回 出すからな。'); hmDraw([{ t: 'とじる', go: hmClose }]); } }]);
+    }
+    memo();
+  }; };
+  var memo = function () {
+    say(x.u.q ? 'ほな 最後に 1つ。\n❓ 学習問題「' + x.u.q + '」\nこの 課題で わかったことは、答えの どこに つながる？ 1行で 書いてみ。\n（れい：' + (x.u.subj === '社会' ? '○○は、〜の ために、〜を した' : x.u.subj === '算数' ? '本番の 高さ調べで、〜を 使えば 〜が わかる' : 'カフェの 文章で、〜の 技を 使って 〜を 伝える') + '）' : 'この 課題で わかったことを 1行で 書いてみ。');
+    hmDraw([{ area: '学習問題への つながりを 1行で' }, { t: '📝 メモする', main: 1, go: function () {
+      var t = ($('hmTa') || {}).value || ''; if (t.replace(/\s/g, '').length < 4) { $('hmTa').placeholder = 'もう少し 書いてみよう（4文字いじょう）'; return; }
+      me(t); K.plan.chk[key].memo = t; K.plan.chk[key].at = Date.now(); saveKid();
+      var u = x.u, must = unitMust(u), n = must.filter(function (k) { var c = chk(k); return c && c.memo; }).length;
+      say('ええ メモや！ ' + u.subj + 'の 学習問題メモは ' + n + '/' + must.length + 'こに なった。' + (n >= must.length ? '\nぜんぶ そろった！ ゴールでは、この メモを つなげて 答えるんやで。' : '\nゴールに 一歩 近づいたで！'));
+      hmDraw([{ t: '🤔 つぎは 何を やる？', main: 1, go: function () { me('つぎは 何を やる？'); hmWhat(); } }, { t: 'とじる', go: hmClose }]);
+    } }, { t: 'あとで 書く', go: function () { me('あとで 書く'); say('ええで。ゴールの 前には かならず 書こな。'); hmDraw([{ t: 'とじる', go: hmClose }]); } }]);
+  };
+  hmDraw([{ t: '◎ ばっちり', main: 1, go: pick('◎') }, { t: '○ だいたい', go: pick('○') }, { t: '△ まだ 自信ない', go: pick('△') }]);
+}
+
 function startKid() {
   api('/api/chitosele/me').then(function (j) {
     if (!j || !j.ok) { app.innerHTML = '<div class="card">' + (j && j.__s === 401 ? 'ログインしてから ひらいてね。<br><a href="/login">ログインへ</a>' : 'よみこめなかったよ。もう一度 ひらいてね。') + '</div>'; return; }
@@ -321,6 +551,8 @@ function startKid() {
     if (!K.plan.s) K.plan.s = {};
     var D = days(K.cfg); for (var i = 0; i < D.length; i++) if (D[i].indexOf(j.today) >= 0) K.week = i;
     renderKid();
+    // CHITO_GOAL_V1 いまの チトセレで 何も 決めていなければ、阪神マンから 声を かける
+    try { var ns = nowSlot(); if (ns && ns.now) { var v0 = itemsOf(K.plan.s[ns.ck]); if (!v0.items.length && !v0.other.trim()) setTimeout(function () { hmStart('what'); }, 800); } } catch (e) {}
   });
 }
 
@@ -381,7 +613,7 @@ function gridT() {
 function fixedAtT(key) { var cfg = T.cfg, out = []; Object.keys(cfg.cells).sort().forEach(function (ck) { var c = cfg.cells[ck]; if (c.k === 'f' && c.u && (c.u + ':' + c.tk) === key) out.push(ck); }); return out.length; }
 function kidsT() {
   var cfg = T.cfg, sc = selCells(cfg), must = mustTasks(cfg);
-  var h = '<div class="card"><h2>👀 みんなの計画　<button class="btn" id="kidsReload">🔄 さいしん</button></h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
+  var h = '<div class="card"><h2>👀 みんなの計画　<button class="btn" id="kidsReload">🔄 さいしん</button></h2><div style="font-size:13px;color:#64748b;margin-bottom:6px">マスの見かた：国B＝国語の課題B ／ ✅できた ／ ➡つづき</div><div class="scroll"><table class="tgrid mt"><tr><th>名前</th><th>めあて</th><th>予定</th><th>できた</th><th>まだの課題</th><th>△（自信ない）</th><th>学習問題メモ</th><th>相談</th>' + sc.map(function (ck) { var p = ck.split('|'); return '<th>' + md(p[0]) + dow(p[0]) + '<br>' + p[1] + '</th>'; }).join('') + '</tr>';
   T.kids.forEach(function (k) {
     var s = (k.plan && k.plan.s) || {};
     var st = function (key) { var n = 0, dn = false; Object.keys(s).forEach(function (ck) { itemsOf(s[ck]).items.forEach(function (it) { if (it.task === key) { n++; if (it.st === 'done') dn = true; } }); }); return { n: n, done: dn }; };
@@ -389,6 +621,11 @@ function kidsT() {
     var doneN = must.filter(function (key) { return st(key).done; }).length;
     var notYet = must.filter(function (key) { return !st(key).n; }).map(function (key) { return short(cfg, key); });
     h += '<tr><td class="k">' + esc(k.name) + '</td><td class="x" style="max-width:220px;white-space:normal;text-align:left">' + esc((k.plan && k.plan.goal) || '') + '</td><td>' + planned + '/' + sc.length + '</td><td>' + doneN + '/' + must.length + '</td><td class="x" style="color:#b91c1c">' + esc(notYet.join(' ')) + '</td>'
+      + (function () {   // CHITO_GOAL_V1 めあての △ と 学習問題メモ
+        var c = (k.plan && k.plan.chk) || {}, tri = [], memos = [];
+        Object.keys(c).forEach(function (key) { var x = taskOf(cfg, key); if (!x) return; if (c[key].self === '△') tri.push(short(cfg, key)); if (c[key].memo) memos.push('<b>' + esc(short(cfg, key)) + '</b> ' + esc(c[key].memo)); });
+        return '<td class="x" style="color:#b91c1c;font-weight:900">' + esc(tri.join(' ')) + '</td><td class="x" style="max-width:320px;white-space:normal;text-align:left;font-size:12px">' + (memos.length ? '<details><summary>' + memos.length + 'こ</summary>' + memos.join('<br>') + '</details>' : '<span style="color:#94a3b8">0</span>') + '</td><td class="x">' + ((k.plan && k.plan.talk) || '') + '</td>';
+      })()
       + sc.map(function (ck) {
         var v = itemsOf(s[ck]); if (!slotUsed(s[ck])) return '<td class="x"></td>';
         var mk = function (st) { return st === 'done' ? '✅' : st === 'cont' ? '➡' : ''; };
@@ -414,6 +651,7 @@ function nowT() {
     if (v.other.trim()) others.push({ n: k.name, t: v.other, st: v.otherSt });
   });
   var mk = function (st) { return st === 'done' ? ' ✅' : st === 'cont' ? ' ➡' : ''; };
+  if (none.length) h += '<div class="warn" style="font-size:16px;font-weight:900">⚠ この コマで 何を やるか 決まっていない（' + none.length + '人）：' + none.map(esc).join('、') + '<br><small>子どもの 画面では 阪神マンが「いっしょに 決めよか」と 声を かけます</small></div>';   // CHITO_GOAL_V1 上に 出す
   h += '<div class="units" style="margin-top:10px">';
   cfg.units.forEach(function (u) {
     u.tasks.forEach(function (t) {
@@ -423,15 +661,17 @@ function nowT() {
   });
   if (others.length) h += '<div class="unit"><h3>✏️ その他　<span class="badge b-plan">' + others.length + '人</span></h3><div style="font-size:14px">' + others.map(function (x) { return esc(x.n) + '：' + esc(x.t) + mk(x.st); }).join('<br>') + '</div></div>';
   h += '</div>';
-  if (none.length) h += '<div class="warn">まだ このコマの 予定が ない（' + none.length + '人）：' + none.map(esc).join('、') + '</div>';
   return h + '</div>';
 }
 function unitsT() {
   var cfg = T.cfg, h = '<div class="card uted"><h2>📋 課題メニュー（学習ガイドの A〜F）</h2><div style="font-size:13px;color:#64748b">「みんなで」にした課題は、子どもは えらべません（時間割で 👥 のコマに わりあてる）。「おわり」は もう すんだ課題。「よゆう」は やらなくても いい課題（数に 入れない）。</div>';
   cfg.units.forEach(function (u, ui) {
-    h += '<div class="unit" style="margin-top:10px;border-color:' + u.color + '"><div class="ed"><b style="color:' + u.color + '">' + esc(u.subj) + '</b><input type="text" data-un="' + ui + '" value="' + esc(u.name) + '" style="flex:1"></div>';
+    h += '<div class="unit" style="margin-top:10px;border-color:' + u.color + '"><div class="ed"><b style="color:' + u.color + '">' + esc(u.subj) + '</b><input type="text" data-un="' + ui + '" value="' + esc(u.name) + '" style="flex:1"></div>'
+      + '<div class="ed"><b>❓学習問題</b><input type="text" data-uq="' + ui + ':q" value="' + esc(u.q || '') + '" placeholder="例：明治の 新しい 国づくりは、だれが、どのように 進めていったのだろう" style="flex:1"></div>'
+      + '<div class="ed"><b>🏁ゴール</b><input type="text" data-uq="' + ui + ':goal" value="' + esc(u.goal || '') + '" placeholder="例：吉田松陰に、学習問題の 答えを 報告する" style="flex:1"></div>';   // CHITO_GOAL_V1
     u.tasks.forEach(function (t, ti) {
       h += '<div class="row"><input type="text" data-tf="' + ui + ':' + ti + ':k" value="' + esc(t.k) + '"><input type="text" data-tf="' + ui + ':' + ti + ':t" value="' + esc(t.t) + '"><input type="text" data-tf="' + ui + ':' + ti + ':note" value="' + esc(t.note || '') + '">'
+        + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':mea" value="' + esc(t.mea || '') + '" placeholder="🎯 めあて（〜できる）" style="flex-basis:100%">')
         + '<span><label><input type="checkbox" data-tc="' + ui + ':' + ti + ':all"' + (t.all ? ' checked' : '') + '>みんなで</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':done"' + (t.done ? ' checked' : '') + '>おわり</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':opt"' + (t.opt ? ' checked' : '') + '>よゆう</label> <button data-td="' + ui + ':' + ti + '" style="min-height:28px">✕</button></span></div>';
     });
     h += '<button class="btn" data-ta="' + ui + '" style="margin-top:4px">＋ 課題を ふやす</button></div>';
@@ -463,6 +703,7 @@ function bindT() {
   var cF = $('cF'); if (cF) cF.onchange = function () { var c = T.cfg.cells[T.pick]; var p = cF.value.split(':'); c.u = p[0] || ''; c.tk = p[1] || ''; dirty(); renderT(); };
   var cB = $('cBase'); if (cB) cB.onclick = function () { var t = baseText(T.pick); T.cfg.cells[T.pick] = { k: 'n', t: t }; dirty(); renderT(); };
   var cX = $('cX'); if (cX) cX.onclick = function () { T.pick = ''; renderT(); };
+  app.querySelectorAll('[data-uq]').forEach(function (i) { i.oninput = function () { var p = i.getAttribute('data-uq').split(':'); T.cfg.units[+p[0]][p[1]] = i.value; dirty(); }; });
   app.querySelectorAll('[data-un]').forEach(function (i) { i.oninput = function () { T.cfg.units[Number(i.getAttribute('data-un'))].name = i.value; dirty(); }; });
   app.querySelectorAll('[data-tf]').forEach(function (i) { i.oninput = function () { var p = i.getAttribute('data-tf').split(':'); T.cfg.units[+p[0]].tasks[+p[1]][p[2]] = i.value; dirty(); }; });
   app.querySelectorAll('[data-tc]').forEach(function (i) { i.onchange = function () { var p = i.getAttribute('data-tc').split(':'); var t = T.cfg.units[+p[0]].tasks[+p[1]]; if (i.checked) t[p[2]] = 1; else delete t[p[2]]; dirty(); }; });

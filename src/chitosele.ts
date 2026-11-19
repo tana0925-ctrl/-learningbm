@@ -102,9 +102,12 @@ function cleanCfg(x: any): any {
   us.slice(0, 6).forEach((u: any) => {
     const id = cleanStr(u && u.id, 10).replace(/[^a-z0-9_-]/gi, '') || ('u' + out.units.length)
     out.units.push({
-      id, subj: cleanStr(u.subj, 10), name: cleanStr(u.name, 40), color: /^#[0-9a-f]{6}$/i.test(String(u.color)) ? String(u.color) : '#64748b', hours: Math.max(0, Math.min(40, Number(u.hours) || 0)),
+      id, subj: cleanStr(u.subj, 10), name: cleanStr(u.name, 40),
+      q: cleanStr(u.q, 120), goal: cleanStr(u.goal, 160),   // CHITO_GOAL_V1 学習問題 と ゴール
+      color: /^#[0-9a-f]{6}$/i.test(String(u.color)) ? String(u.color) : '#64748b', hours: Math.max(0, Math.min(40, Number(u.hours) || 0)),
       tasks: (Array.isArray(u.tasks) ? u.tasks : []).slice(0, 16).map((t: any) => {
         const o: any = { k: cleanStr(t && t.k, 4), t: cleanStr(t && t.t, 40), note: cleanStr(t && t.note, 80) }
+        if (t && t.mea) o.mea = cleanStr(t.mea, 100)   // CHITO_GOAL_V1 めあて（できる？）
         if (t && t.all) o.all = 1; if (t && t.done) o.done = 1; if (t && t.opt) o.opt = 1
         return o
       }).filter((t: any) => t.k && t.t)
@@ -133,6 +136,19 @@ function cleanPlan(x: any, cfg: any): any {
     if (!items.length && !other) return
     out.s[key] = { items, other, otherSt }
   })
+  // CHITO_GOAL_V1 課題ごとの ふりかえり（めあて ◎○△ と、学習問題への つながりメモ）
+  const ck = (x && x.chk) || {}
+  const ok2: any = {}; (cfg.units || []).forEach((u: any) => (u.tasks || []).forEach((t: any) => { ok2[u.id + ':' + t.k] = 1 }))
+  out.chk = {}
+  Object.keys(ck).slice(0, 60).forEach((k) => {
+    if (!ok2[k]) return
+    const v = ck[k] || {}
+    const self = ['◎', '○', '△'].indexOf(String(v.self)) >= 0 ? String(v.self) : ''
+    const memo = cleanStr(v.memo, 160)
+    if (!self && !memo) return
+    out.chk[k] = { self, memo, at: Number(v.at) || Date.now() }
+  })
+  out.talk = Number(x && x.talk) || 0   // 阪神マンに 相談した 回数
   return out
 }
 
