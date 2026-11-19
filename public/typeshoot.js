@@ -452,12 +452,11 @@
   function startGame(again) {
     /* TSCOURSE_V1 さいしょに ことばを えらぶ（「もういちど」は 同じ ことばで） */
     if (again !== true) {
-      try { var _p0 = window.getPlayer && window.getPlayer(); if (!_p0 || Number(_p0.gymTickets || 0) < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } } catch (e) {}
       build(); el('tsOverlay').style.display = 'flex'; el('tsResult').style.display = 'none'; S.open = false;
       tsPicker(el('tsOverlay'), false, function (o) { SRC = { c: o.c, unit: o.unit || null }; startGame(true); });
       return;
     }
-    try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}
+    /* TSFREE_V1 タイプシュートは チケットなしで あそべる */
     build();
     S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0; S.score = 0;
     el('tsOverlay').style.display = 'flex';
@@ -499,7 +498,7 @@
       '<div style="font-size:13px;color:#94a3b8;margin-top:2px">' + (isNewBest ? '🎉 ベスト更新！' : 'ベスト ' + best) + '</div>' +
       '<div style="font-size:14px;color:#94a3b8;margin-top:6px">' + (SRC.c === 'unit' && unitById(SRC.unit) ? '「' + escH(unitById(SRC.unit).name) + '」の ことばで よく がんばったね！' : 'よく がんばったね！') + '</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
-        '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど（🎫1まい）</button>' +
+        '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
         '<button id="tsRetry2" style="background:#0f766e;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">ことばを かえる</button>' +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
       '</div>';
