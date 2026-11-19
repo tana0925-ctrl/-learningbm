@@ -167,6 +167,7 @@ window.addEventListener('load', ()=>{
       setTimeout(()=>{ try{ _checkHomeworkVisibility(); }catch(e){} }, 500);
       // 未読おしらせバッジチェック
       setTimeout(()=>{ try{ if(typeof _checkAnnouncementBadge==='function') _checkAnnouncementBadge(); }catch(e){} }, 1500);
+      setInterval(()=>{ try{ if(typeof _checkAnnouncementBadge==='function' && !document.hidden) _checkAnnouncementBadge(); }catch(e){} }, 120000); /* ANN_POP_V1 ひらいたままの 子にも とどく */
       // 未読連絡帳バッジチェック
       setTimeout(()=>{ try{ if(typeof _checkContactBadge==='function') _checkContactBadge(); }catch(e){} }, 1800);
     }
@@ -55472,6 +55473,16 @@ async function _checkAnnouncementBadge(){
     var data = await apiJson('/api/student/announcements');
     var unread = (data.announcements||[]).filter(function(a){ return !a.readAt; });
     var cnt = unread.length;
+    /* ANN_POP_V1（2026-11-20）3日いないの 新しい おしらせが 未読なら、ポップアップで ひらく（1回だけ） */
+    try{
+      var fresh = unread.filter(function(x){ var t = Date.parse(String(x.createdAt||'').replace(' ','T')+'Z'); return isFinite(t) && Date.now()-t < 3*86400000; });
+      var mdl = document.getElementById('announcementModal');
+      if(fresh.length && mdl && mdl.classList.contains('hidden')){
+        var k = 'annPopped:'+fresh[0].id, done = false;
+        try{ done = !!sessionStorage.getItem(k); }catch(e){}
+        if(!done){ try{ sessionStorage.setItem(k,'1'); }catch(e){} openAnnouncements(); return; }
+      }
+    }catch(e){}
     // サイドバーバッジ
     var badge = document.getElementById('annNavBadge');
     if(badge){
