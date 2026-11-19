@@ -105,11 +105,13 @@ function cleanCfg(x: any): any {
       id, subj: cleanStr(u.subj, 10), name: cleanStr(u.name, 40),
       q: cleanStr(u.q, 120), goal: cleanStr(u.goal, 160),   // CHITO_GOAL_V1 学習問題 と ゴール
       zb: cleanStr(u.zb, 160), za: cleanStr(u.za, 160),   // CHITO_AIM_V1 目指したい姿 B・A
+      zs: (Array.isArray(u.zs) ? u.zs : []).slice(0, 5).map((r: any) => ({ k: cleanStr(r && r.k, 12), b: cleanStr(r && r.b, 120), a: cleanStr(r && r.a, 120) })).filter((r: any) => r.b || r.a),   // CHITO_AIM_V2 学びのものさし（観点ごと）
       color: /^#[0-9a-f]{6}$/i.test(String(u.color)) ? String(u.color) : '#64748b', hours: Math.max(0, Math.min(40, Number(u.hours) || 0)),
       tasks: (Array.isArray(u.tasks) ? u.tasks : []).slice(0, 16).map((t: any) => {
         const o: any = { k: cleanStr(t && t.k, 4), t: cleanStr(t && t.t, 40), note: cleanStr(t && t.note, 80) }
         if (t && t.mea) o.mea = cleanStr(t.mea, 100)   // CHITO_GOAL_V1 めあて（できる？）
         if (t && t.ok) o.ok = cleanStr(t.ok, 240)   // CHITO_CHECK_V1 たしかめポイント（／で 区切る）
+        if (t && t.zk) o.zk = cleanStr(t.zk, 12)   // CHITO_AIM_V2 関係する ものさしの 行
         if (t && t.hint) o.hint = cleanStr(t.hint, 500)   // CHITO_HINT_V1 ヒントメモ（URLも 書ける）
         if (t && t.all) o.all = 1; if (t && t.done) o.done = 1; if (t && t.opt) o.opt = 1
         return o
@@ -161,7 +163,10 @@ function cleanPlan(x: any, cfg: any): any {
   // CHITO_AIM_V1 単元ごとに 自分が めざす 姿（'A' か 'B'）
   out.aim = {}
   const am = (x && x.aim) || {}
-  ;(cfg.units || []).forEach((u: any) => { if (am[u.id] === 'A' || am[u.id] === 'B') out.aim[u.id] = am[u.id] })
+  ;(cfg.units || []).forEach((u: any) => {
+    if (am[u.id] === 'A' || am[u.id] === 'B') out.aim[u.id] = am[u.id]
+    for (let i = 0; i < 5; i++) { const v = am[u.id + '#' + i]; if (v === 'A' || v === 'B') out.aim[u.id + '#' + i] = v }   // CHITO_AIM_V2 観点ごと
+  })
   return out
 }
 
