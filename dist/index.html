@@ -36799,6 +36799,8 @@ function endGymBattle(isWin) {
                 } catch(e) { console.warn('[RT] handleRTMyMonsterFaint error', e); }
             }
 
+            // タイプシュート対戦（typeshoot.js）の決着を ロビー側にも反映する
+            window.__tsvEnded = function(res) { try { if (_rt.battleType === 'shoot' && !_rt.battleEnded) _showBattleEndScreen(res); } catch(e) {} };
             // ===== バトル終了画面を表示（再戦不可） =====
             function _showBattleEndScreen(result) {
                 _rt.battleEnded = true;

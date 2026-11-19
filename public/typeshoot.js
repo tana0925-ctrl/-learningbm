@@ -644,8 +644,14 @@
       '<div style="margin-top:18px"><button id="tsvBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">とじる</button></div>';
     r.style.display = 'flex';
     el('tsvBack').onclick = vClose;
+    try { if (window.__tsvEnded) window.__tsvEnded(draw ? 'draw' : (iWon ? 'win' : 'lose')); } catch (e) {}
   }
   function vClose() {
+    /* TSV_QUIT_V1 : とちゅうで「やめる」→ こうさん（lose）を送って、あいての画面にも 決着を 出す */
+    if (V && !V.ended && V.roomId) {
+      try { fetch('/api/rt/damage/' + V.roomId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ damage: 0, monsterId: 0, eventType: 'lose', meta: { k: 'q', from: V.role } }) }).catch(function () {}); } catch (e) {}
+      try { if (window.__tsvEnded) window.__tsvEnded('lose'); } catch (e) {}
+    }
     if (V) { V.ended = true; if (V.raf) cancelAnimationFrame(V.raf); if (V.poll) { clearTimeout(V.poll); V.poll = null; } for (var i = 0; i < V.missiles.length; i++) { try { V.missiles[i].node.remove(); } catch (e) {} } }
     document.removeEventListener('keydown', vKey, true);
     vKbdOff();
