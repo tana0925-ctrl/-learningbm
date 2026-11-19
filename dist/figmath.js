@@ -451,6 +451,7 @@
     return '';
   }
   window.__fmFig = FIG;
+  window.__FMH = { svg: svg, tx: tx, ln: ln, rect: rect, poly: poly, dot: dot, C: C, tape: figTape, blocks: figBlocks, clock: figClock, ruler: figRuler, hissan: figHissan, numline: figNumLine, bars: figBars, circle: figCircle, shape: figShape, box: figBox, cyl: figCyl, fracBar: figFracBar, graph: figGraph, sector: figSector, table: figTable, pie: figPie, dots: figDots };
 
   function installShow() {
     var o = window.__fxShow; if (typeof o !== 'function' || o.__fm) return;
