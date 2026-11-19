@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>💡 学習の ヒント</title>
+<style>
+:root{--ink:#0f172a;--sub:#475569;--line:#e2e8f0;--bg:#f8fafc}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Hiragino Maru Gothic ProN","BIZ UDPGothic","Meiryo",sans-serif;background:var(--bg);color:var(--ink);font-size:16px}
+header{position:sticky;top:0;z-index:5;background:#fde68a;border-bottom:3px solid #f59e0b;display:flex;align-items:center;gap:8px;padding:8px 12px}
+header h1{margin:0;font-size:19px}
+header a{margin-left:auto;font-weight:800;color:#78350f;text-decoration:none;border:2px solid #b45309;background:#fff;border-radius:12px;padding:6px 10px;font-size:14px}
+main{max-width:760px;margin:0 auto;padding:10px}
+.card{background:#fff;border:2px solid var(--line);border-radius:16px;padding:12px;margin:10px 0}
+.mi{border-color:#c4b5fd;background:#f5f3ff}
+.mi h2{margin:0 0 6px;font-size:16px;color:#5b21b6}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:2px solid #cbd5e1;background:#fff;border-radius:999px;padding:6px 10px;font-weight:800;font-size:14px;cursor:pointer}
+.chip.on{color:#fff}
+.subs{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.sb{border:3px solid #cbd5e1;background:#fff;border-radius:14px;padding:8px 2px;font-weight:900;font-size:14px;cursor:pointer;min-height:56px}
+.sb .e{display:block;font-size:22px}
+.sb.on{color:#fff}
+#q{width:100%;font-size:16px;padding:10px 12px;border:2px solid #cbd5e1;border-radius:12px;margin-top:8px}
+.tp{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:#fff;border:2px solid var(--line);border-radius:14px;padding:12px;margin:6px 0;font-size:16px;font-weight:800;cursor:pointer;color:var(--ink)}
+.tag{font-size:11px;font-weight:800;border-radius:999px;padding:2px 8px;color:#fff;white-space:nowrap}
+.tp .ar{margin-left:auto;color:#94a3b8}
+.box{border-radius:14px;padding:10px 12px;margin:10px 0;line-height:1.75;white-space:pre-wrap}
+.box h3{margin:0 0 6px;font-size:16px}
+.kotsu{background:#ecfdf5;border:2px solid #6ee7b7}
+.kotsu h3{color:#047857}
+.kotsu ul{margin:0;padding-left:0;list-style:none;white-space:normal}
+.kotsu li{margin:4px 0}
+.hint{background:#fffbeb;border:2px solid #fcd34d}
+.hint h3{color:#b45309}
+.hs{background:#fff;border:2px solid #fde68a;border-radius:12px;padding:8px 10px;margin:6px 0}
+.hs b{color:#92400e}
+.hs.lock{color:#94a3b8;border-style:dashed;cursor:pointer}
+.mibox{background:#f5f3ff;border:2px solid #c4b5fd;white-space:normal}
+.mibox h3{color:#6d28d9}
+.mt{display:flex;flex-direction:column;gap:2px;background:#fff;border-radius:12px;padding:8px 10px;margin:6px 0;border-left:6px solid #8b5cf6}
+.mt .n{font-weight:900;white-space:nowrap}
+.btn{border:2px solid #94a3b8;background:#fff;border-radius:12px;padding:8px 12px;font-weight:800;font-size:14px;cursor:pointer}
+.back{margin-bottom:6px}
+.note{font-size:13px;color:var(--sub)}
+@media(max-width:520px){.subs{grid-template-columns:repeat(5,1fr)}.sb{font-size:12px}.sb .e{font-size:20px}}
+</style>
+</head>
+<body>
+<header><h1>💡 学習の ヒント</h1><a id="back" href="/">← アプリへ</a></header>
+<main id="app"><div class="card">よみこみ中…</div></main>
+<script src="/manabi-data.js?v=1"></script>
+<script>
+(function () {
+'use strict';
+var D = window.MANABI, $ = function (i) { return document.getElementById(i); };
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+var q = new URLSearchParams(location.search);
+if (q.get('from') === 'chitosele') { $('back').href = '/chitosele'; $('back').textContent = '← チトセレへ'; }
+var ST = { s: q.get('s') || '', t: q.get('t') || '', open: {}, my: [], miDate: '', pick: null, all: false, kw: '' };
+if (ST.s && !subj(ST.s)) ST.s = D.map[ST.s] || '';
+function subj(k) { for (var i = 0; i < D.S.length; i++) if (D.S[i].k === k) return D.S[i]; return null; }
+function miOf(k) { for (var i = 0; i < D.MI.length; i++) if (D.MI[i].k === k) return D.MI[i]; return null; }
+function topicOf(id) { for (var i = 0; i < D.S.length; i++) for (var j = 0; j < D.S[i].topics.length; j++) if (D.S[i].topics[j].id === id) return { s: D.S[i], t: D.S[i].topics[j] }; return null; }
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+try { var pk = JSON.parse(lsGet('manabi_pick') || 'null'); if (pk && pk.length) ST.pick = pk; } catch (e) {}
+
+// MIしらべの 結果（自分の ぶんだけ）。高い 2つを「いまの あなたの 学び方」として 先に 出す。
+function loadMi() {
+  return fetch('/api/mi/my', { credentials: 'include', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    var r = j && j.ok && j.results && j.results[0];
+    if (!r || !r.scores) return;
+    var arr = D.MI.map(function (m) { return { k: m.k, v: Number(r.scores[m.k] || 0) }; }).sort(function (a, b) { return b.v - a.v; });
+    ST.my = arr.slice(0, 2).filter(function (x) { return x.v > 0; }).map(function (x) { return x.k; });
+    ST.miDate = String(r.takenAt || r.taken_at || '').slice(0, 10);
+  }).catch(function () {});
+}
+function chosen() { return (ST.pick && ST.pick.length) ? ST.pick : ST.my; }
+
+function miBanner() {
+  var ch = chosen(), h = '<div class="card mi"><h2>🧠 あなたの MIに 合わせた 学び方</h2>';
+  if (ST.my.length) h += '<div class="note" style="margin-bottom:6px">MIしらべ' + (ST.miDate ? '（' + esc(ST.miDate.replace(/-/g, '/')) + '）' : '') + 'で 高く つけたのは ' + ST.my.map(function (k) { var m = miOf(k); return m.e + m.n; }).join('・') + '。この 学び方を 先に 出すよ。ほかの ものも えらべるよ。</div>';
+  else h += '<div class="note" style="margin-bottom:6px">ためして みたい 学び方を えらぶと、ヒントの 中に 先に 出るよ（2つまで）。MIしらべを すると 自動で えらばれるよ。</div>';
+  h += '<div class="chips">';
+  D.MI.forEach(function (m) { var on = ch.indexOf(m.k) >= 0; h += '<button class="chip' + (on ? ' on' : '') + '" data-mi="' + m.k + '" style="' + (on ? 'background:' + m.c + ';border-color:' + m.c : '') + '">' + m.e + ' ' + esc(m.n) + '</button>'; });
+  h += '</div>' + (ST.pick && ST.my.length ? '<div style="margin-top:6px"><button class="btn" id="miReset">MIしらべの 結果に もどす</button></div>' : '') + '</div>';
+  return h;
+}
+
+function render() {
+  var h = miBanner();
+  h += '<div class="card"><div class="subs">';
+  D.S.forEach(function (s) { var on = ST.s === s.k; h += '<button class="sb' + (on ? ' on' : '') + '" data-s="' + s.k + '" style="border-color:' + s.c + ';' + (on ? 'background:' + s.c : 'color:' + s.c) + '"><span class="e">' + s.e + '</span>' + esc(s.n) + '</button>'; });
+  h += '</div><input id="q" type="search" placeholder="🔍 ことばで さがす（れい：漢字、比、リコーダー、風景画）" value="' + esc(ST.kw) + '"></div>';
+  if (ST.t) h += topicView(ST.t);
+  else if (ST.kw) h += listView(search(ST.kw), '「' + ST.kw + '」の ヒント');
+  else if (ST.s) { var s = subj(ST.s); h += listView(s.topics.map(function (t) { return { s: s, t: t }; }), s.e + ' ' + s.n); }
+  else h += '<div class="card note">上の 教科を えらぶか、ことばで さがしてね。どの 教科にも「〇〇は こうすると 学びやすい」が あるよ。</div>';
+  $('app').innerHTML = h;
+  bind();
+}
+function search(kw) {
+  kw = kw.trim(); var out = []; if (!kw) return out;
+  D.S.forEach(function (s) { s.topics.forEach(function (t) { var txt = s.n + t.t + (t.tag || '') + (t.kotsu || []).join('') + (t.steps || []).map(function (x) { return x.h + x.t; }).join(''); if (txt.indexOf(kw) >= 0) out.push({ s: s, t: t }); }); });
+  return out;
+}
+function listView(items, title) {
+  var h = '<div class="card"><b style="font-size:17px">' + esc(title) + '</b>';
+  if (!items.length) h += '<div class="note" style="margin-top:6px">見つからなかったよ。ちがう ことばで さがしてみてね。</div>';
+  items.forEach(function (x) { h += '<button class="tp" data-t="' + x.t.id + '"><span class="tag" style="background:' + x.s.c + '">' + esc(x.s.n + (x.t.tag ? '・' + x.t.tag : '')) + '</span>' + esc(x.t.t) + '<span class="ar">›</span></button>'; });
+  return h + '</div>';
+}
+function topicView(id) {
+  var x = topicOf(id); if (!x) { ST.t = ''; return ''; }
+  var s = x.s, t = x.t, lv = ST.open[id] || 0, h = '<div class="card"><button class="btn back" id="tBack">← ' + esc(s.n) + 'の 一覧</button>'
+    + '<div style="font-size:19px;font-weight:900;color:' + s.c + '">' + s.e + ' ' + esc(t.t) + '</div>';
+  if (t.kotsu && t.kotsu.length) h += '<div class="box kotsu"><h3>✨ こうすると 学びやすい</h3><ul>' + t.kotsu.map(function (k) { return '<li>' + esc(k) + '</li>'; }).join('') + '</ul></div>';
+  if (t.steps && t.steps.length) {
+    h += '<div class="box hint"><h3>🙋 こまったときの ヒント</h3><div class="note" style="white-space:normal">こまっている ことを えらんで ひらこう。</div>';
+    t.steps.forEach(function (st, i) {
+      var op = !!(lv & (1 << i));
+      h += op ? '<div class="hs"><b>' + esc(st.h) + '</b>\n' + esc(st.t) + '</div>' : '<div class="hs lock" data-op="' + i + '">🔒 ' + esc(st.h) + '　<small>（おして ひらく）</small></div>';
+    });
+    h += '</div>';
+  }
+  h += miView(s, t);
+  var other = s.topics.filter(function (o) { return o.id !== id; });
+  if (other.length) h += '<div class="note" style="margin-top:10px">' + esc(s.n) + 'の ほかの ヒント</div>' + other.map(function (o) { return '<button class="tp" data-t="' + o.id + '"><span class="tag" style="background:' + s.c + '">' + esc(o.tag || s.n) + '</span>' + esc(o.t) + '<span class="ar">›</span></button>'; }).join('');
+  return h + '</div>';
+}
+function miTip(s, t, k) { return (t.mi && t.mi[k]) || (s.mi && s.mi[k]) || ''; }
+function miView(s, t) {
+  var ch = chosen(), h = '<div class="box mibox"><h3>🧠 あなたの MIだと、こんな 学び方も あるよ</h3>';
+  var shown = ch.filter(function (k) { return miTip(s, t, k); });
+  if (!shown.length) h += '<div class="note">上の「MIに 合わせた 学び方」で 気に なる ものを えらぶと、ここに 先に 出るよ。</div>';
+  shown.forEach(function (k) { var m = miOf(k); h += '<div class="mt" style="border-left-color:' + m.c + '"><span class="n" style="color:' + m.c + '">' + m.e + ' ' + esc(m.n) + '</span><span>' + esc(miTip(s, t, k)) + '</span></div>'; });
+  if (ST.all) {
+    D.MI.forEach(function (m) { if (shown.indexOf(m.k) >= 0) return; var tx = miTip(s, t, m.k); if (tx) h += '<div class="mt" style="border-left-color:' + m.c + ';opacity:.9"><span class="n" style="color:' + m.c + '">' + m.e + ' ' + esc(m.n) + '</span><span>' + esc(tx) + '</span></div>'; });
+    h += '<button class="btn" id="miAll">とじる</button>';
+  } else h += '<button class="btn" id="miAll">🔎 ほかの 学び方も 見る</button>';
+  return h + '<div class="note" style="margin-top:6px">合う 学び方は 人それぞれ。いろいろ ためして、自分に 合う ものを 見つけよう。</div></div>';
+}
+function go(o) { for (var k in o) ST[k] = o[k]; var p = new URLSearchParams(); if (ST.s) p.set('s', ST.s); if (ST.t) p.set('t', ST.t); if (q.get('from')) p.set('from', q.get('from')); try { history.replaceState(null, '', '/manabi' + (p.toString() ? '?' + p : '')); } catch (e) {} render(); if (o.t !== undefined) window.scrollTo(0, 0); }
+function bind() {
+  Array.prototype.forEach.call(document.querySelectorAll('[data-s]'), function (b) { b.onclick = function () { go({ s: b.getAttribute('data-s'), t: '', kw: '' }); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-t]'), function (b) { b.onclick = function () { var x = topicOf(b.getAttribute('data-t')); go({ t: b.getAttribute('data-t'), s: x ? x.s.k : ST.s, all: false }); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-op]'), function (b) { b.onclick = function () { ST.open[ST.t] = (ST.open[ST.t] || 0) | (1 << Number(b.getAttribute('data-op'))); render(); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mi]'), function (b) { b.onclick = function () {
+    var k = b.getAttribute('data-mi'), cur = chosen().slice(), i = cur.indexOf(k);
+    if (i >= 0) cur.splice(i, 1); else { cur.push(k); if (cur.length > 2) cur.shift(); }
+    ST.pick = cur; lsSet('manabi_pick', JSON.stringify(cur)); render();
+  }; });
+  if ($('miReset')) $('miReset').onclick = function () { ST.pick = null; lsSet('manabi_pick', 'null'); render(); };
+  if ($('miAll')) $('miAll').onclick = function () { ST.all = !ST.all; render(); };
+  if ($('tBack')) $('tBack').onclick = function () { go({ t: '' }); };
+  var qi = $('q'), tm;
+  qi.oninput = function () { clearTimeout(tm); tm = setTimeout(function () { ST.kw = qi.value.trim(); ST.t = ''; render(); var n = $('q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 350); };
+}
+render();
+loadMi().then(render);
+})();
+</script>
+</body>
+</html>

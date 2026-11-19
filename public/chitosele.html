@@ -106,7 +106,7 @@ details.gl input{margin-top:6px}
 </style>
 </head>
 <body>
-<header><h1>🗓 チトセレ計画</h1><small id="sub">チトセセレクトタイム</small><a id="back" href="/">← アプリへ</a></header>
+<header><h1>🗓 チトセレ計画</h1><small id="sub">チトセセレクトタイム</small><a href="/manabi?from=chitosele" style="margin-left:auto">💡 ヒント</a><a id="back" href="/" style="margin-left:0">← アプリへ</a></header>
 <main id="app"><div class="card">よみこみ中…</div></main>
 <div class="save" id="save">保存したよ ✓</div>
 <script src="/chito-hints.js?v=3"></script>
@@ -440,6 +440,8 @@ function openHint(key, lv) {
     if (i < lv) h += '<div class="hs"><h4>ヒント' + (i + 1) + '　' + esc(s.h) + '</h4>' + (s.memo ? linkify(s.t).split('／').join('\n') : esc(s.t || '')) + (s.fig ? '<div style="margin-top:6px;white-space:normal">' + s.fig + '</div>' : '') + (s.html ? '<div style="margin-top:6px;white-space:normal;overflow:auto">' + s.html + '</div>' : '') + '</div>';
     else h += '<div class="hs lock">🔒 ヒント' + (i + 1) + '　' + esc(s.h) + '</div>';
   });
+  var MK = { '国語': 'koku', '算数': 'san', '社会': 'sha', '理科': 'ri', '音楽': 'on', '図工': 'zu', '家庭': 'ka', '体育': 'tai', '外国語': 'gai' }[x.u.subj] || '';   // MANABI_HINT_V1
+  h += '<div style="margin:6px 0"><a href="/manabi?from=chitosele' + (MK ? '&s=' + MK : '') + '" style="font-weight:900;color:#7c3aed">🧠 ' + esc(x.u.subj) + 'の 学び方の ヒント（MIに 合わせた 学び方）を 見る ›</a></div>';
   h += '<div class="hb">' + (lv < steps.length ? '<button class="main" id="hintNext">🔓 ヒント' + (lv + 1) + 'を ひらく</button>' : '') + '<button id="hintTry">🔍 これで あってるか たしかめる</button><button id="hintClose">✍️ やってみる</button></div></div>';
   r.innerHTML = h; r.style.display = 'flex';
   var close = function () { r.style.display = 'none'; };
