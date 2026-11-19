@@ -108,6 +108,7 @@ function cleanCfg(x: any): any {
       tasks: (Array.isArray(u.tasks) ? u.tasks : []).slice(0, 16).map((t: any) => {
         const o: any = { k: cleanStr(t && t.k, 4), t: cleanStr(t && t.t, 40), note: cleanStr(t && t.note, 80) }
         if (t && t.mea) o.mea = cleanStr(t.mea, 100)   // CHITO_GOAL_V1 めあて（できる？）
+        if (t && t.ok) o.ok = cleanStr(t.ok, 240)   // CHITO_CHECK_V1 たしかめポイント（／で 区切る）
         if (t && t.all) o.all = 1; if (t && t.done) o.done = 1; if (t && t.opt) o.opt = 1
         return o
       }).filter((t: any) => t.k && t.t)
@@ -145,8 +146,12 @@ function cleanPlan(x: any, cfg: any): any {
     const v = ck[k] || {}
     const self = ['◎', '○', '△'].indexOf(String(v.self)) >= 0 ? String(v.self) : ''
     const memo = cleanStr(v.memo, 160)
-    if (!self && !memo) return
+    // CHITO_CHECK_V1 阪神マンと「これで あってる？」たしかめ（r：o=できた ~=とちゅう x=まだ ／ w=ちがう課題を していた ／ help=先生に 見てほしい）
+    let q: any = null
+    if (v.q && typeof v.q === 'object') { q = { r: String(v.q.r || '').replace(/[^o~x]/g, '').slice(0, 6), at: Number(v.q.at) || Date.now() }; if (v.q.w) q.w = 1; if (v.q.help) q.help = 1 }
+    if (!self && !memo && !q) return
     out.chk[k] = { self, memo, at: Number(v.at) || Date.now() }
+    if (q) out.chk[k].q = q
   })
   out.talk = Number(x && x.talk) || 0   // 阪神マンに 相談した 回数
   return out

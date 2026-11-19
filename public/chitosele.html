@@ -356,6 +356,7 @@ function goalCards() {
       });
       if (v.other.trim()) h += '<div style="margin:6px 0">✏️ ' + esc(v.other) + '</div>';
       h += '<div style="font-size:13px;color:#64748b">この 時間は、これ だけに 集中しよう。おわったら 下の 時間わりで「✅ できた」を おしてね。</div>';
+      if (v.items.some(function (it) { var x = taskOf(cfg, it.task); return x && !x.t.all; })) h += '<button class="btn hmgo" data-hm="try" style="font-size:16px;margin-top:6px">🔍 これで あってる？ 阪神マンと たしかめる</button>';   // CHITO_CHECK_V1
     }
     h += '</div>';
   }
@@ -410,11 +411,13 @@ function bye() { return { t: '🙆 わかった！ やってみる', main: 1, go
 function hmStart(kind) {
   HM.log = []; K.plan.talk = (K.plan.talk || 0) + 1; saveKid();
   if (kind === 'what') return hmWhat(true);
+  if (kind === 'try') return hmTry();   // CHITO_CHECK_V1
   hmMenu(true);
 }
 function hmMenu(first) {
   say(first ? 'どうしたん？ なんでも 相談してや。' : 'ほかに 気になることは？');
   hmDraw([
+    { t: '🔍 これで あってる？ たしかめたい', main: 1, go: function () { me('これで あってるか たしかめたい'); hmTry(); } },   // CHITO_CHECK_V1
     { t: '🎯 ゴールを たしかめる', go: function () { me('ゴールを たしかめたい'); hmGoal(0); } },
     { t: '🤔 何から やれば いいか わからん', go: function () { me('何から やれば いいか わからん'); hmWhat(); } },
     { t: '⏰ 間に合わへん', go: function () { me('間に合わへん'); hmLate(); } },
@@ -529,7 +532,7 @@ function hmCheck(key) {
   var c0 = chk(key) || {};
   var pick = function (s) { return function () {
     me(s === '◎' ? '◎ ばっちり' : s === '○' ? '○ だいたい' : '△ まだ 自信ない');
-    K.plan.chk = K.plan.chk || {}; K.plan.chk[key] = { self: s, memo: c0.memo || '', at: Date.now() }; saveKid();
+    K.plan.chk = K.plan.chk || {}; K.plan.chk[key] = { self: s, memo: c0.memo || '', at: Date.now() }; if (c0.q) K.plan.chk[key].q = c0.q; saveKid();
     if (s === '△') {
       say('正直に 言えて えらいで。△の ままに せんように しよう。\n① 教科書の ' + (x.t.note || 'その ページ') + 'を もう一回\n② 友だちに 説明してもらう\n③ 先生に 聞く\nどれか 1つ、ゴールの 前に やろな。');
       return hmDraw([{ t: '📝 それでも メモは 書いておく', main: 1, go: function () { me('メモは 書く'); memo(); } }, { t: 'あとで やる', go: function () { me('あとで'); say('ゴールの 前に、作戦相談の「何から やる？」で もう一回 出すからな。'); hmDraw([{ t: 'とじる', go: hmClose }]); } }]);
@@ -547,6 +550,88 @@ function hmCheck(key) {
     } }, { t: 'あとで 書く', go: function () { me('あとで 書く'); say('ええで。ゴールの 前には かならず 書こな。'); hmDraw([{ t: 'とじる', go: hmClose }]); } }]);
   };
   hmDraw([{ t: '◎ ばっちり', main: 1, go: pick('◎') }, { t: '○ だいたい', go: pick('○') }, { t: '△ まだ 自信ない', go: pick('△') }]);
+}
+
+// ════════ 🔍 CHITO_CHECK_V1（2026-11-19）「自分が やっていることが 正しいか」を 阪神マンと たしかめる ════════
+//   ① 課題そのものが あっているか（ちがう ことを していないか）→ ② たしかめポイントを 1つずつ（✅／🤏／❌）
+//   → ③ 学習問題への つながり → ④ まとめと 作戦（自分で なおす／友だちと 見せあう／🙋先生に 見てもらう）
+var OKDEF = {
+  '社会': ['人物の 名前と、その人が した ことを 書いた', 'なぜ そうしたのか（理由・ねらい）を 書いた', '教科書や 資料の どこに 書いてあるか 言える'],
+  '算数': ['式と 答え（単位も）を 書いた', 'なぜ その 式・かき方に なるか 説明できる', '答えを 図や たしかめ算で たしかめた'],
+  '国語': ['伝えたい ことを 1文で 言える', '教科書の どこを 使ったか（どの 文か）指させる', '読む人に わかる ことばか 読み返した']
+};
+function okList(x) {
+  var a = String(x.t.ok || '').split(/[／\/\n]/).map(function (z) { return z.trim(); }).filter(Boolean).slice(0, 4);
+  return a.length ? a : (OKDEF[x.u.subj] || ['めあての ことばを 見ながら やった', '自分の ことばで 説明できる', 'できたか 見なおした']);
+}
+function hmTry() {
+  var ns = nowSlot(), list = [];
+  if (ns) itemsOf(K.plan.s[ns.ck]).items.forEach(function (it) { var x = taskOf(K.cfg, it.task); if (x && !x.t.all) list.push(it.task); });
+  if (!list.length) {   // いまの コマが なければ、とちゅう・予定の 課題から
+    Object.keys(K.plan.s).sort().forEach(function (ck) { itemsOf(K.plan.s[ck]).items.forEach(function (it) { if (it.st !== 'done' && list.indexOf(it.task) < 0 && list.length < 4) list.push(it.task); }); });
+  }
+  if (!list.length) { K.cfg.units.forEach(function (u) { if (!goalPassed(u)) unitMust(u).forEach(function (k) { if (list.length < 4) list.push(k); }); }); }
+  if (list.length === 1) return hmTry1(list[0], ns);
+  say('ええで、いっしょに たしかめよう。どの 課題を たしかめる？');
+  hmDraw(list.slice(0, 4).map(function (k, i) { var x = taskOf(K.cfg, k); return { t: x.u.subj + x.t.k + '　' + x.t.t, main: i === 0, go: function () { me(x.u.subj + x.t.k + 'を たしかめたい'); hmTry1(k, ns); } }; }).concat([back()]));
+}
+function hmTry1(key, ns) {
+  var x = taskOf(K.cfg, key); if (!x) return hmMenu();
+  var R = { key: key, x: x, pts: okList(x), r: '', w: 0 };
+  var inNow = ns && itemsOf(K.plan.s[ns.ck]).items.some(function (o) { return o.task === key; });
+  say('よっしゃ、' + x.u.subj + x.t.k + '「' + x.t.t + '」を たしかめよう。\n\n📖 ' + (x.t.note || '') + '\n🎯 めあて：' + (x.t.mea || x.t.t) + '\n\nまず 1つめ。いま 手もとで やってるのは、この 課題で あってる？' + (x.t.note && /p\./.test(x.t.note) ? '\n（' + x.t.note.split('・')[0] + 'を ひらいてる？）' : ''));
+  hmDraw([
+    { t: '👍 あってる', main: 1, go: function () { me('あってる'); tryPt(R, 0); } },
+    { t: '😳 ちがう ことを してた', go: function () {
+      me('ちがう ことを してた'); R.w = 1;
+      say('気づけたのが いちばん えらい！ 自分で 自分を たしかめる。それが 学び方の 力や。\n\n' + (inNow ? 'この 時間は「' + x.u.subj + x.t.k + ' ' + x.t.t + '」に するって 自分で 決めたんやったな。' : '') + 'ノートと 教科書を「' + (x.t.note || x.t.t) + '」に 切りかえよう。');
+      hmDraw([{ t: '🔁 切りかえた！ たしかめを つづける', main: 1, go: function () { me('切りかえた'); tryPt(R, 0); } }, { t: '📅 やっぱり 予定を 変えたい', go: function () { me('予定を 変えたい'); saveTry(R); hmWhat(true); } }]);
+    } },
+    { t: '🤔 何を すれば いいか あいまい', go: function () {
+      me('何を すれば いいか あいまい');
+      say('ほな ゴールから 考えよか。\n❓ 学習問題：' + (x.u.q || '') + '\n🏁 ゴール：' + (x.u.goal || '') + '\n\nこの 課題は、その 答えの 材料を あつめる 時間や。\n「' + (x.t.note || x.t.t) + '」を 見て、めあて「' + (x.t.mea || x.t.t) + '」が できたら OK。\n\nできた かどうかは、この あと 見る「たしかめポイント」で わかるで。先に ポイントを 見とこか。');
+      hmDraw([{ t: '👀 ポイントを 見る', main: 1, go: function () { me('ポイントを 見る'); tryPt(R, 0); } }, back()]);
+    } }
+  ]);
+}
+function tryPt(R, i) {
+  if (i >= R.pts.length) return tryQ(R);
+  say('✔ たしかめポイント ' + (i + 1) + '/' + R.pts.length + '\n「' + R.pts[i] + '」\n\nノートを 見て、どうや？');
+  var nx = function (c, t) { return function () { me(t); R.r += c; tryPt(R, i + 1); }; };
+  hmDraw([{ t: '✅ できてる', main: 1, go: nx('o', 'できてる') }, { t: '🤏 とちゅう', go: nx('~', 'とちゅう') }, { t: '❌ まだ', go: nx('x', 'まだ') }]);
+}
+function tryQ(R) {
+  var x = R.x;
+  if (!x.u.q) return tryEnd(R, '');
+  say('さいごに 大事な 1つ。\n❓ 学習問題「' + x.u.q + '」\n\nこの 課題で わかったことが、答えの どこに つながるか 言える？');
+  hmDraw([{ t: '✅ 言える', main: 1, go: function () { me('言える'); tryEnd(R, 'o'); } }, { t: '🤏 なんとなく', go: function () { me('なんとなく'); tryEnd(R, '~'); } }, { t: '❌ わからん', go: function () { me('わからん'); tryEnd(R, 'x'); } }]);
+}
+function saveTry(R, help) {
+  K.plan.chk = K.plan.chk || {};
+  var c = K.plan.chk[R.key] || { self: '', memo: '', at: Date.now() };
+  c.q = { r: R.r, at: Date.now() }; if (R.w) c.q.w = 1; if (help) c.q.help = 1;
+  K.plan.chk[R.key] = c; saveKid();
+}
+function tryEnd(R, qr) {
+  var x = R.x; R.r += qr; saveTry(R);
+  var mk = function (c) { return c === 'o' ? '✅' : c === '~' ? '🤏' : '❌'; };
+  var lines = R.pts.map(function (p, i) { return mk(R.r[i]) + ' ' + p; });
+  if (qr) lines.push(mk(qr) + ' 学習問題への つながり');
+  var bad = R.pts.filter(function (p, i) { return R.r[i] !== 'o'; });
+  var allOk = !bad.length && qr !== 'x' && qr !== '~';
+  var h = 'まとめるで。\n' + lines.join('\n') + '\n\n';
+  if (allOk) {
+    say(h + 'ばっちりや！ めあてに ちゃんと 合っとる。自信 もって ええで。\n' + (kidStatus(R.key).done ? '' : 'おわったら 時間わりで「✅ できた」を おして、学習問題メモを 書こな。'));
+    return hmDraw([bye(), { t: '👫 友だちと 見せあって もっと よくする', go: function () { me('友だちと 見せあう'); say('ええな！ 友だちの ノートと くらべて「自分に ないもの」を 1つ 見つけたら、それが レベルアップの たねや。'); hmDraw([bye(), back()]); } }]);
+  }
+  var todo = bad.map(function (p) { return '・' + p; });
+  if (qr === 'x' || qr === '~') todo.push('・学習問題「' + x.u.q + '」に「この 課題で わかったこと」を あてはめて、「〜だから、〜」と 1文で 言ってみる');
+  say(h + 'ここまで できてるのは 自分の 力や。あと 少しで めあてに とどくで。\nつぎに やるのは これ👇\n' + todo.join('\n') + '\n\nどうやって なおす？ 自分で えらんでな。');
+  hmDraw([
+    { t: '📖 自分で 見なおす', main: 1, go: function () { me('自分で 見なおす'); say('ええで！ ' + (x.t.note || '教科書') + 'を もう一回 見て、上の ' + todo.length + 'つを たしかめながら 書きたそう。できたら もう一回「🔍 たしかめる」で 見せてな。'); hmDraw([bye(), back()]); } },
+    { t: '👫 友だちと 見せあう', go: function () { me('友だちと 見せあう'); say('同じ 課題を やってる 友だちに「ここ どう 書いた？」と 聞いてみ。答えを うつすんや なくて、考え方を 聞くのが コツやで。'); hmDraw([bye(), back()]); } },
+    { t: '🙋 先生に 見てもらいたい', go: function () { me('先生に 見てもらいたい'); saveTry(R, 1); say('先生に 「見てほしい」と 伝えといたで。先生が 来るまでに、「どこまで できて、どこが 心配か」を 言えるように しとこな。そのあいだも、できる ところは 進めて ええで。'); hmDraw([bye(), back()]); } }
+  ]);
 }
 
 function startKid() {
@@ -657,6 +742,13 @@ function nowT() {
     if (v.other.trim()) others.push({ n: k.name, t: v.other, st: v.otherSt });
   });
   var mk = function (st) { return st === 'done' ? ' ✅' : st === 'cont' ? ' ➡' : ''; };
+  (function () {   // CHITO_CHECK_V1 きょう「先生に 見てほしい」／「ちがう ことを していた」子
+    var t0 = Date.parse(T.today + 'T00:00:00+09:00'), help = [], wr = [], ng = [];
+    T.kids.forEach(function (k) { var c = (k.plan && k.plan.chk) || {}; Object.keys(c).forEach(function (key) { var q = c[key].q; if (!q || q.at < t0) return; var nm = esc(k.name) + '（' + esc(short(cfg, key)) + '）'; if (q.help) help.push(nm); else if (/x/.test(q.r)) ng.push(nm + ' <small>' + q.r.replace(/o/g, '✅').replace(/~/g, '🤏').replace(/x/g, '❌') + '</small>'); if (q.w) wr.push(nm); }); });
+    if (help.length) h += '<div class="warn" style="font-size:16px;font-weight:900;background:#fee2e2;border-color:#dc2626">🙋 先生に 見てほしい（きょう）：' + help.join('、') + '</div>';
+    if (ng.length) h += '<div class="warn" style="font-size:14px">🔍 たしかめで ❌が あった：' + ng.join('、') + '</div>';
+    if (wr.length) h += '<div class="warn" style="font-size:14px">😳 ちがう ことを していたと 気づいた：' + wr.join('、') + '</div>';
+  })();
   if (none.length) h += '<div class="warn" style="font-size:16px;font-weight:900">⚠ この コマで 何を やるか 決まっていない（' + none.length + '人）：' + none.map(esc).join('、') + '<br><small>子どもの 画面では 阪神マンが「いっしょに 決めよか」と 声を かけます</small></div>';   // CHITO_GOAL_V1 上に 出す
   h += '<div class="units" style="margin-top:10px">';
   cfg.units.forEach(function (u) {
@@ -678,6 +770,7 @@ function unitsT() {
     u.tasks.forEach(function (t, ti) {
       h += '<div class="row"><input type="text" data-tf="' + ui + ':' + ti + ':k" value="' + esc(t.k) + '"><input type="text" data-tf="' + ui + ':' + ti + ':t" value="' + esc(t.t) + '"><input type="text" data-tf="' + ui + ':' + ti + ':note" value="' + esc(t.note || '') + '">'
         + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':mea" value="' + esc(t.mea || '') + '" placeholder="🎯 めあて（〜できる）" style="flex-basis:100%">')
+        + (t.all ? '' : '<input type="text" data-tf="' + ui + ':' + ti + ':ok" value="' + esc(t.ok || '') + '" placeholder="🔍 たしかめポイント（／で 区切って 3つまで。空なら 教科ごとの ふつうの ポイント）" style="flex-basis:100%">')   // CHITO_CHECK_V1
         + '<span><label><input type="checkbox" data-tc="' + ui + ':' + ti + ':all"' + (t.all ? ' checked' : '') + '>みんなで</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':done"' + (t.done ? ' checked' : '') + '>おわり</label> <label><input type="checkbox" data-tc="' + ui + ':' + ti + ':opt"' + (t.opt ? ' checked' : '') + '>よゆう</label> <button data-td="' + ui + ':' + ti + '" style="min-height:28px">✕</button></span></div>';
     });
     h += '<button class="btn" data-ta="' + ui + '" style="margin-top:4px">＋ 課題を ふやす</button></div>';
