@@ -38299,6 +38299,20 @@ async function rankingLoad() {
     var valLabel = _rkValueLabel(_rkType, _rkPeriod);
     var medals = ['🥇','🥈','🥉'];
     var html = '';
+    /* RK_HELP_V1 そのランキングが「何の かず」かを 子どもに わかる ことばで */
+    var RKH = {
+      overall: '<b>総合Lv</b>＝じぶんの レベル ＋ もっている モンスター ぜんいんの レベルを たした かず。モンスターを そだてるほど ふえるよ。',
+      grade: '<b>学年別</b>＝「正解pt」を 同じ 学年の 人どうしで くらべるよ。',
+      power: '<b>戦闘力</b>＝いまの パーティ（たたかう メンバー）の つよさ。HP・こうげき・ぼうぎょ などを まとめた かず。パーティを 入れかえたり そだてたり すると かわるよ。',
+      correct: '<b>正解pt</b>＝修行で 正かいすると たまる ポイント。<b>じぶんの 学年・上の 学年の 問題は 1問 1pt</b>、<b>下の 学年の 問題は 1問 0.2pt</b>。じぶんの 学年の 問題に ちょうせんするほど ふえるよ。',
+      pokedex: '<b>図鑑</b>＝ずかんに のった モンスターの しゅるいの かず。',
+      wild: '<b>野生バトル</b>＝やせいバトルで いちばん 長く 勝ちつづけた かず（さいだい連勝）。',
+      typeshoot: '<b>タイプシュート</b>＝タイプシュートの いちばん いい スコア。'
+    };
+    var kakera = {correct:1, pokedex:1, wild:1, typeshoot:1};
+    var html = '<div class="mb-2 text-xs leading-relaxed bg-sky-50 border border-sky-200 rounded-lg p-2 text-sky-900">💡 ' + (RKH[_rkType] || '')
+      + (kakera[_rkType] ? '<br>🏆 この しゅもくは「今週」の 上位3人に <b>かけら</b>が もらえるよ（金よう17時まで）。' : '<br>（この しゅもくは かけらの たいしょうでは ないよ）')
+      + (_rkPeriod === 'weekly' ? '<br>📅「今週」＝月ようから いままでに ふえた ぶん。' : '<br>📚「累計」＝はじめてから いままでの ぜんぶ。') + '</div>';
     if(rk.scope === 'class') html += '<p class="text-xs text-emerald-600 mb-1">クラス内ランキング</p>';
     if(_rkPeriod === 'weekly') html += '<p class="text-xs text-blue-500 mb-1">📅 今週（月曜〜）</p>';
 
