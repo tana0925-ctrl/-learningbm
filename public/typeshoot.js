@@ -22,7 +22,8 @@
     'ば':['ba'],'び':['bi'],'ぶ':['bu'],'べ':['be'],'ぼ':['bo'],
     'ぱ':['pa'],'ぴ':['pi'],'ぷ':['pu'],'ぺ':['pe'],'ぽ':['po'],'ー':['-']
   };
-  var YOON = { 'きゃ':['kya'],'きゅ':['kyu'],'きょ':['kyo'],'しゃ':['sha','sya'],'しゅ':['shu','syu'],'しょ':['sho','syo'],'ちゃ':['cha','tya'],'ちゅ':['chu','tyu'],'ちょ':['cho','tyo'],'にゃ':['nya'],'にゅ':['nyu'],'にょ':['nyo'],'ひゃ':['hya'],'ひゅ':['hyu'],'ひょ':['hyo'],'みゃ':['mya'],'みゅ':['myu'],'みょ':['myo'],'りゃ':['rya'],'りゅ':['ryu'],'りょ':['ryo'],'ぎゃ':['gya'],'ぎゅ':['gyu'],'ぎょ':['gyo'],'じゃ':['ja','zya','jya'],'じゅ':['ju','zyu','jyu'],'じょ':['jo','zyo','jyo'],'びゃ':['bya'],'びゅ':['byu'],'びょ':['byo'],'ぴゃ':['pya'],'ぴゅ':['pyu'],'ぴょ':['pyo'],'ぢゃ':['ja','dya'],'ぢゅ':['ju','dyu'],'ぢょ':['jo','dyo'] };
+  var YOON = { 'きゃ':['kya'],'きゅ':['kyu'],'きょ':['kyo'],'しゃ':['sha','sya'],'しゅ':['shu','syu'],'しょ':['sho','syo'],'ちゃ':['cha','tya'],'ちゅ':['chu','tyu'],'ちょ':['cho','tyo'],'にゃ':['nya'],'にゅ':['nyu'],'にょ':['nyo'],'ひゃ':['hya'],'ひゅ':['hyu'],'ひょ':['hyo'],'みゃ':['mya'],'みゅ':['myu'],'みょ':['myo'],'りゃ':['rya'],'りゅ':['ryu'],'りょ':['ryo'],'ぎゃ':['gya'],'ぎゅ':['gyu'],'ぎょ':['gyo'],'じゃ':['ja','zya','jya'],'じゅ':['ju','zyu','jyu'],'じょ':['jo','zyo','jyo'],'びゃ':['bya'],'びゅ':['byu'],'びょ':['byo'],'ぴゃ':['pya'],'ぴゅ':['pyu'],'ぴょ':['pyo'],'ぢゃ':['ja','dya'],'ぢゅ':['ju','dyu'],'ぢょ':['jo','dyo'],
+    /* TSWORDS_V1 がいらいごの 小さい字 */ 'てぃ':['thi'],'でぃ':['dhi'],'でゅ':['dhu'],'ふぁ':['fa'],'ふぃ':['fi'],'ふぇ':['fe'],'ふぉ':['fo'],'うぃ':['wi'],'うぇ':['we'],'うぉ':['who'],'しぇ':['she','sye'],'ちぇ':['che','tye'],'じぇ':['je','zye'] };
   function romaPatterns(word) {
     var sets = []; var i = 0; var dbl = false;
     while (i < word.length) {
@@ -59,6 +60,91 @@
     var t = minT + Math.floor(Math.random() * (maxT - minT + 1));
     var arr = TIERS[t];
     return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  /* ===== TSCOURSE_V1 : コース（みじかい・ふつう・ながい）と「単元のことば」 ===== */
+  var DISP = {};                    /* よみ → 表記（漢字） */
+  var SRC = { c: 'mix', unit: null }; /* ひとりで あそぶ ときの ことば */
+  var COURSE_DMG = { short: 10, normal: 15, long: 20, unit: 15, mix: 15 };
+  var COURSE_JA = { short: 'みじかい', normal: 'ふつう', long: 'ながい', unit: '単元', mix: 'いつもの' };
+  function escH(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function unitById(id) { var L = window.TS_UNIT_WORDS || []; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; return null; }
+  var _lastPick = '';
+  function unitPick(id) {
+    var u = unitById(id); if (!u || !u.w.length) return pickWord(4);
+    var w = u.w[Math.floor(Math.random() * u.w.length)];
+    if (w[1] === _lastPick && u.w.length > 1) w = u.w[Math.floor(Math.random() * u.w.length)];
+    _lastPick = w[1]; DISP[w[1]] = w[0]; return w[1];
+  }
+  function coursePick(c) {
+    var arr = c === 'short' ? TIERS[0].concat(TIERS[1]) : c === 'long' ? TIERS[3].concat(TIERS[4]) : TIERS[1].concat(TIERS[2]);
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+  function srcPick(src, stage) {
+    if (src && src.c === 'unit' && src.unit) return unitPick(src.unit);
+    if (src && (src.c === 'short' || src.c === 'normal' || src.c === 'long')) return coursePick(src.c);
+    return pickWord(stage || 1);
+  }
+  /* 漢字が ある ことばは 漢字を 大きく、よみを 小さく 出す */
+  function wordHtml(w) {
+    var d = DISP[w];
+    if (d && d !== w) return '<div style="line-height:1.15">' + escH(d) + '</div><div style="font-size:.5em;line-height:1.3;margin-top:3px;color:#cbd5e1;letter-spacing:1px;font-weight:700">' + escH(w) + '</div>';
+    return escH(w);
+  }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  /* ことば えらび画面。vs=true なら コースと ハンデも えらぶ。cb({c, unit, handi}) */
+  function tsPicker(host, vs, cb) {
+    var old = document.getElementById('tsPick'); if (old) old.remove();
+    var L = window.TS_UNIT_WORDS || [];
+    var box = document.createElement('div'); box.id = 'tsPick';
+    box.style.cssText = 'position:absolute;inset:0;z-index:20;background:rgba(2,6,23,.96);color:#f1f5f9;overflow:auto;padding:14px 14px 24px;font-family:system-ui,sans-serif';
+    var st = { sk: null, g: Number(window.__userGrade) || 6, handi: lsGet('tsHandi') === '1' };
+    var done = false, timer = null, left = 30;
+    function finish(o) { if (done) return; done = true; if (timer) clearInterval(timer); o.handi = !!st.handi; lsSet('tsLastSrc', JSON.stringify({ c: o.c, unit: o.unit || null })); try { box.remove(); } catch (e) {} cb(o); }
+    function btn(label, bg, on) { var b = document.createElement('button'); b.textContent = label; b.style.cssText = 'border:none;border-radius:10px;padding:10px 14px;margin:4px;font-size:15px;font-weight:800;cursor:pointer;color:#fff;background:' + bg; b.onclick = on; return b; }
+    function sec(t) { var d = document.createElement('div'); d.style.cssText = 'margin:12px 0 4px;font-size:13px;color:#94a3b8;font-weight:700'; d.textContent = t; return d; }
+    function draw() {
+      box.innerHTML = '';
+      var h = document.createElement('div'); h.style.cssText = 'font-size:20px;font-weight:900;color:#a78bfa;text-align:center'; h.textContent = 'どの ことばで あそぶ？'; box.appendChild(h);
+      if (vs) { var t = document.createElement('div'); t.id = 'tsPickLeft'; t.style.cssText = 'text-align:center;font-size:12px;color:#64748b;margin-top:2px'; t.textContent = left + 'びょうで「ふつう」に なるよ'; box.appendChild(t); }
+      var last = null; try { last = JSON.parse(lsGet('tsLastSrc') || 'null'); } catch (e) {}
+      if (last && last.c === 'unit' && unitById(last.unit)) { box.appendChild(sec('この前の つづき')); box.appendChild(btn('↩ ' + unitById(last.unit).name, '#0f766e', function () { finish({ c: 'unit', unit: last.unit }); })); }
+      if (vs) {
+        box.appendChild(sec('⌨ コース（ことばの ながさ）'));
+        var row = document.createElement('div');
+        row.appendChild(btn('みじかい（ダメージ10）', '#16a34a', function () { finish({ c: 'short' }); }));
+        row.appendChild(btn('ふつう（ダメージ15）', '#2563eb', function () { finish({ c: 'normal' }); }));
+        row.appendChild(btn('ながい（ダメージ20）', '#dc2626', function () { finish({ c: 'long' }); }));
+        box.appendChild(row);
+        var hl = document.createElement('label'); hl.style.cssText = 'display:block;margin:10px 4px 0;font-size:14px;cursor:pointer';
+        hl.innerHTML = '<input type="checkbox" id="tsHandiChk" style="transform:scale(1.4);margin-right:8px"' + (st.handi ? ' checked' : '') + '>🛡 ハンデ（うける ダメージが はんぶん。あいてにも 見えるよ）';
+        box.appendChild(hl);
+        hl.querySelector('input').onchange = function (e) { st.handi = !!e.target.checked; lsSet('tsHandi', st.handi ? '1' : '0'); };
+      } else {
+        box.appendChild(sec('⌨ いつもの ことば'));
+        box.appendChild(btn('いつもの ことば（ステージで ながくなる）', '#6d28d9', function () { finish({ c: 'mix' }); }));
+      }
+      box.appendChild(sec('📚 べんきょうした ことばで（社会・理科の 単元）'));
+      var r2 = document.createElement('div');
+      r2.appendChild(btn('📚 社会の ことば', st.sk === 'social' ? '#b45309' : '#78350f', function () { st.sk = 'social'; draw(); }));
+      r2.appendChild(btn('🔬 理科の ことば', st.sk === 'science' ? '#0e7490' : '#164e63', function () { st.sk = 'science'; draw(); }));
+      box.appendChild(r2);
+      if (st.sk) {
+        var gs = {}; L.forEach(function (u) { if (u.sk === st.sk) gs[u.g] = 1; });
+        var gl = Object.keys(gs).map(Number).sort(function (a, b) { return a - b; });
+        if (gl.indexOf(st.g) < 0) st.g = gl[0];
+        var r3 = document.createElement('div'); r3.style.marginTop = '6px';
+        gl.forEach(function (g) { var b = btn(g <= 6 ? g + '年' : '中' + (g - 6), g === st.g ? '#475569' : '#1e293b', function () { st.g = g; draw(); }); b.style.padding = '6px 12px'; b.style.fontSize = '13px'; r3.appendChild(b); });
+        box.appendChild(r3);
+        var r4 = document.createElement('div'); r4.style.cssText = 'display:flex;flex-wrap:wrap;margin-top:4px';
+        L.forEach(function (u) { if (u.sk !== st.sk || u.g !== st.g) return; var b = btn(u.name, st.sk === 'social' ? '#92400e' : '#155e75', function () { finish({ c: 'unit', unit: u.id }); }); b.style.fontSize = '14px'; b.style.textAlign = 'left'; r4.appendChild(b); });
+        box.appendChild(r4);
+      }
+    }
+    draw();
+    host.appendChild(box);
+    if (vs) timer = setInterval(function () { left--; var t = document.getElementById('tsPickLeft'); if (t) t.textContent = left + 'びょうで「ふつう」に なるよ'; if (left <= 0) finish({ c: 'normal' }); }, 1000);
   }
   function stageSpeed(stage) { return Math.min(0.18, 0.06 + 0.004 * (stage - 1)); }
   function stageInterval(stage) { return Math.max(2000, 5500 - 220 * (stage - 1)); }
@@ -200,9 +286,9 @@
   }
 
   function setWord() {
-    S.word = pickWord(S.stage);
+    S.word = srcPick(SRC, S.stage);
     S.pats = romaPatterns(S.word); S.typed = '';
-    if (el('tsWord')) el('tsWord').textContent = S.word;
+    if (el('tsWord')) el('tsWord').innerHTML = wordHtml(S.word);
     if (el('tsHint')) el('tsHint').textContent = 'れい：' + S.pats[0];
     renderTyped();
   }
@@ -311,7 +397,7 @@
   }
   function spawnEnemyWord() {
     var f = el('tsField'); if (!f || !S.ready) return;
-    var w = pickWord(S.stage);
+    var w = srcPick(SRC, S.stage);
     var pats = romaPatterns(w);
     var atkEl = (S.enemyParty[S.enemyIdx] && S.enemyParty[S.enemyIdx].el) || S.enemyType || 'normal';
     var eff = effFactor(atkEl, S.baseType);
@@ -321,7 +407,7 @@
     var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
     box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid ' + border + ';border-radius:8px;padding:2px 8px;text-align:center;min-width:52px' + (eff.f >= 2 ? ';box-shadow:0 0 9px #f87171' : '');
     var tag = eff.f >= 2 ? '<div style="font-size:10px;font-weight:800;color:#fecaca">⚠ばつぐん</div>' : (eff.f <= 0.5 ? '<div style="font-size:10px;color:#bfdbfe">いまひとつ</div>' : '');
-    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(atkEl) + '</div>' + tag + '<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + w + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(atkEl) + '</div>' + tag + '<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + wordHtml(w) + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
     f.appendChild(box);
     S.missiles.push({ node: box, dir: 'down', y: 18, word: w, pats: pats, inEff: eff.f, atkEl: atkEl });
   }
@@ -363,7 +449,15 @@
     }
   }
 
-  function startGame() { try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}
+  function startGame(again) {
+    /* TSCOURSE_V1 さいしょに ことばを えらぶ（「もういちど」は 同じ ことばで） */
+    if (again !== true) {
+      try { var _p0 = window.getPlayer && window.getPlayer(); if (!_p0 || Number(_p0.gymTickets || 0) < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } } catch (e) {}
+      build(); el('tsOverlay').style.display = 'flex'; el('tsResult').style.display = 'none'; S.open = false;
+      tsPicker(el('tsOverlay'), false, function (o) { SRC = { c: o.c, unit: o.unit || null }; startGame(true); });
+      return;
+    }
+    try { var _p = window.getPlayer && window.getPlayer(); var _t = _p ? Number(_p.gymTickets || 0) : 0; if (!_p || _t < 1) { alert('タイプシュート（エンドレス）には🎫バトルチケットが必要です！ショップで買ってね。'); return; } _p.gymTickets = _t - 1; if (window.saveData) window.saveData(); if (window.updateDisplay) window.updateDisplay(); } catch(e) {}
     build();
     S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0; S.score = 0;
     el('tsOverlay').style.display = 'flex';
@@ -403,13 +497,15 @@
       '<div style="font-size:26px;font-weight:800;color:#fbbf24">ステージ ' + S.stage + ' まで とうたつ！</div>' +
       '<div style="font-size:30px;font-weight:900;color:#86efac;margin-top:8px">スコア ' + (S.score || 0) + '</div>' +
       '<div style="font-size:13px;color:#94a3b8;margin-top:2px">' + (isNewBest ? '🎉 ベスト更新！' : 'ベスト ' + best) + '</div>' +
-      '<div style="font-size:14px;color:#94a3b8;margin-top:6px">よく がんばったね！</div>' +
+      '<div style="font-size:14px;color:#94a3b8;margin-top:6px">' + (SRC.c === 'unit' && unitById(SRC.unit) ? '「' + escH(unitById(SRC.unit).name) + '」の ことばで よく がんばったね！' : 'よく がんばったね！') + '</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
         '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど（🎫1まい）</button>' +
+        '<button id="tsRetry2" style="background:#0f766e;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">ことばを かえる</button>' +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
       '</div>';
     r.style.display = 'flex';
-    el('tsRetry').onclick = startGame; el('tsBack').onclick = closeGame;
+    el('tsRetry').onclick = function () { startGame(true); }; el('tsBack').onclick = closeGame;
+    var _rc = el('tsRetry2'); if (_rc) _rc.onclick = function () { startGame(); };
   }
   function closeGame() {
     try { var _pc = window.getPlayer && window.getPlayer(); if (_pc && (S.score||0) > Number(_pc._cachedTypeShootScore||0)) { _pc._cachedTypeShootScore = S.score||0; if (window.saveData) window.saveData(); } } catch(e){}
@@ -488,9 +584,9 @@
     }
   }
   function vSetWord() {
-    V.word = pickWord(1 + Math.floor(Math.random() * 9));
+    V.word = V.src ? srcPick(V.src, 1 + Math.floor(Math.random() * 9)) : pickWord(1 + Math.floor(Math.random() * 9));
     V.pats = romaPatterns(V.word); V.typed = '';
-    if (el('tsvWord')) el('tsvWord').textContent = V.word;
+    if (el('tsvWord')) el('tsvWord').innerHTML = wordHtml(V.word);
     if (el('tsvHint')) el('tsvHint').textContent = 'れい：' + V.pats[0];
     vRenderTyped();
   }
@@ -499,16 +595,19 @@
     if (el('tsvOppBar')) el('tsvOppBar').style.width = Math.max(0, V.oppHp) + '%';
     if (el('tsvMyBar')) el('tsvMyBar').style.width = Math.max(0, V.myHp) + '%';
   }
-  function vSpawnIncoming(word, ty) {
+  function vSpawnIncoming(word, ty, disp, dmg) {
     var f = el('tsvField'); if (!f) return;
+    if (disp) DISP[word] = String(disp).slice(0, 40);
     var pats = romaPatterns(word);
     var col = TYPE_COLOR[ty] || '#9ca3af';
     var box = document.createElement('div');
     var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
-    box.style.cssText = 'position:absolute;left:' + x + 'px;top:18px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
-    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + word + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
+    /* まだ スタート前に とどいた 弾は 上に ならべて、じゅんばんに 落ちてくるように */
+    var y0 = 18; if (!V.ready) { var pend = 0; for (var pi = 0; pi < V.missiles.length; pi++) if (V.missiles[pi].dir === 'down') pend++; y0 = 18 - 90 * pend; }
+    box.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y0 + 'px;background:#7f1d1d;border:2px solid #fca5a5;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + wordHtml(word) + '</div><div style="font-size:11px;color:#fecaca;letter-spacing:1px">' + pats[0] + '</div>';
     f.appendChild(box);
-    V.missiles.push({ node: box, y: 18, word: word, pats: pats, dir: 'down' });
+    V.missiles.push({ node: box, y: y0, word: word, pats: pats, dir: 'down', dmg: dmg || 15 });
   }
   /* 自分が撃った弾を自分の画面にも出す（相手には vSpawnIncoming で出ている） */
   function vSpawnMine(word, ty, sprite) {
@@ -519,13 +618,14 @@
     var x = 14 + Math.random() * Math.max(10, (f.clientWidth - 110));
     var y = Math.max(18, fh - 74);
     box.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px;background:#14532d;border:2px solid #86efac;border-radius:8px;padding:2px 8px;text-align:center;min-width:52px';
-    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + (sprite || '') + word + '</div>';
+    box.innerHTML = '<div style="font-size:10px;font-weight:800;color:#fff;background:' + col + ';border-radius:7px;padding:0 6px;display:inline-block;margin-bottom:1px">' + typeJa(ty) + '</div><div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:1px">' + (sprite || '') + escH(DISP[word] || word) + '</div>';
     f.appendChild(box);
     V.missiles.push({ node: box, y: y, word: word, pats: [], dir: 'up' });
   }
   function vFire() {
     var mon = vMyMon();
-    vSend({ k: 'f', w: V.word, ty: mon.el, from: V.role }, 0);
+    var _c = (V.src && V.src.c) || 'normal';
+    vSend({ k: 'f', w: V.word, ty: mon.el, from: V.role, d: (DISP[V.word] && DISP[V.word] !== V.word) ? DISP[V.word] : undefined, p: COURSE_DMG[_c] || 15 }, 0);
     var f = el('tsvField'); if (f) fxFloat(f.clientWidth / 2 - 24, f.clientHeight - 74, 'はっしゃ！' + mon.sprite, '#fca5a5');
     vSpawnMine(V.word, mon.el, mon.sprite);
     vSetWord();
@@ -545,14 +645,15 @@
           continue;
         }
         mo.y += speed; mo.node.style.top = mo.y + 'px';
-        if (mo.y >= fh - 40) { vHitMe(); try { mo.node.remove(); } catch (e) {} V.missiles.splice(i, 1); }
+        if (mo.y >= fh - 40) { vHitMe(mo.dmg); try { mo.node.remove(); } catch (e) {} V.missiles.splice(i, 1); }
       }
     }
     V.raf = requestAnimationFrame(vLoop);
   }
-  function vHitMe() {
+  function vHitMe(base) {
     var f = el('tsvField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); }
-    vSend({ k: 'h' }, 15);
+    var dm = Math.max(1, Math.min(20, Number(base) || 15)); if (V && V.handi) dm = Math.round(dm / 2);
+    vSend({ k: 'h' }, dm);
   }
   function vKey(e) {
     if (!V || V.ended) return;
@@ -624,13 +725,16 @@
         if (ctx.mine[ev.id]) continue;
         var m = null; try { m = ev.meta_json ? JSON.parse(ev.meta_json) : null; } catch (e) {}
         if (m && m.from === ctx.role) continue;
-        if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal');
+        if (m && m.k === 'f') vSpawnIncoming(m.w, m.ty || 'normal', m.d, m.p);
+        if (m && m.k === 'c') vOppCfg(m);
       }
       if (maxId > ctx.lastEventId) ctx.lastEventId = maxId;
       if (!ctx.synced && evs.length < 50) ctx.synced = true;
       if (room.status === 'finished' || room.winner) vFinish(room.winner);
     }).catch(function () {}).then(function () { vPollDone(ctx); });
   }
+  function vInfo() { if (el('tsvInfo')) el('tsvInfo').textContent = 'あいて：' + (V.oppName || '???') + (V.oppCfg ? '（' + V.oppCfg + '）' : '') + (V.myCfg ? '　' + V.myCfg : ''); }
+  function vOppCfg(m) { V.oppCfg = String(m.n || COURSE_JA[m.c] || '').slice(0, 30) + (m.h ? '・🛡ハンデ' : ''); vInfo(); }
   function vFinish(winner) {
     if (!V || V.ended) return; V.ended = true;
     if (V.raf) cancelAnimationFrame(V.raf);
@@ -700,10 +804,19 @@
       var vkb = el('tsvKbd');
       if (vkb) { vkb.removeEventListener('input', vSoftInput); vkb.addEventListener('input', vSoftInput); }
       el('tsvOverlay').addEventListener('touchend', vFocusKbd);
-      vFocusKbd();
       V.raf = requestAnimationFrame(vLoop);
       vPoll(); /* 初回は即時。以後は応答が返ってから自己再帰でスケジュールする */
-      vCountdown(3);
+      /* TSCOURSE_V1 コースを えらんでから カウントダウン */
+      var _ctx = V;
+      tsPicker(el('tsvOverlay'), true, function (o) {
+        if (_ctx !== V || V.ended) return;
+        V.src = { c: o.c, unit: o.unit || null }; V.handi = !!o.handi;
+        var nm = o.c === 'unit' && unitById(o.unit) ? unitById(o.unit).name : COURSE_JA[o.c];
+        V.myCfg = 'じぶん：' + nm + (V.handi ? '・🛡ハンデ' : '');
+        vInfo();
+        vSend({ k: 'c', c: o.c, n: nm, h: V.handi ? 1 : 0, from: V.role }, 0);
+        vSetWord(); vFocusKbd(); vCountdown(3);
+      });
     } catch (e) { console.error('[TypeShoot VS] start error', e); }
   }
   window.startTypeShootVS = startTypeShootVS;
