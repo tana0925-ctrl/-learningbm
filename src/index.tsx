@@ -10337,6 +10337,9 @@ app.post('/api/teacher/contact-note', async (c) => {
   const dayKey = String(body.dayKey || '').trim()
   const rewardDeadline = body.rewardDeadline || null
   const rewardCoins = Number(body.rewardCoins) || 5
+  // CONTACT_SCHEDULE_V1 送信予約：未来の 時刻なら その時まで 子どもに 見せない（UTC 'YYYY-MM-DD HH:MM:SS'）
+  let publishAt: string | null = null
+  if (body.publishAt) { const t = Date.parse(String(body.publishAt)); if (isFinite(t) && t > Date.now() + 30000 && t < Date.now() + 60 * 86400000) publishAt = new Date(t).toISOString().slice(0, 19).replace('T', ' ') }
   if (!classId || !text || !dayKey) return jsonError(c, 400, 'classId_body_dayKey_required')
   // classIdが自分のクラスか確認（管理者も含む全員）
   const cls = u.role === 'admin'
@@ -10345,9 +10348,9 @@ app.post('/api/teacher/contact-note', async (c) => {
   if (!cls) return jsonError(c, 403, 'not_your_class')
   const id = crypto.randomUUID()
   await c.env.DB.prepare(
-    `INSERT INTO contact_notes (id, class_id, teacher_id, day_key, body, reward_deadline, reward_coins) VALUES (?,?,?,?,?,?,?)`
-  ).bind(id, classId, u.id, dayKey, text, rewardDeadline, rewardCoins).run()
-  return c.json({ ok: true, id })
+    `INSERT INTO contact_notes (id, class_id, teacher_id, day_key, body, reward_deadline, reward_coins, publish_at) VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(id, classId, u.id, dayKey, text, rewardDeadline, rewardCoins, publishAt).run()
+  return c.json({ ok: true, id, publishAt })
 })
 
 // 教師: 連絡帳一覧（自分のクラス）
@@ -10359,7 +10362,7 @@ app.get('/api/teacher/contact-notes', async (c) => {
   let res
   if (classId) {
     res = await c.env.DB.prepare(
-      `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+      `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, cn.publish_at as publishAt, c.name as className
        FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
        WHERE cn.class_id = ? ${isAdmin ? '' : 'AND cn.teacher_id = ?'}
        ORDER BY cn.created_at DESC LIMIT 30`
@@ -10367,12 +10370,12 @@ app.get('/api/teacher/contact-notes', async (c) => {
   } else {
     res = isAdmin
       ? await c.env.DB.prepare(
-          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, cn.publish_at as publishAt, c.name as className
            FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
            ORDER BY cn.created_at DESC LIMIT 30`
         ).all<any>()
       : await c.env.DB.prepare(
-          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, c.name as className
+          `SELECT cn.id, cn.class_id as classId, cn.day_key as dayKey, cn.body, cn.reward_deadline as rewardDeadline, cn.reward_coins as rewardCoins, cn.created_at as createdAt, cn.publish_at as publishAt, c.name as className
            FROM contact_notes cn LEFT JOIN classes c ON c.id = cn.class_id
            WHERE cn.teacher_id = ?
            ORDER BY cn.created_at DESC LIMIT 30`
@@ -10427,8 +10430,8 @@ app.get('/api/student/contact-notes', async (c) => {
             cnr.read_at as readAt, cnr.reward_claimed as rewardClaimed
      FROM contact_notes cn
      LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ?
-     WHERE cn.class_id = ?
-     ORDER BY cn.created_at DESC LIMIT 50`
+     WHERE cn.class_id = ? AND (cn.publish_at IS NULL OR cn.publish_at <= datetime('now'))
+     ORDER BY COALESCE(cn.publish_at, cn.created_at) DESC LIMIT 50`
   ).bind(u.id, classId).all<any>()
   return c.json({ ok: true, notes: res.results })
 })
@@ -10442,7 +10445,7 @@ app.post('/api/student/contact-note/:id/read', async (c) => {
   const existing = await c.env.DB.prepare(`SELECT reward_claimed FROM contact_note_reads WHERE user_id=? AND note_id=? LIMIT 1`).bind(u.id, noteId).first<any>()
   if (existing) return c.json({ ok: true, alreadyRead: true, reward: 0 })
   // 連絡帳情報を取得
-  const note = await c.env.DB.prepare(`SELECT reward_deadline, reward_coins FROM contact_notes WHERE id=? LIMIT 1`).bind(noteId).first<any>()
+  const note = await c.env.DB.prepare(`SELECT reward_deadline, reward_coins FROM contact_notes WHERE id=? AND (publish_at IS NULL OR publish_at <= datetime('now')) LIMIT 1`).bind(noteId).first<any>()
   if (!note) return jsonError(c, 404, 'not_found')
   const now = new Date().toISOString()
   let reward = 0
@@ -13602,7 +13605,17 @@ app.get('/teacher', (c) => {
               </div>
             </div>
             <textarea id="cnBody" class="w-full border p-2 rounded text-sm" rows="4" placeholder="明日の持ち物や連絡事項を入力..."></textarea>
-            <button onclick="sendContactNote()" class="bg-blue-500 hover:bg-blue-600 text-white rounded px-4 py-2 font-bold text-sm">📓 送信</button>
+            <div class="flex flex-wrap items-end gap-2 bg-amber-50 border border-amber-200 rounded p-2">
+              <div>
+                <label class="text-xs font-bold text-amber-700">⏰ 送信予約（空なら すぐ 送信）</label>
+                <input id="cnPublishAt" type="datetime-local" class="border p-2 rounded text-sm bg-white" onchange="cnSchedLabel()"/>
+              </div>
+              <button type="button" class="text-xs border border-amber-400 bg-white rounded px-2 py-1" onclick="cnPreset(0,15,30)">今日 15:30</button>
+              <button type="button" class="text-xs border border-amber-400 bg-white rounded px-2 py-1" onclick="cnPreset(0,16,0)">今日 16:00</button>
+              <button type="button" class="text-xs border border-amber-400 bg-white rounded px-2 py-1" onclick="cnPreset(1,7,0)">明日 7:00</button>
+              <button type="button" class="text-xs border border-slate-300 bg-white rounded px-2 py-1" onclick="document.getElementById('cnPublishAt').value='';cnSchedLabel()">予約なし</button>
+            </div>
+            <button id="cnSendBtn" onclick="sendContactNote()" class="bg-blue-500 hover:bg-blue-600 text-white rounded px-4 py-2 font-bold text-sm">📓 送信</button>
             <p id="cnMsg" class="text-sm"></p>
           </div>
         </div>
@@ -18273,10 +18286,11 @@ function _faKarteGraphs(d){
           for(var i=0;i<data.notes.length;i++){
             var n = data.notes[i];
             var card = document.createElement('div');
-            card.className = 'border rounded-lg p-3 bg-blue-50 border-blue-200';
+            var sched = cnFuture(n.publishAt);   // CONTACT_SCHEDULE_V1
+            card.className = sched ? 'border-2 border-dashed rounded-lg p-3 bg-amber-50 border-amber-300' : 'border rounded-lg p-3 bg-blue-50 border-blue-200';
             var deadlineStr = n.rewardDeadline ? '<span class="text-xs text-orange-600">報酬締切: '+escH(n.rewardDeadline).slice(0,16)+'</span>' : '';
             card.innerHTML = '<div class="flex items-center justify-between mb-1">'
-              + '<div class="font-bold text-sm">'+escH(n.dayKey)+' <span class="text-xs text-slate-400">'+escH(n.className||'')+'</span></div>'
+              + '<div class="font-bold text-sm">'+escH(n.dayKey)+' <span class="text-xs text-slate-400">'+escH(n.className||'')+'</span>'+(sched ? ' <span class="text-xs bg-amber-200 text-amber-800 px-1 rounded">⏰ '+escH(cnFmtUtc(n.publishAt))+' に 送信予定（まだ 子どもには 見えない）</span>' : (n.publishAt ? ' <span class="text-xs text-slate-400">（予約送信 '+escH(cnFmtUtc(n.publishAt))+'）</span>' : ''))+'</div>'
               + '<div class="flex items-center gap-2">'
               + '<span class="text-xs bg-blue-100 text-blue-700 px-1 rounded">💰 '+n.rewardCoins+'コイン</span>'
               + deadlineStr
@@ -18290,6 +18304,13 @@ function _faKarteGraphs(d){
         }catch(e){ wrap.innerHTML='<p class="text-xs text-red-600">読み込みエラー</p>'; }
       }
 
+      // CONTACT_SCHEDULE_V1 送信予約
+      function cnLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+      function cnPreset(addDay,h,mi){ var d=new Date(); d.setDate(d.getDate()+addDay); d.setHours(h,mi,0,0); if(d.getTime()<=Date.now()) d.setDate(d.getDate()+1); document.getElementById('cnPublishAt').value=cnLocal(d); cnSchedLabel(); }
+      function cnSchedLabel(){ var v=document.getElementById('cnPublishAt').value, b=document.getElementById('cnSendBtn'); if(!b) return; if(v && new Date(v).getTime()>Date.now()){ var d=new Date(v); b.textContent='⏰ '+(d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0')+' に 送信予約'; b.className='bg-amber-500 hover:bg-amber-600 text-white rounded px-4 py-2 font-bold text-sm'; } else { b.textContent='📓 送信'; b.className='bg-blue-500 hover:bg-blue-600 text-white rounded px-4 py-2 font-bold text-sm'; } }
+      function cnFmtUtc(s){ try{ var d=new Date(Date.parse(String(s).replace(' ','T')+'Z')); return (d.getMonth()+1)+'/'+d.getDate()+'（'+'日月火水木金土'[d.getDay()]+'）'+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return String(s); } }
+      function cnFuture(s){ try{ return !!s && Date.parse(String(s).replace(' ','T')+'Z') > Date.now(); }catch(e){ return false; } }
+
       async function sendContactNote(){
         var msg = document.getElementById('cnMsg');
         msg.textContent=''; msg.className='text-sm';
@@ -18301,11 +18322,16 @@ function _faKarteGraphs(d){
         if(!classId){ msg.textContent='クラスを選択してください'; msg.className='text-sm text-red-600'; return; }
         if(!dayKey){ msg.textContent='日付を入力してください'; msg.className='text-sm text-red-600'; return; }
         if(!body){ msg.textContent='連絡内容を入力してください'; msg.className='text-sm text-red-600'; return; }
+        var pv = document.getElementById('cnPublishAt').value, pub = null, note2 = '';
+        if(pv){ var pd = new Date(pv); if(pd.getTime() <= Date.now() + 30000){ msg.textContent='予約の 時刻が 過ぎています（すぐ 送るなら「予約なし」に）'; msg.className='text-sm text-red-600'; return; } pub = pd.toISOString(); }
+        // 予約より 前の 報酬締切は 意味が ないので、予約日の 同じ 時刻に ずらす
+        if(pub && deadline && new Date(deadline).getTime() <= new Date(pub).getTime()){ var dd = new Date(deadline), pd2 = new Date(pub); dd.setFullYear(pd2.getFullYear(), pd2.getMonth(), pd2.getDate()); if(dd.getTime() <= pd2.getTime()) dd.setDate(dd.getDate()+1); deadline = cnLocal(dd); document.getElementById('cnDeadline').value = deadline; note2 = '（報酬締切を '+(dd.getMonth()+1)+'/'+dd.getDate()+' '+dd.getHours()+':'+String(dd.getMinutes()).padStart(2,'0')+' に ずらしました）'; }
         var rewardDeadline = deadline ? new Date(deadline).toISOString() : null;
         try{
-          await api('/api/teacher/contact-note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,dayKey:dayKey,body:body,rewardDeadline:rewardDeadline,rewardCoins:coins})});
-          msg.textContent='送信しました！'; msg.className='text-sm text-green-700';
+          await api('/api/teacher/contact-note',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({classId:classId,dayKey:dayKey,body:body,rewardDeadline:rewardDeadline,rewardCoins:coins,publishAt:pub})});
+          msg.textContent=(pub ? '⏰ '+cnFmtUtc(new Date(pub).toISOString().slice(0,19).replace('T',' '))+' に 送信予約しました。その時刻まで 子どもには 見えません。' : '送信しました！')+note2; msg.className='text-sm text-green-700';
           document.getElementById('cnBody').value='';
+          document.getElementById('cnPublishAt').value=''; cnSchedLabel();
           loadContactNotes();
         }catch(e){ msg.textContent='送信エラー: '+String(e.message||e); msg.className='text-sm text-red-600'; }
       }
@@ -19419,7 +19445,7 @@ app.get('/api/teacher/student-screen-preview', async (c) => {
 
   // --- 連絡帳 ---
   const notes = await _tspAll(c,
-    'SELECT cn.id, cn.day_key AS dayKey, cn.body, cn.reward_deadline AS rewardDeadline, cn.reward_coins AS rewardCoins, cn.created_at AS createdAt, cnr.read_at AS readAt, cnr.reward_claimed AS rewardClaimed FROM contact_notes cn LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ? WHERE cn.class_id = ? ORDER BY cn.created_at DESC LIMIT 10',
+    'SELECT cn.id, cn.day_key AS dayKey, cn.body, cn.reward_deadline AS rewardDeadline, cn.reward_coins AS rewardCoins, cn.created_at AS createdAt, cnr.read_at AS readAt, cnr.reward_claimed AS rewardClaimed FROM contact_notes cn LEFT JOIN contact_note_reads cnr ON cnr.note_id = cn.id AND cnr.user_id = ? WHERE cn.class_id = ? AND (cn.publish_at IS NULL OR cn.publish_at <= datetime(\'now\')) ORDER BY COALESCE(cn.publish_at, cn.created_at) DESC LIMIT 10',
     [studentId, classId])
 
   // --- 今週のメニュー（未配信なら前週にフォールバックするのも児童画面と同じ） ---
