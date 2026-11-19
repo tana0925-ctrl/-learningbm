@@ -11124,8 +11124,8 @@ app.post('/api/summer/shiny-found', async (c) => {
   const monsterName = String((body && body.monsterName) || '').slice(0, 30)
   let finderName = ''
   try {
-    const row = await c.env.DB.prepare(`SELECT name FROM users WHERE id=? LIMIT 1`).bind(u.id).first<any>()
-    finderName = String(row?.name || '').slice(0, 30)
+    // SHINY_SAFE_V1 ログインIDに なりがちな users.name は 保存しない（見せる 名前は 読むときに プレイヤー名から つくる）
+    finderName = 'なかま'
   } catch (e) {}
   if (!finderName) finderName = 'だれか'
   const rec = JSON.stringify({ userId: u.id, name: finderName, monsterName, at: new Date().toISOString() })
@@ -11161,6 +11161,26 @@ async function shinyNewsData(c: any) {
     const arr = b?.value ? JSON.parse(b.value) : []
     if (Array.isArray(arr)) recent = arr.slice(0, 5)
   } catch (e) {}
+  // SHINY_SAFE_V1（2026-11-19）ログインIDや 本名を 見せない：ゲームの プレイヤー名に おきかえ、IDや 本名に にていたら「なかま」に する
+  try {
+    const all = [first].concat(recent).filter((x: any) => x && x.userId)
+    const ids = Array.from(new Set(all.map((x: any) => String(x.userId))))
+    const pn: any = {}, lid: any = {}
+    if (ids.length) {
+      const ph = ids.map(() => '?').join(',')
+      const r1: any = await c.env.DB.prepare('SELECT user_id, json_extract(state_json, \'$.name\') AS pname FROM progress WHERE user_id IN (' + ph + ')').bind(...ids).all()
+      for (const row of ((r1 && r1.results) || [])) pn[String(row.user_id)] = String(row.pname || '')
+      const r2: any = await c.env.DB.prepare('SELECT id, login_id FROM users WHERE id IN (' + ph + ')').bind(...ids).all()
+      for (const row of ((r2 && r2.results) || [])) lid[String(row.id)] = String(row.login_id || '')
+    }
+    let rn: any = {}; try { const q: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = q ? JSON.parse(String(q.value)) : {} } catch (_e) {}
+    // 色違いの 知らせは だれでも 見られるので、名前は 出さない（プレイヤー名でも 本名の 読みに なっている 子が いる）
+    const safe = (x: any) => { if (!x) return x; const id = String(x.userId || ''); void pn; void lid; void rn; return { name: 'クラスの なかま', monsterName: x.monsterName, at: x.at, userId: id } }
+    first = safe(first); recent = recent.map(safe)
+  } catch (e) {
+    first = first ? { name: 'なかま', monsterName: first.monsterName, at: first.at, userId: first.userId } : null
+    recent = recent.map((x: any) => ({ name: 'なかま', monsterName: x && x.monsterName, at: x && x.at, userId: x && x.userId }))
+  }
   return { first, recent }
 }
 
@@ -11208,13 +11228,13 @@ const SHINY_NEWS_JS = `(function(){
     if (!f && (!r || !r.length)) { el.innerHTML = ''; return; }
     var h = '';
     if (r && r.length) {
-      h += '<div style="font-size:12px;color:#334155;margin-top:3px;">つかまえた人：</div>';
+      h += '<div style="font-size:12px;color:#334155;margin-top:3px;">さいきん クラスで つかまった 色違い：</div>';   // SHINY_SAFE_V1 名前は 出さない
       for (var i = 0; i < r.length && i < 5; i++) {
-        h += '<div style="font-size:12px;color:#334155;">・' + esc(r[i].name) + ' さん … ' + esc(r[i].monsterName || '?') + '</div>';
+        h += '<div style="font-size:12px;color:#334155;">・' + esc(r[i].monsterName || '?') + '</div>';
       }
     }
     if (f) {
-      h += '<div style="font-size:11px;color:#7c3aed;margin-top:5px;">はじめて見つけた人：' + esc(f.name) + ' さん（' + esc(f.monsterName || '?') + '）</div>';
+      h += '<div style="font-size:11px;color:#7c3aed;margin-top:5px;">さいしょに 見つかった 色違い：' + esc(f.monsterName || '?') + '</div>';
     }
     el.innerHTML = '<div style="background:#fdf4ff;border:2px solid #e879f9;border-radius:14px;padding:8px 12px;">'
       + '<div style="font-weight:900;color:#a21caf;font-size:13px;">✨ 色違いのきろく ✨</div>' + h + '</div>';
