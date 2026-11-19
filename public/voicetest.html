@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>英語 読み上げ チェック（先生用）</title>
+<style>
+  :root { --bg:#f7f5ef; --card:#fff; --ink:#222; --sub:#666; --ok:#1d8a4e; --ng:#c0392b; --line:#e3ded3; --acc:#2d6cdf; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 6px; }
+  .note { font-size:13px; color:var(--sub); line-height:1.6; margin:0; }
+  .warn { background:#fff4e5; border:1px solid #f0c27a; border-radius:8px; padding:10px 12px; font-size:14px; margin:12px 16px; line-height:1.6; }
+  .bad { background:#fdecea; border-color:#e6a39b; }
+  .ctrl { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin-top:8px; font-size:14px; }
+  select, button { font: inherit; }
+  select { padding:6px; border-radius:6px; border:1px solid var(--line); max-width:100%; }
+  .sum { font-size:14px; font-weight:bold; }
+  main { padding: 0 16px 40px; }
+  h2 { font-size:15px; margin:22px 0 8px; }
+  .row { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:6px; }
+  .txt { flex:1; font-size:16px; }
+  .txt small { display:block; color:var(--sub); font-size:12px; }
+  .play { background:var(--acc); color:#fff; border:none; border-radius:6px; padding:8px 12px; }
+  .j { border:1px solid var(--line); background:#fff; border-radius:6px; padding:8px 10px; }
+  .row.isok { border-color:var(--ok); background:#eef8f1; }
+  .row.isng { border-color:var(--ng); background:#fdf0ee; }
+  .row.isok .j.okb { background:var(--ok); color:#fff; }
+  .row.isng .j.ngb { background:var(--ng); color:#fff; }
+  .caution { color:#b35c00; font-size:12px; }
+  textarea { width:100%; height:120px; font-size:12px; }
+  .stop { background:#444; color:#fff; border:none; border-radius:6px; padding:8px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔊 英語 読み上げ チェック（先生用）</h1>
+  <p class="note">この ページは ▶ を おしたときだけ 音が 出ます。自動では 鳴りません。<br>学校の 端末で 聞いて、正しい ものに「OK」、おかしい ものに「NG」を つけてください（この 端末に 保存されます）。</p>
+  <div class="ctrl">
+    <label>声：<select id="voice"></select></label>
+    <label>音量 <input id="vol" type="range" min="0.1" max="1" step="0.1" value="0.6"></label>
+    <label>速さ <input id="rate" type="range" min="0.6" max="1.1" step="0.05" value="0.85"></label>
+    <button class="stop" id="stop">■ 止める</button>
+    <span class="sum" id="sum"></span>
+  </div>
+</header>
+<div class="warn" id="vinfo">声の 一覧を 読みこみ中…</div>
+<main id="list"></main>
+<main>
+  <h2>結果（コピーして 共有できます）</h2>
+  <textarea id="out" readonly></textarea>
+  <p><button class="j" id="reset">チェックを すべて 消す</button></p>
+</main>
+<script>
+(function () {
+  'use strict';
+  /* 修行 英語3・4年で 使う ことば。say＝読ませる 文字（表示と ちがう ときだけ）、c＝注意点 */
+  var GROUPS = [
+    ['あいさつ・気持ち（3年）', [
+      { t: 'Hello.' }, { t: 'Good morning.' }, { t: 'Good afternoon.' }, { t: 'Good night.' }, { t: 'Goodbye.' }, { t: 'See you.' },
+      { t: 'How are you?' }, { t: "I'm fine." }, { t: "I'm happy." }, { t: "I'm sleepy." }, { t: "I'm hungry." },
+      { t: 'Thank you.' }, { t: 'Nice to meet you.' }
+    ]],
+    ['数 1〜20（3年）', 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'.split(' ').map(function (w) { return { t: w }; })],
+    ['色（3年）', 'red blue yellow green black white purple orange brown pink'.split(' ').map(function (w) { return { t: w }; })],
+    ['形（3年）', 'circle triangle square star heart diamond'.split(' ').map(function (w) { return { t: w }; })],
+    ['曜日（4年）', 'Monday Tuesday Wednesday Thursday Friday Saturday Sunday'.split(' ').map(function (w) { return { t: w }; })],
+    ['好きなもの・たずねる（4年）', [
+      { t: 'I like strawberries.' }, { t: 'Do you like apples?' }, { t: 'Yes, I do.' }, { t: "No, I don't." },
+      { t: 'What do you like?' }, { t: "What's this?" }, { t: 'What time is it?' },
+      { t: "It's three o'clock.", c: '数字の「3」ではなく three と書いて 読ませます' },
+      { t: 'What day is it today?' }
+    ]],
+    ['アルファベット（4年）', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(function (L) { return { t: L + ' / ' + L.toLowerCase(), say: L, c: L === 'A' ? '「ア」「アッ」と 読まれる ことが あるので とくに 注意' : '' }; })]
+  ];
+
+  var KEY = 'voicetest_v1';
+  var marks = {};
+  try { marks = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { marks = {}; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(marks)); } catch (e) {} }
+
+  var synth = window.speechSynthesis;
+  var vsel = document.getElementById('voice'), vinfo = document.getElementById('vinfo');
+  var voices = [];
+  function loadVoices() {
+    if (!synth) { vinfo.className = 'warn bad'; vinfo.textContent = 'この ブラウザは 読み上げ機能に 対応して いません。音声は 使えません。'; vsel.disabled = true; return; }
+    voices = synth.getVoices().filter(function (v) { return /^en[-_]/i.test(v.lang) || v.lang === 'en'; });
+    var keep = vsel.value; vsel.innerHTML = '';
+    voices.forEach(function (v, i) {
+      var o = document.createElement('option'); o.value = String(i);
+      o.textContent = v.name + '（' + v.lang + (v.localService ? '・端末内' : '・ネット') + '）';
+      vsel.appendChild(o);
+    });
+    if (keep && vsel.querySelector('option[value="' + keep + '"]')) vsel.value = keep;
+    else { var us = voices.findIndex(function (v) { return /en[-_]US/i.test(v.lang); }); if (us >= 0) vsel.value = String(us); }
+    if (!voices.length) {
+      vinfo.className = 'warn bad';
+      vinfo.textContent = '⚠ この 端末には 英語の 声が 入って いません。このままでは 日本語の 声で 読まれて しまうので、修行では 🔊ボタンを 出しません。';
+      vsel.disabled = true;
+    } else {
+      vinfo.className = 'warn';
+      vinfo.textContent = '英語の 声が ' + voices.length + ' 種類 見つかりました。「・ネット」の 声は ネットに つながって いないと 鳴らない ことが あります。授業で 使う 端末と 同じ 機種で チェックしてください。';
+      vsel.disabled = false;
+    }
+  }
+  if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; setTimeout(loadVoices, 800); } else loadVoices();
+
+  function speak(text) {
+    if (!synth || !voices.length) return;
+    synth.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    var v = voices[+vsel.value] || voices[0];
+    u.voice = v; u.lang = v.lang;
+    u.volume = +document.getElementById('vol').value;
+    u.rate = +document.getElementById('rate').value;
+    synth.speak(u);
+  }
+  document.getElementById('stop').onclick = function () { if (synth) synth.cancel(); };
+
+  var list = document.getElementById('list');
+  GROUPS.forEach(function (g) {
+    var h = document.createElement('h2'); h.textContent = g[0]; list.appendChild(h);
+    g[1].forEach(function (it) {
+      var id = it.t, row = document.createElement('div'); row.className = 'row';
+      var tx = document.createElement('div'); tx.className = 'txt'; tx.textContent = it.t;
+      if (it.c) { var s = document.createElement('small'); s.className = 'caution'; s.textContent = it.c; tx.appendChild(s); }
+      var pb = document.createElement('button'); pb.className = 'play'; pb.textContent = '▶'; pb.setAttribute('aria-label', it.t + ' を 再生');
+      pb.onclick = function () { speak(it.say || it.t); };
+      var ok = document.createElement('button'); ok.className = 'j okb'; ok.textContent = 'OK';
+      var ng = document.createElement('button'); ng.className = 'j ngb'; ng.textContent = 'NG';
+      function paint() { row.classList.toggle('isok', marks[id] === 'ok'); row.classList.toggle('isng', marks[id] === 'ng'); }
+      ok.onclick = function () { marks[id] = marks[id] === 'ok' ? undefined : 'ok'; save(); paint(); render(); };
+      ng.onclick = function () { marks[id] = marks[id] === 'ng' ? undefined : 'ng'; save(); paint(); render(); };
+      row.appendChild(tx); row.appendChild(pb); row.appendChild(ok); row.appendChild(ng); list.appendChild(row); paint();
+    });
+  });
+  var total = GROUPS.reduce(function (a, g) { return a + g[1].length; }, 0);
+  function render() {
+    var okN = 0, ngN = 0, ngList = [];
+    GROUPS.forEach(function (g) { g[1].forEach(function (it) { if (marks[it.t] === 'ok') okN++; if (marks[it.t] === 'ng') { ngN++; ngList.push(it.t); } }); });
+    document.getElementById('sum').textContent = 'OK ' + okN + '・NG ' + ngN + '・未チェック ' + (total - okN - ngN) + '（全' + total + '）';
+    var v = voices[+vsel.value];
+    document.getElementById('out').value = '【英語 読み上げチェック】\n声：' + (v ? v.name + '（' + v.lang + '）' : 'なし') + '\n端末：' + navigator.userAgent + '\nOK ' + okN + '／NG ' + ngN + '／未 ' + (total - okN - ngN) + '\nNGの ことば：' + (ngList.length ? ngList.join('、') : 'なし');
+  }
+  vsel.onchange = render;
+  document.getElementById('reset').onclick = function () { marks = {}; save(); document.querySelectorAll('.row').forEach(function (r) { r.classList.remove('isok', 'isng'); }); render(); };
+  render();
+})();
+</script>
+</body>
+</html>
