@@ -844,6 +844,23 @@
   var _pjLogged = {};
   function pjLog(kind, msg) { try { var k = kind + msg; if (_pjLogged[k]) return; _pjLogged[k] = 1; fetch('/api/pj/log', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: kind, msg: String(msg || '').slice(0, 480) }) }).catch(function () {}); } catch (_e) {} }
   window.addEventListener('error', function (ev) { pjLog('page_err', (ev && ev.message || '') + ' @' + (ev && ev.lineno || '')); });
+  // 🪶 PJ_LITE3D_V1 タブレットでは 3Dを かるく（にじみ消し＝アンチエイリアスを 切る・画素の 細かさを 1に）。
+  //    見た目は ほぼ 同じで、絵を ためる メモリが 約10分の1 → iPadで 真っ白に なりにくい
+  var PJ_TOUCH = /iPad|iPhone|Android|CrOS/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+function lite3D(w) {
+    try {
+      if (w.__pjLite) return; w.__pjLite = 1;
+      var CP = w.HTMLCanvasElement && w.HTMLCanvasElement.prototype, gc = CP && CP.getContext;
+      if (gc) CP.getContext = function (t, o) { if (/webgl/.test(String(t))) { o = Object.assign({}, o || {}, { antialias: false, powerPreference: 'low-power', preserveDrawingBuffer: false }); } return gc.call(this, t, o); };
+      var T = w.THREE;
+      if (T && T.WebGLRenderer) {
+        var R0 = T.WebGLRenderer;
+        var R1 = function (o) { var r = new R0(Object.assign({}, o || {}, { antialias: false, powerPreference: 'low-power' })); var sp = r.setPixelRatio; r.setPixelRatio = function (v) { return sp.call(r, Math.min(1, Number(v) || 1)); }; try { r.setPixelRatio(1); } catch (_e) {} return r; };
+        R1.prototype = R0.prototype;
+        try { T.WebGLRenderer = R1; } catch (_e) {}
+      }
+    } catch (_e) {}
+  }
   function openGame(f, title, onReady, onClose, withPause) {
     var v = document.createElement('div'); v.id = 'mkv';
     v.innerHTML = '<div class="bar"><button class="btn sub sm" id="mkX">← もどる</button><b>' + title + '</b></div><iframe id="mkF" title="' + esc(title) + '"></iframe><div class="load" id="mkL">ひらいています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span></div>';
@@ -873,6 +890,7 @@
       var l0 = $('mkL'); if (l0) l0.innerHTML = 'じゅんびしています…<br><span style="font-size:13px;opacity:.8">はじめての ときは 少し 時間が かかるよ</span>';
       fr.onload = function () {
         var w = fr.contentWindow;
+        if (PJ_TOUCH) lite3D(w);
         try { w.addEventListener('error', function (ev) { pjLog('game_err', (ev && ev.message || '') + ' @' + (ev && ev.lineno || '')); }); w.addEventListener('unhandledrejection', function (ev) { pjLog('game_rej', String(ev && ev.reason && (ev.reason.message || ev.reason) || '')); }); } catch (_e) {}
         var go = function (n) {
           if (!$('mkF')) return;
