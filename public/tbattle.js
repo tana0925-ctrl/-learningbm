@@ -799,11 +799,9 @@
     // ともだちと たいせん
     h += '<div class="rounded-xl bg-white border-2 border-emerald-200 p-2 mb-2">';
     h += '<div class="text-sm font-bold text-emerald-700">🤝 ともだちと たいせん</div>';
-    h += '<div class="text-[11px] text-slate-500 mb-1">おなじ ターンせいで、ともだちと たたかえます。チケットは いりません（かつと コイン30）。</div>';
-    h += '<div class="flex gap-2">';
-    h += '<button id="tbVsCreate" class="flex-1 py-2 rounded-lg text-white font-bold text-sm" style="background:linear-gradient(180deg,#34d399,#059669)">へやを つくる</button>';
-    h += '<button id="tbVsJoin" class="flex-1 py-2 rounded-lg text-white font-bold text-sm" style="background:linear-gradient(180deg,#60a5fa,#2563eb)">あいことばで はいる</button>';
-    h += '</div></div>';
+    h += '<div class="text-[11px] text-slate-500 mb-1">「友達通信」で「🏅 ジムチャレンジ（ターンせい）形式」を えらぶと、ともだちと たたかえます。チケットは いりません（かつと コイン30）。</div>';
+    h += '<button id="tbGoFriend" class="w-full py-2 rounded-lg text-white font-bold text-sm" style="background:linear-gradient(180deg,#34d399,#059669)">友達通信へ いく</button>';
+    h += '</div>';
 
     // リーダー一覧
     var order = [];
@@ -840,6 +838,15 @@
       h += '<div class="text-xs text-slate-400">ほかの ジムリーダーは じゅんびちゅうです。</div>';
     }
     EL.lobby.innerHTML = h;
+    var gf = EL.lobby.querySelector('#tbGoFriend');
+    if (gf) gf.addEventListener('click', function () {
+      try {
+        vsStopTimers(); S = null; EL.root.classList.add('hidden');
+        if (typeof setMode === 'function') setMode('friend');
+        var r = document.querySelector('input[name="rtBattleType"][value="turn"]');
+        if (r) { r.checked = true; var ga = document.getElementById('rtGradeSubjectArea'); if (ga) ga.style.display = 'none'; }
+      } catch (e) {}
+    });
     var vc = EL.lobby.querySelector('#tbVsCreate');
     if (vc) vc.addEventListener('click', function () { vsCreate(); });
     var vj = EL.lobby.querySelector('#tbVsJoin');
@@ -1688,6 +1695,16 @@
     }
   }
 
+  /* TBRT_V1 友達通信（ロビー）で そろった へやから そのまま はじめる */
+  function vsStartFromRt(code, role, oppName, oppParty) {
+    try {
+      buildScreen(); hideOthers(); EL.root.classList.remove('hidden');
+      try { window.mode = 'tbattle'; } catch (e) {}
+      ensureTb();
+      vsBattleStart(String(code || '').toUpperCase(), role === 'guest' ? 'guest' : 'host', oppName || 'あいて', vsOppIds(oppParty));
+      if (S && S.vs) S.vs.fromRt = true;
+    } catch (e) { log('友達通信からの開始に失敗', e); }
+  }
   function vsFinish(w, msg) {
     if (!S || S.over) return;
     S.over = true;
@@ -1728,7 +1745,13 @@
     EL.field.classList.add('hidden');
     EL.result.classList.remove('hidden');
     EL.result.innerHTML = h;
-    EL.result.querySelector('#tbAgain').addEventListener('click', function () { S = null; showLobby(); });
+    var fromRt = !!(S.vs && S.vs.fromRt);
+    if (fromRt) { try { if (window.__rtTurnEnded) window.__rtTurnEnded(win ? 'win' : (lose ? 'lose' : 'draw')); } catch (e) {} }
+    EL.result.querySelector('#tbAgain').addEventListener('click', function () {
+      S = null;
+      if (fromRt) { try { EL.root.classList.add('hidden'); if (typeof setMode === 'function') setMode('friend'); } catch (e) {} return; }
+      showLobby();
+    });
   }
 
   // --- 待ちうけの画面 ---
@@ -1777,7 +1800,7 @@
         weekStudyDays: tbWeekStudyDays,
         shopRate: tbShopRate,
         applyShopDiscount: tbApplyShopDiscount,
-        vsCreate: vsCreate, vsJoin: vsJoin, FBAND: FBAND,
+        vsCreate: vsCreate, vsJoin: vsJoin, vsStartFromRt: vsStartFromRt, FBAND: FBAND,
         buildUnit: buildUnit, mult: mult, grantTicket: grantTicket, ticketCount: ticketCount
       };
       log('ready');
