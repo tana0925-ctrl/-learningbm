@@ -124,6 +124,7 @@
       } else {
         box.appendChild(sec('⌨ いつもの ことば'));
         box.appendChild(btn('いつもの ことば（ステージで ながくなる）', '#6d28d9', function () { finish({ c: 'mix' }); }));
+        var lf = document.createElement('div'); lf.style.cssText = 'text-align:center;font-size:13px;color:#fbbf24;margin-top:2px'; lf.textContent = 'きょう あと ' + tsPlaysLeft() + 'かい あそべるよ'; box.insertBefore(lf, box.children[1] || null);
       }
       box.appendChild(sec('📚 べんきょうした ことばで（社会・理科の 単元）'));
       var r2 = document.createElement('div');
@@ -449,14 +450,33 @@
     }
   }
 
+  /* TSDAY5_V1 ひとりで あそべるのは 1日5回まで（日本時間で 日付が かわると もどる） */
+  var TS_DAY_MAX = 5;
+  function tsToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+  function tsPlaysLeft() {
+    try { var p = window.getPlayer && window.getPlayer(); if (!p) return TS_DAY_MAX; var r = p._tsPlays; if (!r || r.d !== tsToday()) return TS_DAY_MAX; return Math.max(0, TS_DAY_MAX - Number(r.n || 0)); } catch (e) { return TS_DAY_MAX; }
+  }
+  function tsUsePlay() {
+    try { var p = window.getPlayer && window.getPlayer(); if (!p) return; var d = tsToday(); if (!p._tsPlays || p._tsPlays.d !== d) p._tsPlays = { d: d, n: 0 }; p._tsPlays.n = Number(p._tsPlays.n || 0) + 1; if (window.saveData) window.saveData(); } catch (e) {}
+  }
+  function tsNoMore() {
+    build(); el('tsOverlay').style.display = 'flex'; S.open = false;
+    var r = el('tsResult');
+    r.innerHTML = '<div style="font-size:56px">🌙</div><div style="font-size:24px;font-weight:800;color:#fbbf24">きょうの タイプシュートは おしまい</div>' +
+      '<div style="font-size:15px;color:#cbd5e1;margin-top:8px">1日 ' + TS_DAY_MAX + 'かい まで あそべるよ。また あした！</div>' +
+      '<div style="margin-top:18px"><button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">とじる</button></div>';
+    r.style.display = 'flex'; el('tsBack').onclick = closeGame;
+  }
   function startGame(again) {
+    if (tsPlaysLeft() <= 0) { tsNoMore(); return; }
     /* TSCOURSE_V1 さいしょに ことばを えらぶ（「もういちど」は 同じ ことばで） */
     if (again !== true) {
       build(); el('tsOverlay').style.display = 'flex'; el('tsResult').style.display = 'none'; S.open = false;
       tsPicker(el('tsOverlay'), false, function (o) { SRC = { c: o.c, unit: o.unit || null }; startGame(true); });
       return;
     }
-    /* TSFREE_V1 タイプシュートは チケットなしで あそべる */
+    /* TSFREE_V1 タイプシュートは チケットなしで あそべる（かわりに 1日5回まで） */
+    tsUsePlay();
     build();
     S.open = true; S.ended = false; S.ready = false; S.myHp = 100; S.stage = 1; S.cpuHpMax = stageCpuHpMax(1); S.cpuHp = S.cpuHpMax; S.combo = 0; S.missiles = []; S.last = 0; S.score = 0;
     el('tsOverlay').style.display = 'flex';
@@ -498,12 +518,12 @@
       '<div style="font-size:13px;color:#94a3b8;margin-top:2px">' + (isNewBest ? '🎉 ベスト更新！' : 'ベスト ' + best) + '</div>' +
       '<div style="font-size:14px;color:#94a3b8;margin-top:6px">' + (SRC.c === 'unit' && unitById(SRC.unit) ? '「' + escH(unitById(SRC.unit).name) + '」の ことばで よく がんばったね！' : 'よく がんばったね！') + '</div>' +
       '<div style="margin-top:18px;display:flex;gap:10px">' +
-        '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど</button>' +
-        '<button id="tsRetry2" style="background:#0f766e;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">ことばを かえる</button>' +
+        (tsPlaysLeft() > 0 ? '<button id="tsRetry" style="background:#6d28d9;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">もういちど（あと' + tsPlaysLeft() + 'かい）</button>' : '<div style="align-self:center;color:#fbbf24;font-size:14px">きょうは おしまい。また あした！</div>') +
+        (tsPlaysLeft() > 0 ? '<button id="tsRetry2" style="background:#0f766e;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">ことばを かえる</button>' : '') +
         '<button id="tsBack" style="background:#334155;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer">やめる</button>' +
       '</div>';
     r.style.display = 'flex';
-    el('tsRetry').onclick = function () { startGame(true); }; el('tsBack').onclick = closeGame;
+    if (el('tsRetry')) el('tsRetry').onclick = function () { startGame(true); }; el('tsBack').onclick = closeGame;
     var _rc = el('tsRetry2'); if (_rc) _rc.onclick = function () { startGame(); };
   }
   function closeGame() {
