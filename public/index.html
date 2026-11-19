@@ -50345,7 +50345,9 @@ function genDiv3NoRem(){
   if(p===1)return{q:'□ ÷ '+b+' = '+c+'\n□は？',ans:a};
   return{q:a+' ÷ □ = '+c+'\n□は？',ans:b};
 }
-function genDiv3Rem(){const b=_ri(2,9),c=_ri(2,12),r=_ri(1,b-1);return{q:(b*c+r)+' ÷ '+b+' = ?あまり?\n(5あまり2→52と入力)',ans:c*10+r};}
+function genDiv3Rem(){const b=_ri(2,9),c=_ri(2,12),r=_ri(1,b-1),a=b*c+r;/* QBLANK_V1 商と あまりを 1つずつ きく */
+  if(_ri(0,1)===0)return{q:a+' ÷ '+b+' ＝ □ あまり '+r+'\n□に あてはまる 数は？',ans:c,exp:b+'×'+c+'＝'+(b*c)+'、'+a+'−'+(b*c)+'＝'+r+'。だから '+a+'÷'+b+'＝'+c+' あまり '+r};
+  return{q:a+' ÷ '+b+' ＝ '+c+' あまり □\n□に あてはまる 数は？',ans:r,exp:b+'×'+c+'＝'+(b*c)+'。'+a+'−'+(b*c)+'＝'+r+'（あまりは わる数 '+b+'より 小さい）'};}
 function genLargeNum3(){
   const n=_ri(1000,9999);
   const p=_ri(0,2);
@@ -50355,9 +50357,10 @@ function genLargeNum3(){
 }
 function genWeight3(){
   const p=_ri(0,2);
-  if(p===0){const k=_ri(1,5),g=_ri(1,9)*100;return{q:k+'kg'+g+'gは ぜんぶで何g？',ans:k*1000+g};}
-  if(p===1){const g=_ri(1100,5900);return{q:g+'gは何kgと何g？\n→何kg？(kgだけ答えて)',ans:Math.floor(g/1000)};}
-  const kg=_ri(2,8);return{q:kg+'kgは何g？',ans:kg*1000};
+  /* QBLANK_V1 ネットレと 同じ「□に あてはまる 数」の 形に */
+  if(p===0){const k=_ri(1,5),g=_ri(1,9)*100;return{q:k+'kg '+g+'g ＝ □g\n□に あてはまる 数は？',ans:k*1000+g,exp:'1kg＝1000g。'+k+'kg＝'+(k*1000)+'g、'+(k*1000)+'＋'+g+'＝'+(k*1000+g)+'g'};}
+  if(p===1){const g=_ri(1100,5900),kk=Math.floor(g/1000);return{q:g+'g ＝ □kg '+(g%1000)+'g\n□に あてはまる 数は？',ans:kk,exp:'1000gで 1kg。'+g+'gの 中に 1000gが '+kk+'こ ある ので '+kk+'kg、のこりが '+(g%1000)+'g'};}
+  const kg=_ri(2,8);return{q:kg+'kg ＝ □g\n□に あてはまる 数は？',ans:kg*1000,exp:'1kg＝1000g。'+kg+'kg は 1000gの '+kg+'こ分で '+(kg*1000)+'g'};
 }
 function genFracReduce5(){
   const g=_ri(2,6),n=_ri(1,5),d=_ri(n+1,8);

@@ -18,10 +18,11 @@
   /* ═════════════ 算数 3年 ═════════════ */
   window.genJikoku3 = function () {
     var p = R(0, 4), s = R(7, 15) * 60 + R(0, 11) * 5, d = R(2, 9) * 5;
-    if (p === 0) return { q: hm(s) + ' から ' + d + '分後は 何時何分？\n（「分」だけ 答えよう）', ans: (s + d) % 60 };
+    if (p === 0) { if ((s + d) % 60 === 0) d += 5; var e0 = s + d; /* QBLANK_V1 */
+      return { q: hm(s) + ' の ' + d + '分後は\n' + Math.floor(e0 / 60) + '時 □分\n□に あてはまる 数は？', ans: e0 % 60, exp: (s % 60) + '分＋' + d + '分＝' + ((s % 60) + d) + '分' + ((s % 60) + d >= 60 ? '。60分で 1時間 くり上がる' : '') }; }
     if (p === 1) { var e = s + d; return { q: hm(s) + ' から ' + hm(e) + ' までは 何分間？', ans: d }; }
-    if (p === 2) { var m = R(61, 150); return { q: m + '分は 1時間 何分？（何分の ところを 答えよう）', ans: m - 60 * Math.floor(m / 60) }; }
-    if (p === 3) { var sec = R(61, 179); return { q: '1分＝60秒。' + sec + '秒は 1分 何秒？（秒を 答えよう）', ans: sec - 60 }; }
+    if (p === 2) { var m = R(61, 179), hh = Math.floor(m / 60); if (m % 60 === 0) m += 5; return { q: m + '分 ＝ ' + hh + '時間 □分\n□に あてはまる 数は？', ans: m - 60 * hh, exp: '60分で 1時間。' + m + '−' + (60 * hh) + '＝' + (m - 60 * hh) }; }
+    if (p === 3) { var sec = R(61, 119); if (sec === 60) sec = 75; return { q: sec + '秒 ＝ 1分 □秒\n□に あてはまる 数は？', ans: sec - 60, exp: '1分＝60秒。' + sec + '−60＝' + (sec - 60) }; }
     var h = R(1, 2), mm = R(1, 5) * 10; return { q: h + '時間' + mm + '分は 何分？', ans: h * 60 + mm };
   };
   window.genHissan3 = function () {
