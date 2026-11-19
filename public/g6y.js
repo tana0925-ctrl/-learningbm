@@ -59,11 +59,11 @@
   window.genMe6E = function () { return bank(ME6); };
 
   var PAST6 = [
-    Q('go（行く）の「〜した」の 形は？', 'went', ['goed', 'gone', 'goes']),
-    Q('eat（食べる）の「〜した」の 形は？', 'ate', ['eated', 'eats', 'eaten']),
-    Q('see（見る）の「〜した」の 形は？', 'saw', ['seed', 'seen', 'sees']),
-    Q('enjoy（楽しむ）の「〜した」の 形は？', 'enjoyed', ['enjoied', 'enjoys', 'enjoyd']),
-    Q('play（する・遊ぶ）の「〜した」の 形は？', 'played', ['plaied', 'plays', 'playd']),
+    Q('「I（　）to the sea.」→「海に 行きました」は？', 'went', ['go', 'goes', 'going']),
+    Q('「I（　）sushi.」→「すしを 食べました」は？', 'ate', ['eat', 'eats', 'eating']),
+    Q('「I（　）a rainbow.」→「にじを 見ました」は？', 'saw', ['see', 'sees', 'seeing']),
+    Q('「I（　）camping.」→「キャンプを 楽しみました」は？', 'enjoyed', ['enjoy', 'enjoys', 'enjoying']),
+    Q('「I（　）tennis.」→「テニスを しました」は？', 'played', ['play', 'plays', 'playing']),
     Q('「わたしは 公園に 行きました。」', 'I went to the park.', ['I go to the park.', 'I going to the park.', 'I goes to the park.']),
     Q('「わたしは 野球の 試合を 楽しみました。」', 'I enjoyed watching a baseball game.', ['I enjoy a baseball game tomorrow.', 'I watch baseball every day.', 'I want to watch baseball.']),
     Q('「それは すばらしかったです。」', 'It was great.', ['It is great.', 'It were great.', 'It great.']),
