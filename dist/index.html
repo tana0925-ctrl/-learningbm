@@ -16798,6 +16798,7 @@ function checkReviewAnswer(){
       try{ saveData(); }catch(e){}
     }
     if(txtEl) txtEl.innerHTML = (isOk === null ? 'こたえを見たよ。できたかな？' : (isOk ? 'せいかい！' : 'ちがうよ…')) + (rewardTxt ? '<br><span class="text-sm mt-1 block">' + rewardTxt + '</span>' : '');
+    try{ if(txtEl && isOk !== true && _reviewCurrentItem && _reviewCurrentItem.exp){ var _xe = document.createElement('div'); _xe.style.cssText='font-size:14px;color:#1d4ed8;margin-top:6px;font-weight:700'; _xe.textContent = '📝 ' + _reviewCurrentItem.exp; txtEl.appendChild(_xe); } }catch(e){}   /* FIGEXP_V1 復習にも かいせつ */
   }catch(e){}
 }
 
@@ -16966,6 +16967,7 @@ function recordWrongProblem(){
         cur.q = qText;
         cur.ans = ans;
         /* __REVIEW_BCD_V1__ 四択の選択肢を残す（あとで復習を四択にできるように） */
+        try{ var _tqx = window.trainingQ || trainingQ; if(_tqx && _tqx.exp) cur.exp = String(_tqx.exp).slice(0,200); }catch(e){}   /* FIGEXP_V1 かいせつも 復習へ */
         try{ if(trainingQ && Array.isArray(trainingQ.options) && trainingQ.options.length>=2){ cur.opts = trainingQ.options.slice(0,4).map(function(o){ return String(o==null?'':o); }); } }catch(e){}
         player.wrongQuestions[key] = cur;
     }catch(e){}
@@ -53562,6 +53564,7 @@ function _genTrainQ_curriculum() {
       }
     });
     window.trainingQ = { q: prob.q, ans: correctIndex, options: opts, exp: prob.exp || prob.explain || '' };   // TRAIN_WRONG_V1 exp＝その問題の かいせつ
+    try { if (window.__fxShow) window.__fxShow(prob); } catch (e) {}   // FIGEXP_V1 図
   } else {
     // HTMLタグを含む問題(fraction-mixed, long-division, area等)はinnerHTMLで描画
     if (typeof prob.q === 'string' && /^\s*</.test(prob.q)) {
@@ -53572,6 +53575,7 @@ function _genTrainQ_curriculum() {
     // ansが小数の場合はdecimalモードとして扱い、正しく比較できるようにする
     const isDecimalAns = (typeof prob.ans === 'number') && !Number.isInteger(prob.ans);
     window.trainingQ = { q: prob.q, ans: prob.ans, isDecimal: isDecimalAns, exp: prob.exp || prob.explain || '' };
+    try { if (window.__fxShow) window.__fxShow(prob); } catch (e) {}   // FIGEXP_V1 図
   }
   console.log('[DEBUG _genTrainQ] done. trainingQ=', window.trainingQ);
   } catch(e) { console.error('[DEBUG _genTrainQ] ERROR:', e); }
