@@ -53465,16 +53465,11 @@ function _kanjiMulti(bank){
     // パターン①: 漢字→読み（従来型）
     return{q:'「'+d.kanji+'」の読みは？',correct:d.reading,wrongs:d.wrongR};
   }
-  if(p===1){
-    // パターン②: 読み→漢字を選ぶ
-    const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading);
-    const wk=[];for(let i=0;i<3&&i<others.length;i++){const r=_ri(0,others.length-1);wk.push(others.splice(r,1)[0].kanji);}
-    return{q:'「'+d.reading+'」を漢字で書くと？',correct:d.kanji,wrongs:wk};
-  }
-  // パターン③: どの漢字が正しい読み？
-  const others=bank.filter(x=>x.kanji!==d.kanji&&x.reading!==d.reading).slice(0,3);
-  const allK=[d,...others].sort(()=>Math.random()-0.5);
-  return{q:'「'+d.reading+'」と読む漢字はどれ？',correct:d.kanji,wrongs:others.map(x=>x.kanji)};
+  // KANJI_LOOK_V1: 読み→漢字は、形が にた・同じ 読みの まちがい漢字で 出す（ない ことばは 読みの 問題に する）
+  const lk=(window._KANJI_LOOK||{})[d.kanji];
+  if(!lk) return{q:'「'+d.kanji+'」の読みは？',correct:d.reading,wrongs:d.wrongR};
+  if(p===1) return{q:'「'+d.reading+'」を漢字で書くと？',correct:d.kanji,wrongs:lk.slice()};
+  return{q:'「'+d.reading+'」と読む漢字はどれ？',correct:d.kanji,wrongs:lk.slice()};
 }
 function genKanji1(){return _pickBank([_kanjiMulti(_JP.k1)]);}
 function genKanji2(){return _pickBank([_kanjiMulti(_JP.k2)]);}
