@@ -363,7 +363,7 @@
     stageBanner('ステージ ' + S.stage);
     setWord();
   }
-  function hitMe(mo) { var ie = (mo && mo.inEff) || 1; var mult = ie >= 2 ? 1.5 : (ie <= 0.5 ? 0.6 : 1); var dmg = Math.round(15 * mult); S.myHp = Math.max(0, S.myHp - dmg); setBars(); flash(); fxBar('tsMyBar', '#fca5a5'); var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); fxShake(f); } if (S.myHp <= 0) finish(false); }
+  function hitMe(mo) { var ie = (mo && mo.inEff) || 1; var mult = ie >= 2 ? 1.5 : (ie <= 0.5 ? 0.6 : 1); var dmg = Math.round(15 * mult); S.myHp = Math.max(0, S.myHp - dmg); setBars(); flash(); fxBar('tsMyBar', '#fca5a5'); var f = el('tsField'); if (f) { fxBurst(f.clientWidth / 2 - 14, f.clientHeight - 58, '💥'); fxShake(f); } if (S.myHp <= 0) { finish(false); return; } setTimeout(function () { try { if (S.mode !== 'defense' || !S.typed) return; var ok = false; for (var k = 0; k < S.missiles.length; k++) { var m2 = S.missiles[k]; if (m2 && m2.dir === 'down' && m2.pats && isPrefix(S.typed, m2.pats)) { ok = true; break; } } if (!ok) { S.typed = ''; renderTyped(); } } catch (e) {} }, 0); /* REPORT_FIX_V1 ぼうぎょで 打ちかけの ミサイルが あたったら、打ちかけを 自動で 消す */ }
   function flash() { var f = el('tsField'); if (f) { f.style.boxShadow = 'inset 0 0 0 3px #ef4444'; setTimeout(function () { if (f) f.style.boxShadow = 'none'; }, 150); } }
   function fxBurst(x, y, emoji, color) {
     var f = el('tsField'); if (!f) return;

@@ -28223,7 +28223,7 @@ function handleCorrectAnswer() {
             if (trainingMode === 'long-division' && trainingCombo === 50) {
                 unlockLongDivisionSecretMonsterIfNeeded();
             }
-            if (trainingMode === 'kuku' && trainingCombo === 50) {
+            if ((trainingMode === 'kuku' || trainingMode === 'm2-kuku') && trainingCombo === 50) {   /* REPORT_FIX_V1 九九の 単元IDが m2-kuku に かわって いた */
                 unlockKukuSecretMonsterIfNeeded();
             }
             if (trainingMode === 'idiom' && trainingCombo === 50) {
@@ -47434,6 +47434,7 @@ const EggBattle = {
 
     start(){
       this.init();
+      try{ KEY._eggKeys = { space:false, e:false, f:false }; KEY.left=KEY.right=KEY.up=KEY.down=false; }catch(_e){}   /* REPORT_FIX_V1 */
       if(this.hud) this.hud.style.display = '';
       this.active = true;
       this.paused = false;
@@ -47913,7 +47914,8 @@ this.updatePartyPreview();
 
     onKeyDown(ev){
       if(!this.active) return;
-      const k = ev.key;
+      /* REPORT_FIX_V1 スペースが きかない：日本語入力（全角スペース・Process）でも スペースと みなす */
+      const k = (ev.code === 'Space' || ev.key === '\u3000') ? ' ' : ev.key;
       if(!KEY._eggKeys) KEY._eggKeys = { space:false, e:false, f:false };
       if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Spacebar","Enter","p","P","e","E","f","F","z","Z","x","X","b","B"].includes(k)){
         ev.preventDefault();
@@ -47949,6 +47951,8 @@ this.updatePartyPreview();
     },
 
     onKeyUp(ev){
+      /* REPORT_FIX_V1 ゲームの 外で キーを はなしても ロックを とく（前の ゲームで スペースが おしっぱなし あつかいに なり、次から タマゴが 出せなかった） */
+      try{ if(KEY._eggKeys){ if(ev.code==='Space'||ev.key===' '||ev.key==='Spacebar'||ev.key==='\u3000') KEY._eggKeys.space=false; if(ev.key==='e'||ev.key==='E') KEY._eggKeys.e=false; if(ev.key==='f'||ev.key==='F') KEY._eggKeys.f=false; } }catch(_e){}
       if(!this.active) return;
       if(ev.key==="ArrowLeft") KEY.left=false;
       if(ev.key==="ArrowRight") KEY.right=false;
