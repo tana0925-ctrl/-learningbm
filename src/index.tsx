@@ -11272,7 +11272,7 @@ app.get('/sticker.js', (c) => {
 // 🐛 プログラミングバトルのサドンデス（t>700で両基地が非接触で減少→陥落）を「基地HP多い方の判定勝ち（減算なし）」に修正。接触してない基地はダメージを受けない。
 const SUDDEN_OLD = "if(CONTACT && !ended && t>700){ var _sd=(t-700)*0.015; baseHpA-=_sd; baseHpB-=_sd; if(baseHpA<=0){ baseHpA=0; winner='B'; reason='base'; ended=true; } else if(baseHpB<=0){ baseHpB=0; winner='A'; reason='base'; ended=true; } }"
 const SUDDEN_NEW = "if(CONTACT && !ended && t>700){ if(baseHpA!==baseHpB){ winner=(baseHpA>baseHpB?'A':'B'); reason='judge'; ended=true; } else if(t>860){ var _sdA=0,_sdB=0,_sdI; for(_sdI=0;_sdI<A.length;_sdI++){if(A[_sdI].alive&&A[_sdI].hp>0)_sdA+=A[_sdI].hp;} for(_sdI=0;_sdI<B.length;_sdI++){if(B[_sdI].alive&&B[_sdI].hp>0)_sdB+=B[_sdI].hp;} winner=(_sdA>=_sdB?'A':'B'); reason='judge'; ended=true; } }"
-app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defense2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) });const _g8files = ['g8core.js','g8math.js','g8eng.js','g8sci.js','g8soc.js','g8jp.js','g8wild.js','g9core.js','g9math.js','g9eng.js','g9sci.js','g9soc.js','g9jp.js','g9wild.js','g10core.js','g10math.js','g10sci.js','g10soc.js','g10wild.js','hanshin_advice2.js','tbattle.js','tbsub.js','g6x.js','g6y.js','g5y.js','g4y.js','g3y.js','g12y.js','g79y.js','figexp.js','expbank.js', 'mathexp.js', 'tswords.js', 'figmath.js', 'gnl.js', 'figsci.js', 'gplus.js']
+app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defense2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) });const _g8files = ['g8core.js','g8math.js','g8eng.js','g8sci.js','g8soc.js','g8jp.js','g8wild.js','g9core.js','g9math.js','g9eng.js','g9sci.js','g9soc.js','g9jp.js','g9wild.js','g10core.js','g10math.js','g10sci.js','g10soc.js','g10wild.js','hanshin_advice2.js','tbattle.js','tbsub.js','g6x.js','g6y.js','g5y.js','g4y.js','g3y.js','g12y.js','g79y.js','figexp.js','expbank.js', 'mathexp.js', 'tswords.js', 'figmath.js', 'gnl.js', 'figsci.js', 'gplus.js', 'unitnames.js']
 for (const _f of _g8files) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
 const _g8xfiles = ['g8xmath.js','g8xeng.js','g8xsci.js','g8xsoc.js','g8xjp.js']
 for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
@@ -12148,7 +12148,7 @@ app.get('/signup', (c) => {
 
 app.get('/admin', (c) => {
   return c.html(`<!doctype html><html lang="ja"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>学習記録 管理（LearningBM）</title><script src="https://cdn.tailwindcss.com"></script></head>
+  <title>学習記録 管理（LearningBM）</title><script src="https://cdn.tailwindcss.com"></script><script src="/unitnames.js?v=1"></script></head>
   <body class="min-h-screen bg-slate-100 p-4">
     <div class="max-w-5xl mx-auto space-y-4">
       <div class="bg-white rounded-xl shadow p-6 flex items-center justify-between">
@@ -12818,8 +12818,19 @@ app.get('/admin', (c) => {
         if(!r.results.length){ rw.textContent='ログはまだありません'; return; }
         for(const x of r.results){
           const div = document.createElement('div');
-          div.className='border rounded p-2';
-          div.textContent = x.answeredAt + ' ' + x.grade + '年' + x.className + ' ' + x.name + '(' + x.loginId + ') unit=' + x.unit + ' q=' + (x.questionId ?? '') + ' correct=' + x.isCorrect + ' time=' + (x.timeMs ?? '');
+          /* LOGJP_V1（2026-11-20）英語の ままで 読みにくかったので、日本時間・単元名・○×で 見せる */
+          const ok = Number(x.isCorrect) === 1;
+          let tm = String(x.answeredAt || '');
+          try { const d = new Date(tm); if (!isNaN(d)) { const j = new Date(d.getTime() + 9 * 3600000); tm = (j.getUTCMonth() + 1) + '/' + j.getUTCDate() + ' ' + j.getUTCHours() + ':' + String(j.getUTCMinutes()).padStart(2, '0') + ':' + String(j.getUTCSeconds()).padStart(2, '0'); } } catch (e) {}
+          const un = (window.UNIT_NAMES && window.UNIT_NAMES[x.unit]) || x.unit || '';
+          const sec = (x.timeMs != null && x.timeMs !== '') ? '（' + Math.round(Number(x.timeMs) / 100) / 10 + '秒）' : '';
+          div.className = 'border rounded p-2 flex flex-wrap items-center gap-x-3 gap-y-1 ' + (ok ? 'bg-white' : 'bg-rose-50');
+          const mk = (t, c) => { const e = document.createElement('span'); e.textContent = t; if (c) e.className = c; div.appendChild(e); };
+          mk(tm, 'text-slate-400 text-xs');
+          mk(x.className || (x.grade ? x.grade + '年' : ''), 'text-slate-500 text-xs');
+          mk(x.name || x.loginId || '', 'font-bold');
+          mk(un, 'text-slate-700');
+          mk((ok ? '⭕ 正解' : '❌ まちがい') + sec, ok ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold');
           rw.appendChild(div);
         }
       }
