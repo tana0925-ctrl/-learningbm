@@ -28290,6 +28290,8 @@ function handleCorrectAnswer() {
                 player.trainingProgress[trainingMode].recentAnswers = [];
             }
             player.trainingProgress[trainingMode].recentAnswers.push(true);
+            /* MKFAST_V1 免許皆伝の「にがて」判定用。正解は そのまま 記録 */
+            try { const _tp = player.trainingProgress[trainingMode]; if (!Array.isArray(_tp.mkAns)) _tp.mkAns = []; _tp.mkAns.push(true); if (_tp.mkAns.length > 100) _tp.mkAns.shift(); window.__mkLastAt = Date.now(); } catch (_e) {}
             player.trainingProgress[trainingMode].correctCount = (player.trainingProgress[trainingMode].correctCount || 0) + 1;
             // ランキング用ポイント: 自分の学年より下の問題は0.2pt、それ以外は1pt
             {
@@ -28350,7 +28352,8 @@ function handleCorrectAnswer() {
                 try {
                     const _mkRate = (typeof window._getLowerGradeRewardRate === 'function') ? window._getLowerGradeRewardRate() : 1.0;
                     if (_mkRate < 1.0) {
-                        const _ra = player.trainingProgress[trainingMode].recentAnswers || [];
+                        const _mk = player.trainingProgress[trainingMode].mkAns;
+                        const _ra = (Array.isArray(_mk) && _mk.length >= 30) ? _mk : (player.trainingProgress[trainingMode].recentAnswers || []);   /* MKFAST_V1 */
                         const _acc = _ra.length ? _ra.filter(Boolean).length / _ra.length : 1;
                         if (_acc >= 0.8) { _mkCoin = Math.round(1000 * _mkRate); _mkNote = '\n（下の 学年の 単元なので 3分の1。にがてな 単元の やりなおしなら 1000コインだよ）'; }
                         else { _mkNote = '\n（にがてを やりなおして えらい！ 1000コインだよ）'; }
@@ -28671,6 +28674,9 @@ function handleCorrectAnswer() {
                 player.trainingProgress[trainingMode].recentAnswers = [];
             }
             player.trainingProgress[trainingMode].recentAnswers.push(false);
+            /* MKFAST_V1（2026-11-20）わざと まちがえて「にがて」あつかいで 1000コインを ねらう のを ふせぐ：
+               前の 答えから 3秒 たたずに まちがえた ものは、免許皆伝の 正答率に 入れない（よく 考えた まちがいだけ 数える） */
+            try { const _tp = player.trainingProgress[trainingMode]; if (!Array.isArray(_tp.mkAns)) _tp.mkAns = []; const _dt = Date.now() - (Number(window.__mkLastAt) || 0); if (_dt >= 3000) { _tp.mkAns.push(false); if (_tp.mkAns.length > 100) _tp.mkAns.shift(); } else { _tp.mkFast = (Number(_tp.mkFast) || 0) + 1; } window.__mkLastAt = Date.now(); } catch (_e) {}
             // Reset fraction streak on wrong
             try{
                 if(trainingMode === 'fraction-mixed'){
