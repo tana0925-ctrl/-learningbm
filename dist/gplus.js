@@ -2910,7 +2910,7 @@ I want to read many books. の 意味は？｜たくさん 本を 読みたい�
   /* ===== 中学英語：動詞の 形を データから 出す（FACTS_V1） ===== */
   (function () {
     // [原形, 3単現, 過去形, 過去分詞, ing形, 意味]
-    var V = [['play','plays','played','played','playing','する・遊ぶ'],['study','studies','studied','studied','studying','勉強する'],['go','goes','went','gone','going','行く'],['watch','watches','watched','watched','watching','見る'],['have','has','had','had','having','持っている'],['do','does','did','done','doing','する'],['make','makes','made','made','making','作る'],['come','comes','came','come','coming','来る'],['take','takes','took','taken','taking','取る'],['see','sees','saw','seen','seeing','見る・会う'],['eat','eats','ate','eaten','eating','食べる'],['write','writes','wrote','written','writing','書く'],['read','reads','read','read','reading','読む'],['speak','speaks','spoke','spoken','speaking','話す'],['run','runs','ran','run','running','走る'],['swim','swims','swam','swum','swimming','泳ぐ'],['get','gets','got','got（gotten）','getting','手に入れる'],['buy','buys','bought','bought','buying','買う'],['teach','teaches','taught','taught','teaching','教える'],['know','knows','knew','known','knowing','知っている'],['give','gives','gave','given','giving','あたえる'],['use','uses','used','used','using','使う'],['live','lives','lived','lived','living','住む'],['try','tries','tried','tried','trying','試す'],['stop','stops','stopped','stopped','stopping','止まる'],['wash','washes','washed','washed','washing','洗う'],['visit','visits','visited','visited','visiting','訪ねる'],['help','helps','helped','helped','helping','手伝う'],['sing','sings','sang','sung','singing','歌う'],['drink','drinks','drank','drunk','drinking','飲む'],['sleep','sleeps','slept','slept','sleeping','ねむる'],['find','finds','found','found','finding','見つける'],['build','builds','built','built','building','建てる'],['catch','catches','caught','caught','catching','つかまえる'],['enjoy','enjoys','enjoyed','enjoyed','enjoying','楽しむ'],['cry','cries','cried','cried','crying','泣く'],['carry','carries','carried','carried','carrying','運ぶ'],['sit','sits','sat','sat','sitting','すわる'],['begin','begins','began','begun','beginning','始める'],['leave','leaves','left','left','leaving','出発する']];
+    var V = [['play','plays','played','played','playing','する・遊ぶ'],['study','studies','studied','studied','studying','勉強する'],['go','goes','went','gone','going','行く'],['watch','watches','watched','watched','watching','見る'],['have','has','had','had','having','持っている'],['do','does','did','done','doing','する'],['make','makes','made','made','making','作る'],['come','comes','came','come','coming','来る'],['take','takes','took','taken','taking','取る'],['see','sees','saw','seen','seeing','見る・会う'],['eat','eats','ate','eaten','eating','食べる'],['write','writes','wrote','written','writing','書く'],['read','reads','read','read','reading','読む'],['speak','speaks','spoke','spoken','speaking','話す'],['run','runs','ran','run','running','走る'],['swim','swims','swam','swum','swimming','泳ぐ'],['get','gets','got','got','getting','手に入れる'],['buy','buys','bought','bought','buying','買う'],['teach','teaches','taught','taught','teaching','教える'],['know','knows','knew','known','knowing','知っている'],['give','gives','gave','given','giving','あたえる'],['use','uses','used','used','using','使う'],['live','lives','lived','lived','living','住む'],['try','tries','tried','tried','trying','試す'],['stop','stops','stopped','stopped','stopping','止まる'],['wash','washes','washed','washed','washing','洗う'],['visit','visits','visited','visited','visiting','訪ねる'],['help','helps','helped','helped','helping','手伝う'],['sing','sings','sang','sung','singing','歌う'],['drink','drinks','drank','drunk','drinking','飲む'],['sleep','sleeps','slept','slept','sleeping','ねむる'],['find','finds','found','found','finding','見つける'],['build','builds','built','built','building','建てる'],['catch','catches','caught','caught','catching','つかまえる'],['enjoy','enjoys','enjoyed','enjoyed','enjoying','楽しむ'],['cry','cries','cried','cried','crying','泣く'],['carry','carries','carried','carried','carrying','運ぶ'],['sit','sits','sat','sat','sitting','すわる'],['begin','begins','began','begun','beginning','始める'],['leave','leaves','left','left','leaving','出発する']];
     function wr(base, right, alts) { var o = alts.filter(function (x) { return x !== right; }); return shuf(o).slice(0, 3); }
     function fakeS(v) { return [v[0] + 's', v[0] + 'es', v[0].replace(/y$/, 'ies'), v[0]]; }
     function fakeD(v) { return [v[0] + 'ed', v[0] + 'd', v[0].replace(/y$/, 'ied'), v[2] + 'ed', v[0]]; }
@@ -3232,6 +3232,525 @@ I want to read many books. の 意味は？｜たくさん 本を 読みたい�
 「（うつす）写真を とる」（すがたを とる）の 漢字は？｜写す｜映す｜移す｜撮す｜写真や 文字を うつしとる
 「鏡に（うつす）」の 漢字は？｜映す｜写す｜移す｜撮す｜光で すがたが 見える
 「席を（うつす）」の 漢字は？｜移す｜写す｜映す｜遷す｜場所を 変える
+`);
+
+  /* ===== 中学国語：データから 出す（FACTS_V1） ===== */
+  (function () {
+    var KANA = [['いふ','いう'],['あはれ','あわれ'],['をとこ','おとこ'],['をかし','おかし'],['かほ','かお'],['いはく','いわく'],['おもふ','おもう'],['まゐる','まいる'],['ゐる','いる'],['こゑ','こえ'],['ゆゑ','ゆえ'],['やうやう','ようよう'],['いうなり','ゆうなり'],['けふ','きょう'],['てふ','ちょう'],['かうべ','こうべ'],['あふぎ','おうぎ'],['なほ','なお'],['にほひ','におい'],['うつくしう','うつくしゅう'],['さぶらふ','さぶらう'],['いづれ','いずれ'],['はづかし','はずかし'],['くわし（菓子）','かし'],['ぐわんじつ','がんじつ'],['たまふ','たまう'],['あやふし','あやうし'],['おほきなり','おおきなり'],['かはづ','かわず']];
+    addFn('genJ7Koten', function () { var k = P(KANA); var a = k[0].replace(/（.*）/, ''); var ws = [a, k[1].replace(/う$/, 'ふ'), k[1] + 'う', k[1].replace(/お/, 'を')].filter(function (x) { return x !== k[1]; }); return MQ('【基礎】「' + k[0] + '」を 現代仮名遣いに すると？', k[1], ws.concat(['いふう', 'あわれい']), k[0] + ' → ' + k[1]); }, 40);
+    var KO = [['うつくし', 'かわいらしい'], ['をかし', 'おもむきがある'], ['あはれなり', 'しみじみとした趣がある'], ['いと', 'とても'], ['つとめて', '早朝'], ['あやし', '不思議だ・身分が低い'], ['ありがたし', 'めったにない'], ['いみじ', 'とても・はなはだしい'], ['ゆかし', '見たい・知りたい'], ['あさまし', 'おどろきあきれる'], ['めでたし', 'すばらしい'], ['かなし', 'いとしい・かわいい'], ['おどろく', 'はっと気づく・目を覚ます'], ['ののしる', '大声でさわぐ'], ['うし', 'つらい'], ['つれづれなり', 'することがなく退屈だ']];
+    addPairs('genJ8Koten', '【標準】', KO, '「{b}」の 意味を もつ 古語は？', '古語「{a}」の 意味は？', '{a}＝{b}');
+    var AUTH = [['竹取物語', '作者不明・平安時代の 物語'], ['枕草子', '清少納言・平安時代の 随筆'], ['源氏物語', '紫式部・平安時代の 物語'], ['平家物語', '作者不明・鎌倉時代の 軍記物語'], ['徒然草', '兼好法師・鎌倉時代の 随筆'], ['方丈記', '鴨長明・鎌倉時代の 随筆'], ['おくのほそ道', '松尾芭蕉・江戸時代の 紀行文'], ['万葉集', '大伴家持らが 編集した 奈良時代の 和歌集'], ['古今和歌集', '紀貫之らが 編集した 平安時代の 和歌集'], ['新古今和歌集', '藤原定家らが 編集した 鎌倉時代の 和歌集']];
+    addPairs('genJ8Koten', '【基礎】', AUTH, '「{b}」の 作品は？', '「{a}」の 作者・時代・ジャンルは？');
+    addPairs('genJ9Koten', '【標準】', AUTH, '「{b}」の 作品は？', '「{a}」に あてはまるのは？');
+    var HAI = [['古池や 蛙飛びこむ 水の音', '松尾芭蕉', '春'], ['閑かさや 岩にしみ入る 蟬の声', '松尾芭蕉', '夏'], ['菜の花や 月は東に 日は西に', '与謝蕪村', '春'], ['やれ打つな 蠅が手をすり 足をする', '小林一茶', '夏'], ['雀の子 そこのけそこのけ 御馬が通る', '小林一茶', '春'], ['柿食へば 鐘が鳴るなり 法隆寺', '正岡子規', '秋'], ['いくたびも 雪の深さを 尋ねけり', '正岡子規', '冬'], ['五月雨を あつめて早し 最上川', '松尾芭蕉', '夏']];
+    addPairs('genJ9Koten', '【標準】', HAI.map(function (h) { return [h[0], h[1]]; }), null, '「{a}」の 作者は？', '{a}（{b}）');
+    addPairs('genJ9Koten', '【標準】', HAI.map(function (h) { return [h[0], h[2]]; }), null, '「{a}」の 季節は？', '{a}は {b}の 句');
+    var GOI = [['義務','権利','対'],['単純','複雑','対'],['拡大','縮小','対'],['原因','結果','対'],['理想','現実','対'],['積極的','消極的','対'],['具体','抽象','対'],['需要','供給','対'],['延長','短縮','対'],['増加','減少','対'],['主観','客観','対'],['肯定','否定','対'],['安全','危険','対'],['成功','失敗','対'],['進歩','発展','類'],['永遠','永久','類'],['関心','興味','類'],['準備','用意','類'],['手段','方法','類'],['欠点','短所','類'],['同意','賛成','類'],['用心','注意','類'],['向上','進歩','類'],['案外','意外','類'],['使命','任務','類'],['天然','自然','類']];
+    function goiFn(tag) { return function () { var g = P(GOI); var kind = g[2] === '対' ? '反対の意味の言葉（対義語）' : 'ほぼ同じ意味の言葉（類義語）'; var others = shuf(GOI.filter(function (x) { return x !== g; }).map(function (x) { return x[1]; })).slice(0, 3); return MQ(tag + '「' + g[0] + '」の ' + kind + 'は？', g[1], others, g[0] + ' － ' + g[1]); }; }
+    addFn('genGoi7', goiFn('【標準】'), 26); addFn('genGoi9jp', goiFn('【標準】'), 26);
+    var HIN = [['走る','動詞'],['美しい','形容詞'],['静かだ','形容動詞'],['ゆっくり','副詞'],['大きな','連体詞'],['しかし','接続詞'],['ああ','感動詞'],['学校','名詞'],['が','助詞'],['らしい','助動詞'],['考える','動詞'],['冷たい','形容詞'],['きれいだ','形容動詞'],['とても','副詞'],['この','連体詞'],['だから','接続詞'],['はい','感動詞'],['東京','名詞'],['を','助詞'],['ようだ','助動詞']];
+    addFn('genJ7Bunpo', function () { var h = P(HIN); return MQ('【標準】「' + h[0] + '」の 品詞は？', h[1], shuf(['動詞','形容詞','形容動詞','副詞','連体詞','接続詞','感動詞','名詞','助詞','助動詞'].filter(function (x) { return x !== h[1]; })).slice(0, 3), h[0] + 'は ' + h[1]); }, 30);
+    var KATSU = [['書く','五段活用'],['読む','五段活用'],['話す','五段活用'],['見る','上一段活用'],['起きる','上一段活用'],['着る','上一段活用'],['食べる','下一段活用'],['寝る','下一段活用'],['教える','下一段活用'],['来る','カ行変格活用'],['する','サ行変格活用'],['勉強する','サ行変格活用'],['走る','五段活用'],['借りる','上一段活用'],['答える','下一段活用']];
+    addFn('genJ8Bunpo', function () { var k = P(KATSU); return MQ('【標準】「' + k[0] + '」の 活用の 種類は？', k[1], ['五段活用','上一段活用','下一段活用','カ行変格活用','サ行変格活用'].filter(function (x) { return x !== k[1]; }), '「ない」を つけて 直前の 音で 見分ける'); }, 30);
+    var KEI = [['言う','おっしゃる','申し上げる'],['行く','いらっしゃる','参る'],['見る','ごらんになる','拝見する'],['食べる','めしあがる','いただく'],['する','なさる','いたす'],['知る','ご存じだ','存じ上げる'],['聞く','お聞きになる','拝聴する'],['会う','お会いになる','お目にかかる']];
+    addFn('genJ9Bunpo', function () { var k = P(KEI); var son = Math.random() < 0.5; var c = son ? k[1] : k[2]; var all = []; KEI.forEach(function (x) { all.push(x[1], x[2]); }); return MQ('【標準】「' + k[0] + '」の ' + (son ? '尊敬語' : '謙譲語') + 'は？', c, shuf(all.filter(function (x) { return x !== c; })).slice(0, 3), k[0] + '：尊敬語 ' + k[1] + '／謙譲語 ' + k[2]); }, 30);
+  })();
+  /* QPLUS_MORE 29.txt,30.txt */
+  add('genKanjiYomi7', `
+【基礎】「穏やか」の読みはどれ？｜おだやか｜なごやか｜ゆるやか｜すこやか｜穏（おだ）やか
+【基礎】「鮮やか」の読みはどれ？｜あざやか｜はなやか｜さわやか｜しなやか｜鮮（あざ）やか
+【基礎】「朗らか」の読みはどれ？｜ほがらか｜おおらか｜なめらか｜やわらか｜朗（ほが）らか
+【標準】「促す」の読みはどれ？｜うながす｜もよおす｜ほどこす｜うるおす｜促（うなが）す
+【標準】「携わる」の読みはどれ？｜たずさわる｜かかわる｜たまわる｜こだわる｜携（たずさ）わる
+【標準】「漂う」の読みはどれ？｜ただよう｜さまよう｜うたがう｜まよう｜漂（ただよ）う
+【標準】「怠る」の読みはどれ？｜おこたる｜なまける｜あなどる｜いかる｜怠（おこた）る
+【標準】「拒む」の読みはどれ？｜こばむ｜はばむ｜いなむ｜いどむ｜拒（こば）む
+【標準】「緩和」の読みはどれ？｜かんわ｜えんわ｜だんわ｜けんわ｜緩（カン）
+【標準】「貢献」の読みはどれ？｜こうけん｜こうこん｜くけん｜こけん｜貢（コウ）献（ケン）
+【標準】「抑制」の読みはどれ？｜よくせい｜ぎょくせい｜おくせい｜よくぜい｜抑（ヨク）
+【標準】「克服」の読みはどれ？｜こくふく｜かつふく｜こくぶく｜ここふく｜克（コク）
+【標準】「遂行」の読みはどれ？｜すいこう｜ついこう｜すいぎょう｜とうこう｜遂（スイ）
+【標準】「承諾」の読みはどれ？｜しょうだく｜しょうにゃく｜じょうだく｜しょうたく｜諾（ダク）
+【標準】「慎重」の読みはどれ？｜しんちょう｜しんじゅう｜しんじょう｜じんちょう｜慎（シン）
+【標準】「繊細」の読みはどれ？｜せんさい｜せんさ｜ちさい｜せんせい｜繊（セン）
+【標準】「妥協」の読みはどれ？｜だきょう｜だきゅう｜たきょう｜だこう｜妥（ダ）
+【標準】「循環」の読みはどれ？｜じゅんかん｜しゅんかん｜じゅんげん｜ちゅうかん｜循（ジュン）
+【標準】「誘惑」の読みはどれ？｜ゆうわく｜ゆうこく｜しゅうわく｜ゆわく｜惑（ワク）
+【標準】「譲歩」の読みはどれ？｜じょうほ｜じょうぶ｜しょうほ｜じょうぼ｜譲（ジョウ）
+【標準】「鍛錬」の読みはどれ？｜たんれん｜だんれん｜たんけん｜かれん｜鍛（タン）
+【標準】「渋滞」の読みはどれ？｜じゅうたい｜しゅうたい｜じゅうてい｜しぶたい｜渋（ジュウ）
+【標準】「跳躍」の読みはどれ？｜ちょうやく｜とうやく｜ちょうよう｜ちょうよく｜跳（チョウ）
+【標準】「頻繁」の読みはどれ？｜ひんぱん｜ひんばん｜ひんはん｜びんぱん｜頻（ヒン）
+【標準】「奮闘」の読みはどれ？｜ふんとう｜ふんどう｜ぶんとう｜ふんとく｜奮（フン）
+【標準】「衝突」の読みはどれ？｜しょうとつ｜しょうどつ｜じょうとつ｜しょうとう｜衝（ショウ）
+【標準】「依頼」の読みはどれ？｜いらい｜えらい｜いだい｜いれい｜依（イ）
+【発展】「漠然」の読みはどれ？｜ばくぜん｜ぼうぜん｜ばくねん｜まくぜん｜漠（バク）
+【発展】「顕著」の読みはどれ？｜けんちょ｜けんしょ｜げんちょ｜けんじゃ｜顕（ケン）著（チョ）
+【発展】「措置」の読みはどれ？｜そち｜しゃち｜そうち｜そじ｜措（ソ）
+【発展】「普遍」の読みはどれ？｜ふへん｜ふべん｜ぶへん｜ふへい｜遍（ヘン）
+【発展】「摂取」の読みはどれ？｜せっしゅ｜しょうしゅ｜せつしゅう｜せいしゅ｜摂（セツ）
+【基礎】「著しい」の読みはどれ？｜いちじるしい｜いちぢるしい｜あらわしい｜いさましい｜著（いちじる）しい
+【基礎】「潤う」の読みはどれ？｜うるおう｜うるう｜ぬくう｜しめう｜潤（うるお）う
+`);
+  add('genKanjiKaki7', `
+【基礎】文中の「キョウミ」を漢字にすると？⏎音楽にキョウミがある。｜興味｜教味｜共味｜興未｜興（キョウ）味（ミ）
+【基礎】文中の「ドリョク」を漢字にすると？⏎目標に向かってドリョクする。｜努力｜奴力｜努刀｜度力｜努（ド）
+【基礎】文中の「ケイケン」を漢字にすると？⏎貴重なケイケンをする。｜経験｜径験｜経検｜系験｜経（ケイ）験（ケン）
+【標準】文中の「セイカク」を漢字にすると？⏎セイカクな時刻。｜正確｜性格｜正格｜生確｜まちがいがない
+【標準】文中の「セイカク」を漢字にすると？⏎明るいセイカクの人。｜性格｜正確｜生格｜正格｜人がら
+【標準】文中の「ジキ」を漢字にすると？⏎桜がさくジキ。｜時期｜時季｜磁気｜次期｜ころ・とき
+【標準】文中の「タイショウ」を漢字にすると？⏎中学生をタイショウにする。｜対象｜対照｜対称｜大賞｜目当て
+【標準】文中の「イギ」を漢字にすると？⏎活動のイギを考える。｜意義｜異議｜意議｜異義｜価値・意味
+【標準】文中の「カンセイ」を漢字にすると？⏎作品がカンセイする。｜完成｜歓声｜感性｜管制｜できあがる
+【標準】文中の「ホケン」を漢字にすると？⏎ホケン室に行く。｜保健｜保険｜補健｜保験｜健康を 守る
+【標準】文中の「シュウカン」を漢字にすると？⏎早起きのシュウカン。｜習慣｜週間｜集慣｜習間｜身についた ならわし
+【標準】文中の「ソナえる」を漢字にすると？⏎地震にソナえる。｜備える｜供える｜具える｜準える｜準備する
+【標準】文中の「ハカる」を漢字にすると？⏎問題の解決をハカる。｜図る｜計る｜測る｜量る｜くわだてる
+【標準】文中の「オサめる」を漢字にすると？⏎優秀な成績をオサめる。｜収める｜納める｜治める｜修める｜手に入れる
+【標準】文中の「キュウシュウ」を漢字にすると？⏎水分をキュウシュウする。｜吸収｜吸集｜級収｜九州｜すいとる
+【標準】文中の「テンケン」を漢字にすると？⏎機械をテンケンする。｜点検｜天検｜点験｜展検｜一つ一つ 調べる
+【標準】文中の「ヨウイ」を漢字にすると？⏎ヨウイな問題。｜容易｜用意｜要意｜容意｜たやすい
+【標準】文中の「ヨウイ」を漢字にすると？⏎食事のヨウイをする。｜用意｜容易｜要意｜様意｜準備
+【標準】文中の「カイホウ」を漢字にすると？⏎校庭をカイホウする。｜開放｜解放｜快方｜介抱｜開けはなつ
+【標準】文中の「ムズカしい」を漢字にすると？⏎ムズカしい問題。｜難しい｜離しい｜困しい｜難かしい｜送りがなは「しい」
+【標準】文中の「ヤサしい」を漢字にすると？⏎ヤサしい人。｜優しい｜易しい｜優い｜安しい｜思いやりがある
+【標準】文中の「ヤサしい」を漢字にすると？⏎ヤサしい問題。｜易しい｜優しい｜易い｜安しい｜かんたん
+【発展】文中の「ケンチョ」を漢字にすると？⏎ケンチョな変化が見られる。｜顕著｜検著｜険著｜顕緒｜はっきり目立つ
+【発展】文中の「ショウダク」を漢字にすると？⏎申し出をショウダクする。｜承諾｜承託｜承諾く｜昇諾｜引き受ける
+【発展】文中の「コウケン」を漢字にすると？⏎社会にコウケンする。｜貢献｜貢検｜功献｜公献｜役に立つ
+【基礎】文中の「キロク」を漢字にすると？⏎新キロクを出す。｜記録｜紀録｜記緑｜記碌｜録（ロク）
+【基礎】文中の「チシキ」を漢字にすると？⏎チシキを深める。｜知識｜知職｜知織｜地識｜識（シキ）
+【基礎】文中の「ヒョウカ」を漢字にすると？⏎高いヒョウカを得る。｜評価｜表価｜評化｜票価｜評（ヒョウ）
+【標準】文中の「カクニン」を漢字にすると？⏎持ち物をカクニンする。｜確認｜確忍｜格認｜確任｜確かめる
+【標準】文中の「シテキ」を漢字にすると？⏎まちがいをシテキする。｜指摘｜指適｜指的｜支摘｜さし示す
+【標準】文中の「ハッキ」を漢字にすると？⏎実力をハッキする。｜発揮｜発輝｜発起｜発気｜力を あらわす
+【標準】文中の「ソンチョウ」を漢字にすると？⏎意見をソンチョウする。｜尊重｜尊長｜損重｜村長｜大切に する
+【標準】文中の「シンライ」を漢字にすると？⏎シンライできる友。｜信頼｜信順｜心頼｜信来｜信じて たよる
+【標準】文中の「ジュンジョ」を漢字にすると？⏎ジュンジョよく並ぶ。｜順序｜順叙｜準序｜純序｜順番
+【標準】文中の「ケントウ」を漢字にすると？⏎作戦をケントウする。｜検討｜見当｜健闘｜拳闘｜よく 調べ 考える
+【標準】文中の「ケントウ」を漢字にすると？⏎試合でケントウする。｜健闘｜検討｜見当｜拳闘｜よく 戦う
+`);
+  add('genKanyou7', `
+【基礎】慣用句「顔が広い」の意味はどれ？｜知り合いが多い｜顔が大きい｜えらそうにする｜はずかしい｜交際範囲が広い
+【基礎】慣用句「耳が痛い」の意味はどれ？｜自分の弱点を言われて聞くのがつらい｜耳の病気｜よく聞こえる｜うるさい｜忠告がこたえる
+【基礎】慣用句「口が軽い」の意味はどれ？｜秘密をすぐ人に話してしまう｜よく食べる｜話がうまい｜無口｜おしゃべり
+【基礎】慣用句「目が高い」の意味はどれ？｜よいものを見分ける力がある｜背が高い｜目がよい｜いばる｜鑑識眼がある
+【基礎】慣用句「腹を立てる」の意味はどれ？｜おこる｜おなかが痛い｜決心する｜笑う｜怒る
+【基礎】慣用句「肩を落とす」の意味はどれ？｜がっかりする｜荷物を下ろす｜安心する｜いばる｜気落ち
+【標準】慣用句「息をのむ」の意味はどれ？｜おどろいて一瞬息を止める｜深呼吸する｜息苦しい｜ため息をつく｜はっとする
+【標準】慣用句「水に流す」の意味はどれ？｜過去のことをなかったことにする｜水をむだにする｜洗う｜忘れ物をする｜わだかまりを捨てる
+【標準】慣用句「骨が折れる」の意味はどれ？｜苦労する・手間がかかる｜けがをする｜楽だ｜こわれる｜大変だ
+【標準】慣用句「鼻が高い」の意味はどれ？｜得意になる・ほこらしい｜鼻が大きい｜いばられる｜においに敏感｜自慢に思う
+【標準】慣用句「手に汗をにぎる」の意味はどれ？｜はらはらして見守る｜暑い｜努力する｜あきらめる｜緊張する
+【標準】慣用句「足が出る」の意味はどれ？｜予算をこえて赤字になる｜歩きすぎる｜にげだす｜立ち上がる｜お金が足りない
+【標準】ことわざ「急がば回れ」の意味はどれ？｜急ぐときほど安全で確実な方法をとる｜とにかく急ぐ｜回り道はむだ｜あわてず休む｜確実な方法がよい
+【標準】ことわざ「猿も木から落ちる」の意味はどれ？｜名人でも失敗することがある｜猿は木登りが下手｜高い所は危ない｜油断大敵｜弘法も筆の誤り
+【標準】ことわざ「転ばぬ先の杖」の意味はどれ？｜失敗しないよう前もって用心する｜転んだら杖を使う｜年をとる｜急いで歩く｜備えあれば憂いなし
+【標準】ことわざ「情けは人のためならず」の意味はどれ？｜人に親切にすれば自分にもよいことが返ってくる｜親切はその人のためにならない｜情けをかけるな｜人に頼るな｜よく誤解される
+【標準】ことわざ「待てば海路の日和あり」の意味はどれ？｜あせらず待てばよい機会が来る｜海は危ない｜待つのはむだ｜早く出発せよ｜好機を待つ
+【標準】故事成語「矛盾」の意味はどれ？｜つじつまが合わないこと｜武器のこと｜強いこと｜むだなこと｜矛と盾の話から
+【標準】故事成語「蛇足」の意味はどれ？｜よけいなつけ足し｜蛇の足｜大切なもの｜速いこと｜蛇に足を描いて負けた話
+【標準】故事成語「五十歩百歩」の意味はどれ？｜少しのちがいはあっても大差ない｜五十歩で勝つ｜百歩のほうがよい｜遠い｜似たりよったり
+【標準】故事成語「漁夫の利」の意味はどれ？｜争っている間に第三者が利益を得る｜漁師がもうかる｜努力の成果｜魚が好き｜しぎとはまぐりの話
+【標準】故事成語「推敲」の意味はどれ？｜文章を何度も練り直す｜おすこと｜読み上げる｜書き写す｜「推す」か「敲く」かで迷った話
+【標準】故事成語「背水の陣」の意味はどれ？｜もうあとがない状態で全力で取り組む｜水辺で休む｜にげ道を用意する｜負けを認める｜決死の覚悟
+【発展】故事成語「杞憂」の意味はどれ？｜必要のない心配｜大きな希望｜深い悲しみ｜正しい判断｜杞の国の人が天が落ちるのを心配した話
+【発展】故事成語「塞翁が馬」の意味はどれ？｜人生の幸不幸は予測できない｜馬は大切｜努力が報われる｜悪いことは続く｜禍福はあざなえる縄のごとし
+【発展】故事成語「温故知新」の意味はどれ？｜昔のことを学び新しい考えを得る｜古いものを捨てる｜新しいものだけがよい｜温かい心｜論語の言葉
+【基礎】慣用句「目を丸くする」の意味はどれ？｜おどろく｜眠くなる｜怒る｜泣く｜驚いて目を見開く
+【基礎】慣用句「歯が立たない」の意味はどれ？｜相手が強くてかなわない｜歯が痛い｜固いものが好き｜笑う｜太刀打ちできない
+【標準】慣用句「油を売る」の意味はどれ？｜仕事をなまけてむだ話をする｜油の商売をする｜料理をする｜けちをする｜サボる
+【標準】慣用句「さじを投げる」の意味はどれ？｜見込みがないとあきらめる｜料理を失敗する｜投げ合う｜おこる｜医者が治療をあきらめることから
+【標準】慣用句「猫の額」の意味はどれ？｜場所がとてもせまい｜猫がかわいい｜とても広い｜高いところ｜せまい土地
+【標準】慣用句「馬が合う」の意味はどれ？｜気が合う｜馬に乗れる｜けんかする｜足が速い｜相性がよい
+`);
+  add('genYomi9', `
+【標準】「恩恵」の読みはどれ？｜おんけい｜おんえ｜おんけ｜いんけい｜恵（ケイ）
+【標準】「矛盾」の読みはどれ？｜むじゅん｜ほこじゅん｜むしゅん｜もじゅん｜矛（ム）盾（ジュン）
+【標準】「余韻」の読みはどれ？｜よいん｜よおん｜あまいん｜よいい｜韻（イン）
+【標準】「憂慮」の読みはどれ？｜ゆうりょ｜ゆうろ｜うれりょ｜ゆりょ｜憂（ユウ）慮（リョ）
+【標準】「凝視」の読みはどれ？｜ぎょうし｜ぎし｜こうし｜ぎょし｜凝（ギョウ）
+【標準】「網羅」の読みはどれ？｜もうら｜あみら｜こうら｜もら｜網（モウ）羅（ラ）
+【標準】「示唆」の読みはどれ？｜しさ｜じさ｜しさく｜しそ｜唆（サ）
+【標準】「逸脱」の読みはどれ？｜いつだつ｜いっだつ｜いつぜつ｜いだつ｜逸（イツ）
+【標準】「是非」の読みはどれ？｜ぜひ｜せひ｜ぜい｜これひ｜是（ゼ）
+【標準】「享受」の読みはどれ？｜きょうじゅ｜こうじゅ｜きょうしゅ｜きょじゅ｜享（キョウ）
+【標準】「懸念」の読みはどれ？｜けねん｜けんねん｜かねん｜けいねん｜懸（ケ）
+【標準】「傑作」の読みはどれ？｜けっさく｜けつさく｜こうさく｜けっさ｜傑（ケツ）
+【標準】「洞察」の読みはどれ？｜どうさつ｜とうさつ｜どうさい｜ほらさつ｜洞（ドウ）
+【標準】「抑揚」の読みはどれ？｜よくよう｜おくよう｜よくやく｜よくあげ｜揚（ヨウ）
+【標準】「敢行」の読みはどれ？｜かんこう｜がんこう｜かんぎょう｜けんこう｜敢（カン）
+【発展】「遵守」の読みはどれ？｜じゅんしゅ｜そんしゅ｜じゅんす｜しゅんしゅ｜遵（ジュン）
+【発展】「払拭」の読みはどれ？｜ふっしょく｜ふつしき｜ほっしょく｜はらいしょく｜拭（ショク）
+【発展】「惜敗」の読みはどれ？｜せきはい｜しゃくはい｜せっぱい｜おしはい｜惜（セキ）
+【発展】「把持」の読みはどれ？｜はじ｜はち｜ばじ｜はもち｜把（ハ）
+【発展】「建立」の読みはどれ？｜こんりゅう｜けんりつ｜こんりつ｜けんりゅう｜寺などを 建てる
+【発展】「境内」の読みはどれ？｜けいだい｜きょうない｜けいない｜さかいうち｜寺社の しき地
+【発展】「相殺」の読みはどれ？｜そうさい｜そうさつ｜あいさつ｜そうせつ｜差し引き 0に する
+【基礎】「携える」の読みはどれ？｜たずさえる｜ささえる｜かかえる｜そなえる｜携（たずさ）える
+【基礎】「赴く」の読みはどれ？｜おもむく｜うつむく｜そむく｜おもぶく｜赴（おもむ）く
+【基礎】「憤る」の読みはどれ？｜いきどおる｜いかる｜おこる｜いぶかる｜憤（いきどお）る
+【基礎】「培う」の読みはどれ？｜つちかう｜やしなう｜うしなう｜つかう｜培（つちか）う
+【基礎】「醸す」の読みはどれ？｜かもす｜ためす｜うつす｜ちらす｜醸（かも）す
+【基礎】「顧みる」の読みはどれ？｜かえりみる｜こころみる｜おもんみる｜かんがみる｜顧（かえり）みる
+【基礎】「著す」の読みはどれ？｜あらわす｜しるす｜ちょす｜あかす｜書物を 書いて 出す
+【基礎】「免れる」の読みはどれ？｜まぬかれる｜のがれる｜まぬける｜めんれる｜免（まぬか）れる
+【標準】「曖昧」の読みはどれ？｜あいまい｜あいみ｜えいまい｜あまい｜はっきりしない
+【標準】「緻密」の読みはどれ？｜ちみつ｜ちひつ｜じみつ｜ちきつ｜細かく 行き届いて いる
+【標準】「頒布」の読みはどれ？｜はんぷ｜ぶんぷ｜はんふ｜ふんぷ｜広く 配る
+【標準】「漸次」の読みはどれ？｜ぜんじ｜ざんじ｜せんじ｜ぜんつぎ｜だんだんと
+【標準】「仰天」の読みはどれ？｜ぎょうてん｜こうてん｜おうてん｜ぎょてん｜ひどく おどろく
+【標準】「無垢」の読みはどれ？｜むく｜むこう｜ぶく｜むあか｜けがれが ない
+【標準】「会得」の読みはどれ？｜えとく｜かいとく｜えどく｜かいえ｜よく 理解して 身に つける
+`);
+  add('genKaki9', `
+【標準】文中の「シンチョウ」を漢字にすると？⏎シンチョウに判断する。｜慎重｜慎長｜身長｜深重｜注意深く
+【標準】文中の「シンチョウ」を漢字にすると？⏎シンチョウを測る。｜身長｜慎重｜伸長｜新調｜背の 高さ
+【標準】文中の「ジョウキョウ」を漢字にすると？⏎現在のジョウキョウ。｜状況｜上京｜情況｜状京｜ありさま
+【標準】文中の「ジョウキョウ」を漢字にすると？⏎進学のためにジョウキョウする。｜上京｜状況｜定京｜上況｜都へ 行く
+【標準】文中の「カンシン」を漢字にすると？⏎政治にカンシンをもつ。｜関心｜感心｜歓心｜寒心｜興味
+【標準】文中の「イシ」を漢字にすると？⏎強いイシをもつ。｜意志｜意思｜医師｜遺志｜成しとげようと する 心
+【標準】文中の「ツイキュウ」を漢字にすると？⏎幸福をツイキュウする。｜追求｜追及｜追究｜追級｜追い求める
+【標準】文中の「ツイキュウ」を漢字にすると？⏎真理をツイキュウする。｜追究｜追求｜追及｜対究｜深く 明らかに する
+【標準】文中の「ツイキュウ」を漢字にすると？⏎責任をツイキュウする。｜追及｜追求｜追究｜追級｜追いつめて 問いただす
+【標準】文中の「カイトウ」を漢字にすると？⏎質問にカイトウする。｜回答｜解答｜会答｜快答｜問いに 答える
+【標準】文中の「カイトウ」を漢字にすると？⏎試験問題のカイトウ。｜解答｜回答｜改答｜解等｜問題を 解いた 答え
+【標準】文中の「キョウイ」を漢字にすると？⏎自然のキョウイ。｜脅威｜驚異｜胸囲｜強威｜おびやかす 力
+【標準】文中の「キョウイ」を漢字にすると？⏎キョウイ的な記録。｜驚異｜脅威｜胸囲｜驚威｜おどろくべき こと
+【標準】文中の「ソウゾウ」を漢字にすると？⏎新しい文化をソウゾウする。｜創造｜想像｜送像｜創像｜新しく つくり出す
+【標準】文中の「ソウゾウ」を漢字にすると？⏎未来をソウゾウする。｜想像｜創造｜相像｜想造｜思いえがく
+【標準】文中の「ホショウ」を漢字にすると？⏎損害をホショウする。｜補償｜保証｜保障｜補証｜つぐなう
+【標準】文中の「コウセイ」を漢字にすると？⏎文章をコウセイする。｜校正｜構成｜公正｜更生｜文字の 誤りを 正す
+【標準】文中の「コウセイ」を漢字にすると？⏎作品のコウセイを考える。｜構成｜校正｜公正｜後世｜組み立て
+【標準】文中の「コウセイ」を漢字にすると？⏎コウセイな判断。｜公正｜構成｜校正｜厚生｜かたよらない
+【発展】文中の「ケイショウ」を漢字にすると？⏎伝統をケイショウする。｜継承｜警鐘｜敬称｜形象｜受けつぐ
+【発展】文中の「ケイショウ」を漢字にすると？⏎社会にケイショウを鳴らす。｜警鐘｜継承｜軽傷｜敬称｜注意を うながす
+【発展】文中の「タイセイ」を漢字にすると？⏎受け入れタイセイを整える。｜態勢｜体制｜大勢｜体勢｜身構え・準備の ようす
+【発展】文中の「タイセイ」を漢字にすると？⏎社会のタイセイ。｜体制｜態勢｜大勢｜対生｜組織の しくみ
+【基礎】文中の「セイケツ」を漢字にすると？⏎セイケツな部屋。｜清潔｜清結｜晴潔｜精潔｜きれい
+【基礎】文中の「エイヨウ」を漢字にすると？⏎エイヨウのある食事。｜栄養｜栄要｜営養｜英養｜からだを 育てる もの
+【基礎】文中の「ドクリツ」を漢字にすると？⏎ドクリツした国。｜独立｜独律｜読立｜毒立｜ひとりだち
+【基礎】文中の「ボウエキ」を漢字にすると？⏎外国とのボウエキ。｜貿易｜防易｜貿益｜謀易｜品物の 売り買い
+【基礎】文中の「チョゾウ」を漢字にすると？⏎食料をチョゾウする。｜貯蔵｜貯像｜著蔵｜貯造｜たくわえる
+【標準】文中の「イジ」を漢字にすると？⏎健康をイジする。｜維持｜意地｜遺児｜医事｜保ち続ける
+【標準】文中の「キセイ」を漢字にすると？⏎交通をキセイする。｜規制｜帰省｜既成｜寄生｜制限する
+【標準】文中の「キセイ」を漢字にすると？⏎夏休みにキセイする。｜帰省｜規制｜既製｜寄生｜ふるさとに 帰る
+【標準】文中の「シュウシュウ」を漢字にすると？⏎切手をシュウシュウする。｜収集｜収拾｜集収｜修集｜集める
+【標準】文中の「シュウシュウ」を漢字にすると？⏎事態をシュウシュウする。｜収拾｜収集｜集拾｜修拾｜混乱を まとめる
+`);
+  add('genKanyou9jp', `
+【基礎】慣用句「顔から火が出る」の意味はどれ？｜とてもはずかしい｜とても怒る｜熱がある｜元気いっぱい｜赤面する
+【基礎】慣用句「手を焼く」の意味はどれ？｜あつかいに困る｜料理をする｜やけどをする｜手伝う｜もてあます
+【基礎】慣用句「口をそろえる」の意味はどれ？｜みんなが同じことを言う｜口を閉じる｜歌を歌う｜けんかする｜一致して言う
+【標準】慣用句「舌を巻く」の意味はどれ？｜すぐれていて非常に感心する｜うそをつく｜早口で話す｜あきれる｜感嘆する
+【標準】慣用句「目に余る」の意味はどれ？｜ひどすぎて黙って見ていられない｜よく見える｜見たいものが多い｜目が疲れる｜程度がひどい
+【標準】慣用句「腕が鳴る」の意味はどれ？｜力を発揮したくてうずうずする｜腕が痛い｜拍手する｜腕前が落ちる｜やる気満々
+【標準】慣用句「足を洗う」の意味はどれ？｜よくない仕事や生活をやめる｜足をきれいにする｜旅に出る｜努力する｜手を切る
+【標準】慣用句「首を長くする」の意味はどれ？｜今か今かと待ちこがれる｜背のびする｜おどろく｜疲れる｜待ち遠しい
+【標準】慣用句「気が置けない」の意味はどれ？｜遠慮しなくてよい親しい間柄｜油断できない｜気が利かない｜心配だ｜よく誤用される
+【標準】慣用句「役不足」の本来の意味はどれ？｜力量に対して役目が軽すぎる｜力量が足りない｜役者がいない｜役に立たない｜「力不足」と混同しやすい
+【標準】慣用句「流れに棹さす」の本来の意味はどれ？｜流れに乗って勢いを増す｜流れにさからう｜じゃまをする｜止める｜よく誤用される
+【標準】ことわざ「覆水盆に返らず」の意味はどれ？｜一度してしまったことは取り返しがつかない｜水は大切｜お盆に水を入れる｜もとにもどせる｜後悔先に立たず
+【標準】ことわざ「良薬は口に苦し」の意味はどれ？｜ためになる忠告は聞くのがつらい｜薬はまずい｜甘いものは体に悪い｜医者は厳しい｜忠言耳に逆らう
+【標準】ことわざ「出る杭は打たれる」の意味はどれ？｜目立つ人はねたまれやすい｜くぎを打つ｜努力すれば出世する｜高いところは危ない｜才能をねたまれる
+【標準】ことわざ「立つ鳥跡を濁さず」の意味はどれ？｜去るときは後始末をきれいにする｜鳥は水をよごす｜飛ぶ前に準備する｜すぐ逃げる｜引き際をきれいに
+【標準】ことわざ「能ある鷹は爪を隠す」の意味はどれ？｜実力のある人はそれを見せびらかさない｜鷹は強い｜爪を切る｜才能を自慢する｜謙虚さ
+【標準】ことわざ「隣の芝生は青い」の意味はどれ？｜他人のものはよく見える｜となりと仲よくする｜芝生を育てる｜青は美しい｜うらやましく思う
+【標準】故事成語「臥薪嘗胆」の意味はどれ？｜目的のために長く苦労にたえる｜まきの上で眠る｜苦い薬を飲む｜あきらめる｜呉と越の故事
+【標準】故事成語「四面楚歌」の意味はどれ？｜周りが敵ばかりで孤立する｜四方で歌う｜楽しい宴会｜味方が多い｜項羽の故事
+【標準】故事成語「呉越同舟」の意味はどれ？｜仲の悪い者同士が同じ場所にいる・協力する｜同じ船で旅行する｜仲がよい｜船が沈む｜呉と越の故事
+【標準】故事成語「朝三暮四」の意味はどれ？｜目先のちがいにとらわれて結果が同じことに気づかない｜朝と夜の食事｜毎日努力する｜時間を守る｜狙公と猿の話
+【標準】故事成語「守株」の意味はどれ？｜古い習慣にこだわり進歩がない｜株を守る｜木を植える｜努力する｜切り株でうさぎを待った話
+【標準】故事成語「他山の石」の意味はどれ？｜他人のよくない言動も自分をみがく助けになる｜他人の山の石｜関係ないこと｜よそから持ってくる｜参考にする
+【標準】故事成語「蛍雪の功」の意味はどれ？｜苦労して学問にはげんだ成果｜ほたると雪の美しさ｜冬の楽しみ｜光の研究｜蛍の光と雪明かりで読書した話
+【発展】故事成語「画竜点睛」の意味はどれ？｜最後の大切な仕上げ｜竜の絵がうまい｜目が光る｜失敗する｜「画竜点睛を欠く」
+【発展】故事成語「虎の威を借る狐」の意味はどれ？｜他人の権力をたのんでいばる｜虎と狐は仲がよい｜狐はかしこい｜強い者を倒す｜他人の力でいばる
+【発展】故事成語「大器晩成」の意味はどれ？｜大人物は遅れて大成する｜大きな器｜早く成功する｜晩ご飯｜すぐれた人は時間がかかる
+【基礎】慣用句「耳をすます」の意味はどれ？｜注意して聞く｜聞かない｜耳を洗う｜うるさい｜集中して聞く
+【基礎】慣用句「胸をなでおろす」の意味はどれ？｜ほっと安心する｜胸が痛い｜悲しむ｜怒る｜安心する
+【基礎】慣用句「目からうろこが落ちる」の意味はどれ？｜急に物事がよくわかるようになる｜目が痛い｜魚を食べる｜泣く｜はっと気づく
+`);
+  /* QPLUS_MORE 31.txt */
+  add('genGreet34E', `
+I'm good. の 意味は？｜元気です。｜ねむいです。｜かなしいです。｜おなかが すいた。｜good＝よい・元気
+I'm thirsty. の 意味は？｜のどが かわいた。｜おなかが すいた。｜つかれた。｜ねむい。｜thirsty＝のどが かわいた
+How are you? の 答えで ないのは？｜My name is Ken.｜I'm fine.｜I'm happy.｜I'm sleepy.｜名前は What's your name? の 答え
+「おやすみなさい。」は？｜Good night.｜Good morning.｜Good afternoon.｜Hello.｜ねる 前の あいさつ
+「はじめまして。」は？｜Nice to meet you.｜See you.｜Thank you.｜Good night.｜初めて 会う ときの あいさつ
+「ありがとう。」は？｜Thank you.｜Sorry.｜Hello.｜Goodbye.｜お礼の ことば
+「わたしは ケンです。」は？｜I'm Ken.｜You're Ken.｜Ken is me.｜My Ken.｜I'm＋名前
+I'm scared. の 意味は？｜こわい。｜うれしい。｜ねむい。｜あつい。｜scared＝こわい
+I'm excited. の 意味は？｜わくわく している。｜こわい。｜つかれた。｜かなしい。｜excited＝わくわく
+I'm great! と 言って いる 人の 気持ちは？｜とても 元気・よい 気分｜かなしい｜つかれた｜おこっている｜great＝すばらしい
+I'm fine. と 同じ ような 意味の ものは？｜I'm good.｜I'm sad.｜I'm hungry.｜I'm tired.｜元気です
+相手に「元気？」と たずねる ことばは？｜How are you?｜What's this?｜Where are you?｜Who are you?｜How are you?
+Hi! の 意味は？｜やあ（こんにちは）｜さようなら｜ありがとう｜ごめんね｜くだけた あいさつ
+「また 明日。」は？｜See you tomorrow.｜Good morning.｜Thank you.｜I'm fine.｜tomorrow＝明日
+I'm hot. と 言う 人に かける ことばは？｜Let's drink water.｜Here's a jacket.｜Good night.｜Nice to meet you.｜あつい 人には 水を
+I'm tired. と 言う 人に かける ことばは？｜Let's take a rest.｜Let's run.｜Good morning.｜Let's play soccer.｜rest＝休む
+I'm sad. と 言う 人に かける ことばは？｜Are you OK?｜Great!｜Good night.｜Let's eat.｜心配する ことば
+I'm happy! と 言われたら？｜Good!（よかったね）｜I'm sorry.｜Are you OK?｜Good night.｜いっしょに よろこぶ
+`);
+  add('genDayLike34E', `
+Monday の 意味は？｜月曜日｜火曜日｜水曜日｜日曜日｜Monday＝月曜日
+Tuesday の 意味は？｜火曜日｜木曜日｜月曜日｜土曜日｜Tuesday＝火曜日
+Wednesday の 意味は？｜水曜日｜金曜日｜火曜日｜木曜日｜Wednesday＝水曜日
+Thursday の 意味は？｜木曜日｜火曜日｜金曜日｜土曜日｜Thursday＝木曜日
+Friday の 意味は？｜金曜日｜土曜日｜木曜日｜月曜日｜Friday＝金曜日
+Saturday の 意味は？｜土曜日｜日曜日｜金曜日｜水曜日｜Saturday＝土曜日
+Sunday の 意味は？｜日曜日｜土曜日｜月曜日｜金曜日｜Sunday＝日曜日
+「水曜日」は 英語で？｜Wednesday｜Tuesday｜Thursday｜Monday｜Wednesday
+「金曜日」は 英語で？｜Friday｜Monday｜Sunday｜Saturday｜Friday
+「日曜日」は 英語で？｜Sunday｜Saturday｜Monday｜Friday｜Sunday
+It's 10 o'clock. の 意味は？｜10時です。｜10分です。｜10日です。｜10さいです。｜o'clock＝〜時
+「3時です。」は？｜It's 3 o'clock.｜I'm 3.｜It's 3 days.｜It's Monday.｜It's＋時こく
+Do you like dogs? Yes, I do. の 意味は？｜犬は 好き？ うん、好き。｜犬は どこ？ ここ。｜犬は 何びき？ 1ぴき。｜犬が きらい。｜Do you like 〜?
+I like spring. の 意味は？｜わたしは 春が 好きです。｜わたしは 夏が 好きです。｜春が きらい。｜春に 生まれた。｜spring＝春
+summer の 意味は？｜夏｜春｜秋｜冬｜季節の ことば
+winter の 意味は？｜冬｜夏｜秋｜春｜季節の ことば
+What do you want? の 意味は？｜何が ほしいですか？｜何が 好き？｜何時？｜何曜日？｜want＝ほしい
+I want a pencil. の 意味は？｜えんぴつが ほしい。｜えんぴつを もっている。｜えんぴつが 好き。｜えんぴつは どこ？｜want＝ほしい
+「何曜日が 好き？」は？｜What day do you like?｜What time is it?｜How are you?｜What's this?｜day＝曜日
+「これは 何ですか？」は？｜What's this?｜Who is this?｜Where is this?｜How is this?｜What＝何
+`);
+  add('genCan5E', `
+「あなたは 泳げますか？」｜Can you swim?｜Do you swim?｜Are you swim?｜You can swim.｜Can you 〜?
+Can you play the recorder? に「はい」で 答える｜Yes, I can.｜Yes, I do.｜No, I can't.｜Yes, you can.｜can で 答える
+「わたしは 速く 走れません。」｜I can't run fast.｜I can run fast.｜I don't run.｜I am not run.｜can't＋動作
+「彼は ピアノを ひけます。」｜He can play the piano.｜She can play the piano.｜He can't play the piano.｜He likes the piano.｜He＝彼
+「彼女は 料理が じょうずです。」に 近い 文は？｜She can cook well.｜She can't cook.｜He can cook well.｜She likes cooking.｜cook well
+She is my hero. の 意味は？｜彼女は わたしの ヒーローです。｜彼は ヒーロー。｜わたしは ヒーロー。｜ヒーローが 好き。｜hero＝あこがれの 人
+He is brave. の 意味は？｜彼は 勇気が あります。｜彼は やさしい。｜彼は 背が 高い。｜彼は おもしろい。｜brave＝勇かんな
+She is kind. の 意味は？｜彼女は やさしい。｜彼女は 強い。｜彼女は 背が 高い。｜彼女は かわいい。｜kind＝やさしい
+He is strong. の 意味は？｜彼は 強い。｜彼は 弱い。｜彼は やさしい。｜彼は 速い。｜strong＝強い
+「わたしは 一輪車に 乗れます。」の「乗る」は？｜ride｜run｜read｜play｜ride＝乗る
+play の 意味（楽器）として 正しいのは？｜演奏する｜歌う｜おどる｜読む｜play the piano
+play の 意味（スポーツ）として 正しいのは？｜する｜見る｜読む｜書く｜play soccer
+「わたしは さか上がりが できます。」に 出てくる 動作の 英語は？｜do a back hip circle｜do homework｜do the dishes｜do a dance｜鉄棒の さか上がり
+Who can swim fast? の 意味は？｜だれが 速く 泳げますか？｜速く 泳げますか？｜どこで 泳ぐ？｜いつ 泳ぐ？｜Who＝だれ
+I can't skate, but I can ski. の 意味は？｜スケートは できないが、スキーは できる。｜どちらも できる。｜どちらも できない。｜スケートだけ できる。｜but＝しかし
+「あなたは 何が できますか？」の 答えとして 正しいのは？｜I can sing well.｜Yes, I can.｜I'm fine.｜It's Monday.｜できる ことを 答える
+`);
+  add('genWhere5E', `
+Go straight. の 意味は？｜まっすぐ 行って。｜右に 曲がって。｜左に 曲がって。｜止まって。｜straight＝まっすぐ
+Turn left. の 意味は？｜左に 曲がって。｜右に 曲がって。｜まっすぐ 行って。｜もどって。｜left＝左
+station の 意味は？｜駅｜病院｜公園｜学校｜station＝駅
+hospital の 意味は？｜病院｜図書館｜郵便局｜消防署｜hospital＝病院
+library の 意味は？｜図書館｜本屋｜学校｜公園｜library＝図書館
+post office の 意味は？｜郵便局｜警察署｜消防署｜銀行｜post office＝郵便局
+police station の 意味は？｜警察署｜消防署｜駅｜病院｜police＝警察
+fire station の 意味は？｜消防署｜警察署｜駅｜銀行｜fire＝火
+「本屋は どこ？」は？｜Where is the bookstore?｜What is the bookstore?｜Who is the bookstore?｜How is the bookstore?｜bookstore＝本屋
+The bank is between the school and the park. の 銀行は どこ？｜学校と 公園の 間｜学校の 前｜公園の 中｜学校の 後ろ｜between A and B＝AとBの 間
+「ジュースを ください。」は？｜Juice, please.｜I'm juice.｜Where is juice?｜Juice is good.｜〜, please.
+What would you like? の 意味は？｜何に しますか？（ていねい）｜何が 好き？｜何を している？｜何時？｜would like＝ほしい
+「ラーメンに します。」は？｜I'd like ramen.｜I like ramen.｜I'm ramen.｜I eat ramen yesterday.｜I'd like＝I would like
+How much is it? の 意味は？｜それは いくらですか？｜それは 何？｜それは どこ？｜それは いつ？｜How much＝いくら
+It's 1,200 yen. の 意味は？｜1200円です。｜120円です。｜12円です。｜12000円です。｜one thousand two hundred
+`);
+  add('genMe6E', `
+「わたしは ピアノを ひく ことが 好きです。」｜I like playing the piano.｜I play the piano yesterday.｜I am piano.｜I want piano.｜like＋〜ing
+「わたしの 誕生日は 3月3日です。」の「3月」は？｜March｜May｜April｜June｜March＝3月
+「わたしの 誕生日は 8月です。」の「8月」は？｜August｜April｜October｜January｜August＝8月
+July の 意味は？｜7月｜6月｜8月｜1月｜July＝7月
+December の 意味は？｜12月｜10月｜11月｜9月｜December＝12月
+I always brush my teeth. の 意味は？｜わたしは いつも 歯を みがきます。｜ときどき みがく。｜みがかない。｜歯が いたい。｜always＝いつも
+I never eat natto. の 意味は？｜わたしは 決して 納豆を 食べません。｜いつも 食べる。｜ときどき 食べる。｜好き。｜never＝決して〜ない
+I usually go to bed at ten. の 意味は？｜わたしは たいてい 10時に ねます。｜10時に 起きる。｜10時に 食べる。｜10さい。｜usually＝たいてい
+What time do you get up? に 合う 答えは？｜I get up at six.｜I'm six.｜It's Monday.｜Yes, I do.｜時こくを 答える
+「わたしは 夕食の あとに 宿題を します。」の「宿題を する」は？｜do my homework｜make homework｜play homework｜go homework｜do my homework
+I'm from Japan. の 意味は？｜わたしは 日本 出身です。｜日本に 行きたい。｜日本が 好き。｜日本は 大きい。｜from＝〜から・〜出身
+「わたしは 理科が 好きです。」の「理科」は？｜science｜math｜music｜P.E.｜science＝理科
+「わたしは 音楽が 得意です。」｜I'm good at music.｜I like music.｜I'm music.｜I can music.｜good at＝得意
+「わたしは 犬を 飼っています。」｜I have a dog.｜I am a dog.｜I like a dog.｜I want a dog.｜have＝飼っている
+「わたしは 毎朝 犬の 散歩を します。」｜I walk my dog every morning.｜I am a dog.｜I like dogs.｜I walked my dog.｜every morning＝毎朝
+`);
+  add('genPast6E', `
+I went to the zoo. の 意味は？｜動物園に 行きました。｜動物園に 行きたい。｜動物園が 好き。｜動物園は 遠い。｜went＝行った
+I saw a panda. の 意味は？｜パンダを 見ました。｜パンダが 好き。｜パンダを 見たい。｜パンダが いる。｜saw＝見た
+I ate curry. の「ate」は 何の 過去形？｜eat｜eight｜at｜get｜eat → ate
+I enjoyed camping. の 意味は？｜キャンプを 楽しみました。｜キャンプに 行きたい。｜キャンプが きらい。｜キャンプを する。｜enjoyed＝楽しんだ
+「楽しかったです。」は？｜It was fun.｜It is fun.｜It will be fun.｜I'm fun.｜was＝〜だった
+「おいしかったです。」は？｜It was delicious.｜It is delicious.｜I was delicious.｜It's delicious now.｜delicious＝おいしい
+「わたしは 夏休みに 海に 行きました。」｜I went to the sea in summer vacation.｜I go to the sea.｜I want to go to the sea.｜I like the sea.｜went
+sports day の 意味は？｜運動会｜修学旅行｜音楽会｜卒業式｜学校行事
+field trip の 意味は？｜遠足（校外学習）｜運動会｜卒業式｜音楽会｜学校行事
+My best memory is ＿. の 意味は？｜いちばんの 思い出は ＿です。｜いちばん 好きな ものは ＿。｜将来の 夢は ＿。｜得意な ことは ＿。｜memory＝思い出
+What's your best memory? の 意味は？｜いちばんの 思い出は 何ですか？｜何が 好き？｜何に なりたい？｜何を したい？｜best memory
+I saw beautiful fireworks. の 意味は？｜きれいな 花火を 見ました。｜花火を 見たい。｜花火が 好き。｜花火を した。｜fireworks＝花火
+「わたしたちは 京都で お寺を 見ました。」｜We saw temples in Kyoto.｜We see temples.｜We want temples.｜We like temples.｜saw
+「わたしは 友だちと サッカーを しました。」｜I played soccer with my friends.｜I play soccer.｜I like soccer.｜I want soccer.｜played
+I was excited. の 意味は？｜わくわく しました。｜つかれました。｜かなしかった。｜ねむかった。｜was excited
+`);
+  add('genWorld6E', `
+「中国」は 英語で？｜China｜Japan｜Korea｜India｜China
+「フランス」は 英語で？｜France｜Spain｜Italy｜Germany｜France
+「ブラジル」は 英語で？｜Brazil｜Britain｜Peru｜Chile｜Brazil
+「イタリア」は 英語で？｜Italy｜India｜Spain｜Egypt｜Italy
+「エジプト」は 英語で？｜Egypt｜Italy｜Spain｜Kenya｜Egypt
+「ケニア」は 英語で？｜Kenya｜Korea｜Canada｜Chile｜Kenya
+You can see pyramids in Egypt. の 意味は？｜エジプトで ピラミッドが 見られます。｜エジプトに 行った。｜ピラミッドが 好き。｜エジプトは 遠い。｜You can see 〜
+You can eat pizza in Italy. の 意味は？｜イタリアで ピザが 食べられます。｜ピザが 好き。｜イタリアに 行った。｜ピザを 作る。｜You can eat 〜
+Where do you want to go? の 意味は？｜どこへ 行きたいですか？｜どこに 住んでいる？｜どこで 生まれた？｜どこに ある？｜want to go
+I want to go to Spain. Why? に 合う 答えは？｜Because I want to see soccer games.｜I went to Spain.｜Spain is in Asia.｜Yes, I do.｜理由を 答える
+What country do you want to visit? の 意味は？｜どの 国を 訪れたいですか？｜どの 国の 出身？｜どの 国が 大きい？｜どの 国に 行った？｜visit＝訪れる
+「アメリカでは 野球が 見られます。」｜You can see baseball games in America.｜I play baseball.｜America is big.｜I went to America.｜You can see 〜
+「カナダは 北アメリカに あります。」｜Canada is in North America.｜Canada is in Asia.｜I like Canada.｜Canada is cold.｜in North America
+Japan is famous for sushi. の 意味は？｜日本は すしで 有名です。｜すしが 好き。｜すしを 食べた。｜日本に 行きたい。｜famous for
+「ドイツ」は 英語で？｜Germany｜Greece｜Ghana｜Guam｜Germany
+`);
+  add('genAnimal6E', `
+Where do pandas live? に 合う 答えは？｜Pandas live in forests in China.｜Pandas eat bamboo.｜Pandas are cute.｜I like pandas.｜Where＝どこ
+What do koalas eat? に 合う 答えは？｜Koalas eat eucalyptus leaves.｜Koalas live in trees.｜Koalas are gray.｜Koalas are cute.｜What do 〜 eat?
+sea turtle の 意味は？｜ウミガメ｜クジラ｜イルカ｜ペンギン｜sea turtle
+polar bear の 意味は？｜ホッキョクグマ｜パンダ｜コアラ｜ライオン｜polar＝北極の
+forest の 意味は？｜森｜海｜砂漠｜川｜forest＝森
+desert の 意味は？｜砂漠｜森｜海｜山｜desert＝砂漠
+savanna の 意味は？｜草原（サバンナ）｜森｜海｜山｜savanna
+「ゴミを ひろおう。」は？｜Let's pick up trash.｜Let's make trash.｜Let's eat trash.｜Let's throw trash.｜pick up＝ひろう
+「プラスチックを へらそう。」は？｜Let's reduce plastic.｜Let's buy plastic.｜Let's make plastic.｜I like plastic.｜reduce＝へらす
+We can protect the earth. の 意味は？｜わたしたちは 地球を 守ることが できます。｜地球が 好き。｜地球は 大きい。｜地球に 住む。｜protect＝守る
+Elephants live in Africa and Asia. の 意味は？｜ゾウは アフリカと アジアに すんでいます。｜ゾウは 草を 食べる。｜ゾウは 大きい。｜ゾウが 好き。｜live in 〜
+Lions eat zebras. の 意味は？｜ライオンは シマウマを 食べます。｜シマウマは ライオンを 食べる。｜ライオンは 草を 食べる。｜ライオンは 速い。｜食物連鎖
+「わたしたちは エコバッグを 使うことが できます。」｜We can use eco bags.｜We can't use eco bags.｜We are eco bags.｜We like bags.｜can use
+Sea turtles eat plastic bags by mistake. の 意味は？｜ウミガメは まちがって ビニールぶくろを 食べて しまう。｜ウミガメは ふくろが 好き。｜ふくろを 作る。｜海は きれい。｜by mistake＝まちがって
+`);
+  add('genFuture6E', `
+I want to join the soccer team. の 意味は？｜サッカー部に 入りたい。｜サッカーを 見たい。｜サッカーが 好き。｜サッカーを した。｜join＝入る
+I want to be a scientist. の 意味は？｜科学者に なりたい。｜科学が 好き。｜科学者に 会った。｜理科を 勉強した。｜scientist＝科学者
+I want to be a game creator. の 意味は？｜ゲームクリエイターに なりたい。｜ゲームが 好き。｜ゲームを した。｜ゲームを 買いたい。｜want to be
+「わたしは 中学校で 数学を 一生けんめい 勉強したい。」｜I want to study math hard in junior high school.｜I studied math.｜I like math.｜I can study math.｜want to study
+What job do you want? の 意味は？｜どんな 仕事が したいですか？｜どんな 部活？｜何が 好き？｜何を 勉強したい？｜job＝仕事
+teacher の 意味は？｜先生｜医者｜看護師｜警察官｜teacher
+doctor の 意味は？｜医者｜先生｜消防士｜パイロット｜doctor
+firefighter の 意味は？｜消防士｜警察官｜医者｜農家｜firefighter
+farmer の 意味は？｜農家｜漁師｜消防士｜歌手｜farmer
+I want to make many friends in junior high school. の 意味は？｜中学校で 友だちを たくさん 作りたい。｜友だちが 多い。｜友だちと 遊んだ。｜友だちが 好き。｜make friends
+「わたしは 将来 人を 助けたいです。」｜I want to help people in the future.｜I helped people.｜I like people.｜People help me.｜in the future＝将来
+`);
+  /* QPLUS_MORE 32.txt */
+  add('genToinf9', `
+【基礎】「私は医者になりたい。」 I want （ ） a doctor.｜to be｜be｜being｜to is｜want to be 〜
+【基礎】「彼女は本を読むことが好きです。」 She likes （ ） books.｜to read｜read｜reads｜to reading｜like to 〜（reading も 可）
+【標準】「私は彼に会うために駅へ行った。」 I went to the station （ ） see him.｜to｜for｜and｜of｜目的の to
+【標準】「何か温かい飲み物がほしい。」 I want something hot （ ） drink.｜to｜for｜and｜of｜something＋形容詞＋to〜
+【標準】「彼は試験に合格してうれしかった。」 He was glad （ ） pass the exam.｜to｜for｜and｜at｜感情の 原因
+【標準】「宿題をする時間がない。」 I have no time （ ） do my homework.｜to｜for｜and｜of｜名詞を 説明する to
+【標準】「英語を勉強することは大切だ。」 It is important （ ） study English.｜to｜for｜that｜of｜It is 〜 to …
+【発展】「彼にとって速く走ることはかんたんだ。」 It is easy （ ） him to run fast.｜for｜to｜of｜with｜It is 〜 for 人 to …
+【発展】「私は母に皿を洗うように言われた。」 My mother told me （ ） wash the dishes.｜to｜for｜and｜that｜tell＋人＋to〜
+【発展】「彼は私に手伝ってくれるように頼んだ。」 He asked me （ ） help him.｜to｜for｜and｜of｜ask＋人＋to〜
+【標準】「次に何をすればよいかわからない。」 I don't know （ ） to do next.｜what｜how｜where｜which｜what to 〜
+【標準】「どの本を買えばよいか教えて。」 Tell me （ ） book to buy.｜which｜what｜how｜where｜which＋名詞＋to〜
+【標準】「いつ出発すればよいか知っていますか。」 Do you know （ ） to leave?｜when｜where｜what｜how｜when to 〜
+【発展】「その問題は難しすぎて私には解けない。」 The question is too difficult （ ） me to answer.｜for｜to｜of｜and｜too 〜 for 人 to …
+【発展】「彼は親切にも道を教えてくれた。」 He was kind enough （ ） show me the way.｜to｜for｜that｜and｜〜 enough to …
+【基礎】「私の夢は世界中を旅することです。」 My dream is （ ） around the world.｜to travel｜travel｜traveled｜travels｜名詞的用法
+【標準】「彼は留学することを決めた。」 He decided （ ） abroad.｜to study｜studying｜study｜studied｜decide to 〜
+【標準】「雨が降り始めた。」 It began （ ） rain.｜to｜for｜and｜of｜begin to 〜（raining も 可）
+【標準】「私たちは勝つことを望んでいる。」 We hope （ ） win.｜to｜for｜and｜of｜hope to 〜
+【基礎】to不定詞の形として正しいのは？｜to＋動詞の原形｜to＋過去形｜to＋ing形｜to＋過去分詞｜to の あとは 原形
+【標準】「祖母は孫に会うのを楽しみにしている。」の英語として正しいのは？｜My grandmother is looking forward to seeing her grandchildren.｜...to see her grandchildren.｜...to saw her grandchildren.｜...to sees her grandchildren.｜look forward to の to は 前置詞
+【発展】「彼女は泣き始めた。」 She started （ ）.｜crying（to cry も 可）｜cry｜cried｜cries｜start の あとは to〜 も 〜ing も よい
+【標準】「私は彼に宿題を手伝ってほしい。」 I want him （ ） me with my homework.｜to help｜help｜helping｜helped｜want＋人＋to〜
+【標準】「泳ぎ方を知っていますか。」 Do you know （ ） to swim?｜how｜what｜which｜when｜how to 〜
+【発展】「私は早く起きるために早く寝た。」の to の用法は？｜副詞的用法（目的）｜名詞的用法｜形容詞的用法｜感情の原因｜〜するために
+【発展】「彼には遊ぶ友だちがたくさんいる。」 He has many friends （ ） play with.｜to｜for｜and｜of｜形容詞的用法（with を 忘れない）
+【標準】「私はそれを聞いておどろいた。」 I was surprised （ ） hear that.｜to｜for｜at｜of｜感情の 原因
+【基礎】「〜すること」の意味になる to不定詞の用法は？｜名詞的用法｜形容詞的用法｜副詞的用法｜分詞｜〜すること
+【基礎】「〜するための・〜すべき」の意味になる to不定詞の用法は？｜形容詞的用法｜名詞的用法｜副詞的用法｜動名詞｜名詞を 後ろから 説明
+【基礎】「〜するために」の意味になる to不定詞の用法は？｜副詞的用法｜名詞的用法｜形容詞的用法｜関係代名詞｜目的
+`);
+  add('genBunshi9', `
+【基礎】「走っている犬」を英語にすると？｜a running dog｜a ran dog｜a run dog｜a dog run｜1語の 分詞は 名詞の 前
+【基礎】「割れたコップ」を英語にすると？｜a broken cup｜a breaking cup｜a break cup｜a broke cup｜受け身の 意味は 過去分詞
+【基礎】「落ち葉」を英語にすると？｜fallen leaves｜falling leaves｜fell leaves｜fall leaves｜落ちた 葉
+【標準】「あの歌っている女の子はだれですか。」 Who is that girl （ ）?｜singing｜sung｜sang｜sings｜能動は 現在分詞
+【標準】「これはアメリカで作られた映画です。」 This is a movie （ ） in America.｜made｜making｜make｜to make｜受け身は 過去分詞
+【標準】「ベンチに座っている男性は私の祖父です。」 The man （ ） on the bench is my grandfather.｜sitting｜sat｜sit｜sits｜能動
+【標準】「彼は英語で書かれた手紙を受け取った。」 He got a letter （ ） in English.｜written｜writing｜wrote｜write｜受け身
+【標準】「ピアノをひいている少女」を英語にすると？｜the girl playing the piano｜the girl played the piano｜the playing girl the piano｜the girl plays the piano｜2語以上は 後ろから
+【標準】「世界中で愛されている物語」を英語にすると？｜a story loved all over the world｜a story loving all over the world｜a loved story all over the world｜a story loves all over the world｜受け身
+【標準】「日本語を話している外国人」を英語にすると？｜a foreigner speaking Japanese｜a foreigner spoken Japanese｜a speaking foreigner Japanese｜a foreigner speaks Japanese｜能動
+【標準】「中国で使われている言葉」を英語にすると？｜the language used in China｜the language using in China｜the used language in China｜the language uses in China｜受け身
+【発展】The boy swimming in the pool is my brother. の主語の中心は？｜The boy｜swimming｜the pool｜my brother｜swimming in the pool が 修飾
+【発展】I have a friend living in Osaka. の意味は？｜私には大阪に住んでいる友だちがいる｜私は大阪に住んでいる｜友だちが大阪に来た｜大阪で友だちを作った｜living in Osaka が friend を 修飾
+【発展】This is a picture painted by Picasso. の意味は？｜これはピカソによってかかれた絵です｜これはピカソがかいている絵です｜ピカソは絵をかいた｜これはピカソの写真です｜painted by Picasso
+【基礎】「〜している」の意味で名詞を修飾するのは？｜現在分詞（ing形）｜過去分詞｜原形｜to不定詞｜能動・進行
+【基礎】「〜された」の意味で名詞を修飾するのは？｜過去分詞｜現在分詞｜原形｜to不定詞｜受け身
+【標準】「眠っている赤ちゃんを起こさないで。」 Don't wake the （ ） baby.｜sleeping｜slept｜sleep｜sleeps｜1語なので 前
+【標準】「彼は中古の車を買った。」 He bought a （ ） car.｜used｜using｜use｜uses｜使われた 車
+【標準】「ゆで卵」を英語にすると？｜a boiled egg｜a boiling egg｜a boil egg｜an egg boiling｜ゆでられた たまご
+【標準】「わくわくする試合」を英語にすると？｜an exciting game｜an excited game｜an excite game｜a game exciting｜物が 人を わくわくさせる
+【標準】「わくわくしている観客」を英語にすると？｜excited fans｜exciting fans｜excite fans｜fans excite｜人が わくわくさせられる
+【発展】「窓のそばに立っている少女」を英語にすると？｜the girl standing by the window｜the girl stood by the window｜the standing girl by the window｜the girl stands by the window｜後置修飾
+【発展】「たくさんの人に読まれている本」を英語にすると？｜a book read by many people｜a book reading by many people｜a read book by many people｜a book reads by many people｜read（過去分詞）
+【発展】The cake made by my mother was delicious. の意味は？｜母が作ったケーキはおいしかった｜母はケーキを作っている｜ケーキは母を作った｜母はおいしかった｜made by my mother
+【標準】「雪でおおわれた山」を英語にすると？｜a mountain covered with snow｜a mountain covering with snow｜a covered mountain with snow｜a mountain covers with snow｜受け身
+`);
+  add('genKankei9', `
+【基礎】先行詞が「人」のとき、主格の関係代名詞は？｜who（that）｜which｜whose｜what｜人＋who
+【基礎】先行詞が「もの・動物」のとき、主格の関係代名詞は？｜which（that）｜who｜whose｜what｜もの＋which
+【標準】「これは私の父が作ったいすです。」 This is the chair （ ） my father made.｜that｜who｜whose｜what｜目的格（省略も 可）
+【標準】「彼は私が尊敬している先生です。」 He is the teacher （ ） I respect.｜that｜which｜whose｜what｜人の 目的格
+【標準】「私には医者をしている兄がいる。」 I have a brother （ ） is a doctor.｜who｜which｜whose｜what｜人の 主格
+【標準】「京都を流れる川」を英語にすると？｜the river which runs through Kyoto｜the river who runs through Kyoto｜the river whose runs through Kyoto｜the river what runs through Kyoto｜もの＋which
+【標準】「父親が医者の少年」を英語にすると？｜a boy whose father is a doctor｜a boy who father is a doctor｜a boy which father is a doctor｜a boy that's father is a doctor｜所有格 whose
+【発展】「私が昨日会った少女はメアリーです。」 The girl （ ） I met yesterday is Mary.｜that｜which｜whose｜what｜人の 目的格（省略も 可）
+【発展】This is the book I read last week. で省略されている語は？｜which（that）｜who｜whose｜what｜目的格は 省略できる
+【発展】「彼は私がずっとほしかった物を持っている。」 He has the thing （ ） I have wanted.｜that｜who｜whose｜what｜もの の 目的格
+【標準】「緑の屋根の家」を関係代名詞で表すと？｜a house whose roof is green｜a house which roof is green｜a house who roof is green｜a house that roof green｜所有格
+【標準】The woman who lives next door is kind. の意味は？｜となりに住んでいる女性は親切だ｜女性はとなりに住んでいる｜親切な女性がとなりに来た｜となりは親切だ｜who lives next door が woman を 修飾
+【標準】The bike which I bought is red. の意味は？｜私が買った自転車は赤い｜私は赤い自転車を買う｜自転車は私を買った｜赤い自転車を買った｜which I bought が bike を 修飾
+【発展】「人ともの」が両方先行詞のとき使う関係代名詞は？｜that｜who｜which｜whose｜the boy and his dog that ...
+【発展】最上級や the only, the first がつく先行詞でよく使われる関係代名詞は？｜that｜who｜which｜whose｜the best movie that I've ever seen
+【基礎】関係代名詞が後ろから説明するのは？｜前にある名詞（先行詞）｜動詞｜文全体だけ｜主語だけ｜名詞を 後ろから 修飾
+【標準】I know a girl who can speak three languages. の意味は？｜私は3か国語を話せる少女を知っている｜少女は私を知っている｜3人の少女を知っている｜私は3か国語を話せる｜who can speak 〜
+【標準】「彼女が描いた絵」を英語にすると？｜the picture she drew｜the picture she drawn｜the picture drew she｜the picture which drew she｜目的格は 省略できる
+【標準】「みんなに好かれている先生」を関係代名詞で表すと？｜a teacher who is liked by everyone｜a teacher which is liked by everyone｜a teacher who likes by everyone｜a teacher whose is liked｜主格＋受け身
+【標準】「これは東京へ行く電車です。」 This is the train （ ） goes to Tokyo.｜which｜who｜whose｜what｜もの の 主格
+【発展】「私には兄弟が二人いる友だちがいる。」 I have a friend （ ） has two brothers.｜who｜which｜whose｜what｜人の 主格
+【発展】「私が去年訪れた町」 the town （ ） I visited last year｜that（which）｜who｜whose｜where｜目的格
+【標準】The man who is talking with Ken is our new teacher. の主語は？｜The man（who is talking with Ken まで）｜Ken｜our new teacher｜who｜関係代名詞の 節は 主語の 一部
+【基礎】主格の関係代名詞のあとにくるのは？｜動詞｜主語＋動詞｜名詞だけ｜形容詞だけ｜who＋動詞
+【基礎】目的格の関係代名詞のあとにくるのは？｜主語＋動詞｜動詞だけ｜名詞だけ｜副詞だけ｜which＋主語＋動詞
+`);
+  add('genKansetsu9', `
+【基礎】間接疑問の語順は？｜疑問詞＋主語＋動詞｜疑問詞＋動詞＋主語｜動詞＋主語｜主語＋疑問詞｜ふつうの 文の 語順
+【標準】「彼女が何を好きか知っていますか。」 Do you know （ ）?｜what she likes｜what does she like｜what she like｜she likes what｜does を 使わない
+【標準】「彼がどこに住んでいるか教えて。」 Tell me （ ）.｜where he lives｜where does he live｜where he live｜he lives where｜三単現の s を 忘れない
+【標準】「今何時かわかりますか。」 Do you know （ ）?｜what time it is｜what time is it｜it is what time｜what is time it｜be動詞は 主語の あと
+【標準】「彼がいつ帰ってきたのか知らない。」 I don't know （ ）.｜when he came back｜when did he come back｜when he come back｜he came back when｜過去形に する
+【標準】「これがだれの本か教えて。」 Tell me （ ）.｜whose book this is｜whose book is this｜this is whose book｜whose is book this｜whose＋名詞＋主語＋動詞
+【標準】「駅への行き方を知っていますか。」の英語として正しいのは？｜Do you know how I can get to the station?｜Do you know how can I get to the station?｜Do you know I can how get to the station?｜Do you know how get I to the station?｜how＋主語＋can＋動詞
+【発展】「なぜ彼女が泣いているのかわからない。」 I don't know （ ）.｜why she is crying｜why is she crying｜why she crying｜she is why crying｜進行形も 主語の あとに be動詞
+【発展】「その箱に何が入っているか知りたい。」 I want to know （ ）.｜what is in the box｜what the box is in｜what in the box is｜is what in the box｜疑問詞が 主語の ときは そのまま
+【発展】「だれがこの絵をかいたか知っていますか。」 Do you know （ ）?｜who painted this picture｜who did paint this picture｜who this picture painted｜painted who this picture｜疑問詞が 主語
+【標準】「あなたが何歳か教えて。」 Tell me （ ）.｜how old you are｜how old are you｜you are how old｜how you are old｜how old＋主語＋be
+【標準】「明日が何曜日か覚えていない。」 I don't remember （ ）.｜what day it is tomorrow｜what day is it tomorrow｜it is what day tomorrow｜what is it day tomorrow｜語順
+【標準】「彼がどうやってそれを作ったか知りたい。」 I want to know （ ）.｜how he made it｜how did he make it｜how he make it｜he made it how｜過去形
+【発展】「彼がいつ日本に来るのか教えてください。」 Please tell me （ ）.｜when he will come to Japan｜when will he come to Japan｜when he comes will to Japan｜he will come when to Japan｜will も 主語の あと
+【基礎】Do you know where she is? の意味は？｜彼女がどこにいるか知っていますか｜彼女はどこにいますか｜彼女を知っていますか｜彼女はどこへ行きましたか｜間接疑問
+【基礎】I know what you mean. の意味は？｜あなたが何を言いたいかわかります｜あなたは何を意味しますか｜私は意味を知らない｜何がほしいですか｜what you mean
+【標準】Can you tell me where the library is? の意味は？｜図書館がどこにあるか教えてもらえますか｜図書館はどこですか（ていねいでない）｜図書館に行けますか｜図書館は開いていますか｜ていねいな 聞き方
+【標準】「次にどうすればよいか教えて」を間接疑問以外で言うと？｜Tell me what to do next.｜Tell me what do next.｜Tell me what doing next.｜Tell me to what do next.｜疑問詞＋to〜
+【発展】I wonder why he is so happy. の意味は？｜彼はなぜそんなにうれしいのだろう｜彼はうれしい｜なぜうれしいの？と聞いた｜彼はうれしくない｜I wonder＋間接疑問
+【発展】「彼女がだれか知っている？」の英語で正しいのは？｜Do you know who she is?｜Do you know who is she?｜Do you know she is who?｜Do you know is she who?｜語順
+`);
+  add('genQword7', `
+【基礎】Where do you live? への答えとして正しいのは？｜I live in Nagoya.｜I'm fine.｜Yes, I do.｜It's mine.｜場所を 答える
+【基礎】When is your birthday? への答えとして正しいのは？｜It's June 3rd.｜It's in my bag.｜I'm twelve.｜Yes, it is.｜日付を 答える
+【基礎】Who is that man? への答えとして正しいのは？｜He is my father.｜It's a pen.｜Yes, he is.｜He is tall.｜人を 答える
+【基礎】Whose pen is this? への答えとして正しいのは？｜It's mine.｜It's red.｜It's on the desk.｜Yes, it is.｜持ち主を 答える
+【標準】Why do you study English? への答えとして正しいのは？｜Because I want to talk with people abroad.｜Yes, I do.｜Every day.｜In my room.｜理由を 答える
+【標準】How many books do you have? への答えとして正しいのは？｜I have ten books.｜I have a red book.｜Yes, I have.｜It's mine.｜数を 答える
+【標準】How long is this river? への答えとして正しいのは？｜It's about 100 km long.｜It's blue.｜It's old.｜It's in Japan.｜長さを 答える
+【標準】How often do you play tennis? への答えとして正しいのは？｜Twice a week.｜For two hours.｜At the park.｜With my friends.｜回数を 答える
+【標準】What sport do you like? への答えとして正しいのは？｜I like baseball.｜Yes, I do.｜It's mine.｜Every day.｜What＋名詞
+【標準】Which is your bag, this or that? への答えとして正しいのは？｜This one is.｜Yes, it is.｜It's mine.｜I like it.｜Which＝どちら
+【発展】How about going to the zoo? の意味は？｜動物園に行くのはどうですか｜動物園はどこ？｜動物園に行った？｜動物園は何時？｜How about 〜ing?
+【発展】What's wrong? の意味は？｜どうしたの？｜何がまちがい？｜何が好き？｜何時？｜相手を 気づかう
 `);
   /* 足した 問題を まぜて 出す */
   function toQ(line) {
