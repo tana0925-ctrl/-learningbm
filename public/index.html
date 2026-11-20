@@ -38252,6 +38252,13 @@ function rkSwitchType(t) {
   document.querySelectorAll('.rk-tab').forEach(function(el){ el.classList.toggle('rk-tab-active', el.getAttribute('data-rktype')===t); });
   var gtabs = document.getElementById('rankingGradeTabs');
   if(gtabs) gtabs.classList.toggle('hidden', t !== 'grade');
+  /* RK_POWER_NOWEEK_V1（2026-11-20）戦闘力は「今の パーティの 強さ」なので「今週」は 意味が ない（入れかえるだけで 上下する）。戦闘力の ときは 今週ボタンを かくして 累計に もどす */
+  try{
+    var wbtn = document.querySelector('.rk-period[data-rkperiod="weekly"]');
+    var box = wbtn && wbtn.parentElement;
+    if(box) box.style.display = (t === 'power') ? 'none' : '';
+    if(t === 'power' && _rkPeriod !== 'cumulative'){ _rkPeriod = 'cumulative'; document.querySelectorAll('.rk-period').forEach(function(el){ el.classList.toggle('rk-period-active', el.getAttribute('data-rkperiod')==='cumulative'); }); }
+  }catch(e){}
   rankingLoad();
 }
 function rkSwitchPeriod(p) {
