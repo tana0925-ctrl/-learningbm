@@ -28344,8 +28344,20 @@ function handleCorrectAnswer() {
                     player.trainingProgress[trainingMode].nextBonusAt *= 2;
                 }
 
-                player.coins = (player.coins || 0) + 1000;
-                alert(`👑 免許皆伝！\n${bonusCount}問正解ボーナス 1000コインを獲得！`);
+                /* MENKYO_LOWER_V1（2026-11-20）下の学年の 単元は「免許皆伝」の コインも 1/3。
+                   ただし 正答率が 80％より ひくい（にがてを やりなおしている）ときは 満額。かんたんな 単元を まわすだけでは 得を しない */
+                let _mkCoin = 1000, _mkNote = '';
+                try {
+                    const _mkRate = (typeof window._getLowerGradeRewardRate === 'function') ? window._getLowerGradeRewardRate() : 1.0;
+                    if (_mkRate < 1.0) {
+                        const _ra = player.trainingProgress[trainingMode].recentAnswers || [];
+                        const _acc = _ra.length ? _ra.filter(Boolean).length / _ra.length : 1;
+                        if (_acc >= 0.8) { _mkCoin = Math.round(1000 * _mkRate); _mkNote = '\n（下の 学年の 単元なので 3分の1。にがてな 単元の やりなおしなら 1000コインだよ）'; }
+                        else { _mkNote = '\n（にがてを やりなおして えらい！ 1000コインだよ）'; }
+                    }
+                } catch (_e) { _mkCoin = 1000; }
+                player.coins = (player.coins || 0) + _mkCoin;
+                alert(`👑 免許皆伝！\n${bonusCount}問正解ボーナス ${_mkCoin}コインを獲得！` + _mkNote);
             }
 
             let gainedExp = 6;
