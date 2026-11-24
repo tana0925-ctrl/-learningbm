@@ -1164,8 +1164,13 @@ export function installPj(app: any, d: Deps) {
     if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return err(c, 403, 'forbidden')
     const cid = c.req.param('classId')
     if (!(await d.ownsClass(c, u, cid))) return err(c, 404, 'class')
-    const r: any = await c.env.DB.prepare("SELECT u.id AS id, u.name AS name, u.roster_no AS no FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=? ORDER BY COALESCE(u.roster_no, 999), u.name").bind(cid).all()
-    return c.json({ ok: true, students: ((r && r.results) || []).map((x: any) => ({ id: String(x.id), name: String(x.name || ''), no: x.no })), coin: COIN_EQ.super })
+    const r: any = await c.env.DB.prepare("SELECT u.id AS id, u.name AS name, u.login_id AS lid, u.roster_no AS no FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=?").bind(cid).all()
+    // 先生には 本名で 見せる（名簿の 本名マップ）。出席番号じゅん
+    let rn: any = {}
+    try { const m: any = await c.env.DB.prepare("SELECT value FROM admin_settings WHERE key='real_name_map' LIMIT 1").first(); rn = m ? JSON.parse(String(m.value)) : {} } catch (_e) {}
+    const list = ((r && r.results) || []).map((x: any) => ({ id: String(x.id), name: String(rn[x.lid] || x.name || ''), nick: rn[x.lid] && x.name && rn[x.lid] !== x.name ? String(x.name) : '', no: x.no }))
+    list.sort((a: any, b: any) => (Number(a.no) || 999) - (Number(b.no) || 999) || a.name.localeCompare(b.name, 'ja'))
+    return c.json({ ok: true, students: list, coin: COIN_EQ.super })
   })
   app.post('/api/teacher/pj/gift', async (c: any) => {
     await ensure(c.env)
