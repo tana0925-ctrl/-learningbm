@@ -194,6 +194,7 @@ function renderKid() {
   h += '</div>';
   var D = days(cfg), wi = K.week || 0;
   if (D.length > 1) h += '<div class="tabs">' + D.map(function (wk, i) { return '<button data-wk="' + i + '" class="' + (i === wi ? 'on' : '') + '">' + (i === 0 ? '今週' : i === 1 ? '来週' : i === 2 ? '再来週' : (i + 1) + '週目') + '（' + md(wk[0]) + '〜' + md(wk[4]) + '）</button>'; }).join('') + '</div>';
+  if (cfg.wait && D[wi] && cfg.wait.indexOf(D[wi][0]) >= 0) h += '<div class="warn">🔒 この週の チトセレは、先生が 時間割を 送ったら 計画を 書けるよ。もう少し まってね。</div>';   // CHITO_PUB_V1
   h += '<div class="week">';
   (D[wi] || []).forEach(function (dk) {
     h += '<div class="day' + (dk === K.today ? ' today' : '') + '"><div class="dh"><span>' + md(dk) + '（' + dow(dk) + '）</span>' + (dk === K.today ? '<span>きょう</span>' : '') + '</div>';
@@ -772,6 +773,12 @@ function gridT() {
   var unset = allTasks.filter(function (k) { return !fixedAtT(k); });
   if (unset.length) h += '<div class="warn">👥 まだ コマが 決まっていない みんなでの 時間：' + unset.map(function (k) { var x = taskOf(cfg, k); return esc(x.u.subj + ' ' + x.t.t); }).join('・') + '</div>';
   D.forEach(function (wk, wi) {
+    // CHITO_PUB_V1 週ごとに「子どもに送る」。送るまで 子どもは その週の チトセレを 書けない
+    var mon = wk[0], sent = !Array.isArray(cfg.pub) || cfg.pub.indexOf(mon) >= 0;
+    h += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>' + md(wk[0]) + '〜' + md(wk[4]) + ' の週</b>'
+      + (sent ? '<span style="background:#dcfce7;color:#166534;font-weight:900;border-radius:8px;padding:3px 8px">✅ 子どもに 送った（書ける）</span><button class="btn" data-pub="' + mon + '" data-on="0" style="font-size:12px">もどす（書けなくする）</button>'
+              : '<span style="background:#fef3c7;color:#92400e;font-weight:900;border-radius:8px;padding:3px 8px">🔒 まだ 送っていない（子どもは 書けない）</span><button class="btn main" data-pub="' + mon + '" data-on="1">📨 この週を 子どもに 送る</button>')
+      + '</div>';
     h += '<div class="scroll"><table class="tgrid" style="margin:8px 0"><tr><th>' + (wi === 0 ? '今週' : wi === 1 ? '来週' : wi === 2 ? '再来週' : (wi + 1) + '週目') + '</th>' + wk.map(function (dk) { return '<th>' + md(dk) + '（' + dow(dk) + '）</th>'; }).join('') + '</tr>';
     for (var p = 1; p <= 6; p++) {
       h += '<tr><th>' + p + '</th>';
@@ -891,6 +898,13 @@ function bindT() {
   $('tWeeks').onchange = function () { T.cfg.weeks = Number(this.value); fillCells(); dirty(); renderT(); };
   $('tNote').oninput = function () { T.cfg.msg = this.value; dirty(); };
   $('tSave').onclick = saveT;
+  app.querySelectorAll('[data-pub]').forEach(function (b) { b.onclick = function () {   // CHITO_PUB_V1
+    var mon = b.getAttribute('data-pub'), on = b.getAttribute('data-on') === '1';
+    if (!Array.isArray(T.cfg.pub)) T.cfg.pub = days(T.cfg).map(function (wk) { return wk[0]; });
+    if (on) { if (!confirm(md(mon) + 'の週の 時間割を 子どもに 送ります。子どもが チトセレの 計画を 書けるように なります。' + (T.dirty ? '（ほかの 変更も いっしょに 保存します）' : ''))) return; if (T.cfg.pub.indexOf(mon) < 0) T.cfg.pub.push(mon); }
+    else { if (!confirm(md(mon) + 'の週を 書けなく します（もう 書いた 計画は のこります）。いいですか？')) return; T.cfg.pub = T.cfg.pub.filter(function (x) { return x !== mon; }); }
+    saveT();
+  }; });
   var kr = $('kidsReload'); if (kr) kr.onclick = reloadKids;
   var ns = $('nowSlot'); if (ns) {
     var sc0 = selCells(T.cfg), mv = function (d) { var i = sc0.indexOf(T.slot) + d; if (i >= 0 && i < sc0.length) { T.slot = sc0[i]; renderT(); } };

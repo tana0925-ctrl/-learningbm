@@ -89,6 +89,8 @@ function cleanStr(s: any, n: number): string { return String(s == null ? '' : s)
 
 function cleanCfg(x: any): any {
   const out: any = { v: 1, on: !!(x && x.on), start: /^\d{4}-\d{2}-\d{2}$/.test(String(x && x.start)) ? String(x.start) : mondayOf(jstToday()), weeks: Math.max(1, Math.min(3, Number(x && x.weeks) || 2)), cells: {}, units: [], msg: cleanStr(x && x.msg, 300) }
+  // CHITO_PUB_V1 先生が「子どもに送る」を おした 週（月曜の 日付）だけ、子どもが 計画を 書ける。pub が ない 古い データは ぜんぶ 送った あつかい
+  if (x && Array.isArray(x.pub)) out.pub = x.pub.map((v: any) => String(v)).filter((v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v)).slice(-20)
   const cs = (x && x.cells) || {}
   Object.keys(cs).slice(0, 200).forEach((key) => {
     if (!/^\d{4}-\d{2}-\d{2}\|[1-7]$/.test(key)) return
@@ -191,6 +193,23 @@ async function teacherOwns(env: any, u: any, cid: string): Promise<boolean> {
   return !!r
 }
 
+// CHITO_PUB_V1 その日の 週が 子どもに 送られて いるか
+function pubOK(cfg: any, dk: string): boolean { return !Array.isArray(cfg && cfg.pub) || cfg.pub.indexOf(mondayOf(dk)) >= 0 }
+// 子どもに 見せる 時間割：送って いない 週の 🌟チトセレ・👥みんなで は かくす（ふつうの 授業だけ）
+function kidCfg(cfg: any): any {
+  if (!Array.isArray(cfg && cfg.pub)) return cfg
+  const out = JSON.parse(JSON.stringify(cfg)), wait: any = {}
+  Object.keys(out.cells || {}).forEach((ck) => {
+    const dk = ck.split('|')[0], c = out.cells[ck]
+    if (pubOK(cfg, dk)) return
+    wait[mondayOf(dk)] = 1
+    if (c && (c.k === 's' || c.k === 'f')) out.cells[ck] = { k: 'n', t: '' }
+  })
+  out.wait = Object.keys(wait).sort()
+  delete out.pub
+  return out
+}
+
 export function registerChitosele(app: any, d: Deps) {
   // ── 子ども ──
   app.get('/api/chitosele/me', async (c: any) => {
@@ -204,7 +223,7 @@ export function registerChitosele(app: any, d: Deps) {
     const r: any = await c.env.DB.prepare('SELECT plan FROM chitosele_plan WHERE user_id=? AND class_id=?').bind(u.id, cid).first()
     let plan: any = { v: 1, s: {}, goal: '' }
     try { if (r) plan = JSON.parse(String(r.plan)) } catch (_e) {}
-    return c.json({ ok: true, on: true, today: jstToday(), cfg, plan })
+    return c.json({ ok: true, on: true, today: jstToday(), cfg: kidCfg(cfg), plan })
   })
   app.put('/api/chitosele/me', async (c: any) => {
     const u = c.get('user')
@@ -216,6 +235,12 @@ export function registerChitosele(app: any, d: Deps) {
     if (!cfg || !cfg.on) return c.json({ ok: false, error: 'off' }, 403)
     const body = await c.req.json().catch(() => null)
     const plan = cleanPlan(body && body.plan, cfg)
+    // CHITO_PUB_V1 送って いない 週は 書けない（前に 書いて いた ぶんは そのまま のこす）
+    if (Array.isArray(cfg.pub)) {
+      Object.keys(plan.s || {}).forEach((ck) => { if (!pubOK(cfg, ck.split('|')[0])) delete plan.s[ck] })
+      const old: any = await c.env.DB.prepare('SELECT plan FROM chitosele_plan WHERE user_id=? AND class_id=?').bind(u.id, cid).first()
+      try { const op = old ? JSON.parse(String(old.plan)) : null; Object.keys((op && op.s) || {}).forEach((ck) => { if (!pubOK(cfg, ck.split('|')[0])) plan.s[ck] = op.s[ck] }) } catch (_e) {}
+    }
     await c.env.DB.prepare("INSERT INTO chitosele_plan (user_id, class_id, plan, updated_at) VALUES (?,?,?,datetime('now')) ON CONFLICT(user_id, class_id) DO UPDATE SET plan=excluded.plan, updated_at=datetime('now')").bind(u.id, cid, JSON.stringify(plan)).run()
     return c.json({ ok: true, plan })
   })
