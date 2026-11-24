@@ -58,8 +58,8 @@
           if (!j || !j.ok) { busy = false; if (m) m.textContent = 'うまく いかなかったよ。もう一回 おしてね'; return; }
           if (pk === 'coin') {
             try {
-              if (window.player) {
-                if (typeof j.coins === 'number') player.coins = j.coins; else player.coins = (Number(player.coins) || 0) + (Number(j.amount) || 0);
+              if (window.player || window.getPlayer) { var player = window.player || window.getPlayer();
+                player.coins = (Number(player.coins) || 0) + (Number(j.amount) || 0);   /* PJGIFT_LOCAL_V1 サーバの 古い 数字で 上書きしない（端末で ふえた ぶんが 消えて「ふえない」ように 見えていた） */
                 if (typeof j.pjGiftCoins === 'number') player._pjGiftCoins = j.pjGiftCoins;
                 if (typeof saveData === 'function') saveData();
               }
