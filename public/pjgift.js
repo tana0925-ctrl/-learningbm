@@ -7,13 +7,14 @@
 (function () {
   'use strict';
   if (window.__PJGIFT_V1__) return; window.__PJGIFT_V1__ = 1;
-  var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券' };
-  var USE = { ext: '先生PJで 選手の 契約を 10日 のばせる', normal: '先生PJで ノーマルスカウトが 1回', pos: '先生PJで ポジション別スカウトが 1回', rare: '先生PJで レアスカウトが 1回' };
+  var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券', super: '🌟 スーパーレア券' };
+  var USE = { ext: '先生PJで 選手の 契約を 10日 のばせる', normal: '先生PJで ノーマルスカウトが 1回', pos: '先生PJで ポジション別スカウトが 1回', rare: '先生PJで レアスカウトが 1回', super: '先生PJで ★3の 強い 選手が かならず 出る' };
   var shown = false, later = {}, lastAt = 0;
   function md(dk) { var p = String(dk || '').split('-'); return p.length < 3 ? '' : Number(p[1]) + '/' + Number(p[2]); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function why(g) {
     if (g.t === 'lg') return md(g.wk) + 'の 週の リーグ戦（' + (g.sp === 'sc' ? '⚽ サッカー' : '⚾ 野球') + '）、' + (g.rank === 1 ? '🥇 優勝！ おめでとう！' : g.rank === 2 ? '🥈 2位！' : g.rank === 3 ? '🥉 3位！' : g.rank + '位。参加 ありがとう！');
+    if (g.why === 'special') return '🌟 とくべつな ごほうび！' + (g.note ? '「' + g.note + '」' : '') + ' おめでとう！';   /* PJ_SUPER_V1 */
     if (g.why === 'week') return md(g.ws) + 'の 週、学校の日に 毎日 家庭学習を 出したね！';
     return md(g.day) + '、クラスの 家庭学習が ' + (g.n >= g.N ? 'ぜんいん そろった' : Math.floor(g.n / g.N * 100) + '% そろった') + '！ みんなの がんばりや！';
   }

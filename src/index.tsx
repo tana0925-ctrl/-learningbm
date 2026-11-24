@@ -11570,7 +11570,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=2"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/manabi-nav.js?v=1"></script><script src="/hschat.js?v=15"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=3"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/manabi-nav.js?v=1"></script><script src="/hschat.js?v=15"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -14824,6 +14824,39 @@ app.get('/teacher', (c) => {
           pjTry.className = 'text-xs px-2 py-1 rounded font-bold bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50';
           pjTry.textContent = '⚾ 先生PJを ひらく';
           btnGroup.appendChild(pjTry);
+          // 🌟 PJ_SUPER_V1 スーパーレアスカウト券を おくる（子どもは 券 か 1500コインを えらぶ）
+          const pjSup = document.createElement('button');
+          pjSup.className = 'text-xs px-2 py-1 rounded font-bold bg-purple-50 text-purple-700 border border-purple-300 hover:bg-purple-100';
+          pjSup.textContent = '🌟 スーパーレア券を おくる';
+          pjSup.title = 'コンクールで選ばれた・とくべつなことがあった子に。子どもは「スーパーレア券（★3の強い選手が必ず出る）」か「1500コイン」をえらべます';
+          pjSup.onclick = async ()=>{
+            try{
+              const r = await api('/api/teacher/pj/gift/'+cls.id);
+              const sts = (r && r.students) || [];
+              const ov = document.createElement('div');
+              ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+              const esc2 = function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch];}); };
+              ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow:auto;padding:16px">'
+                + '<div style="font-weight:900;font-size:18px;color:#7e22ce">🌟 スーパーレア券を おくる</div>'
+                + '<div style="font-size:12px;color:#475569;margin:4px 0 8px">子どもの画面に「ごほうびが とどいたよ」と出て、<b>スーパーレア券</b>（先生PJで ★3の強い選手が必ず出る）か <b>'+((r&&r.coin)||1500)+'コイン</b>を本人がえらびます。</div>'
+                + '<label style="font-size:13px;font-weight:700">理由（子どもに見えます・40字まで）<input id="pjSupNote" maxlength="40" placeholder="例：作品コンクール入選" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:6px;margin-top:4px"></label>'
+                + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;margin:10px 0">'
+                + sts.map(function(x){ return '<label style="font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px"><input type="checkbox" value="'+esc2(x.id)+'"> '+(x.no?esc2(x.no)+' ':'')+esc2(x.name)+'</label>'; }).join('')
+                + '</div><div style="text-align:right"><button id="pjSupNo" style="padding:6px 12px;margin-right:6px">やめる</button><button id="pjSupGo" style="padding:6px 14px;background:#9333ea;color:#fff;border-radius:8px;font-weight:900">おくる</button></div></div>';
+              document.body.appendChild(ov);
+              ov.querySelector('#pjSupNo').onclick = function(){ ov.remove(); };
+              ov.querySelector('#pjSupGo').onclick = async function(){
+                const ids = Array.prototype.slice.call(ov.querySelectorAll('input[type=checkbox]:checked')).map(function(x){ return x.value; });
+                if (!ids.length) { alert('おくる子を えらんでください'); return; }
+                const note = ov.querySelector('#pjSupNote').value || '';
+                if (!confirm(ids.length+'人に スーパーレア券を おくります。よろしいですか？')) return;
+                const res = await api('/api/teacher/pj/gift',{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ classId: cls.id, userIds: ids, note: note }) });
+                alert(res && res.ok ? ('🌟 '+res.sent+'人に おくりました'+((res.fail&&res.fail.length)?'（おくれなかった '+res.fail.length+'人）':'')) : 'おくれませんでした');
+                if (res && res.ok) ov.remove();
+              };
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(pjSup);
           // 🗓 CHITOSELE_V1 チトセレ（ブロックアワー）：クラスごとの ON/OFF と、時間割・みんなの計画を ひらく
           const csBtn = document.createElement('button');
           const csCls = function(on){ return on

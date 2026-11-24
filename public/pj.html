@@ -326,6 +326,11 @@
       + '<div style="font-weight:900">💎 レアスカウト <span style="float:right">' + PR.rare + 'コイン</span></div>'
       + '<div class="note">高いけど、つよい 選手が 出やすい！（★3が ' + W[3] + '%・★2が ' + W[2] + '%・★1が ' + W[1] + '%。ポジションは おたのしみ）</div>'
       + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="rare" style="background:linear-gradient(135deg,#d97706,#b45309)"' + dis(PR.rare) + '>💎 レアで さがす</button>' + tkBtn('rare', 'さがす') + '</div></div>'
+      // 🌟 PJ_SUPER_V1 スーパーレア（先生から もらった 券だけ）
+      + (TK.super > 0 ? '<div class="tier" style="border:3px solid #a855f7;border-radius:14px;padding:10px;margin:8px 0;text-align:left;background:linear-gradient(135deg,#faf5ff,#fdf4ff)">'
+        + '<div style="font-weight:900">🌟 スーパーレアスカウト <span style="float:right">券だけ</span></div>'
+        + '<div class="note">★3の 中でも 能力が 高い 選手が かならず 来る！（先生から もらった 券で ひけるよ）</div>'
+        + '<div style="text-align:center;margin-top:6px"><button class="btn" data-tier="super" data-tk="1" style="background:linear-gradient(135deg,#9333ea,#c026d3)"' + (ready ? '' : ' disabled') + '>🌟 スーパーレア券で さがす（のこり ' + TK.super + '）</button></div></div>' : '')
       + '<div class="note" style="margin-top:6px">きょう ' + S.bought + 'かい スカウトしたよ（野球と サッカー あわせて）。</div>'
       + (why ? '<div class="note" style="color:#c2410c;font-weight:700">' + esc(why) + '</div>' : '') + '</div>'
       + '<div class="box note">・チームには ' + S.teamMax + '人まで 入れられる。<br>・契約は 学校の日で 20日。20日たつと 引退して、図鑑に「殿堂入り」で ずっと のこるよ。<br>'
@@ -365,7 +370,7 @@
     var t = S.tk || {};
     var h = '<div class="box" style="border:2px dashed #14b8a6;background:#f0fdfa"><div style="font-weight:900">🎫 もっている 券</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">'
-      + [['ext', '🤝 契約延長券'], ['normal', '🎟 ノーマル券'], ['pos', '🎯 ポジション券'], ['rare', '💎 レア券']].map(function (x) { return '<span class="left' + (t[x[0]] ? ' y' : '') + '" style="font-size:13px">' + x[1] + ' × ' + (t[x[0]] || 0) + '</span>'; }).join('') + '</div>'
+      + [['ext', '🤝 契約延長券'], ['normal', '🎟 ノーマル券'], ['pos', '🎯 ポジション券'], ['rare', '💎 レア券'], ['super', '🌟 スーパーレア券']].map(function (x) { return '<span class="left' + (t[x[0]] ? ' y' : '') + '" style="font-size:13px">' + x[1] + ' × ' + (t[x[0]] || 0) + '</span>'; }).join('') + '</div>'
       + '<div class="note">・自分が 1週間（学校の日）毎日 家庭学習を 出す → 🤝 契約延長券 か 200コイン（券は チームの 画面で 選手の 契約を ' + (S.extDays || 10) + '日 のばせる）<br>'
       + '・クラスの 1日の 家庭学習が 90% → 🎟 ノーマル券 か 200コイン、95% → 🎯 ポジション券 か 250コイン、ぜんいん → 💎 レア券 か 600コイン（クラス みんなに。どっちか えらべる）</div></div>';
     return h;
@@ -373,7 +378,7 @@
   window.PJ_AFTER_GIFT = function () { start(); };   /* 🎁 PJ_REWARD_PICK_V1 ごほうびは /pjgift.js が 出す（券 か コインを えらぶ） */
   function showGifts() {
     if (!S || !S.gifts || !S.gifts.length) return;
-    var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券' };
+    var NM = { ext: '🤝 契約延長券', normal: '🎟 ノーマル券', pos: '🎯 ポジション券', rare: '💎 レア券', super: '🌟 スーパーレア券' };
     var h = '<div class="kind">🎁 券を もらったよ！</div>';
     S.gifts.forEach(function (g) {
       h += '<div class="note" style="font-size:15px;margin:6px 0"><b>' + NM[g.t] + '</b>　' + (g.why === 'week' ? md(g.ws) + 'の 週、毎日 家庭学習を 出したね！' : md(g.day) + '、クラスの 家庭学習が ' + (g.n >= g.N ? 'ぜんいん' : Math.floor(g.n / g.N * 100) + '%') + ' そろった！') + '</div>';
@@ -894,7 +899,7 @@ function lite3D(w) {
         try { w.addEventListener('error', function (ev) { pjLog('game_err', (ev && ev.message || '') + ' @' + (ev && ev.lineno || '')); }); w.addEventListener('unhandledrejection', function (ev) { pjLog('game_rej', String(ev && ev.reason && (ev.reason.message || ev.reason) || '')); }); } catch (_e) {}
         var go = function (n) {
           if (!$('mkF')) return;
-          if (w.__pjStart && w.__pjEval) { try { onReady(w, info); var l = $('mkL'); if (l) l.remove(); } catch (e) { try { console.error('pj game', e); } catch (_e) {} fail('ready', e && e.message || e); } }
+          if (w.__pjStart && w.__pjEval) { try { onReady(w, info); var l = $('mkL'); if (l) l.remove(); blankCheck(w, title); } catch (e) { try { console.error('pj game', e); } catch (_e) {} fail('ready', e && e.message || e); } }
           else if (n < 200) setTimeout(function () { go(n + 1); }, 150);
           else fail('slow', 'no __pjStart');
         };
@@ -902,6 +907,19 @@ function lite3D(w) {
       };
       fr.src = url;
     }).catch(function (e) { fail('load', e && e.message || e); });
+  }
+  // 🩺 PJ_BLANK_V1 ひらいたのに 真っ白の ときは、ようすを 記録する（文字の 量・キャンバス・WebGL）
+  function blankCheck(w, title) {
+    setTimeout(function () {
+      try {
+        if (!$('mkF')) return;
+        var doc = w.document, txt = ((doc.body && doc.body.innerText) || '').trim().length;
+        if (txt > 30) return;
+        var cv = doc.querySelectorAll('canvas').length, gl = '';
+        try { var c = doc.createElement('canvas'); gl = c.getContext('webgl2') ? 'gl2' : c.getContext('webgl') ? 'gl1' : 'nogl'; } catch (e) { gl = 'glerr'; }
+        pjLog('blank', title.replace(/<[^>]*>/g, '') + ' txt=' + txt + ' canvas=' + cv + ' ' + gl + ' w=' + (w.innerWidth || 0) + 'x' + (w.innerHeight || 0));
+      } catch (e) { pjLog('blank_err', String(e && e.message || e)); }
+    }, 6000);
   }
   // 1人の 選手を 3Dの 名鑑で 見せる（ガチャの 結果・チームの 選手）
   function show3D(k, title) {

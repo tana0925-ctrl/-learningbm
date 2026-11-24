@@ -21,7 +21,7 @@ type Deps = {
 
 const PRICES = [200, 300, 400]   // （むかしの 1日の だんだん 高くなる 値段。いまは つかわない）
 // 🎟 PJ_TIERS_V1 スカウトの しゅるい（2026-11-09）：ノーマル＝ポジションも わからないけど 安い／ポジション別＝少し 高いけど えらべる／レア＝高いけど ★2・★3が 出やすい
-const TIERS: any = { normal: { price: 200 }, pos: { price: 250 }, rare: { price: 600, w: { 3: 25, 2: 45, 1: 30 } } }
+const TIERS: any = { normal: { price: 200 }, pos: { price: 250 }, rare: { price: 600, w: { 3: 25, 2: 45, 1: 30 } }, super: { price: 0 } }   // 🌟 PJ_SUPER_V1 super＝先生が おくる 券だけ（コインでは 買えない）
 const TEAM_MAX = 30
 const CONTRACT = 20
 const DUP_EXT = 10
@@ -252,7 +252,7 @@ export function installPj(app: any, d: Deps) {
   //     （その日が おわってから＝つぎの 朝8:30 すぎ。いちばん 上の 1まいだけ）
   //   ・2026-11-09 の 週から。1日に 1回だけ しらべる（st.rw.ck）。先生の がちモード（クラスなし）は なし
   const TK_FROM = '2026-11-09'
-  const COIN_EQ: any = { ext: 200, normal: 200, pos: 250, rare: 600 }   // 券の かわりに えらべる コイン
+  const COIN_EQ: any = { ext: 200, normal: 200, pos: 250, rare: 600, super: 1500 }   // PJ_SUPER_V1 スーパーレア券は 1500コインと えらべる   // 券の かわりに えらべる コイン
   function hwDayNow() { return new Date(Date.now() + 9 * 3600000 - (8 * 60 + 30) * 60000).toISOString().slice(0, 10) }
   async function grantTickets(c: any, w: any, st: any, ctx: any) {
     if (w.test || !w.classId || !w.u) return null
@@ -336,7 +336,7 @@ export function installPj(app: any, d: Deps) {
     return Object.assign({
       ok: true, test: !!w.test, teacher: !!w.teacher, gachi: !!w.gachi, today: ctx.today, school: ctx.school(ctx.today),
       coins, bought, max: 0, price: TIERS.normal.price, prices: { normal: TIERS.normal.price, pos: TIERS.pos.price, rare: TIERS.rare.price }, rareW: TIERS.rare.w,   // PJ_NOLIMIT_V1 上限なし／PJ_TIERS_V1
-      tk: { ext: Number((st.tk || {}).ext) || 0, normal: Number((st.tk || {}).normal) || 0, pos: Number((st.tk || {}).pos) || 0, rare: Number((st.tk || {}).rare) || 0 }, gifts: [], pend: st.pg || [], coinEq: COIN_EQ, extMax: EXT_MAX, extDays: EXT_DAYS,
+      tk: { ext: Number((st.tk || {}).ext) || 0, normal: Number((st.tk || {}).normal) || 0, pos: Number((st.tk || {}).pos) || 0, rare: Number((st.tk || {}).rare) || 0, super: Number((st.tk || {}).super) || 0 }, gifts: [], pend: st.pg || [], coinEq: COIN_EQ, extMax: EXT_MAX, extDays: EXT_DAYS,
       teamMax: TEAM_MAX, roster: st.ro.map((r: any) => ({ k: r.k, left: leftOf(r, ctx), x: Number(r.x) || 0 })).sort((a: any, b: any) => a.left - b.left),
       teamName: { bb: tnName('bb', (st.tn || {}).bb), sc: tnName('sc', (st.tn || {}).sc) }, tnOpts: { a: TN_A, bb: TN_B.bb, sc: TN_B.sc }, tnSel: st.tn || {},
       order: cleanOrder(st), starterGot: st.sg || {}, practice: prac,
@@ -498,7 +498,8 @@ export function installPj(app: any, d: Deps) {
     // どちらを ひくか えらべる（PJ_SPORT_V1）。えらばなければ はんぶんずつ
     const body0 = await c.req.json().catch(() => ({}))
     // PJ_TIERS_V1 しゅるい：pos が あれば ポジション別（むかしの 画面からも）。rare は ポジションなし
-    const tier = body0 && body0.tier === 'rare' ? 'rare' : (body0 && body0.pos) ? 'pos' : 'normal'
+    const tier = body0 && body0.tier === 'super' ? 'super' : body0 && body0.tier === 'rare' ? 'rare' : (body0 && body0.pos) ? 'pos' : 'normal'
+    if (tier === 'super' && !(body0 && body0.ticket)) return err(c, 402, 'no_ticket')   // PJ_SUPER_V1 券だけ
     if (tier !== 'pos' && body0) body0.pos = ''
     // 🎫 PJ_TICKETS_V1 券を つかうなら コインは 0（券を 1まい へらす）
     st.tk = st.tk || {}
@@ -546,6 +547,18 @@ export function installPj(app: any, d: Deps) {
     if (want) {
       const cond = want.map(() => "json_extract(j,'$.pos') LIKE ?").join(' OR ')
       pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? AND (' + cond + ') ORDER BY RANDOM() LIMIT 1').bind(sport, ...want.map((w: string) => '%' + w + '%')).first()
+    } else if (tier === 'super') {
+      // 🌟 PJ_SUPER_V1 ★3の 中でも 能力が 上の 選手だけから（野球：投手4割・野手6割／サッカー：GK1割・フィールド9割）
+      const S3 = "CAST(json_extract(j,'$.st') AS INTEGER) = 3"
+      let q = ''
+      if (sport === 'bb') q = Math.random() < 0.4
+        ? "SELECT k FROM (SELECT k FROM pj_players WHERE s='bb' AND " + S3 + " AND json_extract(j,'$.ab.velo') IS NOT NULL ORDER BY (json_extract(j,'$.ab.ctrl')+json_extract(j,'$.ab.stam')+json_extract(j,'$.ab.velo')) DESC LIMIT 40) ORDER BY RANDOM() LIMIT 1"
+        : "SELECT k FROM (SELECT k FROM pj_players WHERE s='bb' AND " + S3 + " AND json_extract(j,'$.ab.meet') IS NOT NULL ORDER BY (json_extract(j,'$.ab.meet')+json_extract(j,'$.ab.power')+json_extract(j,'$.ab.run')+json_extract(j,'$.ab.arm')+json_extract(j,'$.ab.field')) DESC LIMIT 60) ORDER BY RANDOM() LIMIT 1"
+      else q = Math.random() < 0.1
+        ? "SELECT k FROM (SELECT k FROM pj_players WHERE s='sc' AND " + S3 + " AND json_extract(j,'$.ab.gk') IS NOT NULL ORDER BY json_extract(j,'$.ab.gk') DESC LIMIT 15) ORDER BY RANDOM() LIMIT 1"
+        : "SELECT k FROM (SELECT k FROM pj_players WHERE s='sc' AND " + S3 + " AND json_extract(j,'$.ab.sho') IS NOT NULL ORDER BY (json_extract(j,'$.ab.sho')+json_extract(j,'$.ab.pas')+json_extract(j,'$.ab.dri')+json_extract(j,'$.ab.spd')+json_extract(j,'$.ab.phy')+json_extract(j,'$.ab.def')) DESC LIMIT 100) ORDER BY RANDOM() LIMIT 1"
+      pr = await c.env.DB.prepare(q).first()
+      if (!pr) pr = await c.env.DB.prepare("SELECT k FROM pj_players WHERE s=? AND " + S3 + " ORDER BY RANDOM() LIMIT 1").bind(sport).first()
     } else if (tier === 'rare') {
       // ★を 先に きめて、その ★の 中から ランダム（★3 25%・★2 45%・★1 30%）
       const W = TIERS.rare.w, r0 = Math.random() * 100, star = r0 < W[3] ? 3 : r0 < W[3] + W[2] ? 2 : 1
@@ -1141,6 +1154,42 @@ export function installPj(app: any, d: Deps) {
     if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return err(c, 403, 'forbidden')
     const body = await c.req.json().catch(() => ({}))
     try { return c.json(await importPart(c.env, Math.floor(Number(body.part)))) } catch (e) { return err(c, 500, 'import_failed', { detail: String(e && e.message || e).slice(0, 200) }) }
+  })
+
+  // 🌟 PJ_SUPER_V1 先生が「スーパーレアスカウト券」を おくる（コンクールで えらばれた・とくべつな ときなど）
+  //   本人の ごほうび一覧（st.pg）に 入る → 子どもが「券」か「1500コイン」を えらぶ（先生PJを やらない子は コインに できる）
+  app.get('/api/teacher/pj/gift/:classId', async (c: any) => {
+    await ensure(c.env)
+    const u = c.get('user')
+    if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return err(c, 403, 'forbidden')
+    const cid = c.req.param('classId')
+    if (!(await d.ownsClass(c, u, cid))) return err(c, 404, 'class')
+    const r: any = await c.env.DB.prepare("SELECT u.id AS id, u.name AS name, u.roster_no AS no FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=? ORDER BY COALESCE(u.roster_no, 999), u.name").bind(cid).all()
+    return c.json({ ok: true, students: ((r && r.results) || []).map((x: any) => ({ id: String(x.id), name: String(x.name || ''), no: x.no })), coin: COIN_EQ.super })
+  })
+  app.post('/api/teacher/pj/gift', async (c: any) => {
+    await ensure(c.env)
+    const u = c.get('user')
+    if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return err(c, 403, 'forbidden')
+    const body = await c.req.json().catch(() => ({}))
+    const cid = String((body && body.classId) || '')
+    if (!(await d.ownsClass(c, u, cid))) return err(c, 404, 'class')
+    const ids: string[] = Array.isArray(body && body.userIds) ? body.userIds.map((x: any) => String(x)).slice(0, 60) : []
+    const note = String((body && body.note) || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 40)
+    let sent = 0
+    const fail: string[] = []
+    for (const sid of ids) {
+      const m: any = await c.env.DB.prepare("SELECT 1 AS x FROM class_members cm JOIN users u ON u.id=cm.user_id AND u.role='student' WHERE cm.class_id=? AND cm.user_id=?").bind(cid, sid).first()
+      if (!m) { fail.push(sid); continue }
+      let ok = false
+      for (let t = 0; t < 3 && !ok; t++) {
+        const L = await load(c.env, sid)
+        L.st.pg = (L.st.pg || []).concat([{ id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: 'super', why: 'special', note }]).slice(-20)
+        ok = await save(c.env, sid, L.st, L.ver)
+      }
+      if (ok) sent++; else fail.push(sid)
+    }
+    return c.json({ ok: true, sent, fail })
   })
 
   // クラスの ON/OFF（先生）
