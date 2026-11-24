@@ -17338,7 +17338,7 @@ function updateTrainingMenu() {
             }
             if (!confirm(`${cost}コインを使ってガチャを引きますか？`)) return;
 
-            player.coins = (player.coins || 0) - cost;
+            window.__coinWhy = type === 'normal' ? 'ガチャ（ノーマル）' : 'ガチャ（プレミアム）'; player.coins = (player.coins || 0) - cost; window.__coinWhy = '';   // COINLOG_V1
             const result = rollGacha(type);
             applyGachaResultData(result);
             try { recordGacha(type, result); } catch(e) {} /* GACHA_RARE_DEX_METRICS_V1 */
@@ -17368,7 +17368,7 @@ function updateTrainingMenu() {
             
             if (!confirm(`${cost}コインを使って10連ガチャを引きますか？\n（${singleCost * 10}コインが${cost}コインに！5%オフ）`)) return;
 
-            player.coins = (player.coins || 0) - cost;
+            window.__coinWhy = type === 'normal' ? 'ガチャ10連（ノーマル）' : 'ガチャ10連（プレミアム）'; player.coins = (player.coins || 0) - cost; window.__coinWhy = '';   // COINLOG_V1
             
             // 10回分の結果を配列に格納
             const results = [];
@@ -17622,7 +17622,7 @@ if ((player.coins || 0) < item.price) {
 
             if (!confirm(`${item.name} を ${item.price} コインで購入しますか？`)) return;
 
-            player.coins = (player.coins || 0) - item.price;
+            window.__coinWhy = 'ショップ：' + item.name; player.coins = (player.coins || 0) - item.price; window.__coinWhy = '';   // COINLOG_V1
 
             if (item.id === 'herb') {
                 player.herbs = (player.herbs || 0) + 1;
@@ -31220,7 +31220,7 @@ function closeDetail() {
             if (code.startsWith("6340")) {
                 const amount = parseInt(code.substring(4));
                 if (!isNaN(amount) && amount > 0) {
-                    player.coins = Math.max(0, (player.coins || 0) - amount);
+                    window.__coinWhy = '先生のコマンド（へらす）'; player.coins = Math.max(0, (player.coins || 0) - amount); window.__coinWhy = '';
                     saveData();
                     updatePlayerDisplay();
                     alert(`管理者コマンド: コインを ${amount}枚 減らしました。`);
@@ -31318,7 +31318,7 @@ function closeDetail() {
             const closeBtn = document.getElementById('bakerCloseBtn');
 
             if ((player.coins || 0) >= 3000) {
-                player.coins = (player.coins || 0) - 3000;
+                window.__coinWhy = 'パン'; player.coins = (player.coins || 0) - 3000; window.__coinWhy = '';   // COINLOG_V1
                 const mId = 300;
                 const m = getMonster(mId);
                 let resultText = "";

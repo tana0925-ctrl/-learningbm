@@ -11272,7 +11272,7 @@ app.get('/sticker.js', (c) => {
 // 🐛 プログラミングバトルのサドンデス（t>700で両基地が非接触で減少→陥落）を「基地HP多い方の判定勝ち（減算なし）」に修正。接触してない基地はダメージを受けない。
 const SUDDEN_OLD = "if(CONTACT && !ended && t>700){ var _sd=(t-700)*0.015; baseHpA-=_sd; baseHpB-=_sd; if(baseHpA<=0){ baseHpA=0; winner='B'; reason='base'; ended=true; } else if(baseHpB<=0){ baseHpB=0; winner='A'; reason='base'; ended=true; } }"
 const SUDDEN_NEW = "if(CONTACT && !ended && t>700){ if(baseHpA!==baseHpB){ winner=(baseHpA>baseHpB?'A':'B'); reason='judge'; ended=true; } else if(t>860){ var _sdA=0,_sdB=0,_sdI; for(_sdI=0;_sdI<A.length;_sdI++){if(A[_sdI].alive&&A[_sdI].hp>0)_sdA+=A[_sdI].hp;} for(_sdI=0;_sdI<B.length;_sdI++){if(B[_sdI].alive&&B[_sdI].hp>0)_sdB+=B[_sdI].hp;} winner=(_sdA>=_sdB?'A':'B'); reason='judge'; ended=true; } }"
-app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defense2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) });const _g8files = ['g8core.js','g8math.js','g8eng.js','g8sci.js','g8soc.js','g8jp.js','g8wild.js','g9core.js','g9math.js','g9eng.js','g9sci.js','g9soc.js','g9jp.js','g9wild.js','g10core.js','g10math.js','g10sci.js','g10soc.js','g10wild.js','hanshin_advice2.js','tbattle.js','tbsub.js','g6x.js','g6y.js','g5y.js','g4y.js','g3y.js','g12y.js','g79y.js','figexp.js','expbank.js', 'mathexp.js', 'tswords.js', 'figmath.js', 'gnl.js', 'figsci.js', 'gplus.js', 'unitnames.js']
+app.get('/defense2.js', async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/defense2.js'))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) });const _g8files = ['g8core.js','g8math.js','g8eng.js','g8sci.js','g8soc.js','g8jp.js','g8wild.js','g9core.js','g9math.js','g9eng.js','g9sci.js','g9soc.js','g9jp.js','g9wild.js','g10core.js','g10math.js','g10sci.js','g10soc.js','g10wild.js','hanshin_advice2.js','tbattle.js','tbsub.js','g6x.js','g6y.js','g5y.js','g4y.js','g3y.js','g12y.js','g79y.js','figexp.js','expbank.js', 'mathexp.js', 'tswords.js', 'figmath.js', 'gnl.js', 'figsci.js', 'gplus.js', 'unitnames.js','coinlog.js']
 for (const _f of _g8files) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
 const _g8xfiles = ['g8xmath.js','g8xeng.js','g8xsci.js','g8xsoc.js','g8xjp.js']
 for (const _f of _g8xfiles) { app.get('/' + _f, async (c) => { try { const a = await c.env.ASSETS?.fetch(new Request(new URL('https://assets/' + _f))); if (a && a.status === 200) return new Response(await a.text(), { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' } }); } catch (e) {} return c.text('not found', 404) }) }
@@ -11570,7 +11570,7 @@ app.get('/', async (c) => {
       t = t.replace('</body>', '<script src="/weekref2.js?v=2"></script></body>')
       // 💬 HSCHAT_V1 阪神マンと はじめる家庭学習（対話で すすめる入口・タイマー・振り返り → いつもの提出）。中身は public/hschat.js。
       // ✍️ HSSIGN_V1 対話にサポーターのサイン（hschat.js v=2）／🗣 HSTALK_V1 受け止め・前の自分・もう一歩（hschat.js v=4）／▶ READY_V1 スタートの前に聞く（v=5）／💬 HSWEEKCHAT_V1 阪神マンとふりかえる（週の振り返りを対話で）。中身は public/hsweekchat.js。
-      t = t.replace('</body>', '<script src="/pjgift.js?v=3"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/manabi-nav.js?v=1"></script><script src="/hschat.js?v=15"></script><script src="/hsweekchat.js?v=2"></script></body>')
+      t = t.replace('</body>', '<script src="/pjgift.js?v=3"></script><script src="/coinlog.js?v=1"></script><script src="/hsextra.js?v=1"></script><script src="/hscheck.js?v=4"></script><script src="/sakanobori.js?v=2"></script><script src="/hsredo.js?v=6"></script><script src="/missiontop.js?v=5"></script><script src="/hsadvice.js?v=4"></script><script src="/chitosele.js?v=1"></script><script src="/manabi-nav.js?v=1"></script><script src="/hschat.js?v=15"></script><script src="/hsweekchat.js?v=2"></script></body>')
       // 📮 TEISHUTSU_V1 提出状況のアドバイス（今週の家庭学習の一言・📮まだの提出物）。中身は public/teishutsu.js（hschat.js の対話の最初にも一言）。
       t = t.replace('</body>', '<script src="/teishutsu.js?v=1"></script></body>')
       // ===== hs-photo-submit-20260911 =====
@@ -14860,6 +14860,39 @@ app.get('/teacher', (c) => {
             } catch(e){ alert(String(e.message||e)); }
           };
           btnGroup.appendChild(pjSup);
+          // 💰 COINLOG_V1 コインの 記録（何で ふえた・へった）
+          const coinLogBtn = document.createElement('button');
+          coinLogBtn.className = 'text-xs px-2 py-1 rounded font-bold bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100';
+          coinLogBtn.textContent = '💰 コインの記録';
+          coinLogBtn.title = '子どもの コインが 何で ふえた・へったかを 見る（11/24から 記録）';
+          coinLogBtn.onclick = async ()=>{
+            try{
+              const r = await api('/api/teacher/pj/gift/'+cls.id);
+              const sts = (r && r.students) || [];
+              const esc3 = function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch];}); };
+              const ov = document.createElement('div');
+              ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+              ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:16px">'
+                + '<div style="display:flex;align-items:center"><div style="font-weight:900;font-size:18px;color:#b45309;flex:1">💰 コインの記録</div><button id="clX" style="padding:4px 10px">とじる</button></div>'
+                + '<div style="font-size:12px;color:#64748b;margin:4px 0 8px">子どもを えらぶと、コインが 何で ふえた・へったかが 新しい じゅんに 出ます（11/24から 記録。さいごの 200件）。</div>'
+                + '<div style="display:flex;flex-wrap:wrap;gap:4px">' + sts.map(function(x){ return '<button data-cl="'+esc3(x.id)+'" style="font-size:12px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:3px 8px">'+(x.no?esc3(x.no)+' ':'')+esc3(x.name)+'</button>'; }).join('') + '</div>'
+                + '<div id="clOut" style="margin-top:10px"></div></div>';
+              document.body.appendChild(ov);
+              ov.querySelector('#clX').onclick = function(){ ov.remove(); };
+              ov.querySelectorAll('[data-cl]').forEach(function(bt){ bt.onclick = async function(){
+                const out = ov.querySelector('#clOut'); out.textContent = 'よみこみ中…';
+                const j = await api('/api/teacher/coinlog/'+cls.id+'/'+encodeURIComponent(bt.getAttribute('data-cl')));
+                if (!j || !j.ok) { out.textContent = 'よみこめませんでした'; return; }
+                const lg = (j.log || []).slice().reverse();
+                const fmt = function(t){ const d = new Date(Number(t)); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+                out.innerHTML = '<div style="font-weight:900;margin-bottom:4px">'+esc3(bt.textContent)+'　いま '+(j.coins||0)+'コイン'+(j.start!=null?'（きょうの はじめ '+esc3(j.start)+'）':'')+'</div>'
+                  + (lg.length ? '<table style="width:100%;font-size:13px;border-collapse:collapse"><tr style="background:#f8fafc"><th style="text-align:left;padding:3px">とき</th><th style="text-align:right;padding:3px">ふえた・へった</th><th style="text-align:right;padding:3px">のこり</th><th style="text-align:left;padding:3px">何で</th></tr>'
+                    + lg.map(function(e){ const dd = Number(e.d)||0; return '<tr style="border-top:1px solid #f1f5f9"><td style="padding:3px;white-space:nowrap">'+fmt(e.t)+'</td><td style="padding:3px;text-align:right;font-weight:900;color:'+(dd<0?'#dc2626':'#059669')+'">'+(dd>0?'+':'')+dd+'</td><td style="padding:3px;text-align:right">'+esc3(e.a)+'</td><td style="padding:3px">'+esc3(e.w||'')+'</td></tr>'; }).join('') + '</table>'
+                    : '<div style="color:#64748b">まだ 記録が ありません（アプリを 開いて コインが 動くと 記録されます）</div>');
+              }; });
+            } catch(e){ alert(String(e.message||e)); }
+          };
+          btnGroup.appendChild(coinLogBtn);
           // 🗓 CHITOSELE_V1 チトセレ（ブロックアワー）：クラスごとの ON/OFF と、時間割・みんなの計画を ひらく
           const csBtn = document.createElement('button');
           const csCls = function(on){ return on

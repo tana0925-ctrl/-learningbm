@@ -1197,6 +1197,20 @@ export function installPj(app: any, d: Deps) {
     return c.json({ ok: true, sent, fail })
   })
 
+  // 💰 COINLOG_V1 先生が 子どもの コインの 動き（何で ふえた・へった）を 見る
+  app.get('/api/teacher/coinlog/:classId/:uid', async (c: any) => {
+    const u = c.get('user')
+    if (!u || (u.role !== 'teacher' && u.role !== 'admin')) return err(c, 403, 'forbidden')
+    const cid = c.req.param('classId'), sid = c.req.param('uid')
+    if (!(await d.ownsClass(c, u, cid))) return err(c, 404, 'class')
+    const m: any = await c.env.DB.prepare("SELECT 1 AS x FROM class_members WHERE class_id=? AND user_id=?").bind(cid, sid).first()
+    if (!m) return err(c, 404, 'student')
+    const r: any = await c.env.DB.prepare("SELECT json_extract(state_json,'$.coins') AS coins, json_extract(state_json,'$.coinLog') AS log, json_extract(state_json,'$.oldCoinDailyStart') AS start, updated_at AS at FROM progress WHERE user_id=?").bind(sid).first()
+    let log: any[] = []
+    try { log = r && r.log ? JSON.parse(String(r.log)) : [] } catch (_e) {}
+    return c.json({ ok: true, coins: r ? Number(r.coins) || 0 : 0, start: r ? r.start : null, at: r ? r.at : '', log: Array.isArray(log) ? log.slice(-200) : [] })
+  })
+
   // クラスの ON/OFF（先生）
   app.get('/api/teacher/pj/class/:classId', async (c: any) => {
     await ensure(c.env)
