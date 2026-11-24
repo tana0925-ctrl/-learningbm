@@ -1027,6 +1027,16 @@ export function installPj(app: any, d: Deps) {
     if (!w.test && cid && !/^[GT]:/.test(cid)) { out.autoOn = true; out.autoOff = !!(b.st.lgOff && b.st.lgOff[sp]); out.hasTeam = hasTeam(b.st, sp, null) }
     if (!row) return out
     const L = row.L
+    // PJ_LG_REST_V1 リーグを 作った あとで 先生が 休みの日を 入れたら、まだ 来ていない 休みの日の 試合を とりのぞく
+    try {
+      const wd = await weekDays(c, w, wk)
+      const drop = (L.days || []).filter((dk: string) => wd.indexOf(dk) < 0 && dk > ctx.today)
+      if (drop.length) {
+        L.days = L.days.filter((dk: string) => drop.indexOf(dk) < 0)
+        L.matches = L.matches.filter((m: any) => drop.indexOf(m.day) < 0)
+        if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++
+      }
+    } catch (_e) {}
     if (await freeze(c, w, L, ctx)) { if (await lgSave(c.env, cid, wk, sp, L, row.ver)) row.ver++ }
     if (b.prev) { try { if (await lgPrize(c, w, cid, wk, sp, row)) row = await lgLoad(c.env, cid, wk, sp) } catch (_e) {} }   // PJ_LG_PRIZE_V1
     const gi = L.groups.findIndex((g: any) => g.teams.some((t: any) => t.uid === String(w.sid)))
