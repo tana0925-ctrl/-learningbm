@@ -548,7 +548,7 @@ export function installPj(app: any, d: Deps) {
       const cond = want.map(() => "json_extract(j,'$.pos') LIKE ?").join(' OR ')
       pr = await c.env.DB.prepare('SELECT k FROM pj_players WHERE s=? AND (' + cond + ') ORDER BY RANDOM() LIMIT 1').bind(sport, ...want.map((w: string) => '%' + w + '%')).first()
     } else if (tier === 'super') {
-      // 🌟 PJ_SUPER_V1 ★3の 中でも 能力が 上の 選手だけから（野球：投手4割・野手6割／サッカー：GK1割・フィールド9割）
+      // 🌟 PJ_SUPER_V1 ★3の 中でも 能力が 上の 選手だけから（野球：投手4割・野手6割／サッカー：GK1割・フィールド9割。FWは 守備、DFは シュートを のぞいて 比べる→メッシ・Cロナウドも 入る）
       const S3 = "CAST(json_extract(j,'$.st') AS INTEGER) = 3"
       let q = ''
       if (sport === 'bb') q = Math.random() < 0.4
@@ -556,7 +556,7 @@ export function installPj(app: any, d: Deps) {
         : "SELECT k FROM (SELECT k FROM pj_players WHERE s='bb' AND " + S3 + " AND json_extract(j,'$.ab.meet') IS NOT NULL ORDER BY (json_extract(j,'$.ab.meet')+json_extract(j,'$.ab.power')+json_extract(j,'$.ab.run')+json_extract(j,'$.ab.arm')+json_extract(j,'$.ab.field')) DESC LIMIT 60) ORDER BY RANDOM() LIMIT 1"
       else q = Math.random() < 0.1
         ? "SELECT k FROM (SELECT k FROM pj_players WHERE s='sc' AND " + S3 + " AND json_extract(j,'$.ab.gk') IS NOT NULL ORDER BY json_extract(j,'$.ab.gk') DESC LIMIT 15) ORDER BY RANDOM() LIMIT 1"
-        : "SELECT k FROM (SELECT k FROM pj_players WHERE s='sc' AND " + S3 + " AND json_extract(j,'$.ab.sho') IS NOT NULL ORDER BY (json_extract(j,'$.ab.sho')+json_extract(j,'$.ab.pas')+json_extract(j,'$.ab.dri')+json_extract(j,'$.ab.spd')+json_extract(j,'$.ab.phy')+json_extract(j,'$.ab.def')) DESC LIMIT 100) ORDER BY RANDOM() LIMIT 1"
+        : "SELECT k FROM (SELECT k FROM pj_players WHERE s='sc' AND " + S3 + " AND json_extract(j,'$.ab.sho') IS NOT NULL ORDER BY (json_extract(j,'$.ab.sho')+json_extract(j,'$.ab.pas')+json_extract(j,'$.ab.dri')+json_extract(j,'$.ab.spd')+json_extract(j,'$.ab.phy')+json_extract(j,'$.ab.def') - CASE WHEN json_extract(j,'$.pos') IN ('センターフォワード','ウイング','攻撃的MF') THEN json_extract(j,'$.ab.def') ELSE json_extract(j,'$.ab.sho') END) DESC LIMIT 100) ORDER BY RANDOM() LIMIT 1"
       pr = await c.env.DB.prepare(q).first()
       if (!pr) pr = await c.env.DB.prepare("SELECT k FROM pj_players WHERE s=? AND " + S3 + " ORDER BY RANDOM() LIMIT 1").bind(sport).first()
     } else if (tier === 'rare') {
