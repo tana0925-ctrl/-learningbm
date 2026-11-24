@@ -5729,15 +5729,18 @@ function genH6u11(){return _pickBank(_SS.h6u11);}`,`/*__H6BANK_LIVE_V1__*/var _H
                 + '<div style="font-weight:900;font-size:18px;color:#7e22ce">🌟 スーパーレア券を おくる</div>'
                 + '<div style="font-size:12px;color:#475569;margin:4px 0 8px">子どもの画面に「ごほうびが とどいたよ」と出て、<b>スーパーレア券</b>（先生PJで ★3の強い選手が必ず出る）か <b>'+((r&&r.coin)||1500)+'コイン</b>を本人がえらびます。</div>'
                 + '<label style="font-size:13px;font-weight:700">理由（子どもに見えます・40字まで）<input id="pjSupNote" maxlength="40" placeholder="例：作品コンクール入選" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:6px;margin-top:4px"></label>'
+                + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">' + ['コンテストに 出品','コンクール 入選','週の ふりかえりが すばらしい','毎日の ふりかえりが すばらしい','家庭学習を がんばった','みんなの お手本','友だちを 助けた','チトセレの 計画が すばらしい'].map(function(t){ return '<button type="button" data-why="'+t+'" style="font-size:12px;border:1px solid #d8b4fe;background:#faf5ff;color:#7e22ce;border-radius:999px;padding:3px 10px;font-weight:700">'+t+'</button>'; }).join('') + '</div>'
                 + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;margin:10px 0">'
                 + sts.map(function(x){ return '<label style="font-size:13px;border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px"><input type="checkbox" value="'+esc2(x.id)+'"> '+(x.no?esc2(x.no)+' ':'')+esc2(x.name)+'</label>'; }).join('')
                 + '</div><div style="text-align:right"><button id="pjSupNo" style="padding:6px 12px;margin-right:6px">やめる</button><button id="pjSupGo" style="padding:6px 14px;background:#9333ea;color:#fff;border-radius:8px;font-weight:900">おくる</button></div></div>';
               document.body.appendChild(ov);
               ov.querySelector('#pjSupNo').onclick = function(){ ov.remove(); };
+              ov.querySelectorAll('[data-why]').forEach(function(bt){ bt.onclick = function(){ ov.querySelector('#pjSupNote').value = bt.getAttribute('data-why'); }; });
               ov.querySelector('#pjSupGo').onclick = async function(){
                 const ids = Array.prototype.slice.call(ov.querySelectorAll('input[type=checkbox]:checked')).map(function(x){ return x.value; });
                 if (!ids.length) { alert('おくる子を えらんでください'); return; }
                 const note = ov.querySelector('#pjSupNote').value || '';
+                if (!note.trim()) { alert('理由を えらぶか 書いてください（子どもの画面に 出ます）'); return; }
                 if (!confirm(ids.length+'人に スーパーレア券を おくります。よろしいですか？')) return;
                 const res = await api('/api/teacher/pj/gift',{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ classId: cls.id, userIds: ids, note: note }) });
                 alert(res && res.ok ? ('🌟 '+res.sent+'人に おくりました'+((res.fail&&res.fail.length)?'（おくれなかった '+res.fail.length+'人）':'')) : 'おくれませんでした');
