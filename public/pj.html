@@ -1030,7 +1030,7 @@ function lite3D(w) {
     var d = LG[SP];
     if (!d) return '<div class="box note">🏆 リーグを よみこみ中…</div>';
     var h = '<div class="box"><div class="kind">🏆 今週の リーグ戦（' + spName() + '）</div>';
-    h += '<div class="note" style="margin-bottom:4px">🏅 週の 順位で コイン：優勝 <b>2000</b>・2位 <b>1000</b>・3位 <b>500</b>・参加 <b>200</b>（つぎの 週に とどくよ）</div>';
+    h += '<div class="note" style="margin-bottom:4px">🏅 週の 順位で コイン：優勝 <b>2000</b>・2位 <b>1000</b>・3位 <b>500</b>・参加 <b>200</b>（つぎの 週に とどくよ）<br>📚 その週の 学校の日の <b>半分以上</b> 家庭学習を 出した子だけ もらえるよ</div>';
     var L = d.league;
     if (L && L.joined) {
       h += '<div class="note">グループ ' + (L.g + 1) + (L.groups > 1 ? '（ぜんぶで ' + L.groups + 'グループ）' : '') + '　試合は 学校の日の ' + d.time + '。前の日の 夜か その日に 家庭学習を 出していると、その日の 試合を 見られるよ（同じ 試合は 2回まで）。</div>';

@@ -1000,9 +1000,20 @@ export function installPj(app: any, d: Deps) {
     L.groups.forEach((g: any, gi: number) => {
       standings(L, gi).forEach((t: any, rk: number) => { const tm = g.teams[t.i]; if (tm && !tm.cpu && tm.uid) pz[tm.uid] = { rank: rk + 1, coins: LG_PRIZE[rk] || LG_PRIZE_JOIN, g: gi } })
     })
+    // 📚 PJ_LG_HW_V1（2026-11-25 先生の指示）その週の 学校の日の 半分以上 家庭学習を 出した子だけ 賞金。出していない子は 順位だけ（コイン 0）
+    try {
+      const days: string[] = (L.days || []).slice(), need = Math.ceil(days.length / 2)
+      const ids = Object.keys(pz)
+      if (days.length && ids.length) {
+        const r: any = await c.env.DB.prepare('SELECT user_id AS u, count(DISTINCT day_key) AS n FROM homework_submissions WHERE user_id IN (' + ids.map(() => '?').join(',') + ') AND day_key IN (' + days.map(() => '?').join(',') + ') AND COALESCE(rest_day,0)=0 GROUP BY user_id').bind(...ids, ...days).all()
+        const hn: any = {}; ((r && r.results) || []).forEach((x: any) => { hn[String(x.u)] = Number(x.n) || 0 })
+        ids.forEach((u) => { const n = hn[u] || 0; pz[u].hw = n; pz[u].need = need; if (n < need) { pz[u].coins = 0; pz[u].nohw = 1 } })
+      }
+    } catch (_e) {}
     L.pz = pz
     if (!(await lgSave(c.env, cid, wk, sp, L, row.ver))) return false
     for (const u of Object.keys(pz)) {
+      if (!pz[u].coins) continue   // PJ_LG_HW_V1 賞金なしの 子には ごほうびを 入れない
       for (let i = 0; i < 3; i++) {
         const U = await load(c.env, u)
         U.st.pg = (U.st.pg || []).filter((x: any) => x.id !== 'lg' + sp + wk).concat([{ id: 'lg' + sp + wk, t: 'lg', sp, wk, rank: pz[u].rank, coins: pz[u].coins }]).slice(-20)
