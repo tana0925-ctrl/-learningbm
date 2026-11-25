@@ -765,10 +765,13 @@ function renderT() {
   bindT();
 }
 function gridT() {
-  var cfg = T.cfg, D = days(cfg), sc = selCells(cfg), must = mustTasks(cfg);
+  var cfg = T.cfg, D = days(cfg), must = mustTasks(cfg);
+  // CHITO_COUNT_ALL_V1 コマの 数は、表に 出ている 週だけで なく、前の 週から の チトセレも ぜんぶ 数える（はじめの月曜より 前に 始めていても 足りる）
+  var sc = Object.keys(cfg.cells || {}).filter(function (k) { return cfg.cells[k] && cfg.cells[k].k === 's'; }).sort();
+  var sc1 = sc.length ? sc[0].split('|')[0] : '';
   var h = '<div class="card"><h2>🗓 時間割（マスを押して えらぶ）</h2>'
     + '<div class="legend"><span style="background:#f1f5f9">ふつうの授業</span><span class="b-plan">🌟 チトセレ（子どもが計画）</span><span class="b-all">👥 みんなで（先生が決める）</span><span style="background:#f1f5f9;color:#94a3b8">✕ 授業なし（5時間の日など）</span></div>'
-    + '<div style="margin:6px 0;font-weight:900">🌟 チトセレ ' + sc.length + 'コマ ／ 子どもが えらぶ 課題 ' + must.length + 'こ' + (sc.length < must.length ? '　<span style="color:#b91c1c">← コマが 足りません</span>' : '') + '</div>';
+    + '<div style="margin:6px 0;font-weight:900">🌟 チトセレ ' + sc.length + 'コマ' + (sc1 ? '（' + md(sc1) + 'から）' : '') + ' ／ 子どもが えらぶ 課題 ' + must.length + 'こ' + (sc.length < must.length ? '　<span style="color:#b91c1c">← コマが 足りません</span>' : '') + '</div>';
   var allTasks = []; cfg.units.forEach(function (u) { u.tasks.forEach(function (t) { if (t.all && !t.done) allTasks.push(u.id + ':' + t.k); }); });
   var unset = allTasks.filter(function (k) { return !fixedAtT(k); });
   if (unset.length) h += '<div class="warn">👥 まだ コマが 決まっていない みんなでの 時間：' + unset.map(function (k) { var x = taskOf(cfg, k); return esc(x.u.subj + ' ' + x.t.t); }).join('・') + '</div>';
