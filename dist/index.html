@@ -10516,7 +10516,7 @@ MONSTERS.push({
     ],
     desc: '永遠の時を 生きる、重さの王者。体重は 9,999,999kg（9999t 999kg）。むらさきの ほのおは 重さを はかる はかりも こわしてしまう。'
 });
-// === GIDORA_V1 ギドラドラゴン（ID 1709）クラスの子が かいた 絵。入手: 算数3年「重さの遺跡」の野生で 5連勝してから（WILD_STREAK）===
+// === GIDORA_V1 ギドラドラゴン（ID 1709）クラスの子が かいた 絵。入手: 国語1年「かんじ」の野生で 5連勝してから（WILD_STREAK）===
 MONSTERS.push({
     id: 1709, name: 'ギドラドラゴン', sprite: '🐉',
     hp: 320, atk: 74, def: 56, spd: 52, buff: 'attack', elementType: 'dragon',
@@ -10526,7 +10526,7 @@ MONSTERS.push({
         { name: 'まっかなほのおビーム', type: 'heavy', pow: 33, acc: 0.72, element: 'fire', desc: '' },
         { name: 'ギドラブレス', type: 'unique', pow: 19, acc: 0.9, effect: 'aoe', element: 'dragon', desc: '全体攻撃' }
     ],
-    desc: 'ギザギザの 歯の 口から まっかな ほのおを はく ドラゴン。重さの遺跡で 5回 続けて 勝った 強い 人の 前にだけ あらわれる。長い しっぽで 重さを はかるらしい。'
+    desc: 'ギザギザの 歯の 口から まっかな ほのおを はく ドラゴン。1年の かんじの 森で 5回 続けて 勝った 強い 人の 前にだけ あらわれる。長い しっぽで かんじを 書くらしい。'
 });
 // === /NEWCHARS_V1 ===
 
@@ -19397,8 +19397,8 @@ try{
             const __noForced = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId);
             const __notFriend = !(battle && (battle.friendGym || battle.friendCodeKey));
             if (__noForced && __notFriend) {
-                // GIDORA_V1 重さの遺跡で 5連勝〜: ギドラドラゴン 30%
-                if (__ws >= 5 && String((battle && battle.pveArea) || (typeof selectedPvEAreaId !== 'undefined' ? selectedPvEAreaId : '')) === 'm3-weight' && Math.random() < 0.30) __streakEncounterId = 1709;
+                // GIDORA_V1 1年漢字（かんじの広場・1年漢字の森）で 5連勝〜: ギドラドラゴン 30%
+                if (__ws >= 5 && String((battle && battle.pveArea) || (typeof selectedPvEAreaId !== 'undefined' ? selectedPvEAreaId : '')) === 'j1-kanji' && Math.random() < 0.30) __streakEncounterId = 1709;
                 else
                 // 10連勝〜: 爬虫類マン 15%
                 if (__ws >= 10 && Math.random() < 0.15) __streakEncounterId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
