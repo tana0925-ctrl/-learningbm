@@ -387,7 +387,28 @@ async function loginClearFails(env: any, loginId: string): Promise<void> {
 }
 
 // -------------------- auth middleware --------------------
+// 🤖 AUTO_TOKEN_V1（2026-11-27 先生の指示）Claude の スケジュール実行が「今日のひと往復」を 先生の かわりに 回すための 鍵。
+//   ヘッダ x-lbm-auto が admin_settings の auto_token と 一致したときだけ、auto_teacher_id の 先生として あつかう。
+//   鍵は データベースにだけ ある（コードや 画面には 出さない）。消せば すぐ 使えなくなる。
+let _autoTok: any = { at: 0, tok: '', tid: '' }
 app.use('/api/*', async (c, next) => {
+  const h = c.req.header('x-lbm-auto')
+  if (!h || h.length < 32) return next()
+  try {
+    if (Date.now() - _autoTok.at > 60000) {
+      const r: any = await c.env.DB.prepare("SELECT key, value FROM admin_settings WHERE key IN ('auto_token','auto_teacher_id')").all()
+      const m: any = {}; ((r && r.results) || []).forEach((x: any) => { m[x.key] = String(x.value || '') })
+      _autoTok = { at: Date.now(), tok: m.auto_token || '', tid: m.auto_teacher_id || '' }
+    }
+    if (_autoTok.tok && _autoTok.tid && _autoTok.tok.length >= 32 && h === _autoTok.tok) {
+      const t: any = await c.env.DB.prepare("SELECT id, role, login_id FROM users WHERE id=? AND role IN ('teacher','admin') LIMIT 1").bind(_autoTok.tid).first()
+      if (t) c.set('user', { id: String(t.id), role: String(t.role), loginId: String(t.login_id || 'auto'), isActive: true, auto: true })
+    }
+  } catch (_e) {}
+  return next()
+})
+app.use('/api/*', async (c, next) => {
+  if (c.get('user')) return next()   // AUTO_TOKEN_V1
   const token = getCookie(c, 'session')
   if (!token) return next()
   const secret = c.env.SESSION_SECRET
