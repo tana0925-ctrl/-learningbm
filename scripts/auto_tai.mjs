@@ -7,7 +7,8 @@
 //       → AIの 返事を 取りこんで 下書きに 入れ、DAILY・HSQ の 下書きだけ 公開（返却）する。
 //         【ずる？】の ものは teacher-ai.js の きまりどおり 差し戻し／機械チェックだけの ものは 先生用に のこる。
 //         --dry なら 取りこむだけで 公開しない
-import { chromium } from 'playwright'
+import { createRequire } from 'module'
+const { chromium } = createRequire(import.meta.url)('playwright')
 import fs from 'fs'
 
 const BASE = process.env.LBM_BASE || 'https://learning-bm.pages.dev'
@@ -36,7 +37,7 @@ for (let i = 0; i < 60; i++) {
     s.value = cid; s.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   }, classId)
-  if (ok) break
+  if (ok) { await p.waitForTimeout(2000); break }
   await p.waitForTimeout(500)
   if (i === 59) { console.error('teacher page not ready', logs); await b.close(); process.exit(3) }
 }
@@ -46,11 +47,12 @@ if (mode === 'prompt') {
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.checked = v }
     set('taiOptDaily', true); ['taiOptKarte', 'taiOptClass', 'taiOptReport', 'taiOptPlan', 'taiOptReflect', 'taiOptSuggest', 'taiOptMinna'].forEach((id) => set(id, false))
     window.__taiForceRefresh = true
+    try { if (window.AI_FLOW) window.AI_FLOW.enabled = () => false } catch (e) {}   // 🧵 流れ（FLOW）は 毎時間 作らない
     window.__clip = ''
     await window.taiCopyAll({})
-    for (let i = 0; i < 40 && !window.__clip; i++) await new Promise((r) => setTimeout(r, 250))
+    for (let i = 0; i < 240 && !window.__clip; i++) await new Promise((r) => setTimeout(r, 500))
     const t = window.__clip || ''
-    return { text: t, blocks: (t.match(/^=== \[(DAILY|HSQ):/gm) || []).length }
+    return { text: t, blocks: (t.match(/=== \[(DAILY|HSQ):/g) || []).length }
   })
   if (!r.blocks) { console.log('NONE'); await b.close(); process.exit(0) }
   fs.writeFileSync(file, r.text)
@@ -60,6 +62,9 @@ if (mode === 'prompt') {
   const r = await p.evaluate(async ({ raw, dry }) => {
     const msgs = []
     const say = (m) => msgs.push(String(m))
+    const cid0 = document.getElementById('analyticsClassFilter').value
+    const d0 = await fetch('/api/teacher/ai-drafts?classId=' + encodeURIComponent(cid0), { credentials: 'include' }).then((r) => r.json()).catch(() => null)
+    const before = {}; ((d0 && d0.drafts) || []).forEach((x) => { before[x.id] = 1 })   // この回で 入れた 下書きだけ 公開する（先生が 手で 作った 下書きには さわらない）
     await window.taiImport({ raw, say })
     await window.taiLoadDrafts()
     await new Promise((r) => setTimeout(r, 800))
@@ -71,7 +76,7 @@ if (mode === 'prompt') {
     let n = 0, skipped = 0
     els.forEach((el) => {
       const kind = kindOf[el.getAttribute('data-id')] || ''
-      const want = kind === 'DAILY' || kind === 'HSQ'
+      const want = (kind === 'DAILY' || kind === 'HSQ') && !before[el.getAttribute('data-id')]
       // 名前もれ・NGワードの 警告が ついて 最初から チェックが 外れている ものは 公開しない（先生が 見る）
       const on = want && el.checked
       if (want && !el.checked) skipped++
