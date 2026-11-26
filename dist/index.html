@@ -12,7 +12,7 @@ function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 var MONSTERS = window.MONSTERS || [];
 window.MONSTERS = MONSTERS;
 </script>
-<script src="/mon/list.js"></script>
+<script src="/mon/list.js?v=1709"></script>
 <script src="/mon/shiny.js"></script>
 <script>/* MON_IMG_V1 キャラの絵の受け皿。絵があれば絵、無ければ絵文字。 */
 (function(){
@@ -10516,6 +10516,18 @@ MONSTERS.push({
     ],
     desc: '永遠の時を 生きる、重さの王者。体重は 9,999,999kg（9999t 999kg）。むらさきの ほのおは 重さを はかる はかりも こわしてしまう。'
 });
+// === GIDORA_V1 ギドラドラゴン（ID 1709）クラスの子が かいた 絵。入手: 算数3年「重さの遺跡」の野生で 5連勝してから（WILD_STREAK）===
+MONSTERS.push({
+    id: 1709, name: 'ギドラドラゴン', sprite: '🐉',
+    hp: 320, atk: 74, def: 56, spd: 52, buff: 'attack', elementType: 'dragon',
+    stage: 1, evoLevel: null, nextId: null, gacha: false, artBy: null,
+    skills: [
+        { name: 'みつくびバイト', type: 'normal', pow: 15, acc: 0.97, element: 'dragon', desc: '' },
+        { name: 'まっかなベロムチ', type: 'heavy', pow: 33, acc: 0.72, element: 'fire', desc: '' },
+        { name: 'トリプルブレス', type: 'unique', pow: 19, acc: 0.9, effect: 'aoe', element: 'dragon', desc: '全体攻撃' }
+    ],
+    desc: '3つの 頭を もつ ドラゴン。重さの遺跡で 5回 続けて 勝った 強い 人の 前にだけ あらわれる。長い しっぽで 重さを はかるらしい。'
+});
 // === /NEWCHARS_V1 ===
 
 // 野生出現テーブル（地方→エリア→深さ）
@@ -19385,6 +19397,9 @@ try{
             const __noForced = !(battle && battle.forcedEncounter && battle.forcedEncounter.enemyId);
             const __notFriend = !(battle && (battle.friendGym || battle.friendCodeKey));
             if (__noForced && __notFriend) {
+                // GIDORA_V1 重さの遺跡で 5連勝〜: ギドラドラゴン 30%
+                if (__ws >= 5 && String((battle && battle.pveArea) || (typeof selectedPvEAreaId !== 'undefined' ? selectedPvEAreaId : '')) === 'm3-weight' && Math.random() < 0.30) __streakEncounterId = 1709;
+                else
                 // 10連勝〜: 爬虫類マン 15%
                 if (__ws >= 10 && Math.random() < 0.15) __streakEncounterId = (typeof REPTILEMAN_ID !== 'undefined') ? REPTILEMAN_ID : 930;
                 // 7連勝〜: ライジン 12%
