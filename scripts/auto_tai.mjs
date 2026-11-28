@@ -65,7 +65,7 @@ if (mode === 'prompt') {
     const cid0 = document.getElementById('analyticsClassFilter').value
     const d0 = await fetch('/api/teacher/ai-drafts?classId=' + encodeURIComponent(cid0), { credentials: 'include' }).then((r) => r.json()).catch(() => null)
     const before = {}; ((d0 && d0.drafts) || []).forEach((x) => { before[x.id] = 1 })   // この回で 入れた 下書きだけ 公開する（先生が 手で 作った 下書きには さわらない）
-    await window.taiImport({ raw, say })
+    await window.taiImport({ raw, say, append: true })   // 追加モード：先生の 未公開の 下書きを 消さない（replace=false）
     await window.taiLoadDrafts()
     await new Promise((r) => setTimeout(r, 800))
     // DAILY・HSQ の 下書きだけ チェックして 公開（ほかは 先生が 見る）

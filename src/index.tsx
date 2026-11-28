@@ -4872,7 +4872,8 @@ app.post('/api/teacher/ai-drafts', async (c) => {
   if (!(await aiDraftOwnsClass(c, u, classId))) return jsonError(c, 404, 'class_not_found')
   await ensureAiDraftTable(c.env)
   const weekKey = String(body.weekKey || '').slice(0, 12)
-  if (body.replace) {
+  // AUTO_TOKEN_V1 自動実行（x-lbm-auto）からは 先生の 下書きを ぜったいに 消さない
+  if (body.replace && !(u as any).auto) {
     try { await c.env.DB.prepare("DELETE FROM ai_review_drafts WHERE class_id=? AND teacher_id=? AND status='draft'").bind(classId, u.id).run() } catch {}
   }
   let saved = 0
